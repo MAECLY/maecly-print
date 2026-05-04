@@ -13,6 +13,12 @@ jobs:
   dco:
     name: DCO sign-off check
     runs-on: ubuntu-latest
+    # Bots that don't (and can't) DCO-sign their commits are exempt.
+    # We still rely on dependabot's existing security review process.
+    if: >-
+      github.actor != 'dependabot[bot]'
+      && github.actor != 'dependabot-preview[bot]'
+      && github.actor != 'renovate[bot]'
     steps:
       - uses: actions/checkout@v4
         with:
