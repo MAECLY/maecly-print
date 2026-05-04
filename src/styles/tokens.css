@@ -1,0 +1,73 @@
+/*
+ * MaeclyPrint design tokens.
+ * Ported 1:1 from `claude design/maeclyprint/project/brand.jsx` (MP_TOKENS).
+ * Light  = warm-neutral, slightly papery.
+ * Dark   = warm graphite, not blue-black.
+ *
+ * Naming: `--mp-<token>` so anywhere in the codebase you can write
+ * `style={{ background: 'var(--mp-bg)' }}` and reach the right value
+ * for the current theme.
+ *
+ * Theme is selected by adding `mp-light` or `mp-dark` to the document root
+ * (see `src/lib/theme.ts`).
+ */
+
+.mp-light {
+  --mp-bg: #faf9f6;
+  --mp-surface: #ffffff;
+  --mp-surface2: #f3f1ec;
+  --mp-surface3: #eae7e0;
+  --mp-border: #e2ded5;
+  --mp-borderStrong: #c9c3b7;
+  --mp-text: #1a1814;
+  --mp-textMuted: #6b665d;
+  --mp-textDim: #9a9489;
+  --mp-accent: #c2410c;
+  --mp-accentSoft: #fdebd3;
+  --mp-success: #3f6212;
+  --mp-successSoft: #e5efd2;
+  --mp-warn: #a16207;
+  --mp-warnSoft: #faefd0;
+  --mp-error: #9f1239;
+  --mp-errorSoft: #fbe2e8;
+  --mp-info: #0e7490;
+  --mp-infoSoft: #d9eef1;
+  --mp-focus: #c2410c;
+
+  --mp-font-ui:
+    ui-sans-serif, -apple-system, 'Segoe UI Variable', 'Segoe UI', system-ui,
+    sans-serif;
+  --mp-font-mono:
+    'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Consolas', ui-monospace,
+    monospace;
+}
+
+.mp-dark {
+  --mp-bg: #15140f;
+  --mp-surface: #1c1a15;
+  --mp-surface2: #23211b;
+  --mp-surface3: #2d2a23;
+  --mp-border: #33302a;
+  --mp-borderStrong: #4a4640;
+  --mp-text: #f0ede5;
+  --mp-textMuted: #a8a296;
+  --mp-textDim: #6f6a60;
+  --mp-accent: #f97316;
+  --mp-accentSoft: #3a1f0e;
+  --mp-success: #9ccb4a;
+  --mp-successSoft: #1f2a12;
+  --mp-warn: #e0b341;
+  --mp-warnSoft: #2d2412;
+  --mp-error: #f87171;
+  --mp-errorSoft: #2d1418;
+  --mp-info: #4fc1d7;
+  --mp-infoSoft: #0e2429;
+  --mp-focus: #f97316;
+
+  --mp-font-ui:
+    ui-sans-serif, -apple-system, 'Segoe UI Variable', 'Segoe UI', system-ui,
+    sans-serif;
+  --mp-font-mono:
+    'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Consolas', ui-monospace,
+    monospace;
+}

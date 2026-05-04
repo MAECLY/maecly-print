@@ -1,0 +1,53 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps)'
+      include: scope
+    groups:
+      tauri:
+        patterns:
+          - 'tauri*'
+          - 'specta*'
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps)'
+      include: scope
+    groups:
+      react:
+        patterns:
+          - 'react*'
+          - '@types/react*'
+      eslint:
+        patterns:
+          - 'eslint*'
+          - '@typescript-eslint/*'
+      typescript-eslint:
+        patterns:
+          - 'typescript-eslint'
+      vitest:
+        patterns:
+          - 'vitest'
+          - '@testing-library/*'
+          - 'jsdom'
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: 'ci(deps)'
+      include: scope

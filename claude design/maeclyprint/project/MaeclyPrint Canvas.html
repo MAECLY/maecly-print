@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>MaeclyPrint — Design Canvas</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#f0eee9; font-family:-apple-system,"Segoe UI",sans-serif; }
+  #root { height:100%; }
+  .mp-app{
+    --mp-fontUI: 'Inter Tight', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mp-fontMono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Menlo', monospace;
+    font-family: var(--mp-fontUI);
+    font-feature-settings:'ss01','cv11','tnum';
+  }
+  .mp-mono{ font-family: var(--mp-fontMono); font-variant-ligatures:none; }
+  .mp-light{
+    --mp-bg:#FAF9F6; --mp-surface:#FFFFFF; --mp-surface2:#F3F1EC; --mp-surface3:#EAE7E0;
+    --mp-border:#E2DED5; --mp-borderStrong:#C9C3B7;
+    --mp-text:#1A1814; --mp-textMuted:#6B665D; --mp-textDim:#9A9489;
+    --mp-accent:#C2410C; --mp-accentSoft:#FDEBD3;
+    --mp-success:#3F6212; --mp-successSoft:#E5EFD2;
+    --mp-warn:#A16207; --mp-warnSoft:#FAEFD0;
+    --mp-error:#9F1239; --mp-errorSoft:#FBE2E8;
+    --mp-info:#0E7490; --mp-infoSoft:#D9EEF1;
+  }
+  .mp-dark{
+    --mp-bg:#1B1A17; --mp-surface:#252320; --mp-surface2:#1F1E1B; --mp-surface3:#2F2C28;
+    --mp-border:#332F2A; --mp-borderStrong:#48433C;
+    --mp-text:#F1ECE2; --mp-textMuted:#9A9489; --mp-textDim:#6B665D;
+    --mp-accent:#F97316; --mp-accentSoft:#3A2218;
+    --mp-success:#84CC16; --mp-successSoft:#1F2A12;
+    --mp-warn:#EAB308; --mp-warnSoft:#2A2412;
+    --mp-error:#F43F5E; --mp-errorSoft:#2A1620;
+    --mp-info:#22D3EE; --mp-infoSoft:#0F2729;
+  }
+  .mp-focus:focus-visible{ outline:2px solid var(--mp-accent); outline-offset:1px; }
+  .mp-scroll::-webkit-scrollbar{ width:8px; height:8px; }
+  .mp-scroll::-webkit-scrollbar-thumb{ background:rgba(120,110,95,0.3); border-radius:4px; }
+  @keyframes mp-spin{ to{ transform:rotate(360deg); } }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="brand.jsx"></script>
+<script type="text/babel" src="primitives.jsx"></script>
+<script type="text/babel" src="data.jsx"></script>
+<script type="text/babel" src="app-shell.jsx"></script>
+<script type="text/babel" src="screens.jsx"></script>
+<script type="text/babel" src="aux-screens.jsx"></script>
+<script type="text/babel">
+const { useState, useEffect, useMemo } = React;
+
+// ─────────── INTERACTIVE PROTO WRAPPER ───────────
+function MaeclyApp({ initialScreen='home', initialFiles=null, initialTheme='light', initialDensity='comfortable', queueView='list' }) {
+  const [screen, setScreen] = useState(initialScreen);
+  const [files, setFiles] = useState(initialFiles || MP_FILES_SAMPLE.slice(0,6));
+  const [profile, setProfile] = useState('p2');
+  const [overrides, setOverrides] = useState({ printer:'<default>', duplex:'long-edge', color:'monochrome', copies:1, paper:'A4', orientation:'auto', scaling:'fit' });
+  const [theme, setTheme] = useState(initialTheme);
+  const [density, setDensity] = useState(initialDensity);
+  const [shellExt, setShellExt] = useState(true);
+  const [channel, setChannel] = useState('stable');
+  const [profileSel, setProfileSel] = useState('p2');
+  const [jobs, setJobs] = useState(MP_QUEUE_SAMPLE);
+  const [toasts, setToasts] = useState([]);
+
+  // animate active job progress
+  useEffect(() => {
+    const id = setInterval(() => {
+      setJobs(prev => prev.map(j => {
+        if (j.status==='printing' || j.status==='converting') {
+          const np = Math.min(1, (j.progress||0) + 0.02);
+          return { ...j, progress: np, status: np>=1 ? 'done' : j.status, finishedAt: np>=1 ? new Date().toISOString().slice(11,19) : j.finishedAt };
+        }
+        return j;
+      }));
+    }, 700);
+    return () => clearInterval(id);
+  }, []);
+
+  const handlePrint = () => {
+    const id = 'tn'+Date.now();
+    setToasts(t => [...t, { id, tone:'progress', title:`Printing ${files.length} files`, body:`${files[0]?.name}.${files[0]?.ext} (1 of ${files.length})`, progress:0.05 }]);
+    setTimeout(() => {
+      setToasts(t => t.map(x=>x.id===id?{...x, tone:'success', title:'Job complete', body:`${files.length} files printed`, progress:1, action:['Show queue']}:x));
+      setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)), 4000);
+    }, 3500);
+    setScreen('queue');
+  };
+
+  return (
+    <MPWinChrome theme={theme} os="windows" density={density} title="MaeclyPrint">
+      <div style={{flex:1, display:'flex', minHeight:0}}>
+        <MPSidebar active={screen} onChange={setScreen} queueCount={jobs.filter(j=>j.status!=='done'&&j.status!=='failed'&&j.status!=='cancelled').length}/>
+        <div style={{flex:1, display:'flex', flexDirection:'column', minWidth:0, position:'relative'}}>
+          {screen==='home'    && <ScreenHome onAction={(a)=>setScreen(a==='newjob'?'job':a)} onSelectJob={()=>setScreen('queue')}/>}
+          {screen==='job'     && <ScreenPrintJob files={files} setFiles={setFiles} profile={profile} setProfile={setProfile} overrides={overrides} setOverrides={setOverrides} density={density} onPrint={handlePrint}/>}
+          {screen==='queue'   && <ScreenQueue jobs={jobs} setJobs={setJobs} view={queueView}/>}
+          {screen==='profiles'&& <ScreenProfiles selectedId={profileSel} onSelect={setProfileSel}/>}
+          {screen==='settings'&& <ScreenSettings theme={theme} setTheme={setTheme} density={density} setDensity={setDensity} shellExt={shellExt} setShellExt={setShellExt} channel={channel} setChannel={setChannel}/>}
+          {screen==='about'   && <ScreenAbout/>}
+          {toasts.length>0 && <ToastStack toasts={toasts}/>}
+        </div>
+      </div>
+    </MPWinChrome>
+  );
+}
+
+// Helper: artboard fixed-size frame around any inner content (the inner is rendered at a chosen viewport
+// then we leave Artboard to clip/size).
+function Frame({ width, height, children, theme='light', bg }) {
+  return (
+    <div className={`mp-app mp-${theme}`} style={{ width, height, background: bg || 'var(--mp-bg)', overflow:'hidden', position:'relative', color:'var(--mp-text)' }}>
+      {children}
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <DesignCanvas
+      title="MaeclyPrint"
+      subtitle="Open-source batch printing · Windows-first · macOS variant"
+    >
+      {/* ─── BRAND ─── */}
+      <DCSection id="brand" title="Brand foundation" subtitle="Logo, app icon, palette, type system — refined utility">
+        <DCArtboard id="logo-mark" label="Wordmark + glyph" width={420} height={280}>
+          <div className="mp-app mp-light" style={{width:'100%', height:'100%', background:'var(--mp-bg)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:24}}>
+            <MPGlyph size={56}/>
+            <MPWordmark size={26} showGlyph={false}/>
+            <div className="mp-mono" style={{fontSize:11, color:'var(--mp-textDim)'}}>Inter Tight · JetBrains Mono</div>
+          </div>
+        </DCArtboard>
+
+        <DCArtboard id="app-icon" label="App icon · light + dark" width={320} height={280}>
+          <div className="mp-app mp-light" style={{width:'100%', height:'100%', background:'var(--mp-surface2)', display:'flex', alignItems:'center', justifyContent:'space-around'}}>
+            <MPAppIcon size={80}/>
+            <div className="mp-app mp-dark" style={{padding:14, borderRadius:16, background:'var(--mp-bg)'}}><MPAppIcon size={80}/></div>
+          </div>
+        </DCArtboard>
+
+        <DCArtboard id="palette" label="Color palette" width={520} height={280}>
+          <div className="mp-app mp-light" style={{width:'100%', height:'100%', background:'var(--mp-bg)', padding:20, fontFamily:'var(--mp-fontUI)'}}>
+            <div className="mp-mono" style={{fontSize:10.5, color:'var(--mp-textDim)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:10}}>Light</div>
+            <div style={{display:'grid', gridTemplateColumns:'repeat(8,1fr)', gap:6, marginBottom:14}}>
+              {['#FAF9F6','#F3F1EC','#EAE7E0','#1A1814','#6B665D','#C2410C','#3F6212','#9F1239'].map(c=>(
+                <div key={c}><div style={{height:38, background:c, borderRadius:4, border:'1px solid var(--mp-border)'}}/><div className="mp-mono" style={{fontSize:9, marginTop:3, color:'var(--mp-textMuted)'}}>{c}</div></div>
+              ))}
+            </div>
+            <div className="mp-app mp-dark" style={{background:'var(--mp-bg)', padding:12, margin:'-12px', borderRadius:8}}>
+              <div className="mp-mono" style={{fontSize:10.5, color:'var(--mp-textDim)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:10}}>Dark</div>
+              <div style={{display:'grid', gridTemplateColumns:'repeat(8,1fr)', gap:6}}>
+                {['#1B1A17','#252320','#2F2C28','#F1ECE2','#9A9489','#F97316','#84CC16','#F43F5E'].map(c=>(
+                  <div key={c}><div style={{height:38, background:c, borderRadius:4, border:'1px solid var(--mp-border)'}}/><div className="mp-mono" style={{fontSize:9, marginTop:3, color:'var(--mp-textMuted)'}}>{c}</div></div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </DCArtboard>
+
+        <DCArtboard id="type" label="Type scale" width={420} height={280}>
+          <div className="mp-app mp-light" style={{width:'100%', height:'100%', background:'var(--mp-bg)', padding:20}}>
+            <div style={{fontSize:28, fontWeight:600, letterSpacing:'-0.02em', marginBottom:4}}>Print everything.</div>
+            <div style={{fontSize:18, fontWeight:500, marginBottom:6}}>Subhead · 18/22 medium</div>
+            <div style={{fontSize:13.5, marginBottom:6, color:'var(--mp-textMuted)'}}>Body · 13.5/20 regular. Reads quietly so the data stays in front.</div>
+            <div className="mp-mono" style={{fontSize:11.5, color:'var(--mp-textMuted)'}}>maeclyprint --files=*.pdf --profile=duplex-bw</div>
+            <div style={{height:1, background:'var(--mp-border)', margin:'14px 0'}}/>
+            <div className="mp-mono" style={{fontSize:10, color:'var(--mp-textDim)', letterSpacing:'0.06em', textTransform:'uppercase'}}>LABEL · 10/12 caps · mono</div>
+          </div>
+        </DCArtboard>
+      </DCSection>
+
+      {/* ─── MAIN APP — interactive ─── */}
+      <DCSection id="main-app" title="Main app · interactive" subtitle="Click sidebar to switch screens. Try Print Job → Print to watch fake progress.">
+        <DCArtboard id="app-light" label="Light · interactive" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light"><MaeclyApp/></Frame>
+        </DCArtboard>
+        <DCArtboard id="app-dark" label="Dark · interactive" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="dark"><MaeclyApp initialTheme="dark"/></Frame>
+        </DCArtboard>
+        <DCArtboard id="app-compact" label="Compact density" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light"><MaeclyApp initialScreen="job" initialDensity="compact" initialFiles={MP_FILES_SAMPLE}/></Frame>
+        </DCArtboard>
+      </DCSection>
+
+      {/* ─── PRINT JOB VARIATIONS ─── */}
+      <DCSection id="printjob-variations" title="Print Job · layout variations" subtitle="The hero screen — where files become a print job. Same data, different layouts.">
+        <DCArtboard id="pj-split" label="A · Split (settings panel)" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light"><MaeclyApp initialScreen="job"/></Frame>
+        </DCArtboard>
+        <DCArtboard id="pj-stacked" label="B · Settings as sticky header bar" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light">
+            <MPWinChrome theme="light" os="windows" title="MaeclyPrint">
+              <div style={{flex:1, display:'flex', minHeight:0}}>
+                <MPSidebar active="job" onChange={()=>{}} queueCount={4}/>
+                <div style={{flex:1, display:'flex', flexDirection:'column', minWidth:0}}>
+                  <MPTopBar title="Print Job" subtitle="6 files · 49 pages · 11.4 MB" right={<MPButton variant="primary" icon="printer">Print 6</MPButton>}/>
+                  {/* Sticky settings strip */}
+                  <div style={{display:'flex', gap:10, padding:'12px 16px', borderBottom:'1px solid var(--mp-border)', background:'var(--mp-surface2)', flexWrap:'wrap', alignItems:'center'}}>
+                    <div style={{minWidth:180}}><MPSelect fullWidth value="p2" options={MP_PROFILES.map(p=>({value:p.id,label:p.name}))}/></div>
+                    <MPSegmented value="long-edge" onChange={()=>{}} options={[{value:'off',label:'Single'},{value:'long-edge',label:'Long'},{value:'short-edge',label:'Short'}]}/>
+                    <MPSegmented value="monochrome" onChange={()=>{}} options={[{value:'color',label:'Color'},{value:'monochrome',label:'B&W'}]}/>
+                    <MPInput mono value="1" suffix="copies"/>
+                    <MPSelect value="A4" options={['A4','Letter','Legal','A3'].map(v=>({value:v,label:v}))}/>
+                  </div>
+                  <div className="mp-scroll" style={{flex:1, overflow:'auto', padding:16}}>
+                    <MPCard padding={0}>
+                      {MP_FILES_SAMPLE.slice(0,6).map((f,i,arr)=>(
+                        <div key={f.id} style={{display:'flex', alignItems:'center', gap:10, padding:'12px 14px', borderBottom:i<arr.length-1?'1px solid var(--mp-border)':'none'}}>
+                          <span className="mp-mono" style={{fontSize:10.5, color:'var(--mp-textDim)', width:18}}>{(i+1).toString().padStart(2,'0')}</span>
+                          <FileGlyph ext={f.ext} size={24}/>
+                          <div style={{flex:1, minWidth:0}}>
+                            <div style={{fontSize:13, fontWeight:500}}>{f.name}.{f.ext}</div>
+                            <div className="mp-mono" style={{fontSize:10.5, color:'var(--mp-textDim)'}}>{f.pages?`${f.pages}p`:'image'} · {fmtKb(f.kb)}</div>
+                          </div>
+                          <MPIconButton icon="x" size={22} label="Remove"/>
+                        </div>
+                      ))}
+                    </MPCard>
+                  </div>
+                </div>
+              </div>
+            </MPWinChrome>
+          </Frame>
+        </DCArtboard>
+        <DCArtboard id="pj-grid" label="C · Per-file overrides grid" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light">
+            <MPWinChrome theme="light" os="windows" title="MaeclyPrint">
+              <div style={{flex:1, display:'flex', minHeight:0}}>
+                <MPSidebar active="job" onChange={()=>{}} queueCount={4}/>
+                <div style={{flex:1, display:'flex', flexDirection:'column', minWidth:0}}>
+                  <MPTopBar title="Print Job" subtitle="Per-file profile overrides" right={<MPButton variant="primary" icon="printer">Print 6</MPButton>}/>
+                  <div className="mp-scroll" style={{flex:1, overflow:'auto'}}>
+                    <div style={{display:'grid', gridTemplateColumns:'40px 1fr 140px 100px 90px 70px 32px', padding:'8px 14px', background:'var(--mp-surface2)', borderBottom:'1px solid var(--mp-border)', fontSize:10.5, color:'var(--mp-textMuted)', textTransform:'uppercase', letterSpacing:'0.06em'}} className="mp-mono">
+                      <span/><span>File</span><span>Profile</span><span>Sides</span><span>Color</span><span>Copies</span><span/>
+                    </div>
+                    {MP_FILES_SAMPLE.slice(0,8).map((f,i)=>(
+                      <div key={f.id} style={{display:'grid', gridTemplateColumns:'40px 1fr 140px 100px 90px 70px 32px', padding:'8px 14px', alignItems:'center', borderBottom:'1px solid var(--mp-border)', gap:8}}>
+                        <FileGlyph ext={f.ext} size={20}/>
+                        <span style={{fontSize:12.5, fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{f.name}.{f.ext}</span>
+                        <MPSelect value={i%2?'p2':'p3'} options={MP_PROFILES.map(p=>({value:p.id,label:p.name}))}/>
+                        <MPSelect value="long-edge" options={[{value:'off',label:'Single'},{value:'long-edge',label:'Long'},{value:'short-edge',label:'Short'}]}/>
+                        <MPSelect value={f.ext==='jpg'?'color':'monochrome'} options={[{value:'color',label:'Color'},{value:'monochrome',label:'B&W'}]}/>
+                        <MPInput mono value="1"/>
+                        <MPIconButton icon="x" size={22} label="Remove"/>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </MPWinChrome>
+          </Frame>
+        </DCArtboard>
+      </DCSection>
+
+      {/* ─── QUEUE VARIATIONS ─── */}
+      <DCSection id="queue-variations" title="Queue · view variations" subtitle="List, Board, Timeline — same jobs, three lenses">
+        <DCArtboard id="q-list" label="A · List (default)" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light"><MaeclyApp initialScreen="queue" queueView="list"/></Frame>
+        </DCArtboard>
+        <DCArtboard id="q-board" label="B · Board (kanban)" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light"><MaeclyApp initialScreen="queue" queueView="board"/></Frame>
+        </DCArtboard>
+        <DCArtboard id="q-timeline" label="C · Timeline" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light"><MaeclyApp initialScreen="queue" queueView="timeline"/></Frame>
+        </DCArtboard>
+      </DCSection>
+
+      {/* ─── ONBOARDING ─── */}
+      <DCSection id="onboarding" title="First-run wizard" subtitle="5 steps — welcome → printers → shell ext → first profile → ready">
+        {[0,1,2,3,4].map(s => (
+          <DCArtboard key={s} id={`ob-${s}`} label={`Step ${s+1} of 5`} width={520} height={460}>
+            <Frame width="100%" height="100%" theme="light">
+              <MPWinChrome theme="light" os="windows" title="MaeclyPrint · Setup">
+                <ScreenOnboarding step={s}/>
+              </MPWinChrome>
+            </Frame>
+          </DCArtboard>
+        ))}
+      </DCSection>
+
+      {/* ─── CONTEXT MENU ─── */}
+      <DCSection id="ctx-menu" title="Windows 11 right-click menu" subtitle="Modern + classic, three submenu structures">
+        <DCArtboard id="ctx-modern-flat" label="A · Modern · flat (recommended)" width={620} height={420}>
+          <Frame width="100%" height="100%" bg="#F3F3F3"><ContextMenuStage variant="modern" submenu="flat" selectedFiles={4}/></Frame>
+        </DCArtboard>
+        <DCArtboard id="ctx-modern-nested" label="B · Modern · nested submenu" width={620} height={420}>
+          <Frame width="100%" height="100%" bg="#F3F3F3"><ContextMenuStage variant="modern" submenu="nested" selectedFiles={4}/></Frame>
+        </DCArtboard>
+        <DCArtboard id="ctx-modern-rich" label="C · Modern · 3 explicit actions" width={620} height={420}>
+          <Frame width="100%" height="100%" bg="#F3F3F3"><ContextMenuStage variant="modern" submenu="rich" selectedFiles={4}/></Frame>
+        </DCArtboard>
+        <DCArtboard id="ctx-classic" label="D · Classic (Shift+F10)" width={620} height={420}>
+          <Frame width="100%" height="100%" bg="#F3F3F3"><ContextMenuStage variant="classic" selectedFiles={4}/></Frame>
+        </DCArtboard>
+      </DCSection>
+
+      {/* ─── TOASTS + ERRORS ─── */}
+      <DCSection id="toasts" title="Toasts & error states" subtitle="Inline feedback when jobs change state, things go wrong">
+        <DCArtboard id="toast-stack" label="Toast stack" width={380} height={520}>
+          <Frame width="100%" height="100%" theme="light"><ToastShowcase/></Frame>
+        </DCArtboard>
+        <DCArtboard id="err-noprinter" label="Error · no printer" width={520} height={400}>
+          <Frame width="100%" height="100%" theme="light"><ErrorState kind="no-printer"/></Frame>
+        </DCArtboard>
+        <DCArtboard id="err-conv" label="Error · conversion failed" width={520} height={400}>
+          <Frame width="100%" height="100%" theme="light"><ErrorState kind="conversion-failed"/></Frame>
+        </DCArtboard>
+        <DCArtboard id="err-jam" label="Error · paper jam" width={520} height={400}>
+          <Frame width="100%" height="100%" theme="light"><ErrorState kind="job-jammed"/></Frame>
+        </DCArtboard>
+      </DCSection>
+
+      {/* ─── UPDATES ─── */}
+      <DCSection id="updates" title="Auto-update flow" subtitle="Check → available → installing">
+        <DCArtboard id="upd-checking" label="A · Checking" width={520} height={380}>
+          <Frame width="100%" height="100%" theme="light">
+            <MPWinChrome theme="light" os="windows" title="MaeclyPrint"><UpdateScreen phase="checking"/></MPWinChrome>
+          </Frame>
+        </DCArtboard>
+        <DCArtboard id="upd-available" label="B · Update available" width={620} height={500}>
+          <Frame width="100%" height="100%" theme="light">
+            <MPWinChrome theme="light" os="windows" title="MaeclyPrint"><UpdateScreen phase="available"/></MPWinChrome>
+          </Frame>
+        </DCArtboard>
+        <DCArtboard id="upd-installing" label="C · Installing" width={520} height={380}>
+          <Frame width="100%" height="100%" theme="light">
+            <MPWinChrome theme="light" os="windows" title="MaeclyPrint"><UpdateScreen phase="installing"/></MPWinChrome>
+          </Frame>
+        </DCArtboard>
+      </DCSection>
+
+      {/* ─── macOS ─── */}
+      <DCSection id="macos" title="macOS variant" subtitle="Same app, native chrome · Finder Quick Action integration">
+        <DCArtboard id="mac-app" label="App · macOS chrome" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light">
+            <MPWinChrome theme="light" os="macos" title="MaeclyPrint">
+              <div style={{flex:1, display:'flex', minHeight:0}}>
+                <MPSidebar active="job" onChange={()=>{}} queueCount={4}/>
+                <div style={{flex:1, display:'flex', flexDirection:'column', minWidth:0}}>
+                  <ScreenPrintJob files={MP_FILES_SAMPLE.slice(0,5)} setFiles={()=>{}} profile="p2" setProfile={()=>{}} overrides={{printer:'<default>',duplex:'long-edge',color:'monochrome',copies:1,paper:'A4',orientation:'auto',scaling:'fit'}} setOverrides={()=>{}}/>
+                </div>
+              </div>
+            </MPWinChrome>
+          </Frame>
+        </DCArtboard>
+        <DCArtboard id="mac-finder" label="Finder · Quick Action" width={760} height={500}>
+          <Frame width="100%" height="100%"><FinderQuickAction/></Frame>
+        </DCArtboard>
+      </DCSection>
+
+      <DCPostIt x={20} y={20}>
+        Refined utility aesthetic — quiet, technical, monospace accents. Warm-neutral palette. Drop into any artboard to focus.
+      </DCPostIt>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

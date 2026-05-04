@@ -34,9 +34,45 @@ Right-click on any number of files → MaeclyPrint ▸
 
 ## Status
 
-**Pre-alpha.** This repository currently contains the project's documentation and design. Implementation has not begun.
+**Pre-alpha · M0 scaffold landed.** The repository now contains:
 
-The locked decisions (stack, license, scope) are stable. See the [roadmap](./docs/06-roadmap/milestones.md) for the milestones from `M0 — Foundation` through `M5 — macOS Port`.
+- The full [`docs/`](./docs/README.md) tree (vision, requirements, architecture, ADRs, roadmap).
+- The Claude Design handoff bundle under [`claude design/`](./claude%20design/maeclyprint/README.md) — the source of truth for the visual design.
+- The frontend scaffold (`src/`): six screens (Home, Print Job, Queue, Profiles, Settings, About) ported 1:1 from the mockups, with mock data, theme + density switching, and an onboarding flow.
+- The backend skeleton (`src-tauri/`): Rust crate with `paths`, `error`, `logging`, `settings`, and a single diagnostic IPC command (`app_info`) wired through `tauri-specta` for typed bindings.
+- CI (`.github/workflows/ci.yml`), commit hooks (Husky + lint-staged + commitlint), and the standard community files (CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, CHANGELOG).
+
+**What is NOT here yet** — the M1 plan covers this:
+
+- Real printing (queue, SumatraPDF adapter, image converter, CLI).
+- Persistence of profiles and config to disk via IPC.
+- Shell extension, multi-format adapters, auto-updater, signed installer.
+
+See the [roadmap](./docs/06-roadmap/milestones.md) for the full milestone path from `M0 — Foundation` through `M5 — macOS Port`.
+
+## Quick start (developers)
+
+```powershell
+# Prerequisites (one-time):
+#   1. Node 20 LTS + pnpm 9    -> https://nodejs.org, then `npm i -g pnpm`
+#   2. Rust stable 1.78+       -> https://rustup.rs
+#   3. Visual Studio Build Tools 2022 with the "Desktop development with C++"
+#      workload (incl. Windows 11 SDK + ATL + Spectre Mitigations)
+#   4. WebView2 Runtime (preinstalled on Windows 11)
+# Detailed checklist in docs/08-development/local-setup.md.
+
+git clone https://github.com/<org>/maecly-print.git
+cd maecly-print
+pnpm install
+
+# Web preview only (no Tauri host, no IPC):
+pnpm dev
+
+# Full Tauri dev loop (requires Rust toolchain):
+pnpm tauri dev
+```
+
+The web preview shows every screen with mock data so you can validate the UI without the Rust toolchain. The Tauri loop boots the real app, including the live `app_info` IPC round-trip on the About page.
 
 ## Documentation
 
@@ -51,20 +87,20 @@ All documentation lives under [`docs/`](./docs/README.md). Recommended starting 
 
 ## Stack
 
-| Layer | Technology |
-|---|---|
-| Application framework | [Tauri 2](https://tauri.app) |
-| Backend | Rust |
-| Frontend | React + TypeScript + Vite + Tailwind CSS |
-| Print engine (Win) | [SumatraPDF](https://www.sumatrapdfreader.org/) (CLI) |
-| Print engine (macOS, future) | CUPS (`lpr`) |
-| Office conversion | [LibreOffice](https://www.libreoffice.org/) (headless) |
-| HTML conversion | Chromium (headless) |
-| Markdown conversion | [Pandoc](https://pandoc.org/) |
-| Image preprocessing | [ImageMagick](https://imagemagick.org/) |
-| Shell extension (Win) | C++ COM DLL implementing `IExplorerCommand` + Sparse MSIX |
-| Installer (Win) | [Inno Setup](https://jrsoftware.org/isinfo.php) |
-| Auto-updater | Tauri Updater plugin |
+| Layer                        | Technology                                                |
+| ---------------------------- | --------------------------------------------------------- |
+| Application framework        | [Tauri 2](https://tauri.app)                              |
+| Backend                      | Rust                                                      |
+| Frontend                     | React + TypeScript + Vite + Tailwind CSS                  |
+| Print engine (Win)           | [SumatraPDF](https://www.sumatrapdfreader.org/) (CLI)     |
+| Print engine (macOS, future) | CUPS (`lpr`)                                              |
+| Office conversion            | [LibreOffice](https://www.libreoffice.org/) (headless)    |
+| HTML conversion              | Chromium (headless)                                       |
+| Markdown conversion          | [Pandoc](https://pandoc.org/)                             |
+| Image preprocessing          | [ImageMagick](https://imagemagick.org/)                   |
+| Shell extension (Win)        | C++ COM DLL implementing `IExplorerCommand` + Sparse MSIX |
+| Installer (Win)              | [Inno Setup](https://jrsoftware.org/isinfo.php)           |
+| Auto-updater                 | Tauri Updater plugin                                      |
 
 Justification in [tech-stack.md](./docs/04-architecture/tech-stack.md) and the [ADRs](./docs/adr/README.md).
 

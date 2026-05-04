@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+dist-ssr/
+build/
+out/
+
+# Tauri / Cargo
+src-tauri/target/
+src-tauri/gen/
+src-tauri/Cargo.lock.bak
+**/*.rs.bk
+
+# Vite cache
+.vite/
+*.local
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# Claude Code per-user state
+.claude/
+
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+
+# Env files (never commit)
+.env
+.env.local
+.env.*.local
+
+# Generated TS bindings (committed, but gitignore staging)
+src/ipc/bindings.ts.tmp
+
+# Installer outputs
+installers/windows/*.exe
+installers/windows/*.msi
+installers/macos/*.dmg
+installers/macos/*.pkg

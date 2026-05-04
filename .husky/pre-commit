@@ -1,0 +1,7 @@
+# Ensure cargo is reachable in shells that didn't inherit it (common on
+# Windows where Husky uses Git Bash and doesn't pick up the user PATH).
+if [ -d "$HOME/.cargo/bin" ]; then
+  export PATH="$HOME/.cargo/bin:$PATH"
+fi
+
+pnpm lint-staged

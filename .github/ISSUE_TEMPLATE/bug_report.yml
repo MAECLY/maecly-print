@@ -1,0 +1,76 @@
+name: Bug report
+description: Report unexpected behavior in MaeclyPrint
+title: 'bug: '
+labels: ['bug', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please complete the fields below so we can reproduce and triage quickly.
+        For security issues, do **not** open a public issue — see [SECURITY.md](../../SECURITY.md).
+
+  - type: input
+    id: version
+    attributes:
+      label: MaeclyPrint version
+      description: Find this in About → Version, or run `maeclyprint --version`.
+      placeholder: '0.1.0-beta'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11 (24H2 or later)
+        - Windows 11 (23H2)
+        - Windows 10 (22H2)
+        - Windows 10 (older)
+        - macOS 15 Sequoia
+        - macOS 14 Sonoma
+        - macOS 13 Ventura
+        - Other (please specify in description)
+    validations:
+      required: true
+
+  - type: input
+    id: printer
+    attributes:
+      label: Printer model and driver version
+      placeholder: 'HP LaserJet Pro M404dn — driver 6.4.0.25244'
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: A minimal sequence that triggers the issue.
+      placeholder: |
+        1. Right-click 30 PDF files in Explorer
+        2. Click "Print all with MaeclyPrint"
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Attach the latest JSONL log from `%LOCALAPPDATA%\MaeclyPrint\logs\` (Windows) or
+        `~/Library/Logs/MaeclyPrint/` (macOS). Redact any absolute paths you do not want public.
+      render: shell

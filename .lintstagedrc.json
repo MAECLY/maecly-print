@@ -1,0 +1,5 @@
+{
+  "*.{ts,tsx}": ["eslint --fix", "prettier --write"],
+  "*.{css,json,md,yml,yaml}": ["prettier --write"],
+  "src-tauri/**/*.rs": ["cargo fmt --manifest-path src-tauri/Cargo.toml --"]
+}

@@ -1,0 +1,13 @@
+# CODEOWNERS — automatic review requests
+# Syntax: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-security/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+* @maecly-maintainers
+
+# Architecture decisions are reviewed jointly
+/docs/adr/ @maecly-maintainers
+
+# Build / release pipeline changes
+/.github/ @maecly-maintainers
+/installers/ @maecly-maintainers
+/scripts/ @maecly-maintainers
