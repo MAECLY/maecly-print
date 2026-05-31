@@ -20,7 +20,7 @@ export function HomeScreen({ onAction, onSelectJob }: HomeScreenProps) {
     <>
       <MPTopBar
         title="Home"
-        subtitle="Right-click files in Explorer, drag them here, or press Ctrl+N to start a job."
+        subtitle="Right-click files in Explorer or Finder, drag them here, or press Ctrl+N to start a job."
         right={
           <MPButton
             variant="primary"
@@ -233,7 +233,7 @@ export function HomeScreen({ onAction, onSelectJob }: HomeScreenProps) {
             }}
           >
             <strong>Tip · </strong>
-            MaeclyPrint adds itself to Windows 11&apos;s right-click menu.
+            MaeclyPrint adds itself to the right-click menu on Windows and Mac.
             Select any number of files, right-click, and choose{' '}
             <span className="mp-mono">Print with MaeclyPrint</span> — no 15-file
             limit.

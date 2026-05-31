@@ -79,8 +79,8 @@ export function AboutScreen() {
                 maxWidth: 420,
               }}
             >
-              Open source batch printing for Windows and macOS. Right-click →
-              print everything.
+              Open source batch printing for Windows and Mac. No 15-file limit,
+              no Adobe required, no $149 license fee.
             </div>
           </div>
         </div>

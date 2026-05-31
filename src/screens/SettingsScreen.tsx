@@ -106,7 +106,7 @@ export function SettingsScreen({
         <MPSectionLabel>Shell integration</MPSectionLabel>
         <Row
           label="Right-click menu"
-          hint="Adds 'Print with MaeclyPrint' to Windows 11 modern menu."
+          hint="Adds 'Print with MaeclyPrint' to the right-click menu in Windows Explorer and macOS Finder."
         >
           <MPSwitch
             checked={shellExt}

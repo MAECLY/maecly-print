@@ -6,17 +6,17 @@ import { MPButton, MPCard } from '@/components/ui';
 const STEPS = [
   {
     title: 'Welcome to MaeclyPrint',
-    body: 'Open source batch printing for Windows. No 15-file limit, no Adobe required, no $149 license fee.',
+    body: 'Open source batch printing for Windows and Mac. No 15-file limit, no Adobe required, no $149 license fee.',
     icon: 'maecly' as const,
   },
   {
     title: 'Detect your printers',
-    body: "We'll list everything Windows has installed, including 'Microsoft Print to PDF'.",
+    body: "We'll list every printer your system has installed — including 'Microsoft Print to PDF' on Windows and 'Save as PDF' on Mac.",
     icon: 'printer' as const,
   },
   {
     title: 'Add to right-click menu',
-    body: 'Adds a "Print with MaeclyPrint" entry to Windows 11 Explorer. You can disable it any time in Settings.',
+    body: 'Adds a "Print with MaeclyPrint" entry to the right-click menu in Windows Explorer and macOS Finder. You can disable it any time in Settings.',
     icon: 'openwith' as const,
   },
   {

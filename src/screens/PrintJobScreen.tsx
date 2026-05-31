@@ -197,8 +197,8 @@ export function PrintJobScreen({
                   fontSize: 12.5,
                 }}
               >
-                No files. Drag from Explorer or click <strong>Add files</strong>
-                .
+                No files. Drag from Explorer or Finder, or click{' '}
+                <strong>Add files</strong>.
               </div>
             )}
           </MPCard>
