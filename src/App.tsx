@@ -13,6 +13,7 @@ import {
   type PrintJobOverrides,
 } from '@/screens/PrintJobScreen';
 import { QueueScreen, type QueueView } from '@/screens/QueueScreen';
+import { PrintersScreen } from '@/screens/PrintersScreen';
 import { ProfilesScreen } from '@/screens/ProfilesScreen';
 import { SettingsScreen } from '@/screens/SettingsScreen';
 import { AboutScreen } from '@/screens/AboutScreen';
@@ -128,6 +129,7 @@ function App() {
                 setView={setQueueView}
               />
             )}
+            {active === 'printers' && <PrintersScreen />}
             {active === 'profiles' && (
               <ProfilesScreen
                 selectedId={selectedProfileId}

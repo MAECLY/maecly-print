@@ -111,13 +111,55 @@ export interface UpdateInfo {
  * mockup-faithful screens in this scaffold milestone. M1 will collapse
  * these into the real `Job` and `Profile` shapes once IPC is wired.
  */
+export type UiPrinterType = 'laser' | 'mfp' | 'wide' | 'label' | 'virtual';
+
+/** Status the Printers screen renders (distinct from the IPC `PrinterStatus`). */
+export type UiPrinterStatus = 'ready' | 'offline' | 'error' | 'busy';
+
+export interface UiTray {
+  name: string;
+  /** Loaded paper/media, or "—" when not applicable. */
+  paper: string;
+  /** Fill level, 0–1. */
+  level: number;
+}
+
+/** Toner/ink supply levels (0–1). Empty for devices with no reported supplies. */
+export type UiTonerLevels = Partial<
+  Record<'cyan' | 'magenta' | 'yellow' | 'black', number>
+>;
+
 export interface UiPrinter {
   id: string;
   name: string;
-  type: 'laser' | 'mfp' | 'wide' | 'label' | 'virtual';
+  type: UiPrinterType;
   color: boolean;
   duplex: boolean;
-  trays: string[];
+  status: UiPrinterStatus;
+  isDefault: boolean;
+  location: string;
+  /** Connection / port string, e.g. "USB001" or "10.0.0.41 (IPP)". */
+  conn: string;
+  driver: string;
+  shared: boolean;
+  queue: number;
+  /** Max resolution in DPI. */
+  maxDpi: number;
+  papers: string[];
+  trays: UiTray[];
+  levels: UiTonerLevels;
+  defTray: string;
+  defPaper: string;
+}
+
+/** A printer surfaced by a network scan but not yet added. */
+export interface UiDiscoveredPrinter {
+  id: string;
+  name: string;
+  conn: string;
+  type: UiPrinterType;
+  /** Discovery transport, e.g. "mDNS / Bonjour" or "WSD". */
+  via: string;
 }
 
 export interface UiProfile {

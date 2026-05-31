@@ -6,6 +6,7 @@ export type ScreenId =
   | 'home'
   | 'job'
   | 'queue'
+  | 'printers'
   | 'profiles'
   | 'settings'
   | 'about';
@@ -31,8 +32,9 @@ export function MPSidebar({
 }: MPSidebarProps) {
   const items: NavItem[] = [
     { id: 'home', icon: 'home', label: 'Home' },
-    { id: 'job', icon: 'printer', label: 'Print Job', kbd: 'Ctrl+P' },
+    { id: 'job', icon: 'file', label: 'Print Job', kbd: 'Ctrl+P' },
     { id: 'queue', icon: 'queue', label: 'Queue', count: queueCount },
+    { id: 'printers', icon: 'printer', label: 'Printers' },
     { id: 'profiles', icon: 'sliders', label: 'Profiles' },
     { id: 'settings', icon: 'settings', label: 'Settings' },
     { id: 'about', icon: 'info', label: 'About' },

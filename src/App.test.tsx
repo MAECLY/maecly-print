@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, beforeEach } from 'vitest';
 import App from './App';
 
@@ -16,6 +16,7 @@ describe('App', () => {
     expect(nav).toBeInTheDocument();
     // "Print Job" is unique to the sidebar; a sanity check for the rest.
     expect(screen.getByText('Print Job')).toBeInTheDocument();
+    expect(within(nav).getByText('Printers')).toBeInTheDocument();
     expect(screen.getByText('Profiles')).toBeInTheDocument();
     expect(screen.getByText('Settings')).toBeInTheDocument();
   });
@@ -25,5 +26,16 @@ describe('App', () => {
     expect(
       screen.getByText(/Drop files or folders to print/i),
     ).toBeInTheDocument();
+  });
+
+  it('navigates to the Printers screen and lists configured printers', () => {
+    render(<App />);
+    const nav = screen.getByRole('navigation');
+    fireEvent.click(within(nav).getByText('Printers'));
+    // The default printer's name appears in both the master list and the
+    // detail header once the screen mounts.
+    expect(
+      screen.getAllByText(/HP LaserJet Pro M404dn/i).length,
+    ).toBeGreaterThan(0);
   });
 });
