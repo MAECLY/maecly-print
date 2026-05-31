@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { MPSidebar, type ScreenId } from '@/components/AppShell/MPSidebar';
-import { MPWinChrome } from '@/components/AppShell/MPWinChrome';
+import { MPAppShell } from '@/components/AppShell/MPAppShell';
 import { Toaster } from '@/components/AppShell/Toaster';
 import { useDensity, useTheme, type ResolvedTheme } from '@/lib/theme';
 import { MP_FILES_SAMPLE, MP_QUEUE_SAMPLE, MP_PROFILES } from '@/lib/mockData';
@@ -83,7 +83,7 @@ function App() {
 
   return (
     <>
-      <MPWinChrome>
+      <MPAppShell>
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
           <MPSidebar
             active={active}
@@ -145,7 +145,7 @@ function App() {
             {active === 'about' && <AboutScreen />}
           </main>
         </div>
-      </MPWinChrome>
+      </MPAppShell>
       <Toaster theme={resolved} />
       {!onboardingDone && <OnboardingFlow onComplete={completeOnboarding} />}
     </>
