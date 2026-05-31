@@ -79,6 +79,7 @@ These decisions are not up for re-debate during the MVP cycle. They are recorded
 - [v1 Features](./05-features/v1-features.md) — v0.2–v1.0 roadmap
 - [Future Features](./05-features/future-features.md) — v2+
 - [Context Menu Actions](./05-features/context-menu-actions.md) — per-file-type submenu items
+- [Printers Management](./05-features/printers-management.md) — printer list, status, capabilities, add/discover
 
 ### 06 — Roadmap
 
