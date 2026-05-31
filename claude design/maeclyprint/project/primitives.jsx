@@ -90,7 +90,7 @@ function MPBadge({ children, tone = 'neutral', icon }) {
   );
 }
 
-function MPInput({ value, onChange, placeholder, type='text', size='md', mono, fullWidth, suffix, prefix, autoFocus, onKeyDown, error }) {
+function MPInput({ value, onChange=()=>{}, placeholder, type='text', size='md', mono, fullWidth, suffix, prefix, autoFocus, onKeyDown, error }) {
   const sizes = { sm:{h:24,fs:12,px:8}, md:{h:30,fs:13,px:10}, lg:{h:36,fs:14,px:12} }[size];
   const [focus, setFocus] = React.useState(false);
   return (
@@ -117,7 +117,7 @@ function MPInput({ value, onChange, placeholder, type='text', size='md', mono, f
   );
 }
 
-function MPSelect({ value, onChange, options, size='md', fullWidth }) {
+function MPSelect({ value, onChange=()=>{}, options, size='md', fullWidth }) {
   const sizes = { sm:{h:24,fs:12,px:8}, md:{h:30,fs:13,px:10}, lg:{h:36,fs:14,px:12} }[size];
   return (
     <div style={{ position:'relative', display:'inline-block', width: fullWidth?'100%':'auto' }}>

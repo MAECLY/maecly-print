@@ -55,12 +55,13 @@
 <script type="text/babel" src="data.jsx"></script>
 <script type="text/babel" src="app-shell.jsx"></script>
 <script type="text/babel" src="screens.jsx"></script>
+<script type="text/babel" src="printers.jsx"></script>
 <script type="text/babel" src="aux-screens.jsx"></script>
 <script type="text/babel">
 const { useState, useEffect, useMemo } = React;
 
 // ─────────── INTERACTIVE PROTO WRAPPER ───────────
-function MaeclyApp({ initialScreen='home', initialFiles=null, initialTheme='light', initialDensity='comfortable', queueView='list' }) {
+function MaeclyApp({ initialScreen='home', initialFiles=null, initialTheme='light', initialDensity='comfortable', queueView='list', initialPrinterSel='hp404', initialPrinterMode='default' }) {
   const [screen, setScreen] = useState(initialScreen);
   const [files, setFiles] = useState(initialFiles || MP_FILES_SAMPLE.slice(0,6));
   const [profile, setProfile] = useState('p2');
@@ -70,6 +71,9 @@ function MaeclyApp({ initialScreen='home', initialFiles=null, initialTheme='ligh
   const [shellExt, setShellExt] = useState(true);
   const [channel, setChannel] = useState('stable');
   const [profileSel, setProfileSel] = useState('p2');
+  const [printerSel, setPrinterSel] = useState(initialPrinterSel);
+  const [printerMode, setPrinterMode] = useState(initialPrinterMode);
+  const [defaultPrinter, setDefaultPrinter] = useState('hp404');
   const [jobs, setJobs] = useState(MP_QUEUE_SAMPLE);
   const [toasts, setToasts] = useState([]);
 
@@ -106,6 +110,7 @@ function MaeclyApp({ initialScreen='home', initialFiles=null, initialTheme='ligh
           {screen==='job'     && <ScreenPrintJob files={files} setFiles={setFiles} profile={profile} setProfile={setProfile} overrides={overrides} setOverrides={setOverrides} density={density} onPrint={handlePrint}/>}
           {screen==='queue'   && <ScreenQueue jobs={jobs} setJobs={setJobs} view={queueView}/>}
           {screen==='profiles'&& <ScreenProfiles selectedId={profileSel} onSelect={setProfileSel}/>}
+          {screen==='printers'&& <ScreenPrinters selectedId={printerSel} onSelect={setPrinterSel} mode={printerMode} onMode={setPrinterMode} defaultId={defaultPrinter} onSetDefault={setDefaultPrinter}/>}
           {screen==='settings'&& <ScreenSettings theme={theme} setTheme={setTheme} density={density} setDensity={setDensity} shellExt={shellExt} setShellExt={setShellExt} channel={channel} setChannel={setChannel}/>}
           {screen==='about'   && <ScreenAbout/>}
           {toasts.length>0 && <ToastStack toasts={toasts}/>}
@@ -272,6 +277,28 @@ function App() {
         </DCArtboard>
         <DCArtboard id="q-timeline" label="C · Timeline" width={1080} height={680}>
           <Frame width="100%" height="100%" theme="light"><MaeclyApp initialScreen="queue" queueView="timeline"/></Frame>
+        </DCArtboard>
+      </DCSection>
+
+      {/* ─── PRINTERS ─── */}
+      <DCSection id="printers" title="Printers · management" subtitle="Add, set default, inspect driver capabilities, supply levels, per-printer defaults">
+        <DCArtboard id="pr-detail" label="A · Manager (interactive)" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light"><MaeclyApp initialScreen="printers"/></Frame>
+        </DCArtboard>
+        <DCArtboard id="pr-nocap" label="B · Mono/label device · capability limits" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light"><MaeclyApp initialScreen="printers" initialPrinterSel="zebra"/></Frame>
+        </DCArtboard>
+        <DCArtboard id="pr-add-net" label="C · Add printer · scan network" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light"><MaeclyApp initialScreen="printers" initialPrinterMode="add-network"/></Frame>
+        </DCArtboard>
+        <DCArtboard id="pr-add-ip" label="D · Add printer · by IP" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light"><MaeclyApp initialScreen="printers" initialPrinterMode="add-ip"/></Frame>
+        </DCArtboard>
+        <DCArtboard id="pr-missing" label="E · Missing-printer reconciliation" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="light"><MaeclyApp initialScreen="printers" initialPrinterSel="sharp" initialPrinterMode="missing"/></Frame>
+        </DCArtboard>
+        <DCArtboard id="pr-dark" label="F · Dark" width={1080} height={680}>
+          <Frame width="100%" height="100%" theme="dark"><MaeclyApp initialScreen="printers" initialTheme="dark" initialPrinterSel="sharp"/></Frame>
         </DCArtboard>
       </DCSection>
 

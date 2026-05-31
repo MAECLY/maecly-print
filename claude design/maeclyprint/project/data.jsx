@@ -1,12 +1,49 @@
 // Fake data + state for MaeclyPrint prototype
 
 const MP_PRINTERS = [
-  { id:'hp404',  name:'HP LaserJet Pro M404dn',  type:'laser',  color:false, duplex:true,  trays:['Tray 1','Tray 2','Manual'] },
-  { id:'sharp',  name:'Sharp MX-3071',           type:'mfp',    color:true,  duplex:true,  trays:['Tray 1','Tray 2','Tray 3','Bypass'] },
-  { id:'brother',name:'Brother HL-L8360CDW',     type:'laser',  color:true,  duplex:true,  trays:['Tray 1','Manual'] },
-  { id:'roland', name:'Roland VersaSTUDIO BN-20',type:'wide',   color:true,  duplex:false, trays:['Roll'] },
-  { id:'zebra',  name:'Zebra ZD420',             type:'label',  color:false, duplex:false, trays:['Roll'] },
-  { id:'pdf',    name:'Microsoft Print to PDF',  type:'virtual',color:true,  duplex:false, trays:['—'] },
+  { id:'hp404', name:'HP LaserJet Pro M404dn', type:'laser', color:false, duplex:true,
+    status:'ready', isDefault:true, location:'Front office', conn:'USB001',
+    driver:'HP Universal Print Driver PCL6 v7.0.1', shared:false, queue:2, maxDpi:1200,
+    papers:['A4','Letter','Legal','A5','Executive'],
+    trays:[{name:'Tray 1', paper:'A4', level:0.82},{name:'Tray 2', paper:'Letterhead', level:0.40},{name:'Manual', paper:'—', level:1}],
+    levels:{ black:0.62 }, defTray:'Tray 1', defPaper:'A4' },
+  { id:'sharp', name:'Sharp MX-3071', type:'mfp', color:true, duplex:true,
+    status:'ready', isDefault:false, location:'Copy room · LAN', conn:'10.0.0.41 (IPP)',
+    driver:'Sharp UD3 PCL6 v2.4', shared:true, queue:0, maxDpi:1200,
+    papers:['A3','A4','A5','Letter','Legal','Tabloid'],
+    trays:[{name:'Tray 1', paper:'A4', level:0.7},{name:'Tray 2', paper:'A3', level:0.55},{name:'Tray 3', paper:'Letter', level:0.9},{name:'Bypass', paper:'—', level:1}],
+    levels:{ cyan:0.74, magenta:0.61, yellow:0.80, black:0.48 }, defTray:'Tray 1', defPaper:'A4' },
+  { id:'brother', name:'Brother HL-L8360CDW', type:'laser', color:true, duplex:true,
+    status:'ready', isDefault:false, location:'Engineering · LAN', conn:'10.0.0.52 (Raw 9100)',
+    driver:'Brother HL-L8360CDW series', shared:false, queue:0, maxDpi:2400,
+    papers:['A4','Letter','Legal','A5'],
+    trays:[{name:'Tray 1', paper:'A4', level:0.66},{name:'Manual', paper:'—', level:1}],
+    levels:{ cyan:0.88, magenta:0.90, yellow:0.84, black:0.71 }, defTray:'Tray 1', defPaper:'A4' },
+  { id:'roland', name:'Roland VersaSTUDIO BN-20', type:'wide', color:true, duplex:false,
+    status:'offline', isDefault:false, location:'Production · LAN', conn:'10.0.0.71 (Raw 9100)',
+    driver:'Roland VersaWorks', shared:true, queue:0, maxDpi:1440,
+    papers:['Roll 20"'],
+    trays:[{name:'Roll', paper:'Vinyl 20"', level:0.35}],
+    levels:{ cyan:0.5, magenta:0.5, yellow:0.5, black:0.5 }, defTray:'Roll', defPaper:'Roll 20"' },
+  { id:'zebra', name:'Zebra ZD420', type:'label', color:false, duplex:false,
+    status:'ready', isDefault:false, location:'Shipping desk', conn:'USB002',
+    driver:'ZDesigner ZD420-203dpi ZPL', shared:false, queue:0, maxDpi:203,
+    papers:['4×6 label','2×1 label'],
+    trays:[{name:'Roll', paper:'4×6 label', level:0.6}],
+    levels:{ black:0.6 }, defTray:'Roll', defPaper:'4×6 label' },
+  { id:'pdf', name:'Microsoft Print to PDF', type:'virtual', color:true, duplex:false,
+    status:'ready', isDefault:false, location:'Virtual device', conn:'PORTPROMPT:',
+    driver:'Microsoft Print To PDF', shared:false, queue:0, maxDpi:600,
+    papers:['A4','Letter','Legal','A3'],
+    trays:[{name:'—', paper:'—', level:1}],
+    levels:{}, defTray:'—', defPaper:'A4' },
+];
+
+// Printers a network scan would surface (not yet added)
+const MP_DISCOVERED = [
+  { id:'d1', name:'Canon imageRUNNER C3226', conn:'10.0.0.88', type:'mfp', via:'mDNS / Bonjour' },
+  { id:'d2', name:'EPSON WF-C5790', conn:'10.0.0.93', type:'laser', via:'WSD' },
+  { id:'d3', name:'HP DesignJet T650', conn:'10.0.0.40', type:'wide', via:'mDNS / Bonjour' },
 ];
 
 const MP_PROFILES = [
@@ -59,4 +96,4 @@ function fmtKb(kb) {
   return (kb/1024).toFixed(1) + ' MB';
 }
 
-Object.assign(window, { MP_PRINTERS, MP_PROFILES, MP_FILES_SAMPLE, MP_QUEUE_SAMPLE, mkFile, fmtKb });
+Object.assign(window, { MP_PRINTERS, MP_DISCOVERED, MP_PROFILES, MP_FILES_SAMPLE, MP_QUEUE_SAMPLE, mkFile, fmtKb });

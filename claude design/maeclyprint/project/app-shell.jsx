@@ -55,8 +55,9 @@ function MPWinChrome({ children, theme='light', os='windows', title='MaeclyPrint
 function MPSidebar({ active, onChange, queueCount=4 }) {
   const items = [
     { id:'home', icon:'home', label:'Home' },
-    { id:'job', icon:'printer', label:'Print Job', kbd:'⌘P' },
+    { id:'job', icon:'file', label:'Print Job', kbd:'⌘P' },
     { id:'queue', icon:'queue', label:'Queue', count: queueCount },
+    { id:'printers', icon:'printer', label:'Printers' },
     { id:'profiles', icon:'sliders', label:'Profiles' },
     { id:'settings', icon:'settings', label:'Settings' },
     { id:'about', icon:'info', label:'About' },
