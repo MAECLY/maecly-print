@@ -1,14 +1,16 @@
 //! Global app settings (`config.toml`).
 //!
-//! At this milestone the module only knows how to load and save the file with
-//! atomic writes. It is **not yet exposed via IPC** — the frontend persists
-//! its UI state to localStorage in this scaffold. M1 will wire the read path
-//! to a `get_settings`/`update_settings` command pair per
-//! `docs/04-architecture/ipc-and-cli.md` §2.1.
+//! Loads/saves the file with atomic writes. The `printers` section is exposed
+//! to the frontend via the `get_printer_prefs` / `set_printer_prefs` IPC
+//! commands (see `ipc::printers`), and holds MaeclyPrint-level printer state
+//! that must survive restarts: the app default, disabled printers, file-type
+//! routing rules, and per-printer tray/paper overrides.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 
 use crate::util::paths;
 
@@ -20,6 +22,33 @@ pub struct Config {
     pub schema_version: u32,
     #[serde(default)]
     pub app: AppCfg,
+    #[serde(default)]
+    pub printers: PrinterPrefs,
+}
+
+/// MaeclyPrint-level printer preferences (never mutate the OS spooler).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct PrinterPrefs {
+    /// App default printer id; falls back to the OS default when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_printer: Option<String>,
+    /// Printer ids disabled *in MaeclyPrint* — still installed in the OS.
+    #[serde(default)]
+    pub disabled: Vec<String>,
+    /// File-type routing: extension (e.g. ".pdf") → printer id.
+    #[serde(default)]
+    pub routes: BTreeMap<String, String>,
+    /// Per-printer default tray/paper overrides, keyed by printer id.
+    #[serde(default)]
+    pub overrides: BTreeMap<String, PrinterOverride>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct PrinterOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tray: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paper: Option<String>,
 }
 
 fn default_schema_version() -> u32 {
@@ -56,6 +85,7 @@ impl Default for Config {
         Self {
             schema_version: SCHEMA_VERSION,
             app: AppCfg::default(),
+            printers: PrinterPrefs::default(),
         }
     }
 }
@@ -127,6 +157,35 @@ mod tests {
         c.app.theme = Theme::Dark;
         let s = toml::to_string_pretty(&c).unwrap();
         assert!(s.contains("dark"));
+    }
+
+    #[test]
+    fn printer_prefs_round_trip() {
+        let mut c = Config::default();
+        c.printers.default_printer = Some("EPSON_L15160".into());
+        c.printers.disabled.push("Old_Fax".into());
+        c.printers
+            .routes
+            .insert(".pdf".into(), "EPSON_L15160".into());
+        c.printers.overrides.insert(
+            "EPSON_L15160".into(),
+            PrinterOverride {
+                tray: Some("Tray 1".into()),
+                paper: Some("A4".into()),
+            },
+        );
+        let s = toml::to_string_pretty(&c).unwrap();
+        let c2: Config = toml::from_str(&s).unwrap();
+        assert_eq!(c2.printers.default_printer.as_deref(), Some("EPSON_L15160"));
+        assert_eq!(c2.printers.disabled, vec!["Old_Fax".to_string()]);
+        assert_eq!(
+            c2.printers.routes.get(".pdf").map(String::as_str),
+            Some("EPSON_L15160")
+        );
+        assert_eq!(
+            c2.printers.overrides["EPSON_L15160"].paper.as_deref(),
+            Some("A4")
+        );
     }
 
     fn _assert_atomic_save_signature() {
