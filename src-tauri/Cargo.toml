@@ -37,7 +37,7 @@ thiserror = "2"
 anyhow = "1"
 
 # --- Filesystem / paths ---
-directories = "5"
+directories = "6"
 tempfile = "3"
 
 # --- Typed IPC bindings (frontend ↔ Rust) ---
