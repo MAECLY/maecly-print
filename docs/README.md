@@ -71,6 +71,7 @@ These decisions are not up for re-debate during the MVP cycle. They are recorded
 - [Auto-Updater](./04-architecture/auto-updater.md) — Tauri updater config
 - [Data Model](./04-architecture/data-model.md) — profiles, queue, logs
 - [IPC and CLI](./04-architecture/ipc-and-cli.md) — Tauri commands + headless CLI
+- [Printer Enumeration](./04-architecture/printer-enumeration.md) — Windows spooler + macOS CUPS detection
 - [Security Model](./04-architecture/security-model.md) — code signing, MSIX identity
 
 ### 05 — Features

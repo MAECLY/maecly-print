@@ -122,21 +122,21 @@ macOS support follows [ADR-0007 (Windows first, Mac second)](../adr/0007-windows
 
 ## IPC mapping
 
-| UI surface              | IPC command (M1)                          | Notes                              |
+| UI surface              | IPC command                               | Notes                              |
 | ----------------------- | ----------------------------------------- | ---------------------------------- |
-| Master list + status    | `list_printers() => PrinterInfo[]`        | `is_default` drives the star       |
-| Default star / Set default | `default_printer() => string \| null`  | OS-default name                    |
-| Capabilities/trays/levels | per-printer capability query (M1+)      | absent fields degrade gracefully   |
-| Rescan                  | re-invoke `list_printers` + discovery     | —                                  |
-| Add printer (network/IP/system) | spooler add (M2+)                 | not yet wired                      |
+| Master list + status + capabilities | `list_printers() => Printer[]`   | rich `Printer` (extends `PrinterInfo`) incl. color/duplex/papers/trays/supplies |
+| Default star / Set default | `default_printer() => string \| null`  | OS-default id                      |
+| Rescan                  | re-invoke `list_printers`                 | —                                  |
+| Scan network (add modal)| `discover_printers() => DiscoveredPrinter[]` | macOS mDNS real; Windows empty (deferred) |
+| Add printer (IP/system/commit) | spooler add (follow-up)            | UI wired, mutate step not implemented |
 
-See the full contract in [IPC & CLI](../04-architecture/ipc-and-cli.md) (§ printers) and the matching `printers list` CLI subcommand.
+How the data is sourced per OS — and why fields may be absent — is documented in [Printer Enumeration](../04-architecture/printer-enumeration.md). See also [IPC & CLI](../04-architecture/ipc-and-cli.md) (§ printers).
 
 ## Implementation status
 
-- **M0 (current)** — front-end only, mock-data faithful port. Screen: `src/screens/PrintersScreen.tsx`; fixtures: `MP_PRINTERS` / `MP_DISCOVERED` in `src/lib/mockData.ts`; types in `src/types/domain.ts`. Rescan / Test page / Add / Remove are visual no-ops; Set default updates local state.
-- **M1** — wire `list_printers` / `default_printer`; populate `status`, `isDefault`, `conn`, `driver` from real enumeration.
-- **M2+** — functional Add (network/IP/system), Test page, Remove, and capability querying.
+- **M0** — front-end only, mock-data faithful port (superseded).
+- **M1 (current)** — **real enumeration + capabilities + discovery, no mock data.** Rust: `src-tauri/src/ipc/printers.rs` + `src-tauri/src/platform/{cups,windows}.rs`. Frontend: `listPrinters` / `fetchDefaultPrinter` / `discoverPrinters` in `src/lib/ipc.ts`, consumed by `PrintersScreen.tsx` (loading / empty / unavailable states) and the Print Job printer dropdown. macOS supplies/papers/trays are live via CUPS; Windows capabilities via `DeviceCapabilities`. Set default / Test page / Remove remain local-only.
+- **Follow-up** — system-mutating Add (`lpadmin` / `Add-Printer`), Windows network discovery (WSD), Windows supply levels (SNMP/WMI/IPP), functional Test page / Remove.
 
 ## Open questions for v1+
 

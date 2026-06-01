@@ -28,8 +28,9 @@ All commands live under namespace `app:` (auto-derived) and are declared with `#
 
 | Command                   | TS signature                                                   | Rust handler                                            | Notes                              |
 | ------------------------- | -------------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------- |
-| `list_printers`           | `() => Promise<PrinterInfo[]>`                                 | `ipc::printers::list_printers`                          | Includes `is_default` flag         |
-| `default_printer`         | `() => Promise<string \| null>`                                | `ipc::printers::default_printer`                        | OS-default name                    |
+| `list_printers`           | `() => Promise<Printer[]>`                                     | `ipc::printers::list_printers`                          | Rich `Printer` (extends `PrinterInfo` with capabilities) — see [printer-enumeration.md](./printer-enumeration.md) |
+| `default_printer`         | `() => Promise<string \| null>`                                | `ipc::printers::default_printer`                        | OS-default id                      |
+| `discover_printers`       | `() => Promise<DiscoveredPrinter[]>`                           | `ipc::printers::discover_printers`                      | mDNS/Bonjour on macOS; empty on Windows (deferred) |
 | `list_profiles`           | `() => Promise<Profile[]>`                                     | `ipc::profiles::list_profiles`                          | Sorted by `name`                   |
 | `get_profile`             | `(id: string) => Promise<Profile>`                             | `ipc::profiles::get_profile`                            |                                    |
 | `save_profile`            | `(p: Profile) => Promise<Profile>`                             | `ipc::profiles::save_profile`                           | Returns the saved profile (with id) |
