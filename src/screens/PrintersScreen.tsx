@@ -1,22 +1,37 @@
-import { useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { Icon, type IconName } from '@/components/Icon';
 import {
   MPBadge,
   MPButton,
   MPCard,
-  MPCheckbox,
   MPIconButton,
-  MPInput,
   MPSectionLabel,
-  MPSegmented,
   MPSelect,
   MPTopBar,
   StatusDot,
   type BadgeTone,
 } from '@/components/ui';
-import { MP_DISCOVERED, MP_PRINTERS } from '@/lib/mockData';
-import type { UiPrinterStatus, UiPrinterType } from '@/types/domain';
+import { toast } from 'sonner';
+import {
+  discoverPrinters,
+  fetchDefaultPrinter,
+  getPrinterPrefs,
+  isTauri,
+  listPrinters,
+  openPrinterSettings,
+  printTestPage,
+  setDefaultPrinter,
+  setPrinterPrefs,
+  type PrinterPrefs,
+} from '@/lib/ipc';
+import type {
+  UiDiscoveredPrinter,
+  UiPrinter,
+  UiPrinterState,
+  UiPrinterStatus,
+  UiPrinterType,
+} from '@/types/domain';
 
 type PrinterMode =
   | 'default'
@@ -53,13 +68,25 @@ const TONER_COLORS: Record<string, string> = {
   black: '#2A2620',
 };
 
-/** Demo file-type routing rules per printer. */
-function routeRules(id: string): string[] {
-  if (id === 'sharp') return ['.pdf', '.jpg', '.png'];
-  if (id === 'zebra') return ['.zpl'];
-  if (id === 'hp404') return ['.docx', '.xlsx'];
-  return [];
+const STATE_META: Record<UiPrinterState, { label: string; tone: BadgeTone }> = {
+  default: { label: 'Default', tone: 'accent' },
+  active: { label: 'Active', tone: 'neutral' },
+  disabled: { label: 'Disabled', tone: 'neutral' },
+};
+
+/** Normalize a user-typed extension to leading-dot lowercase (e.g. ".pdf"). */
+function normalizeExt(raw: string): string | null {
+  const t = raw.trim().toLowerCase().replace(/^\*/, '');
+  if (!t) return null;
+  const ext = t.startsWith('.') ? t : `.${t}`;
+  return /^\.[a-z0-9]+$/.test(ext) ? ext : null;
 }
+
+/** The OS name a soft-disabled printer still lives in (best-effort). */
+const OS_NAME =
+  typeof navigator !== 'undefined' && /Win/i.test(navigator.platform)
+    ? 'Windows'
+    : 'macOS';
 
 function LevelBar({
   label,
@@ -184,41 +211,354 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-export function PrintersScreen() {
-  const printers = MP_PRINTERS;
-  const [selectedId, setSelectedId] = useState(printers[0].id);
-  const [defaultId, setDefaultId] = useState(
-    printers.find((p) => p.isDefault)?.id ?? printers[0].id,
+function CenteredNotice({
+  loading,
+  error,
+}: {
+  loading: boolean;
+  error: string | null;
+}) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        padding: 24,
+        textAlign: 'center',
+      }}
+    >
+      {loading ? (
+        <div
+          style={{
+            width: 22,
+            height: 22,
+            border: '2px solid var(--mp-surface3)',
+            borderTopColor: 'var(--mp-accent)',
+            borderRadius: '50%',
+            animation: 'mp-spin 0.9s linear infinite',
+          }}
+        />
+      ) : (
+        <Icon name="printer" size={26} color="var(--mp-textDim)" />
+      )}
+      <div style={{ fontSize: 13.5, fontWeight: 500 }}>
+        {loading
+          ? 'Detecting printers…'
+          : error
+            ? 'Printers unavailable'
+            : 'No printers installed'}
+      </div>
+      <div
+        style={{
+          fontSize: 12,
+          color: 'var(--mp-textMuted)',
+          maxWidth: 380,
+          lineHeight: 1.5,
+        }}
+      >
+        {loading
+          ? 'Reading the system print spooler.'
+          : (error ?? 'Add a printer in your OS settings, then press Rescan.')}
+      </div>
+    </div>
   );
+}
+
+interface ConfirmState {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  run: () => void | Promise<void>;
+}
+
+/**
+ * In-app confirmation dialog. We can't use `window.confirm` — WKWebView (the
+ * macOS Tauri webview) doesn't implement JS dialogs, so it silently returns
+ * `false`. This renders a real modal that works everywhere.
+ */
+function ConfirmDialog({
+  state,
+  onClose,
+}: {
+  state: ConfirmState;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        background: 'rgba(20,18,14,0.42)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 50,
+        backdropFilter: 'blur(2px)',
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 360,
+          background: 'var(--mp-surface)',
+          border: '1px solid var(--mp-border)',
+          borderRadius: 12,
+          boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
+          padding: 18,
+        }}
+      >
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
+          {state.title}
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: 'var(--mp-textMuted)',
+            lineHeight: 1.5,
+            marginBottom: 16,
+          }}
+        >
+          {state.message}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <MPButton variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </MPButton>
+          <MPButton
+            variant="primary"
+            size="sm"
+            onClick={() => {
+              onClose();
+              void state.run();
+            }}
+          >
+            {state.confirmLabel}
+          </MPButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function PrintersScreen() {
+  const [printers, setPrinters] = useState<UiPrinter[] | null>(null);
+  const [prefs, setPrefs] = useState<PrinterPrefs>({});
+  const [error, setError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [defaultId, setDefaultId] = useState<string | null>(null);
   const [mode, setMode] = useState<PrinterMode>('default');
+  const [busy, setBusy] = useState(false);
+  const [ruleDraft, setRuleDraft] = useState<string | null>(null);
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
+
+  const load = useCallback(async () => {
+    if (!isTauri()) {
+      setError(
+        'Printers are read from the operating system — run the MaeclyPrint desktop app to manage them.',
+      );
+      setPrinters([]);
+      return;
+    }
+    setPrinters(null);
+    setError(null);
+    try {
+      const [list, def, p] = await Promise.all([
+        listPrinters(),
+        fetchDefaultPrinter().catch(() => null),
+        getPrinterPrefs().catch(() => ({}) as PrinterPrefs),
+      ]);
+      setPrinters(list);
+      setPrefs(p ?? {});
+      setDefaultId(def ?? list.find((q) => q.isDefault)?.id ?? null);
+      setSelectedId((cur) =>
+        cur && list.some((q) => q.id === cur) ? cur : (list[0]?.id ?? null),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setPrinters([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // Reset the inline "add rule" input whenever the selected printer changes.
+  useEffect(() => setRuleDraft(null), [selectedId]);
+
+  // Persist a prefs change optimistically; reload + toast on failure.
+  const savePrefs = useCallback(
+    async (next: PrinterPrefs, success?: string) => {
+      setPrefs(next);
+      try {
+        const saved = await setPrinterPrefs(next);
+        setPrefs(saved);
+        if (success) toast.success(success);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : String(e));
+        void load();
+      }
+    },
+    [load],
+  );
+
+  const ready = printers?.filter((p) => p.status === 'ready').length ?? 0;
+  const topBar = (
+    <MPTopBar
+      title="Printers"
+      subtitle={
+        printers === null
+          ? 'Detecting printers…'
+          : `${printers.length} configured · ${ready} ready`
+      }
+      right={
+        <>
+          <MPButton
+            variant="ghost"
+            icon="rotate"
+            size="sm"
+            onClick={() => void load()}
+          >
+            Rescan
+          </MPButton>
+          <MPButton
+            variant="primary"
+            icon="plus"
+            size="sm"
+            disabled={!printers || printers.length === 0}
+            onClick={() => setMode('add-network')}
+          >
+            Add printer
+          </MPButton>
+        </>
+      }
+    />
+  );
+
+  if (printers === null || printers.length === 0) {
+    return (
+      <>
+        {topBar}
+        <CenteredNotice loading={printers === null} error={error} />
+      </>
+    );
+  }
 
   const sel = printers.find((p) => p.id === selectedId) ?? printers[0];
   const tm = TYPE_META[sel.type];
   const sm = STATUS_META[sel.status];
-  const isDefault = sel.id === defaultId;
-  const readyCount = printers.filter((p) => p.status === 'ready').length;
+
+  const disabledSet = new Set(prefs.disabled ?? []);
+  const appDefaultId = prefs.default_printer ?? defaultId;
+  const stateOf = (id: string): UiPrinterState =>
+    disabledSet.has(id)
+      ? 'disabled'
+      : id === appDefaultId
+        ? 'default'
+        : 'active';
+  const selState = stateOf(sel.id);
+  const isDefault = selState === 'default';
+  const isDisabled = selState === 'disabled';
+  const selOverride = prefs.overrides?.[sel.id];
+  const selRoutes = Object.entries(prefs.routes ?? {})
+    .filter(([, pid]) => pid === sel.id)
+    .map(([ext]) => ext)
+    .sort();
+
+  // Action handlers — plain functions (declared after the early return, so
+  // they are not hooks). Each gives toast feedback + error handling.
+  const handleSetDefault = async () => {
+    setBusy(true);
+    const id = toast.loading(`Setting ${sel.name} as default…`);
+    try {
+      await setDefaultPrinter(sel.id);
+      setDefaultId(sel.id);
+      await savePrefs({ ...prefs, default_printer: sel.id });
+      toast.success(`${sel.name} is now the default`, { id });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e), { id });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runTestPage = async () => {
+    setBusy(true);
+    const id = toast.loading(`Sending test page to ${sel.name}…`);
+    try {
+      await printTestPage(sel.id);
+      toast.success(`Test page sent to ${sel.name}`, { id });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e), { id });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleTestPage = () => {
+    setConfirmState({
+      title: 'Send test page',
+      message: `Send a test page to ${sel.name}? It will print on paper.`,
+      confirmLabel: 'Send test page',
+      run: runTestPage,
+    });
+  };
+
+  const handleToggleDisabled = async (disable: boolean) => {
+    const next = new Set(disabledSet);
+    if (disable) next.add(sel.id);
+    else next.delete(sel.id);
+    await savePrefs(
+      { ...prefs, disabled: [...next] },
+      disable
+        ? `Removed ${sel.name} from MaeclyPrint (still installed in ${OS_NAME})`
+        : `Restored ${sel.name}`,
+    );
+  };
+
+  const handleOverride = async (field: 'tray' | 'paper', value: string) => {
+    const overrides = { ...(prefs.overrides ?? {}) };
+    overrides[sel.id] = { ...(overrides[sel.id] ?? {}), [field]: value };
+    await savePrefs({ ...prefs, overrides }, `Saved default ${field}`);
+  };
+
+  const handleAddRule = async (raw: string) => {
+    const ext = normalizeExt(raw);
+    setRuleDraft(null);
+    if (!ext) {
+      toast.error('Enter a valid extension, e.g. .pdf');
+      return;
+    }
+    await savePrefs(
+      { ...prefs, routes: { ...(prefs.routes ?? {}), [ext]: sel.id } },
+      `${ext} routes to ${sel.name}`,
+    );
+  };
+
+  const handleRemoveRule = async (ext: string) => {
+    const routes = { ...(prefs.routes ?? {}) };
+    delete routes[ext];
+    await savePrefs({ ...prefs, routes });
+  };
+
+  const handleOpenSettings = async () => {
+    try {
+      await openPrinterSettings();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   return (
     <>
-      <MPTopBar
-        title="Printers"
-        subtitle={`${printers.length} configured · ${readyCount} ready`}
-        right={
-          <>
-            <MPButton variant="ghost" icon="rotate" size="sm">
-              Rescan
-            </MPButton>
-            <MPButton
-              variant="primary"
-              icon="plus"
-              size="sm"
-              onClick={() => setMode('add-network')}
-            >
-              Add printer
-            </MPButton>
-          </>
-        }
-      />
+      {topBar}
       <div
         style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}
       >
@@ -238,6 +578,7 @@ export function PrintersScreen() {
             const active = p.id === sel.id;
             const s = STATUS_META[p.status];
             const t = TYPE_META[p.type];
+            const pState = stateOf(p.id);
             return (
               <button
                 key={p.id}
@@ -255,6 +596,7 @@ export function PrintersScreen() {
                   cursor: 'pointer',
                   textAlign: 'left',
                   marginBottom: 2,
+                  opacity: pState === 'disabled' ? 0.5 : 1,
                   boxShadow: active
                     ? '0 1px 2px rgba(0,0,0,0.04), 0 0 0 1px var(--mp-border)'
                     : 'none',
@@ -290,7 +632,7 @@ export function PrintersScreen() {
                     >
                       {p.name}
                     </span>
-                    {p.id === defaultId && (
+                    {pState === 'default' && (
                       <Icon name="star" size={11} color="var(--mp-accent)" />
                     )}
                   </div>
@@ -311,6 +653,9 @@ export function PrintersScreen() {
                     </span>
                   </div>
                 </div>
+                <MPBadge tone={STATE_META[pState].tone}>
+                  {STATE_META[pState].label}
+                </MPBadge>
               </button>
             );
           })}
@@ -417,20 +762,51 @@ export function PrintersScreen() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-              <MPButton variant="ghost" icon="printer" size="sm">
-                Test page
-              </MPButton>
               <MPButton
                 variant="ghost"
-                icon="star"
+                icon="printer"
                 size="sm"
-                disabled={isDefault}
-                onClick={() => setDefaultId(sel.id)}
+                disabled={busy || isDisabled}
+                onClick={handleTestPage}
               >
-                Set default
+                Test page
               </MPButton>
-              {sel.type !== 'virtual' && (
-                <MPButton variant="danger" icon="trash" size="sm">
+              <span
+                style={{ display: 'inline-flex' }}
+                title={
+                  isDefault
+                    ? 'Already your default printer'
+                    : isDisabled
+                      ? 'Restore this printer before setting it as default'
+                      : undefined
+                }
+              >
+                <MPButton
+                  variant="ghost"
+                  icon="star"
+                  size="sm"
+                  disabled={busy || isDefault || isDisabled}
+                  onClick={() => void handleSetDefault()}
+                >
+                  Set default
+                </MPButton>
+              </span>
+              {isDisabled ? (
+                <MPButton
+                  variant="secondary"
+                  icon="rotate"
+                  size="sm"
+                  onClick={() => void handleToggleDisabled(false)}
+                >
+                  Restore
+                </MPButton>
+              ) : (
+                <MPButton
+                  variant="danger"
+                  icon="trash"
+                  size="sm"
+                  onClick={() => void handleToggleDisabled(true)}
+                >
                   Remove
                 </MPButton>
               )}
@@ -577,8 +953,10 @@ export function PrintersScreen() {
                     </div>
                     <MPSelect
                       fullWidth
-                      value={sel.defTray}
-                      onChange={() => {}}
+                      value={selOverride?.tray ?? sel.defTray ?? ''}
+                      onChange={(e) =>
+                        void handleOverride('tray', e.target.value)
+                      }
                       options={sel.trays.map((t) => ({
                         value: t.name,
                         label: t.name,
@@ -597,8 +975,10 @@ export function PrintersScreen() {
                     </div>
                     <MPSelect
                       fullWidth
-                      value={sel.defPaper}
-                      onChange={() => {}}
+                      value={selOverride?.paper ?? sel.defPaper ?? ''}
+                      onChange={(e) =>
+                        void handleOverride('paper', e.target.value)
+                      }
                       options={sel.papers.map((p) => ({ value: p, label: p }))}
                     />
                   </div>
@@ -606,8 +986,15 @@ export function PrintersScreen() {
               </Block>
 
               <Block label="Route file types here">
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {routeRules(sel.id).map((x) => (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                    alignItems: 'center',
+                  }}
+                >
+                  {selRoutes.map((x) => (
                     <span
                       key={x}
                       className="mp-mono"
@@ -617,28 +1004,74 @@ export function PrintersScreen() {
                         background: 'var(--mp-accentSoft)',
                         color: 'var(--mp-accent)',
                         borderRadius: 5,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
                       }}
                     >
-                      {x} <Icon name="x" size={9} />
+                      {x}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${x} rule`}
+                        className="mp-focus"
+                        onClick={() => void handleRemoveRule(x)}
+                        style={{
+                          display: 'inline-flex',
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          color: 'var(--mp-accent)',
+                        }}
+                      >
+                        <Icon name="x" size={9} />
+                      </button>
                     </span>
                   ))}
-                  <button
-                    className="mp-focus"
-                    style={{
-                      fontSize: 11,
-                      padding: '3px 8px',
-                      background: 'transparent',
-                      border: '1px dashed var(--mp-borderStrong)',
-                      borderRadius: 5,
-                      color: 'var(--mp-textMuted)',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}
-                  >
-                    <Icon name="plus" size={10} /> add rule
-                  </button>
+                  {ruleDraft !== null ? (
+                    <input
+                      autoFocus
+                      className="mp-mono mp-focus"
+                      placeholder=".ext"
+                      value={ruleDraft}
+                      onChange={(e) => setRuleDraft(e.target.value)}
+                      onBlur={() => void handleAddRule(ruleDraft)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void handleAddRule(ruleDraft);
+                        if (e.key === 'Escape') setRuleDraft(null);
+                      }}
+                      style={{
+                        fontSize: 11,
+                        width: 64,
+                        padding: '3px 8px',
+                        borderRadius: 5,
+                        border: '1px solid var(--mp-accent)',
+                        background: 'var(--mp-surface)',
+                        color: 'var(--mp-text)',
+                        outline: 'none',
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="mp-focus"
+                      onClick={() => setRuleDraft('')}
+                      style={{
+                        fontSize: 11,
+                        padding: '3px 8px',
+                        background: 'transparent',
+                        border: '1px dashed var(--mp-borderStrong)',
+                        borderRadius: 5,
+                        color: 'var(--mp-textMuted)',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      <Icon name="plus" size={10} /> add rule
+                    </button>
+                  )}
                 </div>
                 <div
                   style={{
@@ -784,28 +1217,30 @@ export function PrintersScreen() {
                           flex: 1,
                         }}
                       >
-                        {t.paper}
+                        {t.paper ?? '—'}
                       </span>
-                      <div
-                        style={{
-                          width: 46,
-                          height: 5,
-                          background: 'var(--mp-surface3)',
-                          borderRadius: 3,
-                          overflow: 'hidden',
-                        }}
-                      >
+                      {t.level != null && (
                         <div
                           style={{
-                            height: '100%',
-                            width: `${t.level * 100}%`,
-                            background:
-                              t.level < 0.2
-                                ? 'var(--mp-error)'
-                                : 'var(--mp-success)',
+                            width: 46,
+                            height: 5,
+                            background: 'var(--mp-surface3)',
+                            borderRadius: 3,
+                            overflow: 'hidden',
                           }}
-                        />
-                      </div>
+                        >
+                          <div
+                            style={{
+                              height: '100%',
+                              width: `${t.level * 100}%`,
+                              background:
+                                t.level < 0.2
+                                  ? 'var(--mp-error)'
+                                  : 'var(--mp-success)',
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </MPCard>
@@ -818,7 +1253,18 @@ export function PrintersScreen() {
         {(mode === 'add-network' ||
           mode === 'add-ip' ||
           mode === 'add-system') && (
-          <AddPrinterModal mode={mode} onMode={setMode} />
+          <AddPrinterModal
+            mode={mode}
+            onMode={setMode}
+            onOpenSettings={() => void handleOpenSettings()}
+          />
+        )}
+
+        {confirmState && (
+          <ConfirmDialog
+            state={confirmState}
+            onClose={() => setConfirmState(null)}
+          />
         )}
       </div>
     </>
@@ -828,12 +1274,31 @@ export function PrintersScreen() {
 function AddPrinterModal({
   mode,
   onMode,
+  onOpenSettings,
 }: {
   mode: PrinterMode;
   onMode: (m: PrinterMode) => void;
+  onOpenSettings: () => void;
 }) {
   const tab =
     mode === 'add-ip' ? 'ip' : mode === 'add-system' ? 'system' : 'network';
+
+  // null = still scanning. Discovery runs whenever the network tab is shown.
+  const [discovered, setDiscovered] = useState<UiDiscoveredPrinter[] | null>(
+    null,
+  );
+  useEffect(() => {
+    if (tab !== 'network') return;
+    let alive = true;
+    setDiscovered(null);
+    discoverPrinters()
+      .then((d) => alive && setDiscovered(d))
+      .catch(() => alive && setDiscovered([]));
+    return () => {
+      alive = false;
+    };
+  }, [tab]);
+
   return (
     <div
       style={{
@@ -878,241 +1343,112 @@ function AddPrinterModal({
         </div>
 
         <div style={{ padding: '14px 16px' }}>
-          <MPSegmented
-            value={tab}
-            onChange={(v) =>
-              onMode(
-                v === 'ip'
-                  ? 'add-ip'
-                  : v === 'system'
-                    ? 'add-system'
-                    : 'add-network',
-              )
-            }
-            options={[
-              { value: 'network', label: 'Scan network' },
-              { value: 'ip', label: 'By IP address' },
-              { value: 'system', label: 'From Windows' },
-            ]}
-          />
-
-          <div style={{ height: 14 }} />
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--mp-textMuted)',
+              marginBottom: 12,
+              lineHeight: 1.5,
+            }}
+          >
+            Printers on your network, discovered via mDNS / Bonjour. To add one
+            by IP, USB, or that isn&apos;t listed, use{' '}
+            <strong>Open printer settings</strong> below.
+          </div>
 
           {tab === 'network' && (
             <>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  marginBottom: 10,
-                }}
-              >
+              {discovered === null && (
                 <div
                   style={{
-                    width: 14,
-                    height: 14,
-                    border: '2px solid var(--mp-surface3)',
-                    borderTopColor: 'var(--mp-accent)',
-                    borderRadius: '50%',
-                    animation: 'mp-spin 0.9s linear infinite',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    marginBottom: 10,
                   }}
-                />
-                <span style={{ fontSize: 12, color: 'var(--mp-textMuted)' }}>
-                  Scanning LAN via mDNS / WSD…
-                </span>
-              </div>
-              <MPCard padding={0}>
-                {MP_DISCOVERED.map((d, i) => (
+                >
                   <div
-                    key={d.id}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '11px 12px',
-                      borderBottom:
-                        i < MP_DISCOVERED.length - 1
-                          ? '1px solid var(--mp-border)'
-                          : 'none',
+                      width: 14,
+                      height: 14,
+                      border: '2px solid var(--mp-surface3)',
+                      borderTopColor: 'var(--mp-accent)',
+                      borderRadius: '50%',
+                      animation: 'mp-spin 0.9s linear infinite',
                     }}
-                  >
+                  />
+                  <span style={{ fontSize: 12, color: 'var(--mp-textMuted)' }}>
+                    Scanning the network via mDNS / Bonjour…
+                  </span>
+                </div>
+              )}
+              {discovered !== null && discovered.length === 0 && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--mp-textMuted)',
+                    padding: '8px 2px',
+                  }}
+                >
+                  No new printers found on the network.
+                </div>
+              )}
+              {discovered !== null && discovered.length > 0 && (
+                <MPCard padding={0}>
+                  {discovered.map((d, i) => (
                     <div
+                      key={d.id}
                       style={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: 6,
-                        background: 'var(--mp-surface2)',
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
+                        gap: 10,
+                        padding: '11px 12px',
+                        borderBottom:
+                          i < discovered.length - 1
+                            ? '1px solid var(--mp-border)'
+                            : 'none',
                       }}
                     >
-                      <Icon
-                        name={TYPE_META[d.type].ico}
-                        size={15}
-                        color="var(--mp-textMuted)"
-                      />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 500 }}>
-                        {d.name}
-                      </div>
                       <div
-                        className="mp-mono"
-                        style={{ fontSize: 10.5, color: 'var(--mp-textDim)' }}
+                        style={{
+                          width: 30,
+                          height: 30,
+                          borderRadius: 6,
+                          background: 'var(--mp-surface2)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
                       >
-                        {d.conn} · {d.via}
+                        <Icon
+                          name={TYPE_META[d.type].ico}
+                          size={15}
+                          color="var(--mp-textMuted)"
+                        />
                       </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 500 }}>
+                          {d.name}
+                        </div>
+                        <div
+                          className="mp-mono"
+                          style={{ fontSize: 10.5, color: 'var(--mp-textDim)' }}
+                        >
+                          {d.conn} · {d.via}
+                        </div>
+                      </div>
+                      <MPButton
+                        variant="secondary"
+                        size="sm"
+                        icon="openwith"
+                        onClick={onOpenSettings}
+                      >
+                        Add
+                      </MPButton>
                     </div>
-                    <MPButton variant="secondary" size="sm" icon="plus">
-                      Add
-                    </MPButton>
-                  </div>
-                ))}
-              </MPCard>
-            </>
-          )}
-
-          {tab === 'ip' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div>
-                <div
-                  style={{
-                    fontSize: 11.5,
-                    color: 'var(--mp-textMuted)',
-                    marginBottom: 5,
-                  }}
-                >
-                  Hostname or IP address
-                </div>
-                <MPInput fullWidth mono placeholder="10.0.0.40" value="" />
-              </div>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: 10,
-                }}
-              >
-                <div>
-                  <div
-                    style={{
-                      fontSize: 11.5,
-                      color: 'var(--mp-textMuted)',
-                      marginBottom: 5,
-                    }}
-                  >
-                    Protocol
-                  </div>
-                  <MPSelect
-                    fullWidth
-                    value="ipp"
-                    options={[
-                      { value: 'ipp', label: 'IPP / IPPS' },
-                      { value: 'raw', label: 'Raw (9100)' },
-                      { value: 'lpd', label: 'LPD/LPR' },
-                      { value: 'wsd', label: 'WSD' },
-                    ]}
-                  />
-                </div>
-                <div>
-                  <div
-                    style={{
-                      fontSize: 11.5,
-                      color: 'var(--mp-textMuted)',
-                      marginBottom: 5,
-                    }}
-                  >
-                    Port
-                  </div>
-                  <MPInput fullWidth mono value="631" />
-                </div>
-              </div>
-              <div>
-                <div
-                  style={{
-                    fontSize: 11.5,
-                    color: 'var(--mp-textMuted)',
-                    marginBottom: 5,
-                  }}
-                >
-                  Queue name (optional)
-                </div>
-                <MPInput
-                  fullWidth
-                  mono
-                  placeholder="e.g. PASSTHROUGH"
-                  value=""
-                />
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 7,
-                  padding: '9px 11px',
-                  background: 'var(--mp-infoSoft)',
-                  borderRadius: 6,
-                }}
-              >
-                <Icon name="info" size={13} color="var(--mp-info)" />
-                <span
-                  style={{
-                    fontSize: 11,
-                    color: 'var(--mp-info)',
-                    lineHeight: 1.45,
-                  }}
-                >
-                  MaeclyPrint will query the driver for capabilities (duplex,
-                  color, trays) once connected.
-                </span>
-              </div>
-            </div>
-          )}
-
-          {tab === 'system' && (
-            <>
-              <div
-                style={{
-                  fontSize: 11.5,
-                  color: 'var(--mp-textMuted)',
-                  marginBottom: 10,
-                }}
-              >
-                Printers already known to the Windows spooler. Tick any to
-                manage them in MaeclyPrint.
-              </div>
-              <MPCard padding={0}>
-                {[
-                  'Microsoft XPS Document Writer',
-                  'Fax',
-                  'OneNote (Desktop)',
-                  'Adobe PDF',
-                ].map((n, i, arr) => (
-                  <label
-                    key={n}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '10px 12px',
-                      borderBottom:
-                        i < arr.length - 1
-                          ? '1px solid var(--mp-border)'
-                          : 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <MPCheckbox checked={i === 0} onChange={() => {}} />
-                    <Icon
-                      name="printer"
-                      size={14}
-                      color="var(--mp-textMuted)"
-                    />
-                    <span style={{ fontSize: 12.5 }}>{n}</span>
-                  </label>
-                ))}
-              </MPCard>
+                  ))}
+                </MPCard>
+              )}
             </>
           )}
         </div>
@@ -1120,18 +1456,28 @@ function AddPrinterModal({
         <div
           style={{
             display: 'flex',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
+            alignItems: 'center',
             gap: 8,
             padding: '12px 16px',
             borderTop: '1px solid var(--mp-border)',
           }}
         >
-          <MPButton variant="ghost" onClick={() => onMode('default')}>
-            Cancel
-          </MPButton>
-          <MPButton variant="primary" icon="plus">
-            Add printer
-          </MPButton>
+          <span style={{ fontSize: 11.5, color: 'var(--mp-textMuted)' }}>
+            Printer not detected?
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <MPButton variant="ghost" onClick={() => onMode('default')}>
+              Cancel
+            </MPButton>
+            <MPButton
+              variant="primary"
+              icon="openwith"
+              onClick={onOpenSettings}
+            >
+              Open printer settings
+            </MPButton>
+          </div>
         </div>
       </div>
     </div>

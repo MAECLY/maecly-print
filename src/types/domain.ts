@@ -116,12 +116,15 @@ export type UiPrinterType = 'laser' | 'mfp' | 'wide' | 'label' | 'virtual';
 /** Status the Printers screen renders (distinct from the IPC `PrinterStatus`). */
 export type UiPrinterStatus = 'ready' | 'offline' | 'error' | 'busy';
 
+/** MaeclyPrint-managed state for a printer (independent of the OS spooler). */
+export type UiPrinterState = 'default' | 'active' | 'disabled';
+
 export interface UiTray {
   name: string;
-  /** Loaded paper/media, or "—" when not applicable. */
-  paper: string;
-  /** Fill level, 0–1. */
-  level: number;
+  /** Loaded paper/media, if the OS reports it (most don't per-tray). */
+  paper?: string;
+  /** Fill level, 0–1, if the device reports it. */
+  level?: number;
 }
 
 /** Toner/ink supply levels (0–1). Empty for devices with no reported supplies. */
@@ -143,13 +146,13 @@ export interface UiPrinter {
   driver: string;
   shared: boolean;
   queue: number;
-  /** Max resolution in DPI. */
-  maxDpi: number;
+  /** Max resolution in DPI — absent when the OS/driver doesn't report it. */
+  maxDpi?: number;
   papers: string[];
   trays: UiTray[];
   levels: UiTonerLevels;
-  defTray: string;
-  defPaper: string;
+  defTray?: string;
+  defPaper?: string;
 }
 
 /** A printer surfaced by a network scan but not yet added. */

@@ -10,8 +10,10 @@ import {
   MPTopBar,
   FileGlyph,
 } from '@/components/ui';
-import { MP_PRINTERS, MP_PROFILES } from '@/lib/mockData';
+import { useEffect, useState } from 'react';
+import { MP_PROFILES } from '@/lib/mockData';
 import { fmtKb, pluralize } from '@/lib/format';
+import { getPrinterPrefs, isTauri, listPrinters } from '@/lib/ipc';
 import type { Density } from '@/lib/theme';
 import type { UiFile, UiProfile } from '@/types/domain';
 
@@ -50,6 +52,38 @@ export function PrintJobScreen({
   const profileObj =
     MP_PROFILES.find((p) => p.id === profile) ?? MP_PROFILES[0];
   const merged = { ...profileObj, ...overrides };
+
+  // Real installed-printer names for the override dropdown (empty outside
+  // Tauri), excluding printers disabled in MaeclyPrint.
+  const [printerNames, setPrinterNames] = useState<string[]>([]);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let alive = true;
+    Promise.all([
+      listPrinters(),
+      getPrinterPrefs().catch(() => ({ disabled: [] as string[] })),
+    ])
+      .then(([ps, prefs]) => {
+        if (!alive) return;
+        const disabled = new Set(prefs.disabled ?? []);
+        setPrinterNames(
+          ps.filter((p) => !disabled.has(p.id)).map((p) => p.name),
+        );
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const currentPrinter = overrides.printer ?? merged.printer;
+  const printerOptions = Array.from(
+    new Set([
+      ...printerNames,
+      ...(currentPrinter && currentPrinter !== '<default>'
+        ? [currentPrinter]
+        : []),
+    ]),
+  );
 
   const totalPages = files.reduce((s, f) => s + (f.pages ?? 1), 0);
   const totalKb = files.reduce((s, f) => s + f.kb, 0);
@@ -237,7 +271,7 @@ export function PrintJobScreen({
             }
             options={[
               { value: '<default>', label: 'System default' },
-              ...MP_PRINTERS.map((p) => ({ value: p.name, label: p.name })),
+              ...printerOptions.map((n) => ({ value: n, label: n })),
             ]}
           />
           <div style={{ height: 14 }} />
