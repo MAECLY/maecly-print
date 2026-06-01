@@ -72,6 +72,51 @@ jobs:
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+  macos:
+    name: macOS (CUPS enumeration + frontend)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Exercises the CUPS backend (cups.rs) and the real-enumeration smoke
+      # test against the runner's CUPS — the path Windows CI cannot cover.
+      - name: cargo clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Frontend test
+        run: pnpm test
+
   build:
     name: Tauri build (unsigned)
     needs: [frontend, backend]
