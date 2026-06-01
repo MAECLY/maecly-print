@@ -45,6 +45,19 @@ tempfile = "3"
 specta = { version = "=2.0.0-rc.22", features = ["derive"] }
 specta-typescript = "=0.0.9"
 tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
+# Core PDF building only — no `html` default (drops azul-layout/kuchiki/etc.).
+printpdf = { version = "0.9.1", default-features = false }
+
+# --- Windows printer enumeration (winspool + GDI DeviceCapabilities) ---
+# Only pulled in on Windows targets; macOS/Linux enumerate via the CUPS CLI.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Graphics_Printing",
+  "Win32_Security",
+  "Win32_Storage_Xps",
+] }
 
 [features]
 # By default Tauri uses "custom-protocol" in release builds. Tauri's CLI passes this in.

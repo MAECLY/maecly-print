@@ -15,6 +15,95 @@ async appInfo() : Promise<Result<AppInfo, IpcError>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * List every printer the OS spooler knows about, with capabilities.
+ */
+async listPrinters() : Promise<Result<Printer[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_printers") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The OS default printer's id, or `None` when no default is configured.
+ */
+async defaultPrinter() : Promise<Result<string | null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("default_printer") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Best-effort network discovery of not-yet-installed printers (mDNS/Bonjour
+ * on Unix; empty on Windows until WSD lands).
+ */
+async discoverPrinters() : Promise<Result<DiscoveredPrinter[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("discover_printers") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Read the persisted MaeclyPrint printer preferences.
+ */
+async getPrinterPrefs() : Promise<Result<PrinterPrefs, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_printer_prefs") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Replace the persisted printer preferences and return the saved value.
+ */
+async setPrinterPrefs(prefs: PrinterPrefs) : Promise<Result<PrinterPrefs, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_printer_prefs", { prefs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Set the OS user-default printer (no elevation required).
+ */
+async setDefaultPrinter(name: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_default_printer", { name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Send a test page to the named printer.
+ */
+async printTestPage(name: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("print_test_page", { name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Open the OS "Printers" settings pane so the user can add a printer manually.
+ */
+async openPrinterSettings() : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_printer_settings") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -29,7 +118,75 @@ async appInfo() : Promise<Result<AppInfo, IpcError>> {
 /** user-defined types **/
 
 export type AppInfo = { version: string; build_date: string; config_dir: string; log_dir: string; data_dir: string }
+/**
+ * A printer found on the network that is not (necessarily) installed yet.
+ */
+export type DiscoveredPrinter = { id: string; name: string; connection: string; kind: PrinterKind; 
+/**
+ * Discovery transport, e.g. `mDNS · IPP`.
+ */
+via: string }
 export type IpcError = { code: "FileNotFound"; message: string } | { code: "Internal"; message: string }
+/**
+ * A printer installed on the system, enriched with whatever capabilities the
+ * OS could be coaxed into reporting.
+ */
+export type Printer = { 
+/**
+ * Stable spooler/queue key (used as the React list key).
+ */
+id: string; 
+/**
+ * Human-friendly name (falls back to the queue id).
+ */
+name: string; kind: PrinterKind; color: boolean; duplex: boolean; status: PrinterStatus; is_default: boolean; location: string; 
+/**
+ * Readable connection/port string, e.g. `USB`, `EPSON … (IPP)`.
+ */
+connection: string; driver: string; shared: boolean; queued_jobs: number; max_dpi: number | null; papers: string[]; trays: Tray[]; supplies: Supplies; default_tray: string | null; default_paper: string | null }
+/**
+ * Coarse printer family, used by the UI only to pick an icon.
+ */
+export type PrinterKind = "laser" | "mfp" | "wide" | "label" | "virtual"
+export type PrinterOverride = { tray?: string | null; paper?: string | null }
+/**
+ * MaeclyPrint-level printer preferences (never mutate the OS spooler).
+ */
+export type PrinterPrefs = { 
+/**
+ * App default printer id; falls back to the OS default when `None`.
+ */
+default_printer?: string | null; 
+/**
+ * Printer ids disabled *in MaeclyPrint* — still installed in the OS.
+ */
+disabled?: string[]; 
+/**
+ * File-type routing: extension (e.g. ".pdf") → printer id.
+ */
+routes?: Partial<{ [key in string]: string }>; 
+/**
+ * Per-printer default tray/paper overrides, keyed by printer id.
+ */
+overrides?: Partial<{ [key in string]: PrinterOverride }> }
+/**
+ * Normalized printer state (a small superset-free view of the OS state).
+ */
+export type PrinterStatus = "ready" | "offline" | "error" | "busy"
+/**
+ * Toner/ink supply levels in `0.0..=1.0`. Any channel the device does not
+ * report stays `None`; an all-`None` value renders no supply section.
+ */
+export type Supplies = { cyan: number | null; magenta: number | null; yellow: number | null; black: number | null }
+/**
+ * One input tray/bin. `paper` and `level` are optional because most OS APIs
+ * expose the tray *name* but not the loaded media or fill level.
+ */
+export type Tray = { name: string; paper: string | null; 
+/**
+ * Fill level in `0.0..=1.0`, if the device reports it.
+ */
+level: number | null }
 
 /** tauri-specta globals **/
 
