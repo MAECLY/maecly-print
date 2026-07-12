@@ -48,6 +48,32 @@ tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
 # Core PDF building only — no `html` default (drops azul-layout/kuchiki/etc.).
 printpdf = { version = "0.9.1", default-features = false }
 
+# --- Print engine (M1) ---
+# Pure-Rust image decoding for the image→PDF converter; codecs only, no extras.
+image = { version = "0.25", default-features = false, features = [
+  "jpeg",
+  "png",
+  "tiff",
+  "bmp",
+  "webp",
+] }
+# PDF parsing: page counts for the Print Job screen + converter test assertions.
+lopdf = "0.34"
+# Job ids: v7 is time-sortable, so queue ordering falls out of the id.
+uuid = { version = "1", features = ["v7"] }
+# RFC3339 job timestamps serialized into queue.json.
+time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
+
+# --- Tauri plugins ---
+tauri-plugin-dialog = "2"
+
+# --- Dev/test only ---
+# `test-util` unlocks tokio's virtual clock (`start_paused` / `time::advance`)
+# so the dispatcher's retry-backoff tests are deterministic and instant. Only
+# compiled for tests; the release build never sees it.
+[dev-dependencies]
+tokio = { version = "1.41", features = ["test-util"] }
+
 # --- Windows printer enumeration (winspool + GDI DeviceCapabilities) ---
 # Only pulled in on Windows targets; macOS/Linux enumerate via the CUPS CLI.
 [target.'cfg(windows)'.dependencies]

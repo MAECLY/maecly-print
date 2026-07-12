@@ -3,5 +3,10 @@
   "identifier": "main-capability",
   "description": "Permissions granted to the MaeclyPrint main window.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:default", "core:webview:default"]
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:webview:default",
+    "dialog:default"
+  ]
 }
