@@ -119,7 +119,17 @@ pub async fn clear_done(state: State<'_, QueueHandle>) -> Result<u32, IpcError> 
 #[tauri::command]
 #[specta::specta]
 pub async fn inspect_files(paths: Vec<String>) -> Result<Vec<FileInfo>, IpcError> {
-    run_blocking(move || Ok(paths.iter().map(|p| inspect_one(p)).collect())).await
+    run_blocking(move || {
+        // Load the size ceiling once for the whole list, matching submit.
+        // `sanitized()` so a hand-edited `0` doesn't mark every file
+        // unsupported.
+        let max_mb = crate::settings::Config::load_or_default()
+            .engine
+            .sanitized()
+            .max_file_size_mb;
+        Ok(paths.iter().map(|p| inspect_one(p, max_mb)).collect())
+    })
+    .await
 }
 
 /// The exact command MaeclyPrint would run for `req` (honesty policy: no hidden
@@ -169,8 +179,10 @@ pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
     .await
 }
 
-/// Classify one path for [`inspect_files`].
-fn inspect_one(path_str: &str) -> FileInfo {
+/// Classify one path for [`inspect_files`]. `max_mb` is the current size ceiling
+/// (from `EngineCfg`); an oversized file is reported unsupported with a size
+/// reason, which takes precedence over an unsupported-format reason.
+fn inspect_one(path_str: &str, max_mb: u32) -> FileInfo {
     let path = Path::new(path_str);
     let name = path
         .file_name()
@@ -198,11 +210,12 @@ fn inspect_one(path_str: &str) -> FileInfo {
             reason: Some("Not a file".to_string()),
         },
         Ok(m) => {
-            let supported = crate::engine::is_supported(&ext);
-            let reason = if supported {
-                None
+            let (supported, reason) = if crate::queue::exceeds_size_limit(m.len(), max_mb) {
+                (false, Some(format!("Larger than the {max_mb} MB limit")))
+            } else if crate::engine::is_supported(&ext) {
+                (true, None)
             } else {
-                Some("Unsupported file type".to_string())
+                (false, Some("Unsupported file type".to_string()))
             };
             let pages = crate::queue::probe_pages(path, &ext, m.len());
             FileInfo {

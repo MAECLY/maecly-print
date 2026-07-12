@@ -1,11 +1,14 @@
-//! Diagnostic IPC commands.
+//! Diagnostic & "About" IPC commands.
 //!
-//! `app_info` is the canary command for this milestone: it proves the React
-//! ↔ Rust round-trip works end-to-end and that filesystem paths resolve as
-//! expected on the host OS.
+//! [`app_info`] is the canary that proves the React ↔ Rust round-trip works and
+//! that filesystem paths resolve on the host OS. The rest back the About/Help
+//! surface: opening the logs folder, prefilling a GitHub issue, and opening an
+//! allow-listed external link. All three shell out via the `opener` plugin
+//! Rust-side only, so no JS `opener` capability is needed.
 
 use serde::Serialize;
 use specta::Type;
+use tauri_plugin_opener::OpenerExt;
 
 use crate::util::{error::IpcError, paths};
 
@@ -16,6 +19,10 @@ pub struct AppInfo {
     pub config_dir: String,
     pub log_dir: String,
     pub data_dir: String,
+    /// Target OS, e.g. `"macos"`, `"windows"`, `"linux"` (`std::env::consts::OS`).
+    pub os: String,
+    /// Target architecture, e.g. `"x86_64"`, `"aarch64"` (`std::env::consts::ARCH`).
+    pub arch: String,
 }
 
 #[tauri::command]
@@ -27,5 +34,140 @@ pub fn app_info() -> Result<AppInfo, IpcError> {
         config_dir: paths::config_dir().display().to_string(),
         log_dir: paths::log_dir().display().to_string(),
         data_dir: paths::data_dir().display().to_string(),
+        os: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
     })
+}
+
+/// Reveal the app's log directory in the OS file browser (creating it first if
+/// it does not exist yet, so the command never no-ops on a fresh install).
+#[tauri::command]
+#[specta::specta]
+pub fn open_logs_folder(app: tauri::AppHandle) -> Result<(), IpcError> {
+    let dir = paths::log_dir();
+    paths::ensure_dir(&dir)?;
+    app.opener()
+        .open_path(dir.to_string_lossy().into_owned(), None::<&str>)
+        .map_err(|e| IpcError::Internal(format!("could not open the logs folder: {e}")))
+}
+
+/// Open a prefilled "new issue" page on the project's GitHub, seeding the body
+/// with the app version, build date, and OS/arch followed by the user's text.
+#[tauri::command]
+#[specta::specta]
+pub fn report_issue(app: tauri::AppHandle, text: String) -> Result<(), IpcError> {
+    let url = issue_url(
+        env!("CARGO_PKG_REPOSITORY"),
+        env!("CARGO_PKG_VERSION"),
+        env!("BUILD_DATE"),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        &text,
+    );
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| IpcError::Internal(format!("could not open the issue page: {e}")))
+}
+
+/// Open an external link in the default browser, restricted to an allow-list of
+/// project hosts (github.com, maecly.com, and `*.maecly.com` over HTTPS). Any
+/// other URL is rejected with [`IpcError::InvalidRequest`] rather than opened.
+#[tauri::command]
+#[specta::specta]
+pub fn open_external(app: tauri::AppHandle, url: String) -> Result<(), IpcError> {
+    if !allowed_external(&url) {
+        return Err(IpcError::InvalidRequest(format!(
+            "refusing to open a non-allowlisted URL: {url}"
+        )));
+    }
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| IpcError::Internal(format!("could not open the link: {e}")))
+}
+
+/// Build the prefilled GitHub issue URL. `repo` is the `https://github.com/o/r`
+/// base; the body is percent-encoded (`NON_ALPHANUMERIC`) so newlines, spaces
+/// and `#` survive intact in the query string. Pure, for testing.
+fn issue_url(
+    repo: &str,
+    version: &str,
+    build_date: &str,
+    os: &str,
+    arch: &str,
+    text: &str,
+) -> String {
+    use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+
+    let body = format!(
+        "- MaeclyPrint: {version}\n- Build date: {build_date}\n- OS: {os} {arch}\n\n{text}"
+    );
+    let enc = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+    format!("{repo}/issues/new?title={}&body={}", enc(""), enc(&body))
+}
+
+/// Whether `url` is an allow-listed external link: HTTPS to exactly
+/// `github.com`, `maecly.com`, or any `*.maecly.com` subdomain. The host is
+/// parsed by hand (rather than pulling in a URL crate) and any `userinfo@` or
+/// `:port` in the authority is rejected, so tricks like
+/// `https://github.com@evil.example` or `https://github.com.evil.com` do not
+/// slip through. Pure, for testing.
+fn allowed_external(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    // The authority is everything up to the first path/query/fragment marker.
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..end];
+    // A bare host only: no userinfo and no port.
+    if authority.contains('@') || authority.contains(':') {
+        return false;
+    }
+    let host = authority.to_ascii_lowercase();
+    host == "github.com" || host == "maecly.com" || host.ends_with(".maecly.com")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn issue_url_encodes_spaces_newlines_and_hash() {
+        let url = issue_url(
+            "https://github.com/maecly/maeclyprint",
+            "0.0.1",
+            "2026-07-12",
+            "macos",
+            "aarch64",
+            "crash on #3 with two files",
+        );
+        assert!(url.starts_with("https://github.com/maecly/maeclyprint/issues/new?title=&body="));
+        // Spaces → %20, newlines → %0A, '#' → %23 (NON_ALPHANUMERIC encodes all).
+        assert!(url.contains("%20"), "spaces encoded: {url}");
+        assert!(url.contains("%0A"), "newlines encoded: {url}");
+        assert!(url.contains("%23"), "'#' encoded: {url}");
+        // The environment block is present (percent-encoded).
+        assert!(url.contains("MaeclyPrint"));
+        assert!(!url.contains(' '), "no raw spaces in the URL");
+    }
+
+    #[test]
+    fn allowed_external_accepts_project_hosts() {
+        assert!(allowed_external("https://github.com/maecly/maeclyprint"));
+        assert!(allowed_external("https://github.com"));
+        assert!(allowed_external("https://maecly.com/"));
+        assert!(allowed_external("https://sub.maecly.com/path?q=1#frag"));
+        assert!(allowed_external("https://GitHub.com/Maecly")); // case-insensitive host
+    }
+
+    #[test]
+    fn allowed_external_rejects_everything_else() {
+        assert!(!allowed_external("http://github.com")); // not https
+        assert!(!allowed_external("https://evil-github.com"));
+        assert!(!allowed_external("https://github.com.evil.com"));
+        assert!(!allowed_external("https://user@github.com")); // userinfo trick
+        assert!(!allowed_external("https://github.com:8080")); // port
+        assert!(!allowed_external("https://notmaecly.com"));
+        assert!(!allowed_external("ftp://maecly.com"));
+        assert!(!allowed_external("https://"));
+    }
 }

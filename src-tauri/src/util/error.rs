@@ -52,6 +52,17 @@ pub enum IpcError {
     #[error("Invalid state: {0}")]
     InvalidState(String),
 
+    /// No profile with the given id exists (get/delete/set-default of an
+    /// unknown profile). Distinct from [`IpcError::InvalidRequest`] so the UI
+    /// can special-case a stale id (e.g. deleted in another window).
+    #[error("Profile not found: {0}")]
+    ProfileNotFound(String),
+
+    /// The GitHub-release update check could not complete (repository not
+    /// configured, network error, rate limit). The message is user-facing.
+    #[error("Update check failed: {0}")]
+    UpdateCheckFailed(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }

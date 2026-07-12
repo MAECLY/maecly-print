@@ -1,18 +1,19 @@
 //! MaeclyPrint Tauri backend.
 //!
-//! At this milestone the backend is intentionally minimal: it boots a Tauri
-//! window and exposes a single diagnostic IPC command (`app_info`) so the
-//! frontend can verify the React ↔ Rust bridge is healthy.
-//!
-//! Real printing logic (queue, SumatraPDF adapter, profile persistence, CLI)
-//! lands in the M1 plan.
+//! Boots the Tauri window and exposes the backend over typed (tauri-specta)
+//! IPC: the print engine (`engine`), the persistent job queue (`queue`),
+//! profile and settings persistence (`profiles`, `settings`), OS printer
+//! enumeration and management (`platform`), and the GitHub-release update
+//! check (`update`).
 
 pub mod engine;
 pub mod ipc;
 pub mod logging;
 pub mod platform;
+pub mod profiles;
 pub mod queue;
 pub mod settings;
+pub mod update;
 pub mod util;
 
 use tauri::Manager;
@@ -35,6 +36,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
@@ -71,6 +73,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(tauri_specta::collect_commands![
             ipc::diag::app_info,
+            ipc::diag::open_logs_folder,
+            ipc::diag::report_issue,
+            ipc::diag::open_external,
             ipc::printers::list_printers,
             ipc::printers::default_printer,
             ipc::printers::discover_printers,
@@ -93,6 +98,14 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::jobs::clear_done,
             ipc::jobs::inspect_files,
             ipc::jobs::preview_command,
+            ipc::profiles::list_profiles,
+            ipc::profiles::get_profile,
+            ipc::profiles::save_profile,
+            ipc::profiles::delete_profile,
+            ipc::profiles::set_default_profile,
+            ipc::settings::get_app_settings,
+            ipc::settings::set_app_settings,
+            ipc::update::check_for_updates,
         ])
         .events(tauri_specta::collect_events![
             ipc::events::QueueUpdated,

@@ -17,6 +17,43 @@ async appInfo() : Promise<Result<AppInfo, IpcError>> {
 }
 },
 /**
+ * Reveal the app's log directory in the OS file browser (creating it first if
+ * it does not exist yet, so the command never no-ops on a fresh install).
+ */
+async openLogsFolder() : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_logs_folder") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Open a prefilled "new issue" page on the project's GitHub, seeding the body
+ * with the app version, build date, and OS/arch followed by the user's text.
+ */
+async reportIssue(text: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("report_issue", { text }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Open an external link in the default browser, restricted to an allow-list of
+ * project hosts (github.com, maecly.com, and `*.maecly.com` over HTTPS). Any
+ * other URL is rejected with [`IpcError::InvalidRequest`] rather than opened.
+ */
+async openExternal(url: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_external", { url }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * List every printer the OS spooler knows about, with capabilities.
  */
 async listPrinters() : Promise<Result<Printer[], IpcError>> {
@@ -275,6 +312,119 @@ async previewCommand(req: PrintRequest) : Promise<Result<string, IpcError>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * List every profile: built-ins in canonical order, then customs sorted
+ * case-insensitively by name. The `default` flag is computed from
+ * `engine.default_profile`.
+ */
+async listProfiles() : Promise<Result<Profile[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_profiles") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Fetch one profile by id (built-in or custom), with its computed flags.
+ */
+async getProfile(id: string) : Promise<Result<Profile, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_profile", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Create or update a custom profile (upsert), returning the saved wire profile
+ * with computed flags.
+ * 
+ * Id semantics:
+ * - empty id → **create** with a fresh UUIDv7;
+ * - id of a built-in → [`IpcError::InvalidRequest`] (built-ins are immutable);
+ * - id of a known custom → **update** it;
+ * - unknown non-empty id → **create preserving that id** (this is what makes a
+ * client-side "undo delete" restore the same id).
+ * 
+ * The input's `builtin`/`default` flags are ignored; validation always runs.
+ */
+async saveProfile(profile: Profile) : Promise<Result<Profile, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("save_profile", { profile }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Delete a custom profile. Rejects deleting a built-in or the current effective
+ * default (the user must switch the default first), and reports
+ * [`IpcError::ProfileNotFound`] for an unknown id.
+ */
+async deleteProfile(id: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_profile", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Set the app's default profile. The id must name a known profile (built-in or
+ * custom); the choice is written to `config.toml`'s `engine.default_profile`
+ * under [`CONFIG_LOCK`].
+ */
+async setDefaultProfile(id: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_default_profile", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Read the current app settings (the four wire sections of `config.toml`).
+ */
+async getAppSettings() : Promise<Result<AppSettings, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_app_settings") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Validate and persist the app settings, returning the saved value.
+ * 
+ * Under [`CONFIG_LOCK`] this loads the full config, replaces exactly the four
+ * wire sections (keeping `printers` and `schema_version`), and atomically
+ * saves. Validation failures are returned as [`IpcError::InvalidRequest`]
+ * naming the offending field; nothing is written when validation fails.
+ */
+async setAppSettings(settings: AppSettings) : Promise<Result<AppSettings, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_app_settings", { settings }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Check GitHub for a newer release than the running build.
+ * 
+ * Runs off the IPC thread (a network round-trip). A misconfigured repository or
+ * any network/rate-limit failure surfaces as [`IpcError::UpdateCheckFailed`]
+ * with a short, user-facing message.
+ */
+async checkForUpdates() : Promise<Result<UpdateCheck, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("check_for_updates") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -295,7 +445,27 @@ queueUpdated: "queue-updated"
 
 /** user-defined types **/
 
-export type AppInfo = { version: string; build_date: string; config_dir: string; log_dir: string; data_dir: string }
+export type AppCfg = { locale: string; theme: Theme; launch_minimized: boolean; 
+/**
+ * UI spacing preference. `#[serde(default)]` so a config written before this
+ * field existed still loads (filling in [`Density::Comfortable`]).
+ */
+density?: Density }
+export type AppInfo = { version: string; build_date: string; config_dir: string; log_dir: string; data_dir: string; 
+/**
+ * Target OS, e.g. `"macos"`, `"windows"`, `"linux"` (`std::env::consts::OS`).
+ */
+os: string; 
+/**
+ * Target architecture, e.g. `"x86_64"`, `"aarch64"` (`std::env::consts::ARCH`).
+ */
+arch: string }
+/**
+ * The subset of [`Config`] exposed to the frontend as one bundle by
+ * `get_app_settings` / `set_app_settings`. Deliberately excludes `printers`
+ * (owned by the Printers screen) and `schema_version` (server-managed).
+ */
+export type AppSettings = { app: AppCfg; engine: EngineCfg; updater: UpdaterCfg; telemetry: TelemetryCfg }
 /**
  * Color vs. grayscale output.
  */
@@ -308,6 +478,10 @@ export type ColorMode =
  * Grayscale / black-and-white.
  */
 "monochrome"
+/**
+ * UI spacing density.
+ */
+export type Density = "comfortable" | "compact"
 /**
  * A printer found on the network that is not (necessarily) installed yet.
  */
@@ -337,6 +511,32 @@ export type Duplex =
  * Double-sided, bound on the short edge.
  */
 "short"
+/**
+ * Engine/queue tuning knobs. All values take effect on the next app start
+ * (the queue reads them once at boot); changing them mid-session does not
+ * re-tune the running dispatcher.
+ */
+export type EngineCfg = { 
+/**
+ * Concurrent conversions the dispatcher may run (clamped to `1..=8` at
+ * boot). Defaults to the dispatcher's own
+ * [`DEFAULT_MAX_CONCURRENT_CONVERSIONS`](crate::queue::DEFAULT_MAX_CONCURRENT_CONVERSIONS).
+ */
+max_concurrent_conversions: number; 
+/**
+ * Per-conversion timeout in seconds; `0` disables the timeout.
+ */
+conversion_timeout_seconds: number; 
+/**
+ * Largest input file accepted for submission/inspection, in megabytes.
+ */
+max_file_size_mb: number; 
+/**
+ * Profile id applied by default in the print dialog. `None` means
+ * `builtin-quick`. Must skip-serialize when `None`: `toml` errors trying to
+ * serialize a bare `Option::None` value.
+ */
+default_profile?: string | null }
 /**
  * Per-file inspection result for the print dialog's file list. Never errors the
  * whole batch: a missing or unsupported file comes back with `supported=false`
@@ -386,7 +586,18 @@ export type IpcError = { code: "FileNotFound"; message: string } |
  * The action is not legal for the job's current state (e.g. pausing a job
  * that is already printing, or retrying one that has not failed).
  */
-{ code: "InvalidState"; message: string } | { code: "Internal"; message: string }
+{ code: "InvalidState"; message: string } | 
+/**
+ * No profile with the given id exists (get/delete/set-default of an
+ * unknown profile). Distinct from [`IpcError::InvalidRequest`] so the UI
+ * can special-case a stale id (e.g. deleted in another window).
+ */
+{ code: "ProfileNotFound"; message: string } | 
+/**
+ * The GitHub-release update check could not complete (repository not
+ * configured, network error, rate limit). The message is user-facing.
+ */
+{ code: "UpdateCheckFailed"; message: string } | { code: "Internal"; message: string }
 /**
  * One print job: a single input file tracked through the convert → print
  * pipeline. Persisted verbatim in `queue.json`.
@@ -616,6 +827,41 @@ overrides?: Partial<{ [key in string]: PrinterOverride }> }
  */
 export type PrinterStatus = "ready" | "offline" | "error" | "busy"
 /**
+ * A print profile as seen by the frontend. `builtin` and `default` are
+ * **server-computed**: whatever a client sends for them is ignored, and the
+ * value returned always reflects the current truth (id is built in; id is the
+ * effective default).
+ */
+export type Profile = { id: string; name: string; 
+/**
+ * True for the three built-in presets. Server-computed; ignored on input.
+ */
+builtin: boolean; 
+/**
+ * True for the profile that is the current app default. Server-computed;
+ * ignored on input (change it via `set_default_profile`).
+ */
+default: boolean; 
+/**
+ * Printer id, or the `"<default>"` sentinel to defer to the app/OS default.
+ */
+printer: string; color_mode: ColorMode; duplex: ProfileDuplex; copies: number; paper_size: PaperSize; orientation: Orientation; scaling: Scaling; 
+/**
+ * Page-range expression (engine grammar), or `None` for all pages. Omitted
+ * from the wire when `None`.
+ */
+page_range?: string | null; quality: Quality; tray: string }
+/**
+ * Duplex mode as spelled in the profile UI vocabulary (distinct from the
+ * engine's [`crate::queue::job::Duplex`], which uses `none`/`long`/`short`).
+ * Wire strings: `"off"`, `"long-edge"`, `"short-edge"`.
+ */
+export type ProfileDuplex = "off" | "long-edge" | "short-edge"
+/**
+ * Print-quality preset. Wire strings: `"draft"`, `"normal"`, `"high"`.
+ */
+export type Quality = "draft" | "normal" | "high"
+/**
  * Serializable view of the whole queue, returned by the `queue_status` IPC
  * command and pushed via the `queue-updated` event. Also the on-disk shape of
  * `queue.json` (reused by [`crate::queue::persist`]).
@@ -654,6 +900,14 @@ export type Scaling =
  */
 export type Supplies = { cyan: number | null; magenta: number | null; yellow: number | null; black: number | null }
 /**
+ * Telemetry consent flags. These record the user's *consent*; this version
+ * transmits nothing regardless of their value — no crash reports and no usage
+ * metrics leave the machine. They exist so the choice survives restarts and a
+ * future build can honour it.
+ */
+export type TelemetryCfg = { crash_reports?: boolean; anonymous_usage_metrics?: boolean }
+export type Theme = "light" | "dark" | "system"
+/**
  * One input tray/bin. `paper` and `level` are optional because most OS APIs
  * expose the tray *name* but not the loaded media or fill level.
  */
@@ -662,6 +916,27 @@ export type Tray = { name: string; paper: string | null;
  * Fill level in `0.0..=1.0`, if the device reports it.
  */
 level: number | null }
+/**
+ * Which release stream the user follows.
+ */
+export type UpdateChannel = "stable" | "beta" | "nightly"
+/**
+ * The result of an update check, returned to the frontend. `latest` is the tag
+ * of the newest published release (when one was found), `available` is whether
+ * it is strictly newer than `current`, and `url`/`notes` are populated only
+ * when an update is available (so the UI has a link and changelog to show).
+ */
+export type UpdateCheck = { current: string; latest: string | null; available: boolean; url: string | null; notes: string | null; 
+/**
+ * RFC 3339 timestamp of when the check ran.
+ */
+checked_at: string }
+/**
+ * Update-check preferences. Only the check itself is wired in this version;
+ * `channel` is recorded but every check currently hits the `latest` release
+ * feed (there are no separate beta/nightly feeds yet).
+ */
+export type UpdaterCfg = { channel: UpdateChannel; check_on_startup: boolean }
 
 /** tauri-specta globals **/
 

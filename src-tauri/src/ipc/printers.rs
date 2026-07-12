@@ -11,6 +11,8 @@
 //! and the UI hides whatever is missing. See
 //! `docs/04-architecture/printer-enumeration.md`.
 
+use std::path::Path;
+
 use serde::Serialize;
 use specta::Type;
 
@@ -134,13 +136,36 @@ pub async fn get_printer_prefs() -> Result<crate::settings::PrinterPrefs, IpcErr
 pub async fn set_printer_prefs(
     prefs: crate::settings::PrinterPrefs,
 ) -> Result<crate::settings::PrinterPrefs, IpcError> {
-    run_blocking(move || {
-        let mut cfg = crate::settings::Config::load_or_default();
-        cfg.printers = prefs;
-        cfg.save()?;
-        Ok(cfg.printers)
+    // Uses the shared `ipc::run_blocking` (typed `IpcError`) rather than this
+    // module's `anyhow`-based helper, so the corrupt-config refusal keeps its
+    // exact message and code.
+    super::run_blocking(move || {
+        set_printer_prefs_at(&crate::settings::Config::config_path(), prefs)
     })
     .await
+}
+
+/// Path-injected core of [`set_printer_prefs`]. `pub` so the integration tests
+/// can point it at a tempdir; not part of the binding surface.
+///
+/// Loads through [`crate::settings::Config::load_strict`], so a corrupt
+/// `config.toml` is refused instead of being silently rewritten as
+/// defaults + these prefs (which would erase the engine/updater/telemetry
+/// sections and the app default-profile).
+pub fn set_printer_prefs_at(
+    config_path: &Path,
+    prefs: crate::settings::PrinterPrefs,
+) -> Result<crate::settings::PrinterPrefs, IpcError> {
+    use crate::settings::{Config, CONFIG_CORRUPT_MSG, CONFIG_LOCK};
+
+    // Serialize the whole load-mutate-save against other config writers so a
+    // concurrent settings/profile write can't clobber the printers section.
+    let _guard = CONFIG_LOCK.lock().unwrap();
+    let mut cfg = Config::load_strict(config_path)
+        .map_err(|_| IpcError::Internal(CONFIG_CORRUPT_MSG.to_string()))?;
+    cfg.printers = prefs;
+    cfg.save_to(config_path)?;
+    Ok(cfg.printers)
 }
 
 /// Set the OS user-default printer (no elevation required).

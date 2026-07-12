@@ -13,6 +13,10 @@ pub mod persist;
 
 mod dispatcher;
 
+// Re-exported so `crate::settings::EngineCfg`'s default can mirror the
+// dispatcher's own concurrency default without exposing the whole module.
+pub(crate) use dispatcher::DEFAULT_MAX_CONCURRENT_CONVERSIONS;
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -77,6 +81,14 @@ impl QueueHandle {
             crate::engine::pagerange::parse(ranges).map_err(IpcError::InvalidRequest)?;
         }
 
+        // Read the size ceiling once for the whole batch (config is loaded per
+        // submit, not per file). `sanitized()` so a hand-edited `0` can't reject
+        // every file.
+        let max_mb = crate::settings::Config::load_or_default()
+            .engine
+            .sanitized()
+            .max_file_size_mb;
+
         let submitted_at = now_rfc3339();
         let batch_id = uuid::Uuid::now_v7().to_string();
         let mut jobs = Vec::with_capacity(req.files.len());
@@ -87,6 +99,15 @@ impl QueueHandle {
             let meta = std::fs::metadata(path).map_err(|_| IpcError::FileNotFound(file.clone()))?;
             if !meta.is_file() {
                 return Err(IpcError::InvalidRequest(format!("{file} is not a file")));
+            }
+            if exceeds_size_limit(meta.len(), max_mb) {
+                let name = path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| file.clone());
+                return Err(IpcError::InvalidRequest(format!(
+                    "{name} is larger than the {max_mb} MB limit"
+                )));
             }
             let ext = crate::engine::extension_of(path);
             if !crate::engine::is_supported(&ext) {
@@ -212,11 +233,42 @@ pub fn spawn(app: tauri::AppHandle) -> anyhow::Result<QueueHandle> {
     let emit: Arc<dyn dispatcher::EventSink> = Arc::new(dispatcher::TauriEmit { app });
     let spawner: Arc<dyn dispatcher::BlockingSpawner> = Arc::new(dispatcher::TokioBlockingSpawner);
 
-    let d =
-        dispatcher::Dispatcher::new(state.clone(), tx.clone(), runner, emit, spawner, queue_file);
+    // Engine limits are read once at boot; changing them takes effect on the
+    // next start (documented on EngineCfg). `sanitized()` clamps hand-edited
+    // values so a bricked config (0 MB / 1s timeout / 99 workers) can't reach
+    // the dispatcher — every consumer reads through it.
+    let engine = crate::settings::Config::load_or_default()
+        .engine
+        .sanitized();
+    let limits = dispatcher::DispatcherLimits {
+        max_concurrent: engine.max_concurrent_conversions as usize,
+        conversion_timeout: match engine.conversion_timeout_seconds {
+            0 => None,
+            secs => Some(std::time::Duration::from_secs(secs as u64)),
+        },
+    };
+
+    let d = dispatcher::Dispatcher::new(
+        state.clone(),
+        tx.clone(),
+        runner,
+        emit,
+        spawner,
+        queue_file,
+        limits,
+    );
     tauri::async_runtime::spawn(dispatcher::run(d, rx));
 
     Ok(QueueHandle { tx, state })
+}
+
+/// True iff `bytes` exceeds the `max_mb` megabyte ceiling. Pure `u64` math so the
+/// `MB → bytes` multiplication cannot overflow for any realistic limit; the
+/// settings validator keeps `max_mb` in `1..=4096`, so a legitimate limit never
+/// rejects everything. Kept separate from [`MAX_PDF_PROBE_BYTES`], which gates
+/// page-count probing rather than acceptance.
+pub(crate) fn exceeds_size_limit(bytes: u64, max_mb: u32) -> bool {
+    bytes > (max_mb as u64) * 1024 * 1024
 }
 
 /// Best-effort page count for the UI: PDFs are parsed with `lopdf` (unless
@@ -395,6 +447,20 @@ mod tests {
             probe_pages(Path::new("/x/a.pdf"), "pdf", MAX_PDF_PROBE_BYTES + 1),
             None
         );
+    }
+
+    #[test]
+    fn exceeds_size_limit_boundaries() {
+        let mb = 1024 * 1024;
+        // Exactly at the limit is allowed; one byte over is rejected.
+        assert!(!exceeds_size_limit(200 * mb, 200));
+        assert!(exceeds_size_limit(200 * mb + 1, 200));
+        assert!(!exceeds_size_limit(0, 1));
+        assert!(!exceeds_size_limit(mb, 1));
+        assert!(exceeds_size_limit(mb + 1, 1));
+        // A large limit doesn't overflow the u64 math.
+        assert!(!exceeds_size_limit(4096 * mb, 4096));
+        assert!(exceeds_size_limit(4096 * mb + 1, 4096));
     }
 
     #[test]

@@ -19,9 +19,12 @@
 //!
 //! ## Concurrency & retry decisions (documented behaviour)
 //!
-//! - Up to [`MAX_CONCURRENT_CONVERSIONS`] conversions run at once; exactly one
-//!   print runs at a time (spoolers serialise anyway, and it keeps job ordering
-//!   legible).
+//! - Up to [`DispatcherLimits::max_concurrent`] conversions run at once
+//!   (config-driven, defaulting to [`DEFAULT_MAX_CONCURRENT_CONVERSIONS`]);
+//!   exactly one print runs at a time (spoolers serialise anyway, and it keeps
+//!   job ordering legible). A conversion that outruns
+//!   [`DispatcherLimits::conversion_timeout`] is failed with a
+//!   `"conversion_timeout"` error (no retry).
 //! - `queue_paused` gates *starting* new work only. Work already in flight runs
 //!   to completion; a converting job that finishes while the queue is paused
 //!   still reaches `Converted`, it just won't advance to `Printing`.
@@ -64,9 +67,32 @@ use crate::queue::job::{
 use crate::queue::QueueState;
 use crate::util::error::IpcError;
 
-/// Maximum conversions running concurrently. Conversions are CPU/IO heavy
-/// (rasterising images, parsing PDFs) so we cap the pool rather than fan out.
-pub(crate) const MAX_CONCURRENT_CONVERSIONS: usize = 2;
+/// Default cap on conversions running concurrently, used when the config does
+/// not override it (and as the value the `EngineCfg` default mirrors).
+/// Conversions are CPU/IO heavy (rasterising images, parsing PDFs) so we cap the
+/// pool rather than fan out. The effective cap comes from
+/// [`DispatcherLimits::max_concurrent`] (config value clamped to `1..=8`).
+pub(crate) const DEFAULT_MAX_CONCURRENT_CONVERSIONS: usize = 2;
+
+/// Boot-time engine limits handed to the [`Dispatcher`]. Read once from
+/// [`crate::settings::EngineCfg`] when the queue spawns; the running dispatcher
+/// never re-reads them (engine settings apply on the next start).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DispatcherLimits {
+    /// Concurrent conversions allowed (already clamped to `1..=8`).
+    pub max_concurrent: usize,
+    /// Per-conversion wall-clock timeout; `None` disables it.
+    pub conversion_timeout: Option<Duration>,
+}
+
+impl Default for DispatcherLimits {
+    fn default() -> Self {
+        Self {
+            max_concurrent: DEFAULT_MAX_CONCURRENT_CONVERSIONS,
+            conversion_timeout: None,
+        }
+    }
+}
 
 /// Failure count after which a transiently-failing job is marked `Failed`.
 /// FR-034 grants the initial attempt plus three automatic retries, so a job
@@ -138,6 +164,14 @@ pub(crate) enum Cmd {
     },
     RetryDue {
         id: String,
+    },
+    /// A per-attempt conversion timer elapsed. `flag` is the exact cancel-flag
+    /// [`Arc`] the timer captured, so a stale timer (from a prior attempt whose
+    /// flag was since replaced) can be distinguished by pointer identity and
+    /// ignored — see [`Dispatcher::on_conversion_timeout`].
+    ConversionTimeout {
+        id: String,
+        flag: Arc<AtomicBool>,
     },
 }
 
@@ -333,6 +367,8 @@ pub(crate) struct Dispatcher {
     emit: Arc<dyn EventSink>,
     spawner: Arc<dyn BlockingSpawner>,
     queue_file: PathBuf,
+    /// Boot-time engine limits (concurrency cap + conversion timeout).
+    limits: DispatcherLimits,
     /// Cancellation flags for in-flight conversions, keyed by job id.
     converting: HashMap<String, Arc<AtomicBool>>,
     /// Jobs waiting out a retry backoff; the scheduler skips these.
@@ -346,6 +382,7 @@ pub(crate) struct Dispatcher {
 }
 
 impl Dispatcher {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         state: Arc<RwLock<QueueState>>,
         self_tx: mpsc::UnboundedSender<Cmd>,
@@ -353,6 +390,7 @@ impl Dispatcher {
         emit: Arc<dyn EventSink>,
         spawner: Arc<dyn BlockingSpawner>,
         queue_file: PathBuf,
+        limits: DispatcherLimits,
     ) -> Self {
         Self {
             state,
@@ -361,6 +399,7 @@ impl Dispatcher {
             emit,
             spawner,
             queue_file,
+            limits,
             converting: HashMap::new(),
             delayed: HashSet::new(),
             progress_last: Arc::new(Mutex::new(HashMap::new())),
@@ -411,6 +450,7 @@ impl Dispatcher {
             Cmd::RetryDue { id } => {
                 self.delayed.remove(&id);
             }
+            Cmd::ConversionTimeout { id, flag } => self.on_conversion_timeout(id, flag),
         }
     }
 
@@ -638,8 +678,11 @@ impl Dispatcher {
                         }
                         Err(e) => record_failure(job, &e, true, &mut post),
                     },
-                    // Cancelled or paused mid-conversion: drop the partial cache.
-                    JobState::Cancelled | JobState::Paused => {
+                    // Cancelled/paused mid-conversion, or failed by a timeout
+                    // that set this attempt's cancel flag: drop whatever partial
+                    // cache the aborted conversion produced. The `converting`
+                    // entry was already removed at the top of this handler.
+                    JobState::Cancelled | JobState::Paused | JobState::Failed => {
                         if let Ok(Some(p)) = &result {
                             post.delete_cache.push(p.to_string_lossy().into_owned());
                         }
@@ -652,6 +695,70 @@ impl Dispatcher {
                         }
                     }
                 },
+            }
+        }
+        self.apply_post(post);
+    }
+
+    /// A per-attempt conversion timer fired. Fail the job **only** if this timer
+    /// still refers to the live conversion: the job must still be
+    /// [`JobState::Converting`] and the cancel flag registered for it must be the
+    /// exact [`Arc`] this timer captured. A pause/resume or a retry swaps in a
+    /// fresh flag, so a stale timer from an earlier attempt is a no-op — this is
+    /// what prevents a timer armed for attempt *N* from killing attempt *N+1*.
+    ///
+    /// On a real timeout: set the flag (so the running conversion aborts at its
+    /// next stage boundary), mark the job [`JobState::Failed`] with the
+    /// `"conversion_timeout"` code (terminal — no automatic retry), and drop any
+    /// cached PDF. The eventual [`Cmd::ConversionDone`] for the aborted attempt
+    /// finds a `Failed` job and discards its partial output (see
+    /// [`Dispatcher::on_conversion_done`]).
+    ///
+    /// Waiting window: the job's id stays in `converting` until that
+    /// stale `ConversionDone` arrives — the orphaned conversion keeps running
+    /// (we can only *flag* a blocking task, not kill it). So if the user hits
+    /// Retry before the orphan reports back, the job returns to `Queued` but the
+    /// scheduler skips it (it's still in `converting`, see [`Dispatcher::schedule`])
+    /// until the orphan finishes. The retry is delayed by that window, not lost.
+    fn on_conversion_timeout(&mut self, id: String, flag: Arc<AtomicBool>) {
+        // A stale flag identifies a timer whose attempt is already gone.
+        let still_current = self
+            .converting
+            .get(&id)
+            .map(|f| Arc::ptr_eq(f, &flag))
+            .unwrap_or(false);
+        if !still_current {
+            return;
+        }
+
+        let timeout_secs = self
+            .limits
+            .conversion_timeout
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        let mut post = Post::default();
+        {
+            let mut st = self.state.write().unwrap();
+            if let Some(job) = st.jobs.iter_mut().find(|j| j.id == id) {
+                if job.state == JobState::Converting {
+                    flag.store(true, Ordering::Relaxed);
+                    job.state = JobState::Failed;
+                    job.error = Some(JobError::new(
+                        "conversion_timeout",
+                        format!("conversion timed out after {timeout_secs}s"),
+                    ));
+                    job.finished_at = Some(now_rfc3339());
+                    job.progress = None;
+                    if let Some(c) = job.cache_pdf.take() {
+                        post.delete_cache.push(c);
+                    }
+                    tracing::warn!(
+                        event = "job_conversion_timeout",
+                        job_id = %id,
+                        timeout_s = timeout_secs
+                    );
+                }
             }
         }
         self.apply_post(post);
@@ -739,12 +846,22 @@ impl Dispatcher {
                     .iter()
                     .filter(|j| j.state == JobState::Converting)
                     .count();
-                while converting < MAX_CONCURRENT_CONVERSIONS {
+                while converting < self.limits.max_concurrent {
                     // A Queued job whose id is still in `self.converting` was
-                    // paused/resumed while its previous conversion is aborting;
-                    // starting a second conversion would race both onto the same
-                    // cache path. It becomes eligible again once the stale
-                    // ConversionDone arrives and removes the entry.
+                    // paused/resumed — or retried after a conversion timeout —
+                    // while its previous conversion is still aborting; starting a
+                    // second conversion would race both onto the same cache path.
+                    // It becomes eligible again once the stale ConversionDone
+                    // arrives and removes the entry.
+                    //
+                    // This is the *waiting window* for a retried
+                    // timed-out job. `on_conversion_timeout` marks the job Failed
+                    // but leaves its orphaned conversion running (we can't kill a
+                    // blocking task, only flag it). A user Retry moves the job
+                    // back to Queued, yet it is skipped here until the orphan
+                    // reports back and clears `converting`. It is delayed, never
+                    // stuck forever — the orphan finishes (or the flag aborts it
+                    // at the next stage boundary) and the retry then proceeds.
                     let Some(idx) = st.jobs.iter().position(|j| {
                         j.state == JobState::Queued
                             && !self.delayed.contains(&j.id)
@@ -806,6 +923,20 @@ impl Dispatcher {
         let self_tx = self.self_tx.clone();
         let progress = self.make_progress(job.id.clone());
         let id = job.id.clone();
+        // Arm a timeout for THIS attempt, capturing its exact cancel-flag Arc so
+        // the handler can tell it apart from a later attempt's flag by identity.
+        if let Some(timeout) = self.limits.conversion_timeout {
+            let tx = self.self_tx.clone();
+            let timer_id = id.clone();
+            let timer_flag = flag.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(timeout).await;
+                let _ = tx.send(Cmd::ConversionTimeout {
+                    id: timer_id,
+                    flag: timer_flag,
+                });
+            });
+        }
         self.spawner.spawn_blocking(Box::new(move || {
             let result = runner.convert(&job, flag, progress);
             let _ = self_tx.send(Cmd::ConversionDone { id, result });
@@ -1160,6 +1291,38 @@ mod tests {
         }
     }
 
+    /// A boxed blocking task, as handed to [`BlockingSpawner::spawn_blocking`].
+    type BoxedTask = Box<dyn FnOnce() + Send + 'static>;
+
+    /// A spawner that parks blocking tasks instead of running them, so a test
+    /// can keep a conversion "in flight" (job stuck in `Converting`) while it
+    /// advances the virtual clock to trigger the conversion-timeout timer.
+    #[derive(Default, Clone)]
+    struct DeferredSpawner {
+        tasks: Arc<Mutex<VecDeque<BoxedTask>>>,
+    }
+
+    impl BlockingSpawner for DeferredSpawner {
+        fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) {
+            self.tasks.lock().unwrap().push_back(task);
+        }
+    }
+
+    impl DeferredSpawner {
+        /// Run the oldest parked task (e.g. the aborted conversion reporting
+        /// back). Returns `false` when none are parked.
+        fn run_next(&self) -> bool {
+            let task = self.tasks.lock().unwrap().pop_front();
+            match task {
+                Some(t) => {
+                    t();
+                    true
+                }
+                None => false,
+            }
+        }
+    }
+
     // ---- Harness ---------------------------------------------------------
 
     struct Harness {
@@ -1173,7 +1336,15 @@ mod tests {
         _tmp: TempDir,
     }
 
+    /// Default harness: inline spawner, default limits (concurrency 2, no
+    /// conversion timeout).
     fn harness() -> Harness {
+        harness_with(Arc::new(InlineSpawner), DispatcherLimits::default())
+    }
+
+    /// Harness with an injected spawner and explicit limits, for the
+    /// concurrency-cap and conversion-timeout tests.
+    fn harness_with(spawner: Arc<dyn BlockingSpawner>, limits: DispatcherLimits) -> Harness {
         let tmp = tempfile::tempdir().unwrap();
         let cache = tmp.path().join("conversions");
         let queue_file = tmp.path().join("queue.json");
@@ -1189,8 +1360,9 @@ mod tests {
             tx.clone(),
             runner.clone(),
             emit.clone(),
-            Arc::new(InlineSpawner),
+            spawner,
             queue_file.clone(),
+            limits,
         );
         Harness {
             d,
@@ -1332,7 +1504,7 @@ mod tests {
                 .iter()
                 .filter(|j| j.state == JobState::Converting)
                 .count();
-            assert!(converting <= MAX_CONCURRENT_CONVERSIONS);
+            assert!(converting <= DEFAULT_MAX_CONCURRENT_CONVERSIONS);
         }
     }
 
@@ -1771,5 +1943,137 @@ mod tests {
             })
             .await;
         assert!(matches!(r, Err(IpcError::InvalidState(_))));
+    }
+
+    // ---- Concurrency cap (DispatcherLimits::max_concurrent) ---------------
+
+    #[tokio::test]
+    async fn schedule_honors_max_concurrent_of_one() {
+        let mut h = harness_with(
+            Arc::new(DeferredSpawner::default()),
+            DispatcherLimits {
+                max_concurrent: 1,
+                conversion_timeout: None,
+            },
+        );
+        let jobs: Vec<Job> = (0..3).map(|i| make_job(&format!("f{i}.pdf"))).collect();
+        h.submit(jobs);
+        h.step(); // process Submit → schedule
+                  // Deferred spawner parks the conversions, so states reflect the cap.
+        assert_eq!(h.count(JobState::Converting), 1);
+        assert_eq!(h.count(JobState::Queued), 2);
+    }
+
+    #[tokio::test]
+    async fn schedule_honors_max_concurrent_of_three() {
+        let mut h = harness_with(
+            Arc::new(DeferredSpawner::default()),
+            DispatcherLimits {
+                max_concurrent: 3,
+                conversion_timeout: None,
+            },
+        );
+        let jobs: Vec<Job> = (0..4).map(|i| make_job(&format!("f{i}.pdf"))).collect();
+        h.submit(jobs);
+        h.step();
+        assert_eq!(h.count(JobState::Converting), 3);
+        assert_eq!(h.count(JobState::Queued), 1);
+    }
+
+    // ---- Conversion timeout ----------------------------------------------
+
+    #[tokio::test(start_paused = true)]
+    async fn conversion_timeout_fails_job_and_sets_flag() {
+        let spawner = Arc::new(DeferredSpawner::default());
+        let mut h = harness_with(
+            spawner.clone(),
+            DispatcherLimits {
+                max_concurrent: 2,
+                conversion_timeout: Some(Duration::from_secs(60)),
+            },
+        );
+        let j = make_job("a.pdf");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle(); // Submit → Converting; convert parked, timer armed.
+        assert_eq!(h.job(&id).state, JobState::Converting);
+        let flag =
+            h.d.converting
+                .get(&id)
+                .cloned()
+                .expect("attempt flag registered");
+        assert!(!flag.load(Ordering::Relaxed));
+
+        // Advance past the timeout: the timer sends ConversionTimeout.
+        h.advance_and_settle(Duration::from_secs(60)).await;
+        assert_eq!(h.job(&id).state, JobState::Failed);
+        assert!(
+            flag.load(Ordering::Relaxed),
+            "cancel flag set so the running conversion aborts"
+        );
+        let err = h.job(&id).error.unwrap();
+        assert_eq!(err.code, "conversion_timeout");
+        assert!(h.job(&id).finished_at.is_some());
+        assert_eq!(h.job(&id).attempts, 0, "timeout is terminal, not a retry");
+
+        // The parked (now-aborted) conversion reports back; it must not
+        // resurrect the failed job.
+        spawner.run_next();
+        h.run_to_idle();
+        assert_eq!(h.job(&id).state, JobState::Failed);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn conversion_timeout_after_completion_is_noop() {
+        // Inline spawner completes the conversion (and the whole job) before the
+        // timer ever fires; advancing past the deadline must not touch the
+        // terminal job — its `converting` entry is already gone.
+        let mut h = harness_with(
+            Arc::new(InlineSpawner),
+            DispatcherLimits {
+                max_concurrent: 2,
+                conversion_timeout: Some(Duration::from_secs(60)),
+            },
+        );
+        let j = make_job("a.pdf");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        assert_eq!(h.job(&id).state, JobState::Done);
+
+        h.advance_and_settle(Duration::from_secs(60)).await;
+        assert_eq!(h.job(&id).state, JobState::Done, "stale timer is a no-op");
+    }
+
+    #[tokio::test]
+    async fn stale_conversion_timeout_does_not_kill_current_attempt() {
+        // A timer armed for attempt N fires after attempt N+1 has started with a
+        // fresh flag. The Arc::ptr_eq guard must ignore it.
+        let mut h = harness();
+        let mut j = make_job("a.pdf");
+        let id = j.id.clone();
+        j.state = JobState::Converting;
+        h.state.write().unwrap().jobs.push(j);
+
+        // The live attempt (N+1) registers flag B.
+        let flag_b = Arc::new(AtomicBool::new(false));
+        h.d.converting.insert(id.clone(), flag_b.clone());
+
+        // A stale timer from attempt N fires with a different flag (A).
+        let flag_a = Arc::new(AtomicBool::new(false));
+        h.tx.send(Cmd::ConversionTimeout {
+            id: id.clone(),
+            flag: flag_a.clone(),
+        })
+        .unwrap();
+        h.step();
+
+        assert_eq!(
+            h.job(&id).state,
+            JobState::Converting,
+            "current attempt survives a stale timer"
+        );
+        assert!(!flag_b.load(Ordering::Relaxed), "live flag untouched");
+        assert!(!flag_a.load(Ordering::Relaxed), "stale flag not set");
     }
 }
