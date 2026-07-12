@@ -35,7 +35,7 @@ A master-detail split, mirroring the Profiles screen: a fixed list of configured
 
 ## Printer data model
 
-Each printer is described by the following fields. In M0 these are mock fixtures (`UiPrinter` in `src/types/domain.ts`, data in `src/lib/mockData.ts`); in M1 they are populated from `list_printers` plus a per-printer capability query (see [IPC mapping](#ipc-mapping)).
+Each printer is described by the following fields (`UiPrinter` in `src/types/domain.ts`), populated from `list_printers` plus the per-printer capability query (see [IPC mapping](#ipc-mapping)).
 
 | Field        | Type                                  | Example                              | Source (M1)            |
 | ------------ | ------------------------------------- | ------------------------------------ | ---------------------- |

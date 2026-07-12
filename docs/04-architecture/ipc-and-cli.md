@@ -1,6 +1,6 @@
 # IPC and CLI
 
-> **TL;DR** — The Tauri webview talks to the Rust core via typed `invoke()` commands. The same Rust binary doubles as a headless CLI when launched with `--cli` (or any subcommand). Both surfaces share the same handlers in `src/ipc/`, so anything you can do in the dialog you can do from a script. JSON output mode (`--json`) makes the CLI scripting-friendly. Exit codes are documented.
+> **TL;DR** — The Tauri webview talks to the Rust core via typed `invoke()` commands. A headless CLI mode for the same Rust binary (launched with `--cli` or any subcommand) is planned for M1 — see §3. It will share the same handlers in `src/ipc/`, so anything you can do in the dialog you will be able to do from a script; JSON output mode (`--json`) will make it scripting-friendly. Exit codes are documented.
 
 ## 1. Two surfaces, one core
 
@@ -12,13 +12,14 @@
 +-------------+                +------------------+              +---------------+
                                        ^                                ^
                                        |                                |
-                                  +----+-----+                          |
-                                  | clap CLI |                          |
-                                  | (src/cli/)|-------------------------+
-                                  +----------+
+                                  +----+----------+                     |
+                                  | clap CLI      |                     |
+                                  | (planned, M1) |---------------------+
+                                  | (src/cli/)    |
+                                  +---------------+
 ```
 
-The Rust modules expose a service trait. Both the IPC bridge and the CLI implement thin adapters that translate input (JSON args / argv) into service-trait calls and translate output (Result types / domain values) into JSON for the webview or stdout for the CLI.
+The Rust modules expose a service trait. The IPC bridge implements a thin adapter that translates input (JSON args) into service-trait calls and translates output (Result types / domain values) into JSON for the webview. The CLI (planned, M1 — see §3) will add a sibling adapter doing the same for argv in and stdout out.
 
 ## 2. Tauri IPC commands
 
@@ -38,11 +39,11 @@ All commands live under namespace `app:` (auto-derived) and are declared with `#
 | `open_printer_settings`   | `() => Promise<void>`                                         | `ipc::printers::open_printer_settings`                  | Opens the OS Printers pane          |
 | `add_printer`             | `(name: string, uri: string) => Promise<void>`               | `ipc::printers::add_printer`                            | `lpadmin` IPP Everywhere/raw (macOS/Linux); Microsoft IPP Class Driver, IPP/IPPS-only (Windows); spooler error surfaced verbatim |
 | `get_printer_policy`      | `() => Promise<PrinterPolicy>`                                | `ipc::printers::get_printer_policy`                     | Reads org `policy.json`; default value when absent/malformed |
-| `list_profiles`           | `() => Promise<Profile[]>`                                     | `ipc::profiles::list_profiles`                          | Sorted by `name`                   |
-| `get_profile`             | `(id: string) => Promise<Profile>`                             | `ipc::profiles::get_profile`                            |                                    |
-| `save_profile`            | `(p: Profile) => Promise<Profile>`                             | `ipc::profiles::save_profile`                           | Returns the saved profile (with id) |
-| `delete_profile`          | `(id: string) => Promise<void>`                                | `ipc::profiles::delete_profile`                         | Cannot delete default profile      |
-| `set_default_profile`     | `(id: string) => Promise<void>`                                | `ipc::profiles::set_default_profile`                    |                                    |
+| `list_profiles`           | `() => Promise<Profile[]>`                                     | `ipc::profiles::list_profiles`                          | Built-ins first (canonical order), then customs sorted case-insensitively by name; `default` flag computed from `engine.default_profile` |
+| `get_profile`             | `(id: string) => Promise<Profile>`                             | `ipc::profiles::get_profile`                            | Built-in or custom; `ProfileNotFound` for an unknown id |
+| `save_profile`            | `(p: Profile) => Promise<Profile>`                             | `ipc::profiles::save_profile`                           | **Upsert**: empty id → create (UUID v7); unknown non-empty id → create *preserving that id* (undo); known custom id → update; built-in id → `InvalidRequest` |
+| `delete_profile`          | `(id: string) => Promise<void>`                                | `ipc::profiles::delete_profile`                         | Rejects a built-in and the current default; `ProfileNotFound` for an unknown id |
+| `set_default_profile`     | `(id: string) => Promise<void>`                                | `ipc::profiles::set_default_profile`                    | Writes `config.toml` `[engine].default_profile`; id must name a known profile |
 | `print_files`             | `(req: PrintRequest) => Promise<JobBatch>`                     | `ipc::jobs::print_files`                                | Validates + fans out one job per file; returns batch id + per-file job ids |
 | `queue_status`            | `() => Promise<QueueSnapshot>`                                 | `ipc::jobs::queue_status`                               | One-shot snapshot; live updates arrive via the `queue-updated` event |
 | `cancel_job`              | `(id: string) => Promise<void>`                                | `ipc::jobs::cancel_job`                                 | `JobNotFound` / `InvalidState` on a terminal job |
@@ -55,14 +56,21 @@ All commands live under namespace `app:` (auto-derived) and are declared with `#
 | `clear_done`              | `() => Promise<number>`                                        | `ipc::jobs::clear_done`                                 | Removes terminal jobs (and their cache); returns the count |
 | `inspect_files`           | `(paths: string[]) => Promise<FileInfo[]>`                     | `ipc::jobs::inspect_files`                              | Per-file type/size/page count for the print dialog; bad paths flagged, not thrown |
 | `preview_command`         | `(req: PrintRequest) => Promise<string>`                       | `ipc::jobs::preview_command`                            | Exact `lp` / SumatraPDF command (honesty preview) |
-| `check_for_updates`       | `() => Promise<UpdateInfo \| null>`                            | `ipc::update::check`                                    | `null` = up to date                |
-| `install_update`          | `() => Promise<void>`                                          | `ipc::update::install`                                  | Triggers download + relaunch       |
-| `get_settings`            | `() => Promise<Config>`                                        | `ipc::settings::get`                                    |                                    |
-| `update_settings`         | `(patch: Partial<Config>) => Promise<Config>`                  | `ipc::settings::update`                                 | Deep-merge patch                   |
-| `open_logs_folder`        | `() => Promise<void>`                                          | `ipc::diag::open_logs`                                  | Reveals in Explorer/Finder         |
-| `report_issue`            | `(text: string) => Promise<void>`                              | `ipc::diag::report`                                     | Opens GitHub Issues prefilled URL  |
+| `check_for_updates`       | `() => Promise<UpdateCheck>`                                   | `ipc::update::check_for_updates`                        | Read-only GitHub `releases/latest` (semver compare); 404 = no releases = up-to-date; **no download/install** (that's M4) |
+| `get_app_settings`        | `() => Promise<AppSettings>`                                  | `ipc::settings::get_app_settings`                       | The four wire sections (`app`/`engine`/`updater`/`telemetry`) of `config.toml`; excludes `printers` + `schema_version` |
+| `set_app_settings`        | `(settings: AppSettings) => Promise<AppSettings>`            | `ipc::settings::set_app_settings`                       | **Replace-sections** + validate; returns the saved value |
+| `app_info`                | `() => Promise<AppInfo>`                                      | `ipc::diag::app_info`                                    | Version, build date, config/data/log dirs, os, arch |
+| `open_logs_folder`        | `() => Promise<void>`                                          | `ipc::diag::open_logs_folder`                           | Creates the dir, reveals it in Explorer/Finder |
+| `report_issue`            | `(text: string) => Promise<void>`                              | `ipc::diag::report_issue`                               | Opens a prefilled GitHub new-issue URL with the environment block |
+| `open_external`           | `(url: string) => Promise<void>`                              | `ipc::diag::open_external`                              | HTTPS allow-list only (github.com / maecly.com / *.maecly.com) |
 
-> **Wired today (M1).** The command surface actually registered via `tauri_specta::collect_commands!` (`src-tauri/src/lib.rs`) is `app_info`, the **printer** commands, and the **jobs/queue** commands above. The **profiles**, **settings**, **update**, and **diag** rows are the planned surface for later milestones and are not yet registered — profiles in particular are frontend-local presets in M1 (`src/lib/profiles.ts`), with no `list_profiles`/`save_profile` backend yet.
+> **Wired today (M1).** Every row above is registered via `tauri_specta::collect_commands!` (`src-tauri/src/lib.rs`): the **diagnostic** (`app_info`, `open_logs_folder`, `report_issue`, `open_external`), **printer**, **jobs/queue**, **profiles**, **settings** (`get_app_settings`/`set_app_settings`), and **update** (`check_for_updates`) commands. Profiles are now a real persisted backend (`profiles.toml` + `ipc::profiles`), not the frontend-local presets of earlier drafts. The only update/settings commands *not* yet registered are the **M4** installer path — `install_update`, and the earlier `get_settings`/`update_settings` design was superseded by `get_app_settings`/`set_app_settings` (see the decisions below).
+>
+> **Contract decisions worth calling out** (the shipped surface diverges from earlier drafts of this doc):
+> - **Settings are replace-sections, not deep-merge.** `set_app_settings` overwrites each of the four wire sections wholesale with what the client sends (keeping `printers` + `schema_version`). It is *not* the field-level `update_settings(patch: Partial<Config>)` deep-merge sketched previously; that command does not exist. The client sends a complete `AppSettings`.
+> - **`list_profiles` ordering is built-ins-first, then customs by name** — not a flat name sort. The three built-ins always lead in canonical order (`Quick`, `Duplex BW`, `Photo Color`), then customs case-insensitively by name.
+> - **`save_profile` is an upsert with id-preservation semantics** (see the row above), which is what makes a client-side "undo delete" restore the same id.
+> - **There is no `duplicate_profile` command.** Cloning/duplicating is a client-side draft (a new profile with an empty id) that `save_profile` creates; the backend has no dedicated duplicate verb.
 
 ### 2.2 Type definitions
 
@@ -100,7 +108,7 @@ export type JobSettings = {
 };
 
 // N files sharing one resolved settings bundle. `profile_name` is display/log
-// only — profiles are frontend-local presets in M1 (no backend `Profile` yet).
+// only — dispatch uses the resolved `settings`, not a backend profile lookup.
 export type PrintRequest = {
   files: string[];
   settings: JobSettings;
@@ -154,6 +162,79 @@ export type FileInfo = {
   reason: string | null;         // why unprintable, when !supported
 };
 
+// --- Profiles (profiles/mod.rs). `builtin`/`default` are server-computed and
+//     ignored on input; `duplex`/`quality` use the profile vocabulary, distinct
+//     from JobSettings' engine `Duplex`. ---
+export type ProfileDuplex = "off" | "long-edge" | "short-edge";
+export type Quality       = "draft" | "normal" | "high";
+
+export type Profile = {
+  id: string;                    // built-in slug, or a UUID v7 for customs
+  name: string;                  // 1..=100 chars, unique case-insensitively
+  builtin: boolean;              // computed: id names a built-in
+  default: boolean;              // computed: id === engine.default_profile
+  printer: string;               // printer id, or "<default>" sentinel
+  color_mode: ColorMode;
+  duplex: ProfileDuplex;
+  copies: number;                // 1..=999
+  paper_size: PaperSize;
+  orientation: Orientation;
+  scaling: Scaling;
+  page_range?: string;           // omitted for "all pages" (no "all" sentinel)
+  quality: Quality;
+  tray: string;
+};
+
+// --- App settings (settings/mod.rs). The four wire sections of config.toml;
+//     `printers` and `schema_version` are excluded and preserved server-side. ---
+export type Theme         = "light" | "dark" | "system";
+export type Density       = "comfortable" | "compact";
+export type UpdateChannel = "stable" | "beta" | "nightly";
+
+export type AppCfg = {
+  locale: string;
+  theme: Theme;
+  launch_minimized: boolean;
+  density?: Density;             // serde default "comfortable"
+};
+export type EngineCfg = {
+  max_concurrent_conversions: number;   // 1..=8 (applied at next start)
+  conversion_timeout_seconds: number;   // 0 disables, else 10..=3600
+  max_file_size_mb: number;             // 1..=4096
+  default_profile?: string;             // profile id; absent → builtin-quick
+};
+export type UpdaterCfg   = { channel: UpdateChannel; check_on_startup: boolean };
+export type TelemetryCfg = {
+  crash_reports?: boolean;              // serde default false; consent only
+  anonymous_usage_metrics?: boolean;    // serde default false; consent only
+};
+export type AppSettings = {
+  app: AppCfg; engine: EngineCfg; updater: UpdaterCfg; telemetry: TelemetryCfg;
+};
+
+// --- Update check (update/mod.rs). A check, not an installer. ---
+export type UpdateCheck = {
+  current: string;
+  latest: string | null;         // newest published tag, when found (else 404 → null)
+  available: boolean;            // strictly newer than current
+  url: string | null;            // release page — populated only when available
+  notes: string | null;         // release notes — populated only when available
+  checked_at: string;            // RFC 3339 UTC
+};
+
+// --- Diagnostics (diag.rs). Authoritative app identity from Rust. ---
+export type AppInfo = {
+  version: string;
+  build_date: string;
+  config_dir: string;
+  log_dir: string;
+  data_dir: string;
+  os: string;                    // "macos" | "windows" | "linux"
+  arch: string;                  // "x86_64" | "aarch64"
+};
+
+// Planned (M4): the update-*available* payload the auto-updater will emit once
+// download/install lands. Distinct from the shipped read-only `UpdateCheck`.
 export type UpdateInfo = {
   version: string;
   notes: string;
@@ -228,7 +309,7 @@ Tauri 2's capability system gates **core and plugin** permissions (window, webvi
 
 ## 3. CLI
 
-> **Status: planned, not yet implemented (M1).** The command surface below is the designed CLI contract. It is **not** wired up yet — the current binary runs the GUI only; there is no `--cli` mode, no `clap` subcommands, and no `src/cli/`. This section documents the intended shape (targeted around the M1 "Print Core" milestone); treat every command here as a specification, not a shipped feature. Some IPC commands the mapping in §3.5 targets are live today (jobs/queue, printers); others (profiles, update) are themselves still planned — see the "Wired today" note under §2.1.
+> **Status: planned, not yet implemented (M1).** The command surface below is the designed CLI contract. It is **not** wired up yet — the current binary runs the GUI only; there is no `--cli` mode, no `clap` subcommands, and no `src/cli/`. This section documents the intended shape (targeted around the M1 "Print Core" milestone); treat every command here as a specification, not a shipped feature. Most IPC commands the mapping in §3.5 targets are live today (jobs/queue, printers, profiles, settings, and the read-only `check_for_updates`); only `install_update` remains planned (M4) — see the "Wired today" note under §2.1.
 
 ### 3.1 Entry point
 
@@ -347,36 +428,40 @@ For batches, the worst (highest) exit code among jobs is returned.
 
 ## 4. Error model
 
-A single `IpcError` enum is serialized identically across both surfaces:
+A single `IpcError` enum is serialized to the webview today and will be serialized identically once the CLI (§3) lands:
 
 ```rust
 #[derive(thiserror::Error, Debug, Serialize)]
 #[serde(tag = "code", content = "message")]
 pub enum IpcError {
-    #[error("Profile not found: {0}")]
-    ProfileNotFound(String),
-    #[error("Printer not found: {0}")]
-    PrinterNotFound(String),
     #[error("File not found: {0}")]
     FileNotFound(String),
-    #[error("Unsupported format: {0}")]
-    Unsupported(String),
+    #[error("Invalid request: {0}")]
+    InvalidRequest(String),
+    #[error("Unsupported file format: {0}")]
+    UnsupportedFormat(String),
     #[error("Conversion failed: {0}")]
     ConversionFailed(String),
-    #[error("Print failed: {0}")]
+    #[error("Printing failed: {0}")]
     PrintFailed(String),
+    #[error("Unsupported setting: {0}")]
+    UnsupportedSetting(String),
+    #[error("Missing dependency: {0}")]
+    DependencyMissing(String),
+    #[error("Job not found: {0}")]
+    JobNotFound(String),
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
+    #[error("Profile not found: {0}")]
+    ProfileNotFound(String),
     #[error("Update check failed: {0}")]
     UpdateCheckFailed(String),
-    #[error("Update install failed: {0}")]
-    UpdateInstallFailed(String),
-    #[error("Cancelled")]
-    Cancelled,
     #[error("Internal error: {0}")]
     Internal(String),
 }
 ```
 
-Webview receives `{"code":"FileNotFound","message":"foo.pdf"}`. CLI prints the `Display` form to stderr unless `--json`, in which case the same JSON is written to stderr.
+Webview receives `{"code":"FileNotFound","message":"foo.pdf"}`. The planned CLI (§3) will print the `Display` form to stderr unless `--json`, in which case the same JSON is written to stderr.
 
 ## 5. Stability
 

@@ -1,6 +1,6 @@
 # Testing Strategy
 
-> **TL;DR.** Test pyramid: many fast Rust unit tests, fewer integration tests that spawn real adapters in CI, fewer still end-to-end Playwright tests through the GUI. A "Microsoft Print to PDF" virtual printer is the workhorse of integration testing — every test prints to it and we verify the output. Coverage target: 70% on Rust, 60% on TypeScript, with quality over quantity.
+> **TL;DR.** Test pyramid: many fast Rust unit tests, fewer integration tests that spawn real adapters in CI, fewer still end-to-end WebdriverIO tests through the GUI (Windows/Linux only). A "Microsoft Print to PDF" virtual printer is the workhorse of integration testing — every test prints to it and we verify the output. Coverage target: 70% on Rust, 60% on TypeScript — **aspirational, not gated** — with quality over quantity. Requirement-tied tests carry an `FR-###` / `NFR-###` tag in their name.
 
 This document covers what we test, how, with which tools, and what the acceptance bar looks like.
 
@@ -10,7 +10,7 @@ This document covers what we test, how, with which tools, and what the acceptanc
                 ┌──────────────┐
                 │  Manual QA   │  Pre-release smoke; humans only
                 ├──────────────┤
-                │     E2E      │  ~20 tests; Playwright + tauri-driver
+                │     E2E      │  WebdriverIO + tauri-driver (Win/Linux only)
                 ├──────────────┤
                 │ Integration  │  ~50 tests; real subprocesses, virtual printer
                 ├──────────────┤
@@ -99,16 +99,20 @@ Excluded from coverage:
 
 ### Location
 
-`src-tauri/tests/`. Each `.rs` file is a separate test binary, which means each gets its own clean environment.
+`src-tauri/tests/`. Each `.rs` file is a separate test binary, which means each gets its own clean environment. The suite exists and grows per milestone — today it holds the persistence binaries; the print/queue/shell binaries land with their milestones.
 
 ```
 src-tauri/tests/
-├── pdf_print.rs           # Print a PDF, verify output
-├── docx_print.rs          # Print a DOCX via LibreOffice, verify output
-├── profile_roundtrip.rs   # Save profile to disk, load it back, assert equal
-├── queue_concurrency.rs   # Enqueue 100 jobs concurrently, all complete
-└── shell_handoff.rs       # Spawn shell-ext-win.dll, send IPC, verify receive
+├── profile_roundtrip.rs   # Present: FR-020/021/022/026/027 — CRUD, immutable
+│                          #   built-ins, atomic save, 500 profiles, default rules
+├── settings_persist.rs    # Present: FR-100/101/102/103 — human-readable TOML,
+│                          #   corrupt-file fallback, atomic write, schema_version
+├── pdf_print.rs           # Planned (M3): print a PDF, verify output
+├── queue_concurrency.rs   # Planned: enqueue N jobs concurrently, all complete
+└── shell_handoff.rs       # Planned (M2): spawn shell ext, send IPC, verify
 ```
+
+Test functions that pin a requirement are **named after it** — `fr_020_crud_roundtrip`, `fr_102_atomic_write` — so a failure names the requirement it breaks. Domain logic is unit-tested in-module (`#[cfg(test)]`); these integration binaries exercise the real on-disk read/write paths through a tempdir.
 
 ### Tooling
 
@@ -228,87 +232,80 @@ describe('Button', () => {
 
 ### Mocking Tauri IPC
 
-Tests that depend on `invoke()` mock the Tauri API:
+`src/test/setup.ts` is deliberately thin — it wires `@testing-library/jest-dom` and shims `localStorage` for jsdom's opaque origin. It does **not** globally stub IPC. Instead, each test that needs the bridge installs a **per-test `mockIPC`** from `@tauri-apps/api/mocks` and tears it down with `clearMocks()` in `afterEach`. The handler is usually stateful, so a store's reload-after-write sees a realistic post-mutation snapshot:
 
 ```ts
-// src/test/setup.ts
-import { vi } from 'vitest';
+import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
-}));
-```
+afterEach(() => clearMocks());
 
-Tests then control return values:
-
-```ts
-import { invoke } from '@tauri-apps/api/core';
-
-it('shows loaded profiles', async () => {
-  vi.mocked(invoke).mockResolvedValue([{ id: 'a', name: 'Default' }]);
-  render(<ProfilesPage />);
-  expect(await screen.findByText('Default')).toBeInTheDocument();
+it('FR-022: the default flag moves after set_default_profile', async () => {
+  let list = fixtureProfiles;
+  mockIPC((cmd, args) => {
+    switch (cmd) {
+      case 'list_profiles': return list;
+      case 'set_default_profile':
+        list = list.map((p) => ({ ...p, default: p.id === (args as any).id }));
+        return null;
+    }
+  });
+  // …drive the store, assert the reloaded list…
 });
 ```
+
+Event-driven stores need one extra step. The tauri-specta `events` object drives the event plugin over IPC, which `mockIPC` would also intercept, so those tests `vi.mock('@/ipc/bindings')` to swap **just `events`** for a controllable fake (keeping the real `commands` so `mockIPC` still serves command invokes). `vi.hoisted` makes the fake registry available inside the hoisted `vi.mock` factory. This is the pattern in `queueStore.test.ts`.
 
 ### Coverage target
 
 **60% line coverage** on TypeScript. Lower than Rust because UI code has more code that's hard to test (rendering details, Tailwind utility usage). We don't chase the number; we cover behaviors.
 
-Measured via Vitest's built-in coverage reporter (`pnpm test --coverage`), backed by V8.
+Measured by `pnpm test:coverage` (`vitest run --coverage`) with the `@vitest/coverage-v8` provider — reporters `text`/`html`/`lcov`, output under `coverage/`, non-product files (generated `bindings.ts`, `src/test/**`, config) excluded from the denominator (`vite.config.ts`). **The 60/70% targets are aspirational and not enforced** — CI runs the coverage build and uploads the report as an artifact, but there is no failing threshold gate.
 
 ## End-to-end tests
 
 ### Tooling
 
-- **Playwright** as the test framework.
-- **`tauri-driver`** as the bridge between Playwright and the Tauri app's webview.
-- Tests run against an actual built `maeclyprint(.exe)` binary, not the dev server.
+- **WebdriverIO** as the test framework (`@wdio/cli` + the Mocha framework adapter), configured in `e2e/wdio.conf.ts`.
+- **`tauri-driver`** (a cargo binary, `cargo install tauri-driver --locked`) as the WebDriver bridge to the Tauri webview. On Windows it proxies to the Edge WebDriver (`msedgedriver.exe`) matching the installed WebView2, passed via the `NATIVE_DRIVER` env var.
+- Tests run against an actual built `maeclyprint(.exe)` binary (`pnpm tauri build --debug`), not the dev server. Run locally with `pnpm test:e2e`.
+
+### Platform support — Windows/Linux only
+
+`tauri-driver` supports **Windows and Linux only**; **macOS WKWebView exposes no WebDriver endpoint**, so there is no automated E2E on macOS. macOS is covered instead by the Rust unit/integration suite, the Vitest suite, a **launch smoke** ("does the built app start and stay up"), and manual QA. A parallel **launch smoke** also runs on Windows.
 
 ### Coverage scope
 
-E2E tests are intentionally small in number (~20 tests). They cover **flows**, not features:
+E2E specs live in `e2e/specs/` and are intentionally few — they cover **flows**, not features:
 
-- App launches successfully.
-- User opens Settings, changes the channel, restarts; the change persists.
-- User imports a profile, prints with it; the queue shows the job.
-- User triggers "Check for updates"; the appropriate notification appears.
-- User opens About page; license and version are visible.
+- `launch.spec.ts` — the binary starts and the shell paints.
+- `navigation.spec.ts` — sidebar navigation swaps screens.
+- `about.spec.ts` — About shows version, license, and the update check.
 
-What E2E tests don't cover (we have lower-level tests for these):
+More flows (create a profile and use it; change a setting and confirm it persists across restart) land as the suite grows. What E2E tests don't cover (we have lower-level tests for these): component-level UI behavior (Vitest), print correctness (Rust integration), and the IPC contract (Rust).
 
-- Component-level UI behavior (unit tests).
-- Print correctness (integration tests).
-- IPC contract (Rust tests).
-
-### Test naming and structure
+### Test structure
 
 ```ts
-// e2e/profiles.spec.ts
-import { test, expect } from '@playwright/test';
+// e2e/specs/about.spec.ts — WebdriverIO + Mocha globals
+import { navigateTo } from './helpers';
 
-test.describe('Profiles', () => {
-  test('user creates a profile and uses it', async ({ page }) => {
-    await page.goto('/profiles');
-    await page.getByRole('button', { name: 'New profile' }).click();
-    await page.getByLabel('Name').fill('Draft');
-    await page.getByLabel('Print quality').selectOption('Draft');
-    await page.getByRole('button', { name: 'Save' }).click();
-
-    await expect(page.getByText('Draft')).toBeVisible();
-    // ... use the profile in a print job, verify queue state
+describe('About', () => {
+  it('shows the version and offers an update check', async () => {
+    await navigateTo('about');
+    await expect($('h1')).toHaveText('About');
+    await expect($('button=Check for updates')).toBeDisplayed();
   });
 });
 ```
 
 ### CI integration
 
-E2E tests are slow (multiple seconds per test) and flaky-prone (they depend on a real GUI). We run them:
+Two GUI jobs run on GitHub Actions, both **non-blocking** (`continue-on-error`) because driving a real WebView2 GUI (or launching a GUI on a headless runner) is inherently flake-prone:
 
-- On every PR (full suite, sequentially).
-- On nightly builds.
+- **Smoke launch** — builds the app and asserts it starts and stays up ~10 s. Runs on both `windows-latest` and `macos-latest`.
+- **E2E (WebdriverIO + tauri-driver)** — the `e2e/specs/**` suite on `windows-latest`; installs `tauri-driver` and points it at the Edge WebDriver.
 
-Flake handling: any test that fails twice in a row on `main` gets `test.fail()` applied and an issue opened. We do **not** merge flaky tests forward; we either fix them within a week or delete them.
+The blocking gates are the Rust (`cargo test` on Windows and macOS) and frontend (`pnpm test:coverage`) jobs. Flake handling: a spec that fails repeatedly on `main` is fixed within a week or removed — we don't carry flaky GUI tests forward.
 
 ## Print mock harness
 
@@ -457,20 +454,21 @@ Snapshot files are committed. They are documentation of expected output as much 
 | `cargo test` (in `src-tauri/`) | Unit + integration tests not marked `#[ignore]` |
 | `cargo test --include-ignored` | All tests including subprocess-dependent ones |
 | `cargo test <name>` | Tests matching `<name>` substring |
-| `pnpm test` | Frontend unit tests |
-| `pnpm test:e2e` | E2E tests (requires built binary) |
-| `pnpm check-all` | Everything: lint, typecheck, format-check, all tests |
+| `pnpm test` | Frontend unit tests (`vitest run`) |
+| `pnpm test:coverage` | Frontend tests with V8 coverage (report under `coverage/`) |
+| `pnpm test:e2e` | E2E tests (Windows/Linux; requires a built binary + `tauri-driver`) |
+| `pnpm check-all` | Lint, format-check, typecheck, and the Vitest suite |
 
 ## Test naming
 
 | Layer | Convention |
 |---|---|
-| Rust unit | `test_<scenario>_<expected>` |
-| Rust integration | `test_<feature>_<scenario>_<expected>` |
-| Vitest | Plain English in `it(...)` |
-| Playwright | Plain English in `test(...)`, grouped by `test.describe(...)` |
+| Rust unit | `test_<scenario>_<expected>`, or `<scenario>_<expected>` in a co-located `mod tests` |
+| Rust integration | `fr_<NNN>_<scenario>` when pinning a requirement (e.g. `fr_102_atomic_write`), else `<feature>_<scenario>` |
+| Vitest | Plain English in `it(...)`, prefixed `FR-###:` / `NFR-###:` when it pins a requirement |
+| WebdriverIO | Plain English in `it(...)`, grouped by `describe(...)` |
 
-Names should read as a sentence describing what's true if the test passes. Bad: `test_queue_1`. Good: `test_enqueue_when_full_returns_full_error`.
+Names should read as a sentence describing what's true if the test passes. Bad: `test_queue_1`. Good: `test_enqueue_when_full_returns_full_error`. The `FR`/`NFR` tag is a real, searchable convention — `it('FR-021: built-in profiles are read-only …')`, `fr_020_crud_roundtrip` — so you can grep a requirement id to its tests.
 
 ## See also
 

@@ -6,7 +6,7 @@ This document is the source of truth for what each milestone contains. Anything 
 
 ## Overview
 
-| Milestone | Theme | Public version | Status (2026-07-11) |
+| Milestone | Theme | Public version | Status (2026-07-12) |
 |---|---|---|---|
 | M0 | Foundation | `0.0.1` (repo only) | Done |
 | M1 | Print Core (Win) | `0.1.0-alpha` (internal) | In progress |
@@ -66,19 +66,22 @@ None. M0 is the bootstrap.
 
 **Goal:** Printing works from a CLI on Windows for PDF inputs, with a profiles system and a minimal GUI.
 
-### Status (2026-07-11) — in progress
+### Status (2026-07-12) — in progress
 
 **Delivered:**
 
 - The GUI **print core**: real printer enumeration, capabilities, discovery, add-by-IP/discovery, set-default, and test page (`ipc::printers` + `platform/{cups,windows}`), plus the convert → print pipeline for PDFs (passthrough) and raster images (pure-Rust `image` + `lopdf`), spooled via CUPS `lp` / SumatraPDF.
 - A **persistent print queue**: the single-writer dispatcher (concurrency, retries with backoff, pause/resume/cancel, crash recovery), `queue.json`, and typed `queue-updated` / `job-progress-event` events — wired end-to-end to the Print Job and Queue screens and Home's recent activity.
+- A **persisted profiles backend** (`profiles.toml` for customs, built-ins in code, default in `config.toml`): full CRUD with an editor, clone, delete-with-undo, and set-default (`ipc::profiles`, FR-020/021/022/026/027). This closes the profiles work that was open earlier in M1.
+- **App settings persistence** (`get_app_settings`/`set_app_settings`) with engine limits enforced for real — file-size at submit/inspect, concurrency + conversion timeout at the next app start — plus theme/density dual-write and a default-profile picker.
 - Settings / printer-preferences persistence and an org-managed default via `policy.json`.
+- An **About** surface with the read-only **update check** (GitHub `releases/latest`), honest component versions, filesystem paths + open-logs, and allow-listed external links.
 
 **Still open in M1:**
 
 - The **CLI** (`maeclyprint print|queue|…`) is specified ([ipc-and-cli.md § 3](../04-architecture/ipc-and-cli.md#3-cli)) but not implemented — the binary runs the GUI only.
 - **SumatraPDF bundling** is deferred: the app locates an existing `SumatraPDF.exe`; a missing one is a `DependencyMissing` that pauses the job.
-- A **persisted profiles backend** (`profiles.toml` + IPC); profiles are frontend-local presets today.
+- The update flow is **check-only**: it detects and links to a newer release but does not download or install — the in-app auto-updater is **M4**. Channel selection (beta/nightly) is persisted but not yet wired to separate feeds.
 - Note: several scope lines below are framed Windows-first, but the enumeration/print backends are cross-platform and the CUPS path is exercised in CI.
 
 Shell integration (the right-click menu) is **M2** and not yet started.
@@ -224,7 +227,7 @@ Shell integration (the right-click menu) is **M2** and not yet started.
 - SmartScreen reputation seed: submit installer to Microsoft Defender SmartScreen analytics endpoint via Partner Center.
 - i18n: full English + Spanish translations using `react-i18next` for frontend and `fluent-rs` for backend strings.
 - Polish: empty states, error toasts, progress animations, accessibility audit (keyboard nav, screen reader labels, color contrast WCAG AA).
-- About page with version, build hash, license summary, third-party credits.
+- Auto-updater install path completing the About screen's **check** (shipped in M1): download + verify + relaunch, and beta/nightly channel feeds. The About page itself (version, license, credits, update *check*) already landed in M1; M4 adds the installer and i18n/polish.
 
 ### Deliverables
 

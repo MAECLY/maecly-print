@@ -55,40 +55,28 @@ schema_version = 1
 locale = "en-US"
 theme  = "system"            # "light" | "dark" | "system"
 launch_minimized = false
+density = "comfortable"      # "comfortable" | "compact"
 
-[shell_extension]
-mode = "sparse-msix"         # "sparse-msix" | "registry"
-appear_for_extensions = []   # empty = all; otherwise [".pdf", ".docx", ...]
-hide_for_extensions   = []   # explicit deny-list
+[printers]                   # printer preferences — see § 2.3
 
 [engine]
-max_concurrent_conversions = 4
-conversion_timeout_seconds = 60
-max_file_size_bytes        = 209_715_200    # 200 MiB
-default_profile = "Quick BW Duplex"
-auto_retry_timeouts = false
-
-[engine.converters]
-libreoffice_path = "auto"     # "auto" or absolute path
-imagemagick_path = "auto"
-pandoc_path      = "auto"
-chromium_path    = "auto"
-sumatra_path     = "auto"
+max_concurrent_conversions = 2   # 1..=8; clamped and applied at next app start
+conversion_timeout_seconds = 60  # 0 disables the timeout, else 10..=3600
+max_file_size_mb           = 200 # 1..=4096; enforced at inspect/submit time
+default_profile = "builtin-quick"  # profile *id*; omitted → builtin-quick
 
 [updater]
-channel = "stable"
+channel = "stable"           # "stable" | "beta" | "nightly"
 check_on_startup = true
-startup_delay_seconds = 30
-include_prerelease = false
 
 [telemetry]
-crash_reports = false         # opt-in; false by default
-anonymous_usage_metrics = false
-
-[logging]
-level = "info"                # "trace" | "debug" | "info" | "warn" | "error"
-retain_days = 14
+crash_reports = false            # consent only; nothing is transmitted in this version
+anonymous_usage_metrics = false  # consent only
 ```
+
+Every section beyond `schema_version` is `#[serde(default)]`, so a file written by an older build (missing whole sections) still loads with those sections filled from their defaults. Two fields **skip-serialize when unset**, so a fresh `config.toml` omits them: `engine.default_profile` (absent means `builtin-quick`) and — being an `Option` — is only written once a non-default is chosen. The `[app].density` field also `#[serde(default)]`s to `"comfortable"` for configs written before it existed.
+
+**Dropped for the MVP.** Earlier drafts of this schema listed `[shell_extension]`, `[engine.converters]`, and `[logging]` tables plus `engine.max_file_size_bytes` / `engine.auto_retry_timeouts` and `updater.startup_delay_seconds` / `updater.include_prerelease`. None of those ship today: shell-integration config lands with **M2**, converter paths with the multi-format work (**M3**), and the file-size limit is expressed in **megabytes** (`max_file_size_mb`), not bytes. `default_profile` holds a profile **id** (e.g. `builtin-quick`), not a display name like the old `"Quick BW Duplex"`.
 
 ### 2.2 Rust binding
 
@@ -96,56 +84,60 @@ retain_days = 14
 // src/settings/mod.rs
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default = "default_schema_version")]
     pub schema_version: u32,
-    pub app:    AppCfg,
-    pub shell_extension: ShellExtCfg,
-    pub engine: EngineCfg,
-    pub updater: UpdaterCfg,
-    pub telemetry: TelemetryCfg,
-    pub logging: LoggingCfg,
+    #[serde(default)] pub app:       AppCfg,
+    #[serde(default)] pub printers:  PrinterPrefs,   // see § 2.3
+    #[serde(default)] pub engine:    EngineCfg,
+    #[serde(default)] pub updater:   UpdaterCfg,
+    #[serde(default)] pub telemetry: TelemetryCfg,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct AppCfg {
-    pub locale: String,
-    pub theme:  Theme,
+    pub locale: String,               // default "en-US"
+    pub theme:  Theme,                // default System
     pub launch_minimized: bool,
+    #[serde(default)] pub density: Density,   // default Comfortable
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme { Light, Dark, System }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum Density { #[default] Comfortable, Compact }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct EngineCfg {
-    pub max_concurrent_conversions: u32,
-    pub conversion_timeout_seconds: u64,
-    pub max_file_size_bytes: u64,
-    pub default_profile: String,
-    pub auto_retry_timeouts: bool,
-    pub converters: ConverterPaths,
+    pub max_concurrent_conversions: u32,   // default 2, clamped 1..=8 at boot
+    pub conversion_timeout_seconds: u32,   // default 60; 0 disables
+    pub max_file_size_mb: u32,             // default 200
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_profile: Option<String>,   // profile id; None → builtin-quick
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConverterPaths {
-    pub libreoffice_path: AutoPath,
-    pub imagemagick_path: AutoPath,
-    pub pandoc_path:      AutoPath,
-    pub chromium_path:    AutoPath,
-    pub sumatra_path:     AutoPath,
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct UpdaterCfg {
+    pub channel: UpdateChannel,            // default Stable
+    pub check_on_startup: bool,            // default true
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum AutoPath {
-    Auto(String),                 // "auto"
-    Path(std::path::PathBuf),
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateChannel { #[default] Stable, Beta, Nightly }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct TelemetryCfg {
+    #[serde(default)] pub crash_reports: bool,
+    #[serde(default)] pub anonymous_usage_metrics: bool,
 }
 ```
 
-The `Default` impl provides the values shown above. Reads use `figment::Figment::from(Toml::file(...))` so that env-var overrides (`MAECLYPRINT_ENGINE__MAX_CONCURRENT_CONVERSIONS=8`) are easy.
+The `Default` impl provides the values shown above. Reads go through `Config::load_from(path)` (`toml::from_str`), which degrades to `Config::default()` on any missing/unreadable/unparseable file (FR-101); writes go through `save_to(path)` — a tempfile-plus-rename atomic write (FR-102) serialized by a process-wide `CONFIG_LOCK` so concurrent section-writers can't clobber each other. Both are path-injected so integration tests point at a tempdir (`src-tauri/tests/settings_persist.rs`). The frontend sees the four-section `AppSettings` subset (`app`/`engine`/`updater`/`telemetry`) via `get_app_settings` / `set_app_settings` — `printers` and `schema_version` are excluded and preserved server-side. **Env-var overrides and `notify` hot-reload are not implemented** (an earlier draft described a `figment`/`MAECLYPRINT_*` layering that does not ship); the file is read on demand under the lock.
 
 ### 2.3 `[printers]` — printer preferences (M1)
 
@@ -193,32 +185,32 @@ Every field defaults, so a `config.toml` with no `[printers]` table still loads.
 
 ## 3. `profiles.toml` — print profiles
 
-A profile is a named bundle of print settings. The user can create, rename, duplicate, and delete profiles. One is marked as the default (the one used when invoked from the context menu without a chooser).
+A profile is a named bundle of print settings. The user can create, rename, clone, edit, and delete profiles. One is marked as the default (the one used when invoked from the context menu without a chooser).
+
+**Two things are important about how profiles persist.** First, `profiles.toml` holds **only the user-created customs**; the three built-ins (`builtin-quick`, `builtin-duplex-bw`, `builtin-photo-color`) live in code (`profiles::builtins()`) and are never written to disk — they cannot be edited or deleted, only cloned. Second, **which profile is default is not stored here** — it lives in `config.toml` as `[engine].default_profile` (a profile **id**). The on-disk profile therefore carries neither a `builtin` nor a `default` flag; both are server-computed on every read and stamped onto the wire [`Profile`] the frontend sees. See [profiles-management.md](../05-features/profiles-management.md).
 
 ### 3.1 Schema
 
 ```toml
 schema_version = 1
 
+# Only user-created customs are stored; the three built-ins are in code.
 [[profile]]
-id           = "01HX5K9C1ZAB...01HX"   # ULID, stable
-name         = "Quick BW Duplex"
-printer      = "<default>"             # "<default>" sentinel or printer name
+id           = "018f9c2e-6a10-7b3a-9c4d-2f1e0a8b7c6d"  # UUID v7, stable for life
+name         = "Press A"
+printer      = "<default>"             # "<default>" sentinel or printer id
 color_mode   = "monochrome"            # "color" | "monochrome"
 duplex       = "long-edge"             # "off" | "long-edge" | "short-edge"
 copies       = 1
-paper_size   = "A4"                    # ISO name or "Letter", "Legal", ...
+paper_size   = "A4"                    # ISO name or "Letter", "Legal", "A3"
 orientation  = "auto"                  # "portrait" | "landscape" | "auto"
-scaling      = "fit"                   # "fit" | "shrink" | "actual"
-page_range   = "all"                   # "all" or "1-5,8,11-13"
-collate      = true
+scaling      = "fit"                   # "fit" | "shrink" | "none"
 quality      = "normal"                # "draft" | "normal" | "high"
 tray         = "auto"                  # printer-tray name or "auto"
-margins_mm   = { top = 10, right = 10, bottom = 10, left = 10 }
-notes        = ""
+# page_range is OMITTED for "all pages"; present only for a real expression:
 
 [[profile]]
-id           = "01HX5K9D2..."
+id           = "018f9c2e-6a10-7b3a-9c4d-1a2b3c4d5e6f"
 name         = "Color Single-sided"
 printer      = "HP LaserJet Pro M404dn"
 color_mode   = "color"
@@ -227,52 +219,53 @@ copies       = 1
 paper_size   = "Letter"
 orientation  = "auto"
 scaling      = "fit"
-page_range   = "all"
-collate      = true
 quality      = "high"
 tray         = "auto"
-margins_mm   = { top = 12.7, right = 12.7, bottom = 12.7, left = 12.7 }
+page_range   = "1-5,8,11-13"           # engine grammar; absent means all pages
 ```
 
 ### 3.2 Rust binding
 
+There are two shapes. `StoredProfile` is the on-disk `[[profile]]` entry; the wire `Profile` the frontend sees is `StoredProfile` plus the two server-computed flags (`builtin`, `default`).
+
 ```rust
+// The on-disk entry (profiles/mod.rs). No collate/margins/notes — those are
+// deferred; no builtin/default flag — those are computed, not stored.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Profile {
-    pub id: String,                       // ULID
+pub struct StoredProfile {
+    pub id: String,                       // UUID v7 for customs
     pub name: String,
-    pub printer: PrinterRef,
+    pub printer: String,                  // "<default>" sentinel or printer id
     pub color_mode: ColorMode,
-    pub duplex: Duplex,
-    pub copies: u32,
+    pub duplex: ProfileDuplex,            // "off" | "long-edge" | "short-edge"
+    pub copies: u16,                      // 1..=999
     pub paper_size: PaperSize,
     pub orientation: Orientation,
-    pub scaling: Scaling,
-    pub page_range: PageRange,
-    pub collate: bool,
-    pub quality: Quality,
-    pub tray: Tray,
-    pub margins_mm: Margins,
-    #[serde(default)]
-    pub notes: String,
+    pub scaling: Scaling,                 // "fit" | "shrink" | "none"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_range: Option<String>,       // None == all pages (omitted from TOML)
+    pub quality: Quality,                 // "draft" | "normal" | "high"
+    pub tray: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(untagged)]
-pub enum PrinterRef { Default(DefaultMarker), Named(String) }
+// The wire shape adds the computed flags (ignored on input, recomputed on read).
+pub struct Profile { /* …StoredProfile fields…, */ pub builtin: bool, pub default: bool }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum DefaultMarker { #[serde(rename = "<default>")] Sentinel }
+// The whole file: a version plus the customs. The field is named `profile`
+// (singular) so TOML renders it as `[[profile]]`.
+pub struct ProfilesFile { pub schema_version: u32, pub profile: Vec<StoredProfile> }
 ```
 
-The `<default>` marker is preserved verbatim on round-trip so the file remains human-readable.
+The `<default>` printer sentinel is a plain string preserved verbatim on round-trip (not a tagged enum), so the file stays human-readable. `page_range` is `None`/omitted for "all pages" — there is no `"all"` sentinel. `collate`, `margins_mm`, and `notes` from earlier drafts are **deferred** and not persisted.
 
 ### 3.3 Profile invariants
 
-- `id` is set on creation (ULID) and never changed. Renaming changes `name` only.
-- `name` must be unique within the file; the loader rejects duplicates.
-- `copies` is in `1..=999`.
-- `page_range` is parsed eagerly on load; invalid expressions cause the profile to be marked `disabled` rather than crashing.
+- `id` is set on creation and never changed. Customs get a **UUID v7** (time-sortable); built-ins use fixed slugs. Renaming changes `name` only.
+- `name` must be non-empty, ≤ 100 chars, and unique **case-insensitively** across built-ins and customs. On load, a hand-edited file with duplicate names keeps the first and drops the rest with a warning.
+- `copies` is in `1..=999`; validated on save.
+- `page_range`, when present, must parse against the engine grammar (`engine::pagerange::parse`) at save time; a blank/whitespace value collapses to `None` (all pages).
+- Writes are **atomic** (tempfile + rename, FR-026) and serialized by `PROFILES_LOCK`. Reads tolerate a corrupt file by degrading to built-ins only; *mutations* refuse to touch a corrupt file so user data is never clobbered.
+- The **default** is not a per-profile flag: it is `config.toml`'s `[engine].default_profile` id, resolved to `builtin-quick` when it names no known profile.
 
 ## 4. `queue.json` — live print queue
 
@@ -282,7 +275,7 @@ JSON, not TOML, because:
 - It is machine-managed; not intended for hand-editing.
 - It must be readable in partial form by other tools (e.g., a tray-icon companion).
 
-The file lives at `<data_dir>/queue.json` (`paths::data_dir()`); its wire shape is the `QueueSnapshot` reused verbatim by the `queue_status` IPC command and the `queue-updated` event (see [ipc-and-cli.md](./ipc-and-cli.md)). A resolved `JobSettings` bundle is embedded in each job — there is no `profile_id`/`overrides` split (profiles are frontend-local presets in M1) and no persisted OS spool id.
+The file lives at `<data_dir>/queue.json` (`paths::data_dir()`); its wire shape is the `QueueSnapshot` reused verbatim by the `queue_status` IPC command and the `queue-updated` event (see [ipc-and-cli.md](./ipc-and-cli.md)). A resolved `JobSettings` bundle is embedded in each job — there is no `profile_id`/`overrides` split (settings are resolved at submit time; jobs never reference a profile id) and no persisted OS spool id.
 
 ### 4.1 Schema
 
@@ -455,7 +448,7 @@ Before running migrations, the original file is copied to `<filename>.v<old>.bak
 
 ## 7. Concurrency rules
 
-- **Config and profiles:** read on startup, watched with `notify`, hot-reloaded on change. Writes go through a single `Settings` actor (mpsc) that owns the in-memory value.
+- **Config and profiles:** read on demand (each command loads the file), not watched — `notify` hot-reload is deferred. Writes are atomic (tempfile + rename) and serialized by a process-wide mutex per file: `CONFIG_LOCK` for `config.toml`, `PROFILES_LOCK` for `profiles.toml`. When a command needs both (e.g. `set_default_profile`), the lock order is always `PROFILES_LOCK` → `CONFIG_LOCK` so they can't deadlock.
 - **Queue:** owned by the dispatcher task; persisted on every transition (atomic write). The UI reads via `invoke('queue_status')` which returns a serializable snapshot, not a borrow.
 - **Logs:** `tracing-appender` `non_blocking` queues writes off the hot path.
 

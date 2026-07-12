@@ -63,7 +63,7 @@ A profile provides the baseline; the controls below it are per-invocation overri
 
 | Control      | Options                                   | Wire field (`JobSettings`)                       |
 | ------------ | ----------------------------------------- | ------------------------------------------------ |
-| **Profile**  | built-in + local presets                  | `profile_name` (display/log only)                |
+| **Profile**  | built-in + saved custom profiles          | `profile_name` (display/log only)                |
 | **Printer**  | `System default` + installed printers (minus MaeclyPrint-disabled) | `printer` (`null` = default) |
 | **Sides**    | Single / Long / Short                     | `duplex` = `none` / `long` / `short`             |
 | **Color**    | Color / B&W                               | `color_mode` = `color` / `monochrome`            |
@@ -73,7 +73,7 @@ A profile provides the baseline; the controls below it are per-invocation overri
 | **Scaling**  | Fit / Shrink / 100%                       | `scaling` = `fit` / `shrink` / `none`            |
 | **Page range** | e.g. `1-5,10` (blank = all)             | `page_ranges` (`null` when blank)                |
 
-- **Profiles are local presets in M1** (`src/lib/profiles.ts`): they seed the panel, but the overrides are the real source of truth. There is no profiles backend yet — `profile_name` rides along purely for the log/UI. The persisted-profiles work is a follow-up.
+- **Profiles are backend-persisted** (`list_profiles` / `profiles.toml`, see [profiles-management](./profiles-management.md)), with `BUILT_IN_PROFILES` in `src/lib/profiles.ts` as the static fallback when the backend is unreachable. A profile only seeds the panel — the overrides are the real source of truth and win over it; `profile_name` rides along purely for the log/UI.
 - **Copies** is buffered locally so an out-of-range keystroke shows an inline error instead of being silently clamped; only a valid value flows into the request (`isValidCopies`).
 - **Page range** is validated client-side against a mirror of the engine grammar (`isValidPageRange`) so the Print button reflects intent; the backend re-validates authoritatively (`engine::pagerange::parse`). Ranges apply to PDFs only — images ignore them.
 - **Printer** options come from `list_printers` with MaeclyPrint-disabled queues filtered out (via `get_printer_prefs`).
@@ -120,4 +120,4 @@ See [ipc-and-cli.md](../04-architecture/ipc-and-cli.md) (§ jobs/queue) for the 
 
 - **M0** — front-end only, mock files/settings (superseded).
 - **M1 (current)** — **real end-to-end submission, no mock data.** Files are added via the OS dialog and native drag & drop, inspected with `inspect_files`, validated inline (copies + page-range mirrors), previewed with `preview_command`, and submitted with `print_files` into the real queue. Rust: `src-tauri/src/ipc/jobs.rs` (+ `queue`, `engine`). Frontend: `PrintJobScreen.tsx`, `src/lib/profiles.ts`, `src/lib/ipc.ts`.
-- **Follow-up** — a persisted profiles backend (`profiles.toml` + IPC; today profiles are local presets), additional input formats (Office/HTML/Markdown via the engine's documented converters), folder import, and per-file (rather than per-batch) settings.
+- **Follow-up** — additional input formats (Office/HTML/Markdown via the engine's documented converters), folder import, and per-file (rather than per-batch) settings.

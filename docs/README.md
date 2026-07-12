@@ -81,6 +81,11 @@ These decisions are not up for re-debate during the MVP cycle. They are recorded
 - [Future Features](./05-features/future-features.md) — v2+
 - [Context Menu Actions](./05-features/context-menu-actions.md) — per-file-type submenu items
 - [Printers Management](./05-features/printers-management.md) — printer list, status, capabilities, add/discover
+- [Print Job](./05-features/print-job.md) — the batch composer, settings, resolved-command preview
+- [Queue](./05-features/queue.md) — live job queue, states, retries, views
+- [Profiles Management](./05-features/profiles-management.md) — built-in + custom profiles, editor, default, undo
+- [Settings](./05-features/settings.md) — appearance, engine limits, updates, privacy
+- [About](./05-features/about.md) — version, update check, components, paths, links
 
 ### 06 — Roadmap
 
