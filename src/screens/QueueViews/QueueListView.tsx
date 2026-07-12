@@ -1,7 +1,7 @@
 import { FileGlyph, MPIconButton, StatusDot } from '@/components/ui';
 import { useQueueStore } from '@/stores/queueStore';
 import type { UiQueueJob } from '@/types/domain';
-import type { ConfirmState } from '../QueueScreen';
+import type { ConfirmState } from '@/components/ConfirmDialog';
 
 interface QueueListViewProps {
   jobs: UiQueueJob[];

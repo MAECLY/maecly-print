@@ -45,7 +45,8 @@ export interface QueueCounts {
 interface QueueState {
   snapshot: QueueSnapshot | null;
   status: QueueLoadStatus;
-  error?: string;
+  /** Explicit `| undefined` so `set({ error: undefined })` can clear it. */
+  error?: string | undefined;
   /**
    * Whether the tauri event listeners are registered, so an `init()` retry
    * after a snapshot failure doesn't double-register them.

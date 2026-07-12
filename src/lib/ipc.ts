@@ -1,28 +1,31 @@
 /**
  * Typed IPC wrappers.
  *
- * Printer commands call the tauri-specta–generated typed `commands` in
- * `src/ipc/bindings.ts` and adapt the Rust (snake_case) shapes into the UI
- * `Ui*` types. `app_info` still uses a hand-written wrapper. Every wrapper
- * rejects outside a Tauri host (e.g. the standalone Vite preview) rather than
- * returning fake data, so screens can render an explicit "unavailable" state.
+ * Every wrapper calls the tauri-specta–generated typed `commands` in
+ * `src/ipc/bindings.ts` and adapts the Rust (snake_case) wire shapes into the
+ * UI `Ui*` types. Each rejects outside a Tauri host (e.g. the standalone Vite
+ * preview) rather than returning fake data, so screens can render an explicit
+ * "unavailable" state.
  */
-
-import { invoke } from '@tauri-apps/api/core';
 
 import {
   commands,
+  type AppInfo,
+  type AppSettings,
   type DiscoveredPrinter as IpcDiscoveredPrinter,
   type FileInfo,
   type IpcError,
   type Job,
   type JobBatch,
+  type PaperSize,
   type Printer as IpcPrinter,
   type PrinterPolicy,
   type PrinterPrefs,
   type PrintRequest,
+  type Profile,
   type QueueSnapshot,
   type Supplies as IpcSupplies,
+  type UpdateCheck,
 } from '@/ipc/bindings';
 
 export type {
@@ -31,7 +34,7 @@ export type {
   PrinterPolicy,
 } from '@/ipc/bindings';
 // Queue wire types, re-exported so screens/stores import them from one place
-// (the print-dialog lane reuses PrintRequest/JobBatch/FileInfo/JobSettings).
+// (the print-dialog screen reuses PrintRequest/JobBatch/FileInfo/JobSettings).
 export type {
   FileInfo,
   Job,
@@ -41,24 +44,35 @@ export type {
   PrintRequest,
   QueueSnapshot,
 } from '@/ipc/bindings';
+// Profiles/Settings/About wire types, re-exported for the same single-import
+// convenience. `Profile` is the wire shape; screens render the adapted
+// `UiProfile` (see `toUiProfile`).
+export type {
+  AppInfo,
+  AppSettings,
+  AppCfg,
+  EngineCfg,
+  UpdaterCfg,
+  TelemetryCfg,
+  UpdateChannel,
+  UpdateCheck,
+  Theme,
+  Density,
+  Profile,
+  ColorMode,
+  ProfileDuplex,
+  PaperSize,
+  Orientation,
+  Scaling,
+  Quality,
+} from '@/ipc/bindings';
 import type {
   UiDiscoveredPrinter,
   UiPrinter,
+  UiProfile,
   UiQueueJob,
   UiTonerLevels,
 } from '@/types/domain';
-
-/**
- * Shape returned by the Rust `app_info` command.
- * Mirrors `src-tauri/src/ipc/diag.rs::AppInfo`.
- */
-export interface AppInfoLike {
-  version: string;
-  build_date: string;
-  config_dir: string;
-  data_dir: string;
-  log_dir: string;
-}
 
 /** True when running inside the Tauri host (real IPC available). */
 export function isTauri(): boolean {
@@ -92,9 +106,9 @@ async function unwrap<T>(
 }
 
 /** Returns the live AppInfo from Rust, or rejects in non-Tauri contexts. */
-export async function fetchAppInfo(): Promise<AppInfoLike> {
+export async function fetchAppInfo(): Promise<AppInfo> {
   if (!isTauri()) throw new Error(NO_HOST);
-  return invoke<AppInfoLike>('app_info');
+  return unwrap(commands.appInfo());
 }
 
 // ---------------------------------------------------------------------------
@@ -124,16 +138,16 @@ function toUiPrinter(p: IpcPrinter): UiPrinter {
     driver: p.driver,
     shared: p.shared,
     queue: p.queued_jobs,
-    maxDpi: p.max_dpi ?? undefined,
+    ...(p.max_dpi != null ? { maxDpi: p.max_dpi } : {}),
     papers: p.papers,
     trays: p.trays.map((t) => ({
       name: t.name,
-      paper: t.paper ?? undefined,
-      level: t.level ?? undefined,
+      ...(t.paper != null ? { paper: t.paper } : {}),
+      ...(t.level != null ? { level: t.level } : {}),
     })),
     levels: toLevels(p.supplies),
-    defTray: p.default_tray ?? undefined,
-    defPaper: p.default_paper ?? undefined,
+    ...(p.default_tray != null ? { defTray: p.default_tray } : {}),
+    ...(p.default_paper != null ? { defPaper: p.default_paper } : {}),
   };
 }
 
@@ -347,4 +361,163 @@ export function toUiQueueJob(job: Job): UiQueueJob {
     ui.note = 'Ready to print';
   }
   return ui;
+}
+
+// ---------------------------------------------------------------------------
+// Profiles — the wire `Profile` (lowercase enums) is adapted to the display-
+// cased `UiProfile` the editor renders, and back. `builtin`/`default` are
+// server-computed: whatever we send for them is ignored, and the returned
+// value always reflects the current truth.
+// ---------------------------------------------------------------------------
+
+/** Wire paper size (lowercase) → the display case the UI shows. */
+const PAPER_TO_UI: Record<PaperSize, UiProfile['paper']> = {
+  a4: 'A4',
+  letter: 'Letter',
+  legal: 'Legal',
+  a3: 'A3',
+};
+
+/** Display paper size → wire (lowercase). Inverse of {@link PAPER_TO_UI}. */
+const PAPER_TO_WIRE: Record<string, PaperSize> = {
+  A4: 'a4',
+  Letter: 'letter',
+  Legal: 'legal',
+  A3: 'a3',
+};
+
+/** Adapt a wire [`Profile`] into the display-cased `UiProfile` the editor uses. */
+export function toUiProfile(p: Profile): UiProfile {
+  // color_mode/duplex/orientation/scaling/quality share the profile vocabulary
+  // with the UI, so they pass through verbatim; only paper is re-cased and
+  // page_range is renamed (and dropped when absent).
+  const ui: UiProfile = {
+    id: p.id,
+    name: p.name,
+    builtin: p.builtin,
+    default: p.default,
+    printer: p.printer,
+    color: p.color_mode,
+    duplex: p.duplex,
+    copies: p.copies,
+    paper: PAPER_TO_UI[p.paper_size] ?? p.paper_size,
+    orientation: p.orientation,
+    scaling: p.scaling,
+    quality: p.quality,
+    tray: p.tray,
+  };
+  if (p.page_range != null) ui.pageRange = p.page_range;
+  return ui;
+}
+
+/**
+ * Adapt a `UiProfile` back into the wire [`Profile`]. Inverse of
+ * {@link toUiProfile}: `pageRange` is omitted when empty/absent (the wire omits
+ * `page_range` for "all pages"), and `builtin`/`default` are passed as-is since
+ * the server ignores them.
+ */
+function toWireProfile(p: UiProfile): Profile {
+  const wire: Profile = {
+    id: p.id,
+    name: p.name,
+    builtin: p.builtin,
+    default: p.default ?? false,
+    printer: p.printer,
+    color_mode: p.color,
+    duplex: p.duplex,
+    copies: p.copies,
+    paper_size: PAPER_TO_WIRE[p.paper] ?? (p.paper.toLowerCase() as PaperSize),
+    orientation: p.orientation,
+    scaling: p.scaling,
+    quality: p.quality,
+    tray: p.tray,
+  };
+  if (p.pageRange) wire.page_range = p.pageRange;
+  return wire;
+}
+
+/** Every profile: built-ins first, then customs, each with its computed flags. */
+export async function listProfiles(): Promise<UiProfile[]> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return (await unwrap(commands.listProfiles())).map(toUiProfile);
+}
+
+/**
+ * Create or update a custom profile (upsert), returning the saved profile with
+ * its server-computed flags. An empty id creates; an unknown id creates
+ * preserving that id (client-side undo); a built-in id is rejected.
+ */
+export async function saveProfile(p: UiProfile): Promise<UiProfile> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return toUiProfile(await unwrap(commands.saveProfile(toWireProfile(p))));
+}
+
+/** Delete a custom profile (rejects a built-in or the current default). */
+export async function deleteProfile(id: string): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await unwrap(commands.deleteProfile(id));
+}
+
+/** Set the app's default profile (id must name a known built-in or custom). */
+export async function setDefaultProfile(id: string): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await unwrap(commands.setDefaultProfile(id));
+}
+
+// ---------------------------------------------------------------------------
+// App settings — the four wire sections of `config.toml`. Several fields skip-
+// serialize when unset (telemetry consent, density), so we normalize them to
+// concrete values the UI controls can bind to without undefined checks.
+// ---------------------------------------------------------------------------
+
+/** Fill in the optional serde-default fields so the UI never sees `undefined`. */
+function normalizeAppSettings(s: AppSettings): AppSettings {
+  return {
+    ...s,
+    app: { ...s.app, density: s.app.density ?? 'comfortable' },
+    telemetry: {
+      crash_reports: s.telemetry.crash_reports ?? false,
+      anonymous_usage_metrics: s.telemetry.anonymous_usage_metrics ?? false,
+    },
+  };
+}
+
+/** Read the current app settings, with optional fields normalized. */
+export async function getAppSettings(): Promise<AppSettings> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return normalizeAppSettings(await unwrap(commands.getAppSettings()));
+}
+
+/** Validate and persist app settings; returns the saved (normalized) value. */
+export async function setAppSettings(s: AppSettings): Promise<AppSettings> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return normalizeAppSettings(await unwrap(commands.setAppSettings(s)));
+}
+
+// ---------------------------------------------------------------------------
+// Updates & app links
+// ---------------------------------------------------------------------------
+
+/** Check GitHub for a newer release than the running build. */
+export async function checkForUpdates(): Promise<UpdateCheck> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return unwrap(commands.checkForUpdates());
+}
+
+/** Reveal the app's log directory in the OS file browser. */
+export async function openLogsFolder(): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await unwrap(commands.openLogsFolder());
+}
+
+/** Open a prefilled "new issue" page on the project's GitHub, seeded with `text`. */
+export async function reportIssue(text: string): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await unwrap(commands.reportIssue(text));
+}
+
+/** Open an external link in the default browser (allow-listed project hosts). */
+export async function openExternal(url: string): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await unwrap(commands.openExternal(url));
 }

@@ -14,7 +14,7 @@ import { pluralize } from '@/lib/format';
 import type { UiFile } from '@/types/domain';
 
 /** `report.pdf` + `pdf` → `report`; leaves names without the ext untouched. */
-export function stripExt(name: string, ext: string): string {
+function stripExt(name: string, ext: string): string {
   const suffix = `.${ext}`;
   return name.toLowerCase().endsWith(suffix)
     ? name.slice(0, -suffix.length)

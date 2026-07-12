@@ -12,7 +12,6 @@ export { MPSegmented } from './Segmented';
 export type { SegmentedSize, SegmentedOption } from './Segmented';
 export { MPCheckbox } from './Checkbox';
 export { MPSwitch } from './Switch';
-export { MPDivider } from './Divider';
 export { MPCard } from './Card';
 export { MPSectionLabel } from './SectionLabel';
 export { FileGlyph } from './FileGlyph';

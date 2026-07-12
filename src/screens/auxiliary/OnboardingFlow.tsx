@@ -38,7 +38,9 @@ interface OnboardingFlowProps {
 export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [step, setStep] = useState(0);
   const isLast = step === STEPS.length - 1;
-  const cur = STEPS[step];
+  // Non-null: `step` starts at 0 and the Back/Continue handlers below keep it
+  // within [0, STEPS.length - 1].
+  const cur = STEPS[step]!;
 
   return (
     <div

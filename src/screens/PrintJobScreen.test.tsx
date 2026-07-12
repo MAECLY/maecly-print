@@ -12,7 +12,8 @@ import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 
 import type { FileInfo, PrintRequest } from '@/lib/ipc';
 import type { UiFile } from '@/types/domain';
-import { type PrintJobOverrides } from '@/lib/profiles';
+import { BUILT_IN_PROFILES, type PrintJobOverrides } from '@/lib/profiles';
+import { fixtureProfiles } from '@/test/fixtures';
 import { Toaster } from '@/components/AppShell/Toaster';
 
 // The OS file picker and native drag-drop are module-level Tauri APIs; mock
@@ -49,6 +50,7 @@ vi.mock('@/ipc/bindings', async (importOriginal) => {
 import { PrintJobScreen } from './PrintJobScreen';
 import App from '../App';
 import { useQueueStore } from '@/stores/queueStore';
+import { useProfilesStore } from '@/stores/profilesStore';
 
 interface Call {
   cmd: string;
@@ -77,6 +79,8 @@ function mockJob(opts: MockOpts = {}): Call[] {
         return { batch_id: 'b1', job_ids: opts.jobIds ?? ['j1', 'j2'] };
       case 'queue_status':
         return { schema_version: 1, queue_paused: false, jobs: [] };
+      case 'list_profiles':
+        return fixtureProfiles;
       case 'list_printers':
         return [];
       case 'default_printer':
@@ -123,7 +127,7 @@ function uiFile(path: string): UiFile {
 /** Stateful wrapper so `setFiles`/`setOverrides` behave like the real App. */
 function Harness({ initial = [] }: { initial?: UiFile[] }) {
   const [files, setFiles] = useState<UiFile[]>(initial);
-  const [profile, setProfile] = useState('p1');
+  const [profile, setProfile] = useState('builtin-quick');
   const [overrides, setOverrides] = useState<PrintJobOverrides>({});
   return (
     <>
@@ -149,6 +153,13 @@ function resetStore() {
     counts: { active: 0, pending: 0, done: 0 },
     queuePaused: false,
     recentDone: [],
+  });
+  // Seed as ready so PrintJobScreen's idempotent init() short-circuits — no
+  // async store update lands after a synchronous test body (act warnings).
+  useProfilesStore.setState({
+    status: 'ready',
+    profiles: BUILT_IN_PROFILES,
+    error: undefined,
   });
 }
 
@@ -293,11 +304,13 @@ describe('PrintJobScreen', () => {
     const req = calls.find((c) => c.cmd === 'print_files')!.args
       .req as PrintRequest;
     expect(req.files).toEqual(['/docs/a.pdf', '/docs/b.pdf']);
-    expect(req.profile_name).toBe('Duplex BW'); // App's default profile (p2)
+    // The job follows the app's default profile (Quick) until the user picks
+    // another one explicitly (FR-022).
+    expect(req.profile_name).toBe('Quick');
     expect(req.settings).toMatchObject({
       printer: null,
-      duplex: 'long',
-      color_mode: 'monochrome',
+      duplex: 'none',
+      color_mode: 'color',
       copies: 1,
       paper_size: 'a4',
       orientation: 'auto',

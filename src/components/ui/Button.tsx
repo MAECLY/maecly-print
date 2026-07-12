@@ -4,17 +4,19 @@ import { Icon, type IconName } from '../Icon';
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
+// Optional props take explicit `| undefined` so callers can pass computed
+// values like `disabled={maybe}` under `exactOptionalPropertyTypes`.
 interface MPButtonProps {
-  children?: ReactNode;
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-  icon?: IconName;
-  iconRight?: IconName;
-  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
-  disabled?: boolean;
-  fullWidth?: boolean;
-  type?: 'button' | 'submit' | 'reset';
-  style?: CSSProperties;
+  children?: ReactNode | undefined;
+  variant?: ButtonVariant | undefined;
+  size?: ButtonSize | undefined;
+  icon?: IconName | undefined;
+  iconRight?: IconName | undefined;
+  onClick?: ((e: React.MouseEvent<HTMLButtonElement>) => void) | undefined;
+  disabled?: boolean | undefined;
+  fullWidth?: boolean | undefined;
+  type?: 'button' | 'submit' | 'reset' | undefined;
+  style?: CSSProperties | undefined;
 }
 
 const SIZES = {

@@ -15,7 +15,8 @@ import { toast } from 'sonner';
 import {
   BUILT_IN_PROFILES,
   buildPrintRequest,
-  findProfile,
+  DEFAULT_PRINTER,
+  findProfileIn,
   isValidCopies,
   isValidPageRange,
   type PrintJobOverrides,
@@ -27,6 +28,7 @@ import {
   listPrinters,
   previewCommand,
 } from '@/lib/ipc';
+import { useProfilesStore } from '@/stores/profilesStore';
 import { addPathsToJob } from '@/lib/jobFiles';
 import type { Density } from '@/lib/theme';
 import type { UiFile, UiProfile } from '@/types/domain';
@@ -73,7 +75,18 @@ export function PrintJobScreen({
   density = 'comfortable',
   onPrint,
 }: PrintJobScreenProps) {
-  const profileObj = findProfile(profile);
+  // Profiles come from the shared store (built-ins + customs). Init is
+  // idempotent; the static built-ins are the fallback until it resolves (and
+  // the store's own fallback outside Tauri), so the dropdown is never empty.
+  const storeProfiles = useProfilesStore((s) => s.profiles);
+  const initProfiles = useProfilesStore((s) => s.init);
+  useEffect(() => {
+    void initProfiles();
+  }, [initProfiles]);
+  const profileList =
+    storeProfiles.length > 0 ? storeProfiles : BUILT_IN_PROFILES;
+
+  const profileObj = findProfileIn(profileList, profile);
   const merged = { ...profileObj, ...overrides };
   const tauri = isTauri();
 
@@ -107,7 +120,7 @@ export function PrintJobScreen({
   const printerOptions = Array.from(
     new Set([
       ...printerNames,
-      ...(currentPrinter && currentPrinter !== '<default>'
+      ...(currentPrinter && currentPrinter !== DEFAULT_PRINTER
         ? [currentPrinter]
         : []),
     ]),
@@ -184,7 +197,9 @@ export function PrintJobScreen({
 
   function onProfileChange(id: string): void {
     setProfile(id);
-    setCopiesText(String(overrides.copies ?? findProfile(id).copies));
+    setCopiesText(
+      String(overrides.copies ?? findProfileIn(profileList, id).copies),
+    );
   }
 
   // Honesty preview: the exact command the backend would run, debounced so it
@@ -199,7 +214,7 @@ export function PrintJobScreen({
     }
     const req = buildPrintRequest(
       files.map((f) => f.path),
-      profile,
+      profileObj,
       overrides,
     );
     // `stale` guards the in-flight promise: without it a slow response for
@@ -210,16 +225,15 @@ export function PrintJobScreen({
         .then((s) => {
           if (!stale) setPreview(s);
         })
-        .catch((e) => {
+        .catch(() => {
           if (!stale) setPreview('');
-          console.debug('preview_command failed', e);
         });
     }, 300);
     return () => {
       stale = true;
       clearTimeout(t);
     };
-  }, [canPreview, files, profile, overrides]);
+  }, [canPreview, files, profileObj, overrides]);
 
   const canPrint = files.length > 0 && !copiesError && !rangeError;
 
@@ -411,7 +425,7 @@ export function PrintJobScreen({
             fullWidth
             value={profile}
             onChange={(e) => onProfileChange(e.target.value)}
-            options={BUILT_IN_PROFILES.map((p) => ({
+            options={profileList.map((p) => ({
               value: p.id,
               label: p.name + (p.builtin ? ' · built-in' : ''),
             }))}
@@ -426,7 +440,7 @@ export function PrintJobScreen({
               setOverrides({ ...overrides, printer: e.target.value })
             }
             options={[
-              { value: '<default>', label: 'System default' },
+              { value: DEFAULT_PRINTER, label: 'System default' },
               ...printerOptions.map((n) => ({ value: n, label: n })),
             ]}
           />

@@ -9,10 +9,12 @@ export type BadgeTone =
   | 'info'
   | 'accent';
 
+// Optional props take explicit `| undefined` so callers can pass computed
+// values like `icon={maybe}` under `exactOptionalPropertyTypes`.
 interface MPBadgeProps {
   children: ReactNode;
-  tone?: BadgeTone;
-  icon?: IconName;
+  tone?: BadgeTone | undefined;
+  icon?: IconName | undefined;
 }
 
 const TONES: Record<BadgeTone, { bg: string; fg: string; bd: string }> = {

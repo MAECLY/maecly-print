@@ -1,12 +1,16 @@
 /**
  * Built-in print profiles and the profile → wire-settings mapping.
  *
- * `BUILT_IN_PROFILES` are local presets only in M1: they seed the Print Job
- * screen's settings panel, but the per-invocation overrides panel is the real
- * settings source (FR-040/041). A profile is just a starting point; whatever
- * the user tweaks in the overrides wins. `buildPrintRequest` collapses a
- * profile baseline plus its overrides into the exact [`PrintRequest`] the
- * backend expects (see `src/ipc/bindings.ts`).
+ * `BUILT_IN_PROFILES` are the three server-defined built-ins, mirrored here so
+ * the UI has a static fallback when the backend is unreachable (the standalone
+ * Vite preview) and so `findProfileIn` never comes up empty. The real source of
+ * truth is `list_profiles` (see `profilesStore`); these ids/names/values match
+ * the Rust `builtins()` exactly.
+ *
+ * A profile is a starting point; the Print Job overrides panel is the real
+ * settings source (FR-040/041). `buildPrintRequest` collapses a profile baseline
+ * plus its overrides into the exact [`PrintRequest`] the backend expects (see
+ * `src/ipc/bindings.ts`).
  */
 
 import type {
@@ -17,13 +21,16 @@ import type {
 } from '@/ipc/bindings';
 import type { UiProfile } from '@/types/domain';
 
+/** Sentinel used in the UI for "use the app/OS default printer". */
+export const DEFAULT_PRINTER = '<default>';
+
 export const BUILT_IN_PROFILES: UiProfile[] = [
   {
-    id: 'p1',
+    id: 'builtin-quick',
     name: 'Quick',
     builtin: true,
     default: true,
-    printer: '<default>',
+    printer: DEFAULT_PRINTER,
     color: 'color',
     duplex: 'off',
     copies: 1,
@@ -34,10 +41,10 @@ export const BUILT_IN_PROFILES: UiProfile[] = [
     tray: 'auto',
   },
   {
-    id: 'p2',
+    id: 'builtin-duplex-bw',
     name: 'Duplex BW',
     builtin: true,
-    printer: '<default>',
+    printer: DEFAULT_PRINTER,
     color: 'monochrome',
     duplex: 'long-edge',
     copies: 1,
@@ -48,10 +55,10 @@ export const BUILT_IN_PROFILES: UiProfile[] = [
     tray: 'auto',
   },
   {
-    id: 'p3',
+    id: 'builtin-photo-color',
     name: 'Photo Color',
     builtin: true,
-    printer: '<default>',
+    printer: DEFAULT_PRINTER,
     color: 'color',
     duplex: 'off',
     copies: 1,
@@ -61,52 +68,7 @@ export const BUILT_IN_PROFILES: UiProfile[] = [
     quality: 'high',
     tray: 'auto',
   },
-  {
-    id: 'p4',
-    name: 'Press A · Duplex Long',
-    builtin: false,
-    printer: 'Sharp MX-3071',
-    color: 'color',
-    duplex: 'long-edge',
-    copies: 1,
-    paper: 'A3',
-    orientation: 'auto',
-    scaling: 'fit',
-    quality: 'high',
-    tray: 'Tray 2',
-  },
-  {
-    id: 'p5',
-    name: 'Letterhead Stationery',
-    builtin: false,
-    printer: 'HP LaserJet Pro M404dn',
-    color: 'monochrome',
-    duplex: 'off',
-    copies: 1,
-    paper: 'Letter',
-    orientation: 'portrait',
-    scaling: 'fit',
-    quality: 'high',
-    tray: 'Tray 2',
-  },
-  {
-    id: 'p6',
-    name: 'Zebra Labels',
-    builtin: false,
-    printer: 'Zebra ZD420',
-    color: 'monochrome',
-    duplex: 'off',
-    copies: 1,
-    paper: 'Letter',
-    orientation: 'portrait',
-    scaling: 'none',
-    quality: 'normal',
-    tray: 'Roll',
-  },
 ];
-
-/** Sentinel used in the UI for "use the app/OS default printer". */
-export const DEFAULT_PRINTER = '<default>';
 
 /** Per-invocation tweaks layered on top of the selected profile's baseline. */
 export interface PrintJobOverrides {
@@ -120,9 +82,20 @@ export interface PrintJobOverrides {
   range?: string;
 }
 
-/** Resolve a profile id to its object, falling back to the first profile. */
-export function findProfile(id: string): UiProfile {
-  return BUILT_IN_PROFILES.find((p) => p.id === id) ?? BUILT_IN_PROFILES[0]!;
+/**
+ * Resolve `id` against a live profile list, with a deterministic fallback
+ * chain: exact match → the list's default profile → the first profile → the
+ * first built-in (so this never returns undefined even for an empty list).
+ */
+export function findProfileIn(
+  profiles: UiProfile[],
+  id: string | null | undefined,
+): UiProfile {
+  const match = id != null ? profiles.find((p) => p.id === id) : undefined;
+  if (match) return match;
+  const def = profiles.find((p) => p.default);
+  if (def) return def;
+  return profiles[0] ?? BUILT_IN_PROFILES[0]!;
 }
 
 /** Copies must be an integer in `1..=999` (the server is authoritative too). */
@@ -133,28 +106,83 @@ export function isValidCopies(raw: string): boolean {
   return n >= 1 && n <= 999;
 }
 
+/** Pages are 1-based u32s, so cap what the backend can actually hold. */
+const MAX_PAGE = 0xffff_ffff;
+
+/** A single 1-based page number: digits only (no interior/edge spaces), 1..=u32. */
+function isPageToken(token: string): boolean {
+  if (!/^\d+$/.test(token)) return false;
+  const n = Number(token);
+  return n >= 1 && n <= MAX_PAGE;
+}
+
 /**
  * Client-side mirror of the engine's page-range grammar: comma-separated
- * tokens, each `N` or `N-M` (1-based, `M >= N`). Empty means "all pages". The
- * server re-validates; this only gates the UI so the button reflects intent.
+ * entries, each `N` or `A-B` (1-based, `B >= A`). Empty means "all pages" (the
+ * field is optional and the backend never sees a blank range). The server
+ * re-validates; this only gates the UI so the button reflects intent.
+ *
+ * Whitespace is tolerated only where the Rust parser tolerates it — around
+ * commas and around the `-` of a span — NOT inside a page number. The engine
+ * parses each entry token-by-token (`u32::parse`), so `"1 2"` is two would-be
+ * numbers glued together and is rejected there; stripping all whitespace here
+ * (as this used to) would accept it as `12` and then fail server-side with a
+ * confusing error. See `src-tauri/src/engine/pagerange.rs`.
  */
 export function isValidPageRange(raw: string): boolean {
-  // Whitespace is insignificant anywhere ("1 - 3, 7" is valid), matching the
-  // Rust grammar; pages are 1-based u32s, so cap what the backend can hold.
-  const MAX_PAGE = 0xffff_ffff;
-  const s = raw.replace(/\s+/g, '');
-  if (s === '') return true;
-  for (const token of s.split(',')) {
-    const m = /^(\d+)(?:-(\d+))?$/.exec(token);
-    if (!m) return false;
-    const start = Number(m[1]);
-    if (start < 1 || start > MAX_PAGE) return false;
-    if (m[2] !== undefined) {
-      const end = Number(m[2]);
-      if (end < 1 || end > MAX_PAGE || end < start) return false;
+  if (raw.trim() === '') return true;
+  for (const rawEntry of raw.split(',')) {
+    const entry = rawEntry.trim();
+    if (entry === '') return false; // stray empty entry (",," / "1,") — rejected
+    const dash = entry.indexOf('-');
+    if (dash === -1) {
+      if (!isPageToken(entry)) return false;
+    } else {
+      // Split on the FIRST dash only (mirrors Rust's `split_once`); trim each
+      // side so " 1 - 3 " is fine but "1 2-3" (space inside a number) is not.
+      const lhs = entry.slice(0, dash).trim();
+      const rhs = entry.slice(dash + 1).trim();
+      if (!isPageToken(lhs) || !isPageToken(rhs)) return false;
+      if (Number(rhs) < Number(lhs)) return false;
     }
   }
   return true;
+}
+
+/**
+ * Validate a profile name for the editor. A name must be non-empty when
+ * trimmed, at most 100 characters, and unique (case-insensitive) among
+ * `existing` — excluding the profile being edited (`selfId`). Returns a
+ * user-facing error string, or `null` when the name is acceptable.
+ */
+export function validateProfileName(
+  name: string,
+  existing: UiProfile[],
+  selfId?: string,
+): string | null {
+  const trimmed = name.trim();
+  if (trimmed === '') return 'Enter a profile name.';
+  if (trimmed.length > 100) return 'Name must be 100 characters or fewer.';
+  const lower = trimmed.toLowerCase();
+  const clash = existing.some(
+    (p) => p.id !== selfId && p.name.trim().toLowerCase() === lower,
+  );
+  if (clash) return 'A profile with this name already exists.';
+  return null;
+}
+
+/**
+ * The first of `base`, `"base 2"`, `"base 3"`… whose name is not already taken
+ * (case-insensitive) by `existing`. Used to seed new/cloned drafts with a name
+ * that already passes {@link validateProfileName}.
+ */
+export function nextUniqueName(base: string, existing: UiProfile[]): string {
+  const taken = new Set(existing.map((p) => p.name.trim().toLowerCase()));
+  if (!taken.has(base.trim().toLowerCase())) return base;
+  for (let n = 2; ; n++) {
+    const candidate = `${base} ${n}`;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
 }
 
 /** UI duplex vocabulary → wire `Duplex`. */
@@ -168,17 +196,20 @@ const DUPLEX_TO_WIRE: Record<UiProfile['duplex'], Duplex> = {
  * Collapse a profile baseline plus its overrides into a wire [`JobSettings`].
  * The mapping is intentionally faithful — no hidden flags — so the backend's
  * `preview_command` and the actual dispatch agree with what the UI shows.
+ *
+ * The page range comes from `overrides.range` when set, otherwise the
+ * profile's saved `pageRange`, otherwise "all pages".
  */
 export function toJobSettings(
-  profileId: string,
+  profile: UiProfile,
   overrides: PrintJobOverrides,
 ): JobSettings {
-  const merged = { ...findProfile(profileId), ...overrides };
+  const merged = { ...profile, ...overrides };
   const printer =
     !merged.printer || merged.printer === DEFAULT_PRINTER
       ? null
       : merged.printer;
-  const range = overrides.range?.trim();
+  const range = (overrides.range ?? profile.pageRange ?? '').trim();
   return {
     printer,
     duplex: DUPLEX_TO_WIRE[merged.duplex],
@@ -194,12 +225,12 @@ export function toJobSettings(
 /** Build the full [`PrintRequest`] for `paths` under the given profile/overrides. */
 export function buildPrintRequest(
   paths: string[],
-  profileId: string,
+  profile: UiProfile,
   overrides: PrintJobOverrides,
 ): PrintRequest {
   return {
     files: paths,
-    settings: toJobSettings(profileId, overrides),
-    profile_name: findProfile(profileId).name,
+    settings: toJobSettings(profile, overrides),
+    profile_name: profile.name,
   };
 }

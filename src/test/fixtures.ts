@@ -6,6 +6,8 @@
  */
 
 import type {
+  AppInfo,
+  AppSettings,
   DiscoveredPrinter,
   Job,
   JobError,
@@ -13,7 +15,9 @@ import type {
   JobSettings,
   JobState,
   Printer,
+  Profile,
   QueueSnapshot,
+  UpdateCheck,
 } from '@/ipc/bindings';
 
 export const fixturePrinters: Printer[] = [
@@ -75,7 +79,7 @@ export const fixtureDiscovered: DiscoveredPrinter[] = [
  * PDF"). `kind: 'virtual'` maps to `type: 'virtual'` in the UI, which must
  * hide the Remove action but keep Restore/soft-disable working.
  */
-export const fixtureVirtualPrinter: Printer = {
+const fixtureVirtualPrinter: Printer = {
   id: 'SAVE_AS_PDF',
   name: 'Save as PDF',
   kind: 'virtual',
@@ -159,7 +163,7 @@ export function mkJob(o: JobOverrides): Job {
 }
 
 /** One job in every lifecycle state (incl. converted + interrupted-by-shutdown). */
-export const fixtureJobs: Job[] = [
+const fixtureJobs: Job[] = [
   mkJob({
     id: 'j-printing',
     state: 'printing',
@@ -221,4 +225,155 @@ export const fixtureQueueSnapshot: QueueSnapshot = {
   schema_version: 1,
   queue_paused: false,
   jobs: fixtureJobs,
+};
+
+// ---------------------------------------------------------------------------
+// Profiles — wire-shaped `Profile`s (lowercase enums, `page_range` omitted when
+// "all pages"). The three built-ins mirror the Rust `builtins()` exactly; the
+// `default` flag is what `list_profiles` computes (Quick is the default when
+// `engine.default_profile` is None), plus one custom profile.
+// ---------------------------------------------------------------------------
+
+export const fixtureProfiles: Profile[] = [
+  {
+    id: 'builtin-quick',
+    name: 'Quick',
+    builtin: true,
+    default: true,
+    printer: '<default>',
+    color_mode: 'color',
+    duplex: 'off',
+    copies: 1,
+    paper_size: 'a4',
+    orientation: 'auto',
+    scaling: 'fit',
+    quality: 'normal',
+    tray: 'auto',
+  },
+  {
+    id: 'builtin-duplex-bw',
+    name: 'Duplex BW',
+    builtin: true,
+    default: false,
+    printer: '<default>',
+    color_mode: 'monochrome',
+    duplex: 'long-edge',
+    copies: 1,
+    paper_size: 'a4',
+    orientation: 'auto',
+    scaling: 'fit',
+    quality: 'normal',
+    tray: 'auto',
+  },
+  {
+    id: 'builtin-photo-color',
+    name: 'Photo Color',
+    builtin: true,
+    default: false,
+    printer: '<default>',
+    color_mode: 'color',
+    duplex: 'off',
+    copies: 1,
+    paper_size: 'a4',
+    orientation: 'auto',
+    scaling: 'none',
+    quality: 'high',
+    tray: 'auto',
+  },
+  {
+    id: '01890a5e-7b2c-7c3d-8e4f-1a2b3c4d5e6f',
+    name: 'Contracts duplex',
+    builtin: false,
+    default: false,
+    printer: 'HL_L2350',
+    color_mode: 'monochrome',
+    duplex: 'long-edge',
+    copies: 2,
+    paper_size: 'letter',
+    orientation: 'portrait',
+    scaling: 'shrink',
+    quality: 'normal',
+    tray: 'auto',
+  },
+];
+
+/** Build a wire `Profile` with realistic custom defaults; override per test. */
+export function mkProfile(overrides: Partial<Profile> = {}): Profile {
+  return {
+    id: 'custom-1',
+    name: 'Custom profile',
+    builtin: false,
+    default: false,
+    printer: '<default>',
+    color_mode: 'color',
+    duplex: 'off',
+    copies: 1,
+    paper_size: 'a4',
+    orientation: 'auto',
+    scaling: 'fit',
+    quality: 'normal',
+    tray: 'auto',
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// App settings / About — wire-shaped defaults for `get_app_settings`,
+// `app_info`, and `check_for_updates`.
+// ---------------------------------------------------------------------------
+
+/** Default app settings (matches the Rust `Config` defaults). */
+export const fixtureAppSettings: AppSettings = {
+  app: {
+    locale: 'en-US',
+    theme: 'system',
+    launch_minimized: false,
+    density: 'comfortable',
+  },
+  engine: {
+    max_concurrent_conversions: 2,
+    conversion_timeout_seconds: 60,
+    max_file_size_mb: 200,
+    default_profile: null,
+  },
+  updater: {
+    channel: 'stable',
+    check_on_startup: true,
+  },
+  telemetry: {
+    crash_reports: false,
+    anonymous_usage_metrics: false,
+  },
+};
+
+/** Live app info from the `app_info` command (with os/arch). */
+export const fixtureAppInfo: AppInfo = {
+  version: '1.0.0',
+  build_date: '2026-07-01',
+  config_dir:
+    '/Users/maecly/Library/Application Support/com.maecly.maeclyprint',
+  data_dir: '/Users/maecly/Library/Application Support/com.maecly.maeclyprint',
+  log_dir: '/Users/maecly/Library/Logs/com.maecly.maeclyprint',
+  os: 'macos',
+  arch: 'aarch64',
+};
+
+/** Update check when the running build is already the latest release. */
+export const fixtureUpdateCheckUpToDate: UpdateCheck = {
+  current: '1.0.0',
+  latest: '1.0.0',
+  available: false,
+  url: null,
+  notes: null,
+  checked_at: '2026-07-11T10:00:00Z',
+};
+
+/** Update check when a newer release (9.9.9) is available. */
+export const fixtureUpdateCheckAvailable: UpdateCheck = {
+  current: '1.0.0',
+  latest: '9.9.9',
+  available: true,
+  url: 'https://github.com/maecly/maeclyprint/releases/tag/v9.9.9',
+  notes: '## 9.9.9\n\n- Everything is better now.',
+  checked_at: '2026-07-11T10:00:00Z',
 };

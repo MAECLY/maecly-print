@@ -1,12 +1,13 @@
 /**
- * Domain types — frontend mirror of the IPC contract.
+ * Domain types — the UI-facing (`Ui*`) shapes the screens render.
  *
- * These shapes match the documented schema in
- * `docs/04-architecture/ipc-and-cli.md` §2.2 and `data-model.md`.
- *
- * In M1 these are superseded by the auto-generated `bindings.ts` produced
- * by tauri-specta. For this scaffold (visual-only), they are the source
- * of truth for component props and mock data.
+ * The wire contract lives in the auto-generated `src/ipc/bindings.ts`
+ * (snake_case, matching the Rust serialization). The adapters in
+ * `src/lib/ipc.ts` (`toUiPrinter`, `toUiQueueJob`, `toUiProfile`, …) translate
+ * those wire shapes into the `Ui*` types below — display-cased enums, flattened
+ * fields, and camelCase names. Treat these as the source of truth for component
+ * props; the wire types are re-exported from `src/lib/ipc.ts` where a screen
+ * needs them directly.
  */
 
 // Note: the wire types for the queue and the print dialog (Job, JobSettings,
@@ -25,9 +26,8 @@ export type JobState =
   | 'cancelled';
 
 /**
- * Lightweight UI-only representations used by the mock data and the
- * mockup-faithful screens in this scaffold milestone. M1 will collapse
- * these into the real `Job` and `Profile` shapes once IPC is wired.
+ * Lightweight UI-only representations the screens render. They are populated
+ * from live IPC via the `toUi*` adapters in `src/lib/ipc.ts`.
  */
 export type UiPrinterType = 'laser' | 'mfp' | 'wide' | 'label' | 'virtual';
 
@@ -97,6 +97,8 @@ export interface UiProfile {
   scaling: 'fit' | 'shrink' | 'none';
   quality: 'draft' | 'normal' | 'high';
   tray: string;
+  /** Page-range expression (e.g. "1-5,8"); absent means all pages. */
+  pageRange?: string;
 }
 
 export interface UiFile {

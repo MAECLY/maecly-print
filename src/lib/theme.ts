@@ -1,3 +1,18 @@
+/**
+ * Appearance (theme + density) — a localStorage-backed, instant-boot cache.
+ *
+ * Dual-write contract: appearance lives in two places. `localStorage` (the
+ * keys below) is an INSTANT-BOOT CACHE — it lets the very first paint pick the
+ * right theme before any IPC round-trip resolves, so the window never flashes.
+ * The backend config (`app.theme` / `app.density`, via the settings store) is
+ * the SOURCE OF TRUTH. On divergence the BACKEND WINS: after the settings
+ * store loads, the Settings screen (and later App) reconciles the cache to the
+ * persisted value. Every user change is written to BOTH — the hooks here update
+ * the cache + in-memory state, and the screen persists the same value to the
+ * backend. These hooks stay DOM/localStorage-only; they never call IPC, so the
+ * two sides can be swapped or tested independently.
+ */
+
 import { useEffect, useState, useCallback } from 'react';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -38,14 +53,12 @@ export function useTheme() {
       : (readStoredTheme() as ResolvedTheme),
   );
 
-  // Apply on mount and when mode changes.
   useEffect(() => {
     const next: ResolvedTheme = mode === 'system' ? getSystemTheme() : mode;
     setResolved(next);
     applyTheme(next);
   }, [mode]);
 
-  // Watch system preference when mode === 'system'.
   useEffect(() => {
     if (mode !== 'system') return;
     if (typeof window === 'undefined' || !window.matchMedia) return;

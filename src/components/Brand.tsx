@@ -9,7 +9,7 @@ interface MPGlyphProps {
   bg?: string;
 }
 
-export function MPGlyph({ size = 24, color, bg }: MPGlyphProps) {
+function MPGlyph({ size = 24, color, bg }: MPGlyphProps) {
   const c = color || 'currentColor';
   const b = bg || 'var(--mp-bg)';
   return (

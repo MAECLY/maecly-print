@@ -8,11 +8,13 @@ import { useDensity, useTheme, type ResolvedTheme } from '@/lib/theme';
 import {
   BUILT_IN_PROFILES,
   buildPrintRequest,
-  findProfile,
+  findProfileIn,
 } from '@/lib/profiles';
 import { isTauri, printFiles } from '@/lib/ipc';
 import { addPathsToJob } from '@/lib/jobFiles';
+import { useProfilesStore } from '@/stores/profilesStore';
 import { useQueueStore } from '@/stores/queueStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { pluralize } from '@/lib/format';
 import type { UiFile } from '@/types/domain';
 
@@ -39,27 +41,36 @@ function readOnboardingDone() {
 }
 
 function App() {
-  const { resolved, setMode } = useTheme();
+  const { mode, resolved, setMode } = useTheme();
   const { density, setDensity } = useDensity();
   const [active, setActive] = useState<ScreenId>('home');
   const [onboardingDone, setOnboardingDone] = useState(readOnboardingDone);
 
-  // Print job state
+  // Print job state. `profileChoice` is the user's explicit selection; while
+  // null the job follows the app's default profile, so changing the default in
+  // Settings/Profiles retargets future jobs until the user picks one manually.
   const [files, setFiles] = useState<UiFile[]>([]);
-  const [profile, setProfile] = useState(BUILT_IN_PROFILES[1]!.id); // Duplex BW default
+  const [profileChoice, setProfileChoice] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<PrintJobOverrides>({});
+  const profiles = useProfilesStore((s) => s.profiles);
+  const profilesStatus = useProfilesStore((s) => s.status);
+  const initProfiles = useProfilesStore((s) => s.init);
+  const effectiveProfileId = findProfileIn(profiles, profileChoice).id;
 
   // Queue state (jobs live in the queue store; App owns only the view toggle)
   const [queueView, setQueueView] = useState<QueueView>('list');
   const initQueue = useQueueStore((s) => s.init);
   const queueCount = useQueueStore((s) => s.counts.active + s.counts.pending);
 
-  // Profile selection
+  // App settings (backend config.toml): loaded once; appearance reconciles below.
+  const initSettings = useSettingsStore((s) => s.init);
+  const settings = useSettingsStore((s) => s.settings);
+
   const [selectedProfileId, setSelectedProfileId] = useState(
     BUILT_IN_PROFILES[0]!.id,
   );
 
-  // Initial theme application
+  // Fallback so the document is never class-less before useTheme's first apply.
   useEffect(() => {
     if (
       typeof document !== 'undefined' &&
@@ -74,6 +85,36 @@ function App() {
   useEffect(() => {
     void initQueue();
   }, [initQueue]);
+
+  // Load profiles and app settings once (both idempotent, retryable).
+  useEffect(() => {
+    void initProfiles();
+    void initSettings();
+  }, [initProfiles, initSettings]);
+
+  // Appearance reconcile: localStorage applied instantly at boot (no flash);
+  // once the backend config arrives it is the source of truth and overwrites
+  // a diverging local value (the setters keep localStorage in sync).
+  useEffect(() => {
+    if (!settings) return;
+    if (settings.app.theme !== mode) setMode(settings.app.theme);
+    if (settings.app.density && settings.app.density !== density) {
+      setDensity(settings.app.density);
+    }
+    // Reconcile only when the backend value changes, not on local edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings?.app.theme, settings?.app.density]);
+
+  // A deleted custom profile silently falls back to the app default. Only act
+  // when the store is authoritative ('ready'); while it is loading/error/
+  // unavailable the list can be transiently empty or stale, and clearing an
+  // explicit choice then would wipe the user's selection for no reason.
+  useEffect(() => {
+    if (profilesStatus !== 'ready') return;
+    if (profileChoice && !profiles.some((p) => p.id === profileChoice)) {
+      setProfileChoice(null);
+    }
+  }, [profiles, profileChoice, profilesStatus]);
 
   // App-level drag & drop (FR-007): the Home screen advertises "drag them
   // here", so drops must work from any screen, not only while the Print Job
@@ -128,9 +169,13 @@ function App() {
     }
     if (files.length === 0 || submittingRef.current) return;
     submittingRef.current = true;
+    const profileObj = findProfileIn(
+      useProfilesStore.getState().profiles,
+      profileChoice,
+    );
     const req = buildPrintRequest(
       files.map((f) => f.path),
-      profile,
+      profileObj,
       overrides,
     );
     const id = toast.loading(
@@ -141,7 +186,7 @@ function App() {
       const n = batch.job_ids.length;
       toast.success(`${n} ${pluralize(n, 'job')} queued`, {
         id,
-        description: findProfile(profile).name,
+        description: profileObj.name,
       });
       setFiles([]);
       setActive('queue');
@@ -184,8 +229,8 @@ function App() {
               <PrintJobScreen
                 files={files}
                 setFiles={setFiles}
-                profile={profile}
-                setProfile={setProfile}
+                profile={effectiveProfileId}
+                setProfile={setProfileChoice}
                 overrides={overrides}
                 setOverrides={setOverrides}
                 density={density}
@@ -206,6 +251,8 @@ function App() {
               <SettingsScreen
                 theme={resolved}
                 setTheme={(t: ResolvedTheme) => setMode(t)}
+                mode={mode}
+                setMode={setMode}
                 density={density}
                 setDensity={setDensity}
               />

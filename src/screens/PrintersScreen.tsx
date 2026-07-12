@@ -6,6 +6,8 @@ import {
   type ReactNode,
 } from 'react';
 
+import { CenteredNotice } from '@/components/CenteredNotice';
+import { ConfirmDialog, type ConfirmState } from '@/components/ConfirmDialog';
 import { Icon, type IconName } from '@/components/Icon';
 import {
   MPBadge,
@@ -233,143 +235,6 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function CenteredNotice({
-  loading,
-  error,
-}: {
-  loading: boolean;
-  error: string | null;
-}) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 10,
-        padding: 24,
-        textAlign: 'center',
-      }}
-    >
-      {loading ? (
-        <div
-          style={{
-            width: 22,
-            height: 22,
-            border: '2px solid var(--mp-surface3)',
-            borderTopColor: 'var(--mp-accent)',
-            borderRadius: '50%',
-            animation: 'mp-spin 0.9s linear infinite',
-          }}
-        />
-      ) : (
-        <Icon name="printer" size={26} color="var(--mp-textDim)" />
-      )}
-      <div style={{ fontSize: 13.5, fontWeight: 500 }}>
-        {loading
-          ? 'Detecting printers…'
-          : error
-            ? 'Printers unavailable'
-            : 'No printers installed'}
-      </div>
-      <div
-        style={{
-          fontSize: 12,
-          color: 'var(--mp-textMuted)',
-          maxWidth: 380,
-          lineHeight: 1.5,
-        }}
-      >
-        {loading
-          ? 'Reading the system print spooler.'
-          : (error ??
-            'Use "Add printer" to install one from the network or by IP address, or press Rescan.')}
-      </div>
-    </div>
-  );
-}
-
-interface ConfirmState {
-  title: string;
-  message: string;
-  confirmLabel: string;
-  run: () => void | Promise<void>;
-}
-
-/**
- * In-app confirmation dialog. We can't use `window.confirm` — WKWebView (the
- * macOS Tauri webview) doesn't implement JS dialogs, so it silently returns
- * `false`. This renders a real modal that works everywhere.
- */
-function ConfirmDialog({
-  state,
-  onClose,
-}: {
-  state: ConfirmState;
-  onClose: () => void;
-}) {
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'absolute',
-        inset: 0,
-        background: 'rgba(20,18,14,0.42)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 50,
-        backdropFilter: 'blur(2px)',
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: 360,
-          background: 'var(--mp-surface)',
-          border: '1px solid var(--mp-border)',
-          borderRadius: 12,
-          boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
-          padding: 18,
-        }}
-      >
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
-          {state.title}
-        </div>
-        <div
-          style={{
-            fontSize: 12.5,
-            color: 'var(--mp-textMuted)',
-            lineHeight: 1.5,
-            marginBottom: 16,
-          }}
-        >
-          {state.message}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <MPButton variant="ghost" size="sm" onClick={onClose}>
-            Cancel
-          </MPButton>
-          <MPButton
-            variant="primary"
-            size="sm"
-            onClick={() => {
-              onClose();
-              void state.run();
-            }}
-          >
-            {state.confirmLabel}
-          </MPButton>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function PrintersScreen() {
   const [printers, setPrinters] = useState<UiPrinter[] | null>(null);
   const [prefs, setPrefs] = useState<PrinterPrefs>({});
@@ -511,7 +376,9 @@ export function PrintersScreen() {
     );
   }
 
-  const sel = printers.find((p) => p.id === selectedId) ?? printers[0];
+  // Non-null: the null/empty-printers case returned early above, so
+  // `printers[0]` always exists here.
+  const sel = printers.find((p) => p.id === selectedId) ?? printers[0]!;
   const tm = TYPE_META[sel.type];
   const sm = STATUS_META[sel.status];
 
