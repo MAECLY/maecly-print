@@ -6,7 +6,7 @@ import {
   MPSectionLabel,
   MPTopBar,
 } from '@/components/ui';
-import { MP_PROFILES } from '@/lib/mockData';
+import { BUILT_IN_PROFILES as MP_PROFILES } from '@/lib/profiles';
 
 interface ProfilesScreenProps {
   selectedId: string;

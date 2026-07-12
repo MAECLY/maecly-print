@@ -10,7 +10,11 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
     {
       key: 'queued',
       label: 'Queued',
-      items: jobs.filter((j) => j.status === 'queued' || j.status === 'paused'),
+      // `converted` (PDF ready, waiting for a printer) has no column of its own;
+      // it belongs with the not-yet-printing work.
+      items: jobs.filter((j) =>
+        ['queued', 'paused', 'converted'].includes(j.status),
+      ),
     },
     {
       key: 'converting',
@@ -25,7 +29,9 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
     {
       key: 'done',
       label: 'Done',
-      items: jobs.filter((j) => ['done', 'failed'].includes(j.status)),
+      items: jobs.filter((j) =>
+        ['done', 'failed', 'cancelled'].includes(j.status),
+      ),
     },
   ];
   return (

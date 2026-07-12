@@ -1,40 +1,168 @@
+import { useState } from 'react';
+import { toast } from 'sonner';
+
+import { Icon } from '@/components/Icon';
 import { MPButton, MPSegmented, MPTopBar } from '@/components/ui';
-import type { UiQueueJob } from '@/types/domain';
+import { useQueueStore } from '@/stores/queueStore';
 import { QueueListView } from './QueueViews/QueueListView';
 import { QueueBoardView } from './QueueViews/QueueBoardView';
 import { QueueTimelineView } from './QueueViews/QueueTimelineView';
 
 export type QueueView = 'list' | 'board' | 'timeline';
 
+/** A pending confirmation surfaced by the in-app modal (never window.confirm). */
+export interface ConfirmState {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  run: () => void | Promise<void>;
+}
+
 interface QueueScreenProps {
-  jobs: UiQueueJob[];
-  setJobs: (jobs: UiQueueJob[]) => void;
   view: QueueView;
   setView: (v: QueueView) => void;
 }
 
-export function QueueScreen({
-  jobs,
-  setJobs,
-  view,
-  setView,
-}: QueueScreenProps) {
-  const groups = {
-    active: jobs.filter((j) =>
-      ['printing', 'converting', 'converted'].includes(j.status),
-    ),
-    pending: jobs.filter((j) => ['queued', 'paused'].includes(j.status)),
-    done: jobs.filter((j) =>
-      ['done', 'failed', 'cancelled'].includes(j.status),
-    ),
-  };
+/**
+ * In-app confirmation dialog. `window.confirm` is a no-op in WKWebView (the
+ * macOS Tauri webview), so we render a real modal. Shared with QueueListView.
+ */
+export function ConfirmDialog({
+  state,
+  onClose,
+}: {
+  state: ConfirmState;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        background: 'rgba(20,18,14,0.42)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 50,
+        backdropFilter: 'blur(2px)',
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 360,
+          background: 'var(--mp-surface)',
+          border: '1px solid var(--mp-border)',
+          borderRadius: 12,
+          boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
+          padding: 18,
+        }}
+      >
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
+          {state.title}
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: 'var(--mp-textMuted)',
+            lineHeight: 1.5,
+            marginBottom: 16,
+          }}
+        >
+          {state.message}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <MPButton variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </MPButton>
+          <MPButton
+            variant="primary"
+            size="sm"
+            onClick={() => {
+              onClose();
+              void state.run();
+            }}
+          >
+            {state.confirmLabel}
+          </MPButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Centered loading / unavailable / empty state for the queue body. */
+function QueueNotice({
+  spinner,
+  title,
+  body,
+}: {
+  spinner: boolean;
+  title: string;
+  body: string;
+}) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        padding: 24,
+        textAlign: 'center',
+      }}
+    >
+      {spinner ? (
+        <div
+          style={{
+            width: 22,
+            height: 22,
+            border: '2px solid var(--mp-surface3)',
+            borderTopColor: 'var(--mp-accent)',
+            borderRadius: '50%',
+            animation: 'mp-spin 0.9s linear infinite',
+          }}
+        />
+      ) : (
+        <Icon name="queue" size={26} color="var(--mp-textDim)" />
+      )}
+      <div style={{ fontSize: 13.5, fontWeight: 500 }}>{title}</div>
+      <div
+        style={{
+          fontSize: 12,
+          color: 'var(--mp-textMuted)',
+          maxWidth: 380,
+          lineHeight: 1.5,
+        }}
+      >
+        {body}
+      </div>
+    </div>
+  );
+}
+
+export function QueueScreen({ view, setView }: QueueScreenProps) {
+  const status = useQueueStore((s) => s.status);
+  const error = useQueueStore((s) => s.error);
+  const uiJobs = useQueueStore((s) => s.uiJobs);
+  const counts = useQueueStore((s) => s.counts);
+  const queuePaused = useQueueStore((s) => s.queuePaused);
+  const pauseQueue = useQueueStore((s) => s.pauseQueue);
+  const resumeQueue = useQueueStore((s) => s.resumeQueue);
+  const clearDone = useQueueStore((s) => s.clearDone);
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
 
   const subtitle =
     view === 'board'
       ? 'Board view — kanban across job phases'
       : view === 'timeline'
         ? 'Timeline — chronological, with durations'
-        : `${groups.active.length} active · ${groups.pending.length} pending · ${groups.done.length} done`;
+        : `${counts.active} active · ${counts.pending} pending · ${counts.done} done`;
 
   const viewToggle = (
     <MPSegmented<QueueView>
@@ -49,30 +177,117 @@ export function QueueScreen({
     />
   );
 
+  const requestClearDone = () => {
+    setConfirm({
+      title: 'Clear finished jobs',
+      message: `Clear ${counts.done} finished ${
+        counts.done === 1 ? 'job' : 'jobs'
+      }? This removes them from history.`,
+      confirmLabel: 'Clear done',
+      run: async () => {
+        const removed = await clearDone();
+        // `null` = the backend call failed; the store already showed the
+        // error toast, so a success toast here would be a lie.
+        if (removed !== null) {
+          toast.success(
+            `Cleared ${removed} finished ${removed === 1 ? 'job' : 'jobs'}`,
+          );
+        }
+      },
+    });
+  };
+
+  const topBar = (
+    <MPTopBar
+      title="Queue"
+      subtitle={subtitle}
+      right={
+        view === 'list' ? (
+          <>
+            {viewToggle}
+            <MPButton
+              variant="ghost"
+              icon={queuePaused ? 'play' : 'pause'}
+              size="sm"
+              onClick={() => void (queuePaused ? resumeQueue() : pauseQueue())}
+            >
+              {queuePaused ? 'Resume queue' : 'Pause queue'}
+            </MPButton>
+            <MPButton
+              variant="ghost"
+              icon="trash"
+              size="sm"
+              disabled={counts.done === 0}
+              onClick={requestClearDone}
+            >
+              Clear done
+            </MPButton>
+          </>
+        ) : (
+          viewToggle
+        )
+      }
+    />
+  );
+
+  let body: React.ReactNode;
+  if (status === 'unavailable') {
+    body = (
+      <QueueNotice
+        spinner={false}
+        title="Queue unavailable"
+        body="The print queue is managed by the desktop app — run MaeclyPrint to see and control jobs."
+      />
+    );
+  } else if (status === 'error') {
+    body = (
+      <QueueNotice
+        spinner={false}
+        title="Queue unavailable"
+        body={error ?? 'The queue could not be read.'}
+      />
+    );
+  } else if (status === 'idle' || status === 'loading') {
+    body = (
+      <QueueNotice
+        spinner
+        title="Loading the queue…"
+        body="Reading the current print jobs."
+      />
+    );
+  } else if (uiJobs.length === 0) {
+    body = (
+      <QueueNotice
+        spinner={false}
+        title="No jobs in the queue"
+        body="Print something and it will show up here — active, pending, and recently finished jobs."
+      />
+    );
+  } else if (view === 'list') {
+    body = <QueueListView jobs={uiJobs} onConfirm={setConfirm} />;
+  } else if (view === 'board') {
+    body = <QueueBoardView jobs={uiJobs} />;
+  } else {
+    body = <QueueTimelineView jobs={uiJobs} />;
+  }
+
   return (
     <>
-      <MPTopBar
-        title="Queue"
-        subtitle={subtitle}
-        right={
-          view === 'list' ? (
-            <>
-              {viewToggle}
-              <MPButton variant="ghost" icon="pause" size="sm">
-                Pause queue
-              </MPButton>
-              <MPButton variant="ghost" icon="trash" size="sm">
-                Clear done
-              </MPButton>
-            </>
-          ) : (
-            viewToggle
-          )
-        }
-      />
-      {view === 'list' && <QueueListView jobs={jobs} setJobs={setJobs} />}
-      {view === 'board' && <QueueBoardView jobs={jobs} />}
-      {view === 'timeline' && <QueueTimelineView jobs={jobs} />}
+      {topBar}
+      <div
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: 0,
+          position: 'relative',
+        }}
+      >
+        {body}
+        {confirm && (
+          <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} />
+        )}
+      </div>
     </>
   );
 }

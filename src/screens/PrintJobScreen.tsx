@@ -10,27 +10,51 @@ import {
   MPTopBar,
   FileGlyph,
 } from '@/components/ui';
-import { useEffect, useState } from 'react';
-import { MP_PROFILES } from '@/lib/mockData';
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
+import { toast } from 'sonner';
+import {
+  BUILT_IN_PROFILES,
+  buildPrintRequest,
+  findProfile,
+  isValidCopies,
+  isValidPageRange,
+  type PrintJobOverrides,
+} from '@/lib/profiles';
 import { fmtKb, pluralize } from '@/lib/format';
-import { getPrinterPrefs, isTauri, listPrinters } from '@/lib/ipc';
+import {
+  getPrinterPrefs,
+  isTauri,
+  listPrinters,
+  previewCommand,
+} from '@/lib/ipc';
+import { addPathsToJob } from '@/lib/jobFiles';
 import type { Density } from '@/lib/theme';
 import type { UiFile, UiProfile } from '@/types/domain';
 
-export interface PrintJobOverrides {
-  printer?: string;
-  duplex?: UiProfile['duplex'];
-  color?: UiProfile['color'];
-  copies?: number;
-  paper?: string;
-  orientation?: UiProfile['orientation'];
-  scaling?: UiProfile['scaling'];
-  range?: string;
+// Re-exported for callers that still import the override shape from the screen
+// (e.g. App). The canonical definition lives with the profile mapping.
+export type { PrintJobOverrides };
+
+/** Extensions the print engine accepts — mirrors the backend allowlist. */
+const SUPPORTED = [
+  'pdf',
+  'jpg',
+  'jpeg',
+  'png',
+  'tif',
+  'tiff',
+  'bmp',
+  'webp',
+] as const;
+
+/** Turn an unknown thrown value into a user-facing message. */
+function message(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 interface PrintJobScreenProps {
   files: UiFile[];
-  setFiles: (files: UiFile[]) => void;
+  setFiles: Dispatch<SetStateAction<UiFile[]>>;
   profile: string;
   setProfile: (id: string) => void;
   overrides: PrintJobOverrides;
@@ -49,9 +73,9 @@ export function PrintJobScreen({
   density = 'comfortable',
   onPrint,
 }: PrintJobScreenProps) {
-  const profileObj =
-    MP_PROFILES.find((p) => p.id === profile) ?? MP_PROFILES[0];
+  const profileObj = findProfile(profile);
   const merged = { ...profileObj, ...overrides };
+  const tauri = isTauri();
 
   // Real installed-printer names for the override dropdown (empty outside
   // Tauri), excluding printers disabled in MaeclyPrint.
@@ -70,7 +94,11 @@ export function PrintJobScreen({
           ps.filter((p) => !disabled.has(p.id)).map((p) => p.name),
         );
       })
-      .catch(() => {});
+      .catch((e) => {
+        // Non-fatal (the dropdown just stays on "Default printer"), but not
+        // silent: a real enumeration failure is worth a trace in dev tools.
+        console.error('printer list load failed', e);
+      });
     return () => {
       alive = false;
     };
@@ -88,13 +116,120 @@ export function PrintJobScreen({
   const totalPages = files.reduce((s, f) => s + (f.pages ?? 1), 0);
   const totalKb = files.reduce((s, f) => s + f.kb, 0);
 
+  /**
+   * Inspect the given paths and append the printable ones. Shared with the
+   * app-level drop handler; dedup happens inside the functional state update,
+   * so concurrent adds can't lose files or duplicate them.
+   */
+  async function addPaths(paths: string[]): Promise<void> {
+    await addPathsToJob(paths, setFiles);
+  }
+
+  /** Open the OS file picker (Tauri only) and add the chosen files. */
+  async function onAddFiles(): Promise<void> {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const picked = await open({
+        multiple: true,
+        filters: [{ name: 'Printable files', extensions: [...SUPPORTED] }],
+      });
+      if (!picked) return;
+      await addPaths(Array.isArray(picked) ? picked : [picked]);
+    } catch (e) {
+      toast.error(message(e));
+    }
+  }
+
+  // Native OS drag & drop of files onto the window (FR-007). Registered once;
+  // reads the latest files via filesRef for dedup.
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    import('@tauri-apps/api/webview')
+      .then(({ getCurrentWebview }) =>
+        getCurrentWebview().onDragDropEvent((event) => {
+          if (event.payload.type === 'over') {
+            setDragging(true);
+          } else if (event.payload.type === 'drop') {
+            setDragging(false);
+            void addPaths(event.payload.paths);
+          } else {
+            setDragging(false);
+          }
+        }),
+      )
+      .then((un) => {
+        if (cancelled) un();
+        else unlisten = un;
+      })
+      .catch((e) => {
+        console.error('drag-drop listener failed', e);
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+    // addPaths dedupes inside a functional update, so a stable listener is
+    // intentional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Copies is buffered locally so an out-of-range keystroke can show an error
+  // instead of being silently clamped; valid values flow into the overrides.
+  const [copiesText, setCopiesText] = useState(String(merged.copies));
+  const copiesError = !isValidCopies(copiesText);
+  const rangeError = !isValidPageRange(overrides.range ?? '');
+
+  function onProfileChange(id: string): void {
+    setProfile(id);
+    setCopiesText(String(overrides.copies ?? findProfile(id).copies));
+  }
+
+  // Honesty preview: the exact command the backend would run, debounced so it
+  // does not fire on every keystroke. Hidden outside Tauri, with no files, or
+  // while a field is invalid; a failed preview shows nothing (it is advisory).
+  const [preview, setPreview] = useState('');
+  const canPreview = tauri && files.length > 0 && !copiesError && !rangeError;
+  useEffect(() => {
+    if (!canPreview) {
+      setPreview('');
+      return;
+    }
+    const req = buildPrintRequest(
+      files.map((f) => f.path),
+      profile,
+      overrides,
+    );
+    // `stale` guards the in-flight promise: without it a slow response for
+    // superseded settings could render over the current ones.
+    let stale = false;
+    const t = setTimeout(() => {
+      previewCommand(req)
+        .then((s) => {
+          if (!stale) setPreview(s);
+        })
+        .catch((e) => {
+          if (!stale) setPreview('');
+          console.debug('preview_command failed', e);
+        });
+    }, 300);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [canPreview, files, profile, overrides]);
+
+  const canPrint = files.length > 0 && !copiesError && !rangeError;
+
   const remove = (id: string) => setFiles(files.filter((f) => f.id !== id));
   const move = (id: string, dir: -1 | 1) => {
     const i = files.findIndex((f) => f.id === id);
     const j = i + dir;
     if (i < 0 || j < 0 || j >= files.length) return;
     const next = files.slice();
-    [next[i], next[j]] = [next[j], next[i]];
+    [next[i], next[j]] = [next[j]!, next[i]!];
     setFiles(next);
   };
 
@@ -105,10 +240,21 @@ export function PrintJobScreen({
         subtitle={`${files.length} ${pluralize(files.length, 'file')} · ${totalPages} pages · ${fmtKb(totalKb)}`}
         right={
           <>
-            <MPButton variant="ghost" icon="plus" size="sm">
+            <MPButton
+              variant="ghost"
+              icon="plus"
+              size="sm"
+              onClick={onAddFiles}
+              disabled={!tauri}
+            >
               Add files
             </MPButton>
-            <MPButton variant="primary" icon="printer" onClick={onPrint}>
+            <MPButton
+              variant="primary"
+              icon="printer"
+              onClick={onPrint}
+              disabled={!canPrint}
+            >
               Print {files.length}
             </MPButton>
           </>
@@ -123,6 +269,10 @@ export function PrintJobScreen({
             overflow: 'auto',
             padding: '14px 16px',
             minWidth: 0,
+            outline: dragging ? '2px dashed var(--mp-accent)' : 'none',
+            outlineOffset: -4,
+            background: dragging ? 'var(--mp-accentSoft)' : 'transparent',
+            transition: 'background .12s',
           }}
         >
           <div
@@ -231,8 +381,14 @@ export function PrintJobScreen({
                   fontSize: 12.5,
                 }}
               >
-                No files. Drag from Explorer or Finder, or click{' '}
-                <strong>Add files</strong>.
+                {tauri ? (
+                  <>
+                    No files. Drag from Explorer or Finder, or click{' '}
+                    <strong>Add files</strong>.
+                  </>
+                ) : (
+                  <>Adding files requires the desktop app.</>
+                )}
               </div>
             )}
           </MPCard>
@@ -254,8 +410,8 @@ export function PrintJobScreen({
           <MPSelect
             fullWidth
             value={profile}
-            onChange={(e) => setProfile(e.target.value)}
-            options={MP_PROFILES.map((p) => ({
+            onChange={(e) => onProfileChange(e.target.value)}
+            options={BUILT_IN_PROFILES.map((p) => ({
               value: p.id,
               label: p.name + (p.builtin ? ' · built-in' : ''),
             }))}
@@ -303,16 +459,29 @@ export function PrintJobScreen({
           <MPInput
             fullWidth
             mono
-            value={String(merged.copies)}
-            onChange={(e) =>
-              setOverrides({
-                ...overrides,
-                copies: parseInt(e.target.value) || 1,
-              })
-            }
+            value={copiesText}
+            onChange={(e) => {
+              const raw = e.target.value;
+              setCopiesText(raw);
+              if (isValidCopies(raw)) {
+                setOverrides({ ...overrides, copies: Number(raw.trim()) });
+              }
+            }}
             type="number"
             suffix="× per file"
+            error={copiesError}
           />
+          {copiesError && (
+            <div
+              style={{
+                fontSize: 11,
+                color: 'var(--mp-error)',
+                marginTop: 4,
+              }}
+            >
+              Enter a whole number from 1 to 999.
+            </div>
+          )}
           <div style={{ height: 14 }} />
 
           <div
@@ -369,7 +538,7 @@ export function PrintJobScreen({
           />
           <div style={{ height: 14 }} />
 
-          <MPSectionLabel>Page range (PDFs)</MPSectionLabel>
+          <MPSectionLabel>Page range</MPSectionLabel>
           <MPInput
             fullWidth
             mono
@@ -378,50 +547,56 @@ export function PrintJobScreen({
             onChange={(e) =>
               setOverrides({ ...overrides, range: e.target.value })
             }
+            error={rangeError}
           />
-
-          <div style={{ height: 18 }} />
           <div
             style={{
-              padding: '10px 12px',
-              background: 'var(--mp-surface)',
-              border: '1px solid var(--mp-border)',
-              borderRadius: 6,
+              fontSize: 11,
+              color: rangeError ? 'var(--mp-error)' : 'var(--mp-textDim)',
+              marginTop: 4,
             }}
           >
-            <div
-              className="mp-mono"
-              style={{
-                fontSize: 10.5,
-                color: 'var(--mp-textDim)',
-                marginBottom: 6,
-                letterSpacing: '0.06em',
-              }}
-            >
-              RESOLVED COMMAND
-            </div>
-            <div
-              className="mp-mono"
-              style={{
-                fontSize: 10.5,
-                color: 'var(--mp-textMuted)',
-                lineHeight: 1.5,
-                wordBreak: 'break-all',
-              }}
-            >
-              SumatraPDF -print-to "
-              {merged.printer === '<default>' ? '<default>' : merged.printer}"
-              -print-settings "
-              {merged.duplex === 'long-edge'
-                ? 'duplex,'
-                : merged.duplex === 'short-edge'
-                  ? 'duplexshort,'
-                  : ''}
-              {merged.color === 'monochrome' ? 'monochrome,' : 'color,'}
-              {merged.scaling},paper={merged.paper},copies={merged.copies}"
-              -silent
-            </div>
+            {rangeError
+              ? 'Use page numbers like 1-5,10 (ranges must ascend).'
+              : 'Applies to PDFs only — images ignore the range.'}
           </div>
+
+          {tauri && files.length > 0 && preview && (
+            <>
+              <div style={{ height: 18 }} />
+              <div
+                style={{
+                  padding: '10px 12px',
+                  background: 'var(--mp-surface)',
+                  border: '1px solid var(--mp-border)',
+                  borderRadius: 6,
+                }}
+              >
+                <div
+                  className="mp-mono"
+                  style={{
+                    fontSize: 10.5,
+                    color: 'var(--mp-textDim)',
+                    marginBottom: 6,
+                    letterSpacing: '0.06em',
+                  }}
+                >
+                  RESOLVED COMMAND
+                </div>
+                <div
+                  className="mp-mono"
+                  style={{
+                    fontSize: 10.5,
+                    color: 'var(--mp-textMuted)',
+                    lineHeight: 1.5,
+                    wordBreak: 'break-all',
+                  }}
+                >
+                  {preview}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </>

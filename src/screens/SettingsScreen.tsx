@@ -7,7 +7,7 @@ import {
   MPSwitch,
   MPTopBar,
 } from '@/components/ui';
-import { MP_PROFILES } from '@/lib/mockData';
+import { BUILT_IN_PROFILES as MP_PROFILES } from '@/lib/profiles';
 import type { ResolvedTheme, Density } from '@/lib/theme';
 
 type Channel = 'stable' | 'beta' | 'nightly';

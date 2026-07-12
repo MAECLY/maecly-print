@@ -1,11 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { MPSidebar, type ScreenId } from '@/components/AppShell/MPSidebar';
 import { MPAppShell } from '@/components/AppShell/MPAppShell';
 import { Toaster } from '@/components/AppShell/Toaster';
 import { useDensity, useTheme, type ResolvedTheme } from '@/lib/theme';
-import { MP_FILES_SAMPLE, MP_QUEUE_SAMPLE, MP_PROFILES } from '@/lib/mockData';
+import {
+  BUILT_IN_PROFILES,
+  buildPrintRequest,
+  findProfile,
+} from '@/lib/profiles';
+import { isTauri, printFiles } from '@/lib/ipc';
+import { addPathsToJob } from '@/lib/jobFiles';
+import { useQueueStore } from '@/stores/queueStore';
+import { pluralize } from '@/lib/format';
+import type { UiFile } from '@/types/domain';
 
 import { HomeScreen } from '@/screens/HomeScreen';
 import {
@@ -36,16 +45,19 @@ function App() {
   const [onboardingDone, setOnboardingDone] = useState(readOnboardingDone);
 
   // Print job state
-  const [files, setFiles] = useState(MP_FILES_SAMPLE);
-  const [profile, setProfile] = useState(MP_PROFILES[1].id); // Duplex BW default
+  const [files, setFiles] = useState<UiFile[]>([]);
+  const [profile, setProfile] = useState(BUILT_IN_PROFILES[1]!.id); // Duplex BW default
   const [overrides, setOverrides] = useState<PrintJobOverrides>({});
 
-  // Queue state
-  const [jobs, setJobs] = useState(MP_QUEUE_SAMPLE);
+  // Queue state (jobs live in the queue store; App owns only the view toggle)
   const [queueView, setQueueView] = useState<QueueView>('list');
+  const initQueue = useQueueStore((s) => s.init);
+  const queueCount = useQueueStore((s) => s.counts.active + s.counts.pending);
 
   // Profile selection
-  const [selectedProfileId, setSelectedProfileId] = useState(MP_PROFILES[0].id);
+  const [selectedProfileId, setSelectedProfileId] = useState(
+    BUILT_IN_PROFILES[0]!.id,
+  );
 
   // Initial theme application
   useEffect(() => {
@@ -58,6 +70,44 @@ function App() {
     }
   }, []);
 
+  // Load the queue snapshot and subscribe to live updates (idempotent).
+  useEffect(() => {
+    void initQueue();
+  }, [initQueue]);
+
+  // App-level drag & drop (FR-007): the Home screen advertises "drag them
+  // here", so drops must work from any screen, not only while the Print Job
+  // screen (which owns its own listener + overlay) is mounted. When the job
+  // screen is active its listener handles the drop, so this one stands down to
+  // avoid double-adding.
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    import('@tauri-apps/api/webview')
+      .then(({ getCurrentWebview }) =>
+        getCurrentWebview().onDragDropEvent((event) => {
+          if (event.payload.type !== 'drop') return;
+          if (activeRef.current === 'job') return;
+          void addPathsToJob(event.payload.paths, setFiles);
+          setActive('job');
+        }),
+      )
+      .then((un) => {
+        if (cancelled) un();
+        else unlisten = un;
+      })
+      .catch((e) => {
+        console.error('app drag-drop listener failed', e);
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   const completeOnboarding = () => {
     try {
       window.localStorage.setItem(ONBOARD_KEY, '1');
@@ -67,20 +117,41 @@ function App() {
     setOnboardingDone(true);
   };
 
-  const handlePrint = () => {
-    const id = toast.loading(`Sending ${files.length} files to printer…`);
-    setActive('queue');
-    setTimeout(() => {
-      toast.success('Job submitted', {
-        id,
-        description: `${files.length} files queued · ${MP_PROFILES.find((p) => p.id === profile)?.name}`,
-      });
-    }, 1200);
-  };
+  // Guards against a double-click on Print submitting the batch twice while
+  // the first print_files round-trip is still in flight.
+  const submittingRef = useRef(false);
 
-  const queueCount = jobs.filter((j) =>
-    ['queued', 'paused', 'converting', 'printing'].includes(j.status),
-  ).length;
+  const handlePrint = async () => {
+    if (!isTauri()) {
+      toast.error('Printing requires the desktop app');
+      return;
+    }
+    if (files.length === 0 || submittingRef.current) return;
+    submittingRef.current = true;
+    const req = buildPrintRequest(
+      files.map((f) => f.path),
+      profile,
+      overrides,
+    );
+    const id = toast.loading(
+      `Sending ${files.length} ${pluralize(files.length, 'file')} to printer…`,
+    );
+    try {
+      const batch = await printFiles(req);
+      const n = batch.job_ids.length;
+      toast.success(`${n} ${pluralize(n, 'job')} queued`, {
+        id,
+        description: findProfile(profile).name,
+      });
+      setFiles([]);
+      setActive('queue');
+    } catch (e) {
+      // Keep the files so the user can fix and resubmit.
+      toast.error(e instanceof Error ? e.message : String(e), { id });
+    } finally {
+      submittingRef.current = false;
+    }
+  };
 
   return (
     <>
@@ -122,12 +193,7 @@ function App() {
               />
             )}
             {active === 'queue' && (
-              <QueueScreen
-                jobs={jobs}
-                setJobs={setJobs}
-                view={queueView}
-                setView={setQueueView}
-              />
+              <QueueScreen view={queueView} setView={setQueueView} />
             )}
             {active === 'printers' && <PrintersScreen />}
             {active === 'profiles' && (

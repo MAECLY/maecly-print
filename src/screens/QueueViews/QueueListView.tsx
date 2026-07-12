@@ -1,23 +1,35 @@
 import { FileGlyph, MPIconButton, StatusDot } from '@/components/ui';
-import type { JobState, UiQueueJob } from '@/types/domain';
+import { useQueueStore } from '@/stores/queueStore';
+import type { UiQueueJob } from '@/types/domain';
+import type { ConfirmState } from '../QueueScreen';
 
 interface QueueListViewProps {
   jobs: UiQueueJob[];
-  setJobs: (jobs: UiQueueJob[]) => void;
+  /** Request an in-app confirmation (used for cancelling an in-flight job). */
+  onConfirm: (state: ConfirmState) => void;
 }
 
-function Row({
-  j,
-  onToggle,
-}: {
+const TERMINAL = new Set(['done', 'failed', 'cancelled']);
+
+interface RowProps {
   j: UiQueueJob;
-  onToggle: (id: string, st: JobState) => void;
-}) {
+  onPause: () => void;
+  onResume: () => void;
+  onRetry: () => void;
+  onCancel: () => void;
+}
+
+function Row({ j, onPause, onResume, onRetry, onCancel }: RowProps) {
+  const terminal = TERMINAL.has(j.status);
+  const canPause =
+    j.status === 'queued' ||
+    j.status === 'converting' ||
+    j.status === 'converted';
   return (
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '24px 1fr 110px 90px 110px 32px',
+        gridTemplateColumns: '24px 1fr 110px 90px 110px 56px',
         gap: 10,
         alignItems: 'center',
         padding: '8px 14px',
@@ -101,37 +113,45 @@ function Row({
         {j.startedAt}
         {j.finishedAt ? ` → ${j.finishedAt}` : ''}
       </div>
-      <div style={{ display: 'flex' }}>
-        {j.status === 'printing' || j.status === 'converting' ? (
+      <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+        {canPause && (
           <MPIconButton
             icon="pause"
             size={24}
             label="Pause"
-            onClick={() => onToggle(j.id, 'paused')}
+            onClick={onPause}
           />
-        ) : j.status === 'paused' || j.status === 'queued' ? (
+        )}
+        {j.status === 'paused' && (
           <MPIconButton
             icon="play"
             size={24}
             label="Resume"
-            onClick={() => onToggle(j.id, 'printing')}
+            onClick={onResume}
           />
-        ) : j.status === 'failed' ? (
+        )}
+        {j.status === 'failed' && (
           <MPIconButton
             icon="rotate"
             size={24}
             label="Retry"
-            onClick={() => onToggle(j.id, 'queued')}
+            onClick={onRetry}
           />
-        ) : (
-          <MPIconButton icon="more" size={24} label="More" />
+        )}
+        {!terminal && (
+          <MPIconButton icon="x" size={24} label="Cancel" onClick={onCancel} />
         )}
       </div>
     </div>
   );
 }
 
-export function QueueListView({ jobs, setJobs }: QueueListViewProps) {
+export function QueueListView({ jobs, onConfirm }: QueueListViewProps) {
+  const pauseJob = useQueueStore((s) => s.pauseJob);
+  const resumeJob = useQueueStore((s) => s.resumeJob);
+  const retryJob = useQueueStore((s) => s.retryJob);
+  const cancelJob = useQueueStore((s) => s.cancelJob);
+
   const groups = {
     active: jobs.filter((j) =>
       ['printing', 'converting', 'converted'].includes(j.status),
@@ -142,8 +162,20 @@ export function QueueListView({ jobs, setJobs }: QueueListViewProps) {
     ),
   };
 
-  const toggleJob = (id: string, st: JobState) =>
-    setJobs(jobs.map((j) => (j.id === id ? { ...j, status: st } : j)));
+  // Cancelling a printing job interrupts a job the spooler already started, so
+  // it gets a confirm; every other non-terminal state cancels immediately.
+  const requestCancel = (j: UiQueueJob) => {
+    if (j.status === 'printing') {
+      onConfirm({
+        title: 'Cancel this job?',
+        message: `“${j.file}” is printing. Cancel it? Pages already sent to the printer may still come out.`,
+        confirmLabel: 'Cancel job',
+        run: () => cancelJob(j.id),
+      });
+    } else {
+      void cancelJob(j.id);
+    }
+  };
 
   return (
     <div className="mp-scroll" style={{ flex: 1, overflow: 'auto' }}>
@@ -183,7 +215,14 @@ export function QueueListView({ jobs, setJobs }: QueueListViewProps) {
                 </span>
               </div>
               {g.items.map((j) => (
-                <Row key={j.id} j={j} onToggle={toggleJob} />
+                <Row
+                  key={j.id}
+                  j={j}
+                  onPause={() => void pauseJob(j.id)}
+                  onResume={() => void resumeJob(j.id)}
+                  onRetry={() => void retryJob(j.id)}
+                  onCancel={() => requestCancel(j)}
+                />
               ))}
             </div>
           ),

@@ -8,7 +8,7 @@ import {
   StatusDot,
   MPTopBar,
 } from '@/components/ui';
-import { MP_QUEUE_SAMPLE } from '@/lib/mockData';
+import { useQueueStore } from '@/stores/queueStore';
 
 interface HomeScreenProps {
   onAction?: (action: 'newjob' | 'queue') => void;
@@ -16,6 +16,7 @@ interface HomeScreenProps {
 }
 
 export function HomeScreen({ onAction, onSelectJob }: HomeScreenProps) {
+  const recent = useQueueStore((s) => s.recentDone);
   return (
     <>
       <MPTopBar
@@ -158,59 +159,72 @@ export function HomeScreen({ onAction, onSelectJob }: HomeScreenProps) {
           </button>
         </div>
         <MPCard padding={0}>
-          {MP_QUEUE_SAMPLE.slice(0, 5).map((j, i, arr) => (
+          {recent.length === 0 ? (
             <div
-              key={j.id}
-              onClick={() => onSelectJob?.(j.id)}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '10px 14px',
-                borderBottom:
-                  i < arr.length - 1 ? '1px solid var(--mp-border)' : 'none',
-                cursor: 'pointer',
+                padding: '18px 14px',
+                textAlign: 'center',
+                fontSize: 12,
+                color: 'var(--mp-textMuted)',
               }}
             >
-              <FileGlyph ext={j.ext} size={22} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: 12.5,
-                    fontWeight: 500,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {j.file}
+              No recent activity yet — finished jobs will appear here.
+            </div>
+          ) : (
+            recent.map((j, i, arr) => (
+              <div
+                key={j.id}
+                onClick={() => onSelectJob?.(j.id)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '10px 14px',
+                  borderBottom:
+                    i < arr.length - 1 ? '1px solid var(--mp-border)' : 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <FileGlyph ext={j.ext} size={22} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {j.file}
+                  </div>
+                  <div
+                    className="mp-mono"
+                    style={{
+                      fontSize: 10.5,
+                      color: 'var(--mp-textDim)',
+                      marginTop: 1,
+                    }}
+                  >
+                    {j.printer} · {j.profile}
+                  </div>
                 </div>
-                <div
+                <StatusDot status={j.status} />
+                <span
                   className="mp-mono"
                   style={{
                     fontSize: 10.5,
-                    color: 'var(--mp-textDim)',
-                    marginTop: 1,
+                    color: 'var(--mp-textMuted)',
+                    textTransform: 'uppercase',
+                    minWidth: 60,
+                    textAlign: 'right',
                   }}
                 >
-                  {j.printer} · {j.profile}
-                </div>
+                  {j.status}
+                </span>
               </div>
-              <StatusDot status={j.status} />
-              <span
-                className="mp-mono"
-                style={{
-                  fontSize: 10.5,
-                  color: 'var(--mp-textMuted)',
-                  textTransform: 'uppercase',
-                  minWidth: 60,
-                  textAlign: 'right',
-                }}
-              >
-                {j.status}
-              </span>
-            </div>
-          ))}
+            ))
+          )}
         </MPCard>
 
         <div
