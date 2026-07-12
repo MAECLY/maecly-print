@@ -164,6 +164,29 @@ pub async fn open_printer_settings() -> Result<(), IpcError> {
     run_blocking(crate::platform::open_printer_settings).await
 }
 
+/// Install a printer into the OS spooler from a device URI.
+///
+/// `name` is the human label; `uri` selects the transport (driverless IPP/IPPS
+/// or a raw socket/LPD on Unix; IPP/IPPS on Windows). On failure the spooler's
+/// own diagnostic (e.g. lpadmin's "Unable to connect to …") is surfaced so the
+/// UI can show it verbatim. Never mutates MaeclyPrint preferences — only the OS.
+#[tauri::command]
+#[specta::specta]
+pub async fn add_printer(name: String, uri: String) -> Result<(), IpcError> {
+    run_blocking(move || crate::platform::add_printer(&name, &uri)).await
+}
+
+/// Read the effective organization printer policy (`policy.json`).
+///
+/// Returns the default [`crate::settings::PrinterPolicy`] when no policy file is
+/// present or it is malformed; the loader never errors, so the UI can rely on a
+/// value always coming back.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_printer_policy() -> Result<crate::settings::PrinterPolicy, IpcError> {
+    run_blocking(|| Ok(crate::settings::PrinterPolicy::load())).await
+}
+
 /// Run a blocking enumeration closure off the IPC thread so the webview never
 /// stalls on a slow spooler, normalizing both the join error and the inner
 /// `anyhow` error into [`IpcError`].

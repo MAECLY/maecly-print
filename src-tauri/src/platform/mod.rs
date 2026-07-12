@@ -19,14 +19,14 @@ mod windows;
 
 #[cfg(unix)]
 pub use cups::{
-    default_printer, discover_printers, list_printers, open_printer_settings, print_test_page,
-    set_os_default,
+    add_printer, default_printer, discover_printers, list_printers, open_printer_settings,
+    print_test_page, set_os_default,
 };
 
 #[cfg(windows)]
 pub use windows::{
-    default_printer, discover_printers, list_printers, open_printer_settings, print_test_page,
-    set_os_default,
+    add_printer, default_printer, discover_printers, list_printers, open_printer_settings,
+    print_test_page, set_os_default,
 };
 
 // Fallback for any other target so the crate always compiles.
@@ -44,6 +44,10 @@ pub fn discover_printers() -> anyhow::Result<Vec<crate::ipc::printers::Discovere
 }
 #[cfg(not(any(unix, windows)))]
 pub fn set_os_default(_name: &str) -> anyhow::Result<()> {
+    Ok(())
+}
+#[cfg(not(any(unix, windows)))]
+pub fn add_printer(_name: &str, _uri: &str) -> anyhow::Result<()> {
     Ok(())
 }
 #[cfg(not(any(unix, windows)))]

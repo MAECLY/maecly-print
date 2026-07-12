@@ -11,8 +11,10 @@
 //! queries are defensive — any failure yields empty rather than aborting the
 //! whole enumeration.
 
+use std::os::windows::process::CommandExt;
 use std::process::Command;
 
+use anyhow::Context;
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Graphics::Printing::{
     EnumPrintersW, GetDefaultPrinterW, SetDefaultPrinterW, PRINTER_ATTRIBUTE_SHARED,
@@ -127,6 +129,145 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
 /// Open Settings → Printers & scanners.
 pub fn open_printer_settings() -> anyhow::Result<()> {
     run_ok("cmd", &["/C", "start", "", "ms-settings:printers"])
+}
+
+// ----------------------------------------------------------------------------
+// Adding a printer (`Add-Printer` via PowerShell)
+// ----------------------------------------------------------------------------
+
+/// `CreateProcess` flag that suppresses the transient console window a
+/// `powershell.exe` child would otherwise flash on screen.
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Install a printer for `uri` using the built-in Microsoft IPP Class Driver.
+///
+/// Only `ipp`/`ipps` URIs are supported here — raw sockets/LPD/WSD need the
+/// system dialog, so those are rejected with a message pointing at "Open
+/// printer settings". The IPP port is created on demand if `Add-Printer`
+/// reports it is missing. Adding a printer can require elevation; when the
+/// spooler returns access-denied we surface guidance rather than a raw error.
+pub fn add_printer(name: &str, uri: &str) -> anyhow::Result<()> {
+    let scheme = uri
+        .split("://")
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if scheme != "ipp" && scheme != "ipps" {
+        anyhow::bail!(
+            "On Windows, printers using {scheme}:// must be added via system settings \
+             (Open printer settings)"
+        );
+    }
+
+    let port = ipp_port_name(uri)?;
+    let script = add_printer_script(name, &port);
+    match run_powershell(&script) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let msg = e.to_string();
+            let lower = msg.to_ascii_lowercase();
+            // Elevation problems can't be retried away — creating the port
+            // needs the same rights — so surface actionable guidance first.
+            // The HRESULT is checked too because the message text is localized
+            // on non-English Windows.
+            if msg.contains("0x80070005") || (lower.contains("access") && lower.contains("denied"))
+            {
+                anyhow::bail!(
+                    "Adding a printer may require administrator rights. Use \"Open printer \
+                     settings\" to add it from Windows."
+                );
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Run a Windows PowerShell 5.1 one-liner, returning its captured stderr as the
+/// error text on failure so the spooler's own message reaches the UI.
+fn run_powershell(script: &str) -> anyhow::Result<()> {
+    let out = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .with_context(|| "failed to spawn powershell.exe")?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let msg = stderr.trim();
+    if msg.is_empty() {
+        anyhow::bail!("powershell exited with {}", out.status);
+    }
+    anyhow::bail!("{msg}");
+}
+
+/// Map an IPP/IPPS device URI to the port name Windows expects.
+///
+/// `ipp://host[:port]/path` becomes `IPP://host/path` (and `ipps://` →
+/// `IPPS://…`). The default IPP port 631 is dropped; any explicit non-default
+/// port is kept as `host:port`.
+fn ipp_port_name(uri: &str) -> anyhow::Result<String> {
+    let (scheme, rest) = uri
+        .split_once("://")
+        .with_context(|| format!("not a URI: {uri}"))?;
+    let prefix = match scheme.to_ascii_lowercase().as_str() {
+        "ipp" => "IPP",
+        "ipps" => "IPPS",
+        other => anyhow::bail!("unsupported scheme for an IPP port: {other}"),
+    };
+    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+    if authority.is_empty() {
+        anyhow::bail!("URI has no host: {uri}");
+    }
+    // Split host from port. Bracketed IPv6 authorities ("[::1]:631") must not
+    // be split at their first ':', which is inside the brackets.
+    let (bare_host, port) = if let Some(v6) = authority.strip_prefix('[') {
+        match v6.split_once(']') {
+            Some((h, tail)) => (
+                format!("[{h}]"),
+                tail.strip_prefix(':').unwrap_or(tail).to_string(),
+            ),
+            None => anyhow::bail!("malformed IPv6 authority: {authority}"),
+        }
+    } else {
+        match authority.split_once(':') {
+            Some((h, p)) => (h.to_string(), p.to_string()),
+            None => (authority.to_string(), String::new()),
+        }
+    };
+    let host = if port.is_empty() || port == "631" {
+        bare_host
+    } else {
+        format!("{bare_host}:{port}")
+    };
+    if path.is_empty() {
+        Ok(format!("{prefix}://{host}"))
+    } else {
+        Ok(format!("{prefix}://{host}/{path}"))
+    }
+}
+
+/// Quote a value for a single-quoted PowerShell string literal (embedded single
+/// quotes are doubled, which is PowerShell's own escaping rule).
+fn ps_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+/// The PowerShell script binding `name` to the built-in IPP class driver on
+/// `port`.
+///
+/// `$ErrorActionPreference = 'Stop'` turns non-terminating cmdlet errors into
+/// terminating ones, so PowerShell exits non-zero instead of reporting success
+/// with an error on stderr. The port is pre-created inside a `try/catch` that
+/// swallows the already-exists case — locale-independent, unlike matching
+/// "port does not exist" against localized stderr.
+fn add_printer_script(name: &str, port: &str) -> String {
+    let port = ps_quote(port);
+    format!(
+        "$ErrorActionPreference = 'Stop'; try {{ Add-PrinterPort -Name {port} }} catch {{ }}; \
+         Add-Printer -Name {} -DriverName 'Microsoft IPP Class Driver' -PortName {port}",
+        ps_quote(name),
+    )
 }
 
 fn printer_from(info: &PRINTER_INFO_2W, default: Option<&str>) -> Printer {
@@ -288,6 +429,65 @@ mod tests {
         ));
         assert!(matches!(status_from(0, 3), PrinterStatus::Busy));
         assert!(matches!(status_from(0, 0), PrinterStatus::Ready));
+    }
+
+    #[test]
+    fn ipp_port_name_strips_default_port() {
+        assert_eq!(
+            ipp_port_name("ipp://printer.local:631/ipp/print").unwrap(),
+            "IPP://printer.local/ipp/print"
+        );
+    }
+
+    #[test]
+    fn ipp_port_name_handles_ipps_and_paths() {
+        assert_eq!(
+            ipp_port_name("ipps://host/ipp/print").unwrap(),
+            "IPPS://host/ipp/print"
+        );
+    }
+
+    #[test]
+    fn ipp_port_name_keeps_explicit_port() {
+        assert_eq!(
+            ipp_port_name("ipp://host:9631/ipp/print").unwrap(),
+            "IPP://host:9631/ipp/print"
+        );
+    }
+
+    #[test]
+    fn ipp_port_name_rejects_invalid() {
+        assert!(ipp_port_name("not-a-uri").is_err());
+        assert!(ipp_port_name("socket://host/queue").is_err());
+    }
+
+    #[test]
+    fn ipp_port_name_handles_bracketed_ipv6() {
+        assert_eq!(
+            ipp_port_name("ipp://[fe80::1]:631/ipp/print").unwrap(),
+            "IPP://[fe80::1]/ipp/print"
+        );
+        assert_eq!(
+            ipp_port_name("ipp://[fe80::1]:9631/ipp/print").unwrap(),
+            "IPP://[fe80::1]:9631/ipp/print"
+        );
+        assert!(ipp_port_name("ipp://[fe80::1/ipp/print").is_err());
+    }
+
+    #[test]
+    fn ps_quote_escapes_single_quotes() {
+        assert_eq!(ps_quote("plain"), "'plain'");
+        assert_eq!(ps_quote("O'Brien"), "'O''Brien'");
+    }
+
+    #[test]
+    fn add_printer_script_shape() {
+        let s = add_printer_script("Front Desk", "IPP://host/ipp/print");
+        assert!(s.starts_with("$ErrorActionPreference = 'Stop';"));
+        assert!(s.contains("try { Add-PrinterPort -Name 'IPP://host/ipp/print' } catch { }"));
+        assert!(s.contains("Add-Printer -Name 'Front Desk'"));
+        assert!(s.contains("-DriverName 'Microsoft IPP Class Driver'"));
+        assert!(s.contains("-PortName 'IPP://host/ipp/print'"));
     }
 
     #[test]

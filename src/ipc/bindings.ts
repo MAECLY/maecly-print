@@ -104,12 +104,190 @@ async openPrinterSettings() : Promise<Result<null, IpcError>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Install a printer into the OS spooler from a device URI.
+ * 
+ * `name` is the human label; `uri` selects the transport (driverless IPP/IPPS
+ * or a raw socket/LPD on Unix; IPP/IPPS on Windows). On failure the spooler's
+ * own diagnostic (e.g. lpadmin's "Unable to connect to …") is surfaced so the
+ * UI can show it verbatim. Never mutates MaeclyPrint preferences — only the OS.
+ */
+async addPrinter(name: string, uri: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("add_printer", { name, uri }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Read the effective organization printer policy (`policy.json`).
+ * 
+ * Returns the default [`crate::settings::PrinterPolicy`] when no policy file is
+ * present or it is malformed; the loader never errors, so the UI can rely on a
+ * value always coming back.
+ */
+async getPrinterPolicy() : Promise<Result<PrinterPolicy, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_printer_policy") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Submit a print request. Validates and fans the files out into jobs, returning
+ * the batch id and per-file job ids. Runs the (blocking) validation/probe off
+ * the IPC thread.
+ */
+async printFiles(req: PrintRequest) : Promise<Result<JobBatch, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("print_files", { req }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * A consistent snapshot of the whole queue (for the initial UI paint; live
+ * updates arrive via the `queue-updated` event).
+ */
+async queueStatus() : Promise<Result<QueueSnapshot, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("queue_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Cancel a single job by id.
+ */
+async cancelJob(id: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_job", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Cancel every non-terminal job; returns how many were cancelled.
+ */
+async cancelAll() : Promise<Result<number, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_all") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Pause a single job.
+ */
+async pauseJob(id: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("pause_job", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Resume a single paused job.
+ */
+async resumeJob(id: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resume_job", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Retry a single failed job from the start.
+ */
+async retryJob(id: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("retry_job", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Pause the whole queue (stops starting new work; in-flight jobs continue).
+ */
+async pauseQueue() : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("pause_queue") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Resume the whole queue.
+ */
+async resumeQueue() : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resume_queue") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Remove all terminal jobs from the queue; returns how many were removed.
+ */
+async clearDone() : Promise<Result<number, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_done") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Inspect a list of file paths for the print dialog. Each entry is classified
+ * independently; a bad path yields `supported=false` with a reason rather than
+ * failing the whole call.
+ */
+async inspectFiles(paths: string[]) : Promise<Result<FileInfo[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("inspect_files", { paths }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The exact command MaeclyPrint would run for `req` (honesty policy: no hidden
+ * flags). Resolves the printer name the same way the dispatcher will —
+ * requested, else the app default, else the OS default, else a
+ * `<default printer>` placeholder — and previews against the first file's name.
+ */
+async previewCommand(req: PrintRequest) : Promise<Result<string, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preview_command", { req }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
 /** user-defined events **/
 
 
+export const events = __makeEvents__<{
+jobProgressEvent: JobProgressEvent,
+queueUpdated: QueueUpdated
+}>({
+jobProgressEvent: "job-progress-event",
+queueUpdated: "queue-updated"
+})
 
 /** user-defined constants **/
 
@@ -119,6 +297,18 @@ async openPrinterSettings() : Promise<Result<null, IpcError>> {
 
 export type AppInfo = { version: string; build_date: string; config_dir: string; log_dir: string; data_dir: string }
 /**
+ * Color vs. grayscale output.
+ */
+export type ColorMode = 
+/**
+ * Full color.
+ */
+"color" | 
+/**
+ * Grayscale / black-and-white.
+ */
+"monochrome"
+/**
  * A printer found on the network that is not (necessarily) installed yet.
  */
 export type DiscoveredPrinter = { id: string; name: string; connection: string; kind: PrinterKind; 
@@ -126,7 +316,249 @@ export type DiscoveredPrinter = { id: string; name: string; connection: string; 
  * Discovery transport, e.g. `mDNS · IPP`.
  */
 via: string }
-export type IpcError = { code: "FileNotFound"; message: string } | { code: "Internal"; message: string }
+/**
+ * Duplex (double-sided) printing mode.
+ * 
+ * Note: the [`None`](Duplex::None) variant serializes to the string
+ * `"none"`, matching the other lowercase enums here — it is unrelated to
+ * [`Option::None`]. Refer to it by its full path (`Duplex::None`) in code to
+ * avoid confusion.
+ */
+export type Duplex = 
+/**
+ * Single-sided.
+ */
+"none" | 
+/**
+ * Double-sided, bound on the long edge.
+ */
+"long" | 
+/**
+ * Double-sided, bound on the short edge.
+ */
+"short"
+/**
+ * Per-file inspection result for the print dialog's file list. Never errors the
+ * whole batch: a missing or unsupported file comes back with `supported=false`
+ * and a human `reason` rather than failing the call.
+ */
+export type FileInfo = { path: string; name: string; 
+/**
+ * Lowercased extension without the dot (e.g. `"pdf"`), empty when none.
+ */
+ext: string; bytes: number; pages: number | null; supported: boolean; 
+/**
+ * Why the file is not printable, when `supported` is false.
+ */
+reason: string | null }
+export type IpcError = { code: "FileNotFound"; message: string } | 
+/**
+ * The caller sent a structurally invalid request (empty file list, bad
+ * copies count, unparseable page range, …). The message is safe to show
+ * inline in the UI.
+ */
+{ code: "InvalidRequest"; message: string } | 
+/**
+ * A file's format is not one the engine can print.
+ */
+{ code: "UnsupportedFormat"; message: string } | 
+/**
+ * A converter could not turn the input into a printable PDF.
+ */
+{ code: "ConversionFailed"; message: string } | 
+/**
+ * The OS spooler/printer backend rejected the job.
+ */
+{ code: "PrintFailed"; message: string } | 
+/**
+ * A requested print setting the driver cannot honour (currently duplex).
+ */
+{ code: "UnsupportedSetting"; message: string } | 
+/**
+ * A required external program (CUPS `lp`, SumatraPDF) is missing.
+ */
+{ code: "DependencyMissing"; message: string } | 
+/**
+ * No job with the given id exists in the queue.
+ */
+{ code: "JobNotFound"; message: string } | 
+/**
+ * The action is not legal for the job's current state (e.g. pausing a job
+ * that is already printing, or retrying one that has not failed).
+ */
+{ code: "InvalidState"; message: string } | { code: "Internal"; message: string }
+/**
+ * One print job: a single input file tracked through the convert → print
+ * pipeline. Persisted verbatim in `queue.json`.
+ */
+export type Job = { 
+/**
+ * UUID v7 (time-sortable), assigned at creation.
+ */
+id: string; 
+/**
+ * Groups all jobs submitted together in one [`PrintRequest`].
+ */
+batch_id: string; state: JobState; 
+/**
+ * Absolute path of the source file.
+ */
+input_path: string; 
+/**
+ * Display file name (last path component of `input_path`).
+ */
+file_name: string; 
+/**
+ * Lowercased extension without the leading dot (e.g. `"pdf"`), empty when
+ * the file has none.
+ */
+input_ext: string; 
+/**
+ * Source size in bytes (filled by the dispatcher after `stat`).
+ */
+input_bytes: number; 
+/**
+ * Page count once known (after conversion / PDF parse).
+ */
+pages: number | null; 
+/**
+ * Absolute path of the converted PDF in the cache, once produced.
+ */
+cache_pdf: string | null; settings: JobSettings; 
+/**
+ * Profile name these settings came from, for the log/UI.
+ */
+profile_name: string | null; 
+/**
+ * Printer actually chosen at dispatch time (after resolving `<default>`).
+ */
+printer_resolved: string | null; 
+/**
+ * Number of times this job has been started (for retry/backoff, FR-034).
+ */
+attempts: number; error: JobError | null; progress: JobProgress | null; 
+/**
+ * RFC 3339 UTC timestamp of submission.
+ */
+submitted_at: string; 
+/**
+ * RFC 3339 UTC timestamp of first start, if started.
+ */
+started_at: string | null; 
+/**
+ * RFC 3339 UTC timestamp of reaching a terminal state, if finished.
+ */
+finished_at: string | null }
+/**
+ * The result of submitting a [`PrintRequest`]: the batch id and the ids of the
+ * jobs it produced (one per input file).
+ */
+export type JobBatch = { batch_id: string; job_ids: string[] }
+/**
+ * A structured job error. `code` is a stable machine-readable identifier;
+ * `message` is human-readable (already localized/englished by the producer).
+ * 
+ * The special code `"interrupted_by_shutdown"` is set by shutdown recovery
+ * ([`crate::queue::persist::recover`]) on jobs that were mid-flight when the
+ * app was last closed; the UI treats it as resumable rather than a hard
+ * failure.
+ */
+export type JobError = { code: string; message: string }
+/**
+ * Coarse progress for the currently-running phase of a job. `percent` is in
+ * `0.0..=1.0`; `phase` is a short label such as `"converting"` or
+ * `"printing"`.
+ */
+export type JobProgress = { phase: string; percent: number }
+/**
+ * Fine-grained, in-flight progress for a single converting job. Emitted
+ * throttled (≥100 ms per job) and NOT persisted — it is advisory UI sugar on
+ * top of the authoritative [`QueueUpdated`] snapshots. `percent` is in
+ * `0.0..=1.0`; `phase` is a short label such as `"converting"`.
+ */
+export type JobProgressEvent = { id: string; phase: string; percent: number }
+/**
+ * Per-job print settings. A resolved bundle: a profile plus any
+ * per-invocation overrides collapse into one of these before a [`Job`] is
+ * created.
+ */
+export type JobSettings = { 
+/**
+ * Target printer id, or `None` to use the app/OS default at dispatch time.
+ */
+printer: string | null; duplex: Duplex; color_mode: ColorMode; 
+/**
+ * Number of copies, `1..=999`.
+ */
+copies: number; paper_size: PaperSize; orientation: Orientation; scaling: Scaling; 
+/**
+ * Page-range expression (e.g. `"1-5,8"`), or `None` for all pages. The
+ * *syntax* is validated by the engine's parser, not here — see
+ * [`JobSettings::validate`].
+ */
+page_ranges: string | null }
+/**
+ * Lifecycle state of a single print job.
+ * 
+ * The legal transitions between states are encoded in [`can_transition`].
+ */
+export type JobState = 
+/**
+ * Created but not yet started.
+ */
+"queued" | 
+/**
+ * A converter process is running to produce the cache PDF.
+ */
+"converting" | 
+/**
+ * PDF is in the cache; waiting for a free printer.
+ */
+"converted" | 
+/**
+ * Handed off to the OS spooler.
+ */
+"printing" | 
+/**
+ * The printer reported completion (terminal).
+ */
+"done" | 
+/**
+ * Terminal error; details in [`Job::error`] (terminal).
+ */
+"failed" | 
+/**
+ * Transient stop — user paused it, or it was interrupted by shutdown.
+ */
+"paused" | 
+/**
+ * User cancelled the job (terminal).
+ */
+"cancelled"
+/**
+ * Page orientation. [`Auto`](Orientation::Auto) lets the engine pick per page
+ * based on the source aspect ratio.
+ */
+export type Orientation = "auto" | "portrait" | "landscape"
+/**
+ * Target paper size. Serializes lowercase: `"a4"`, `"letter"`, `"legal"`,
+ * `"a3"`.
+ */
+export type PaperSize = "a4" | "letter" | "legal" | "a3"
+/**
+ * A request from the frontend/CLI to print one or more files with a shared
+ * [`JobSettings`]. The dispatcher fans this out into one [`Job`] per file,
+ * grouped under a single batch id.
+ */
+export type PrintRequest = { 
+/**
+ * Absolute paths of the files to print.
+ */
+files: string[]; settings: JobSettings; 
+/**
+ * Name of the profile these settings were derived from, for the log/UI.
+ */
+profile_name: string | null }
 /**
  * A printer installed on the system, enriched with whatever capabilities the
  * OS could be coaxed into reporting.
@@ -149,6 +581,16 @@ connection: string; driver: string; shared: boolean; queued_jobs: number; max_dp
  */
 export type PrinterKind = "laser" | "mfp" | "wide" | "label" | "virtual"
 export type PrinterOverride = { tray?: string | null; paper?: string | null }
+/**
+ * Organization-managed printer policy. Every field is optional so an empty or
+ * partial `policy.json` still deserializes.
+ */
+export type PrinterPolicy = { 
+/**
+ * Printer id the organization pins as the default. When set, the UI treats
+ * the default as read-only (managed by policy). `None` means unmanaged.
+ */
+default_printer?: string | null }
 /**
  * MaeclyPrint-level printer preferences (never mutate the OS spooler).
  */
@@ -173,6 +615,39 @@ overrides?: Partial<{ [key in string]: PrinterOverride }> }
  * Normalized printer state (a small superset-free view of the OS state).
  */
 export type PrinterStatus = "ready" | "offline" | "error" | "busy"
+/**
+ * Serializable view of the whole queue, returned by the `queue_status` IPC
+ * command and pushed via the `queue-updated` event. Also the on-disk shape of
+ * `queue.json` (reused by [`crate::queue::persist`]).
+ */
+export type QueueSnapshot = { schema_version: number; 
+/**
+ * Whether the whole queue is paused (FR-033).
+ */
+queue_paused: boolean; jobs: Job[] }
+/**
+ * The whole queue changed: a job transitioned, was submitted, cancelled,
+ * cleared, or the queue was paused/resumed. Carries the full
+ * [`QueueSnapshot`] so the frontend can replace its state wholesale rather
+ * than reconcile deltas (FR-030). Emitted on every persisted mutation.
+ */
+export type QueueUpdated = QueueSnapshot
+/**
+ * How source pages are fitted to the target paper.
+ */
+export type Scaling = 
+/**
+ * Scale up or down to fill the printable area.
+ */
+"fit" | 
+/**
+ * Only shrink oversized pages; never enlarge.
+ */
+"shrink" | 
+/**
+ * Print at the source's actual size.
+ */
+"none"
 /**
  * Toner/ink supply levels in `0.0..=1.0`. Any channel the device does not
  * report stays `None`; an all-`None` value renders no supply section.

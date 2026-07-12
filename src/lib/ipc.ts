@@ -13,16 +13,38 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   commands,
   type DiscoveredPrinter as IpcDiscoveredPrinter,
+  type FileInfo,
   type IpcError,
+  type Job,
+  type JobBatch,
   type Printer as IpcPrinter,
+  type PrinterPolicy,
   type PrinterPrefs,
+  type PrintRequest,
+  type QueueSnapshot,
   type Supplies as IpcSupplies,
 } from '@/ipc/bindings';
 
-export type { PrinterPrefs, PrinterOverride } from '@/ipc/bindings';
+export type {
+  PrinterPrefs,
+  PrinterOverride,
+  PrinterPolicy,
+} from '@/ipc/bindings';
+// Queue wire types, re-exported so screens/stores import them from one place
+// (the print-dialog lane reuses PrintRequest/JobBatch/FileInfo/JobSettings).
+export type {
+  FileInfo,
+  Job,
+  JobBatch,
+  JobSettings,
+  JobState,
+  PrintRequest,
+  QueueSnapshot,
+} from '@/ipc/bindings';
 import type {
   UiDiscoveredPrinter,
   UiPrinter,
+  UiQueueJob,
   UiTonerLevels,
 } from '@/types/domain';
 
@@ -51,9 +73,22 @@ const NO_HOST = 'Not running inside Tauri (standalone Vite preview)';
 async function unwrap<T>(
   p: Promise<{ status: 'ok'; data: T } | { status: 'error'; error: IpcError }>,
 ): Promise<T> {
-  const r = await p;
+  // The generated bindings resolve to the error branch for command-returned
+  // IpcErrors, but the invoke itself can also REJECT with a plain string (e.g.
+  // "command not allowed" from the Tauri layer) — normalize both into a
+  // readable Error instead of surfacing "undefined" toasts.
+  let r;
+  try {
+    r = await p;
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e));
+  }
   if (r.status === 'ok') return r.data;
-  throw new Error(r.error.message);
+  const { message, code } = {
+    message: r.error?.message,
+    code: r.error?.code,
+  };
+  throw new Error(message ?? (code ? `IPC error: ${code}` : 'IPC error'));
 }
 
 /** Returns the live AppInfo from Rust, or rejects in non-Tauri contexts. */
@@ -164,4 +199,152 @@ export async function printTestPage(name: string): Promise<void> {
 export async function openPrinterSettings(): Promise<void> {
   if (!isTauri()) throw new Error(NO_HOST);
   await unwrap(commands.openPrinterSettings());
+}
+
+/**
+ * Install a print queue into the OS spooler from a device URI (lpadmin IPP
+ * Everywhere on macOS/Linux; Microsoft IPP Class Driver on Windows). On
+ * failure the spooler's own diagnostic is surfaced verbatim.
+ */
+export async function addPrinter(name: string, uri: string): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await unwrap(commands.addPrinter(name, uri));
+}
+
+/** Read the effective organization printer policy (`policy.json`). */
+export async function getPrinterPolicy(): Promise<PrinterPolicy> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return unwrap(commands.getPrinterPolicy());
+}
+
+// ---------------------------------------------------------------------------
+// Queue — job lifecycle. Every wrapper follows the printer pattern: reject
+// outside the Tauri host, else unwrap the tauri-specta Result (error → throw).
+// ---------------------------------------------------------------------------
+
+/** Submit a print request; returns the batch id and per-file job ids. */
+export async function printFiles(req: PrintRequest): Promise<JobBatch> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return unwrap(commands.printFiles(req));
+}
+
+/** A consistent snapshot of the whole queue for the initial paint. */
+export async function queueStatus(): Promise<QueueSnapshot> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return unwrap(commands.queueStatus());
+}
+
+/** Cancel a single job by id (any non-terminal state). */
+export async function cancelJob(id: string): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await unwrap(commands.cancelJob(id));
+}
+
+/** Cancel every non-terminal job; resolves with how many were cancelled. */
+export async function cancelAll(): Promise<number> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return unwrap(commands.cancelAll());
+}
+
+/** Pause a single job (queued/converting/converted, not printing). */
+export async function pauseJob(id: string): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await unwrap(commands.pauseJob(id));
+}
+
+/** Resume a single paused job. */
+export async function resumeJob(id: string): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await unwrap(commands.resumeJob(id));
+}
+
+/** Retry a single failed job from the start. */
+export async function retryJob(id: string): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await unwrap(commands.retryJob(id));
+}
+
+/** Pause the whole queue (stops starting new work; in-flight jobs finish). */
+export async function pauseQueue(): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await unwrap(commands.pauseQueue());
+}
+
+/** Resume the whole queue. */
+export async function resumeQueue(): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await unwrap(commands.resumeQueue());
+}
+
+/** Remove all terminal jobs; resolves with how many were removed. */
+export async function clearDone(): Promise<number> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return unwrap(commands.clearDone());
+}
+
+/** Inspect a list of file paths for the print dialog. */
+export async function inspectFiles(paths: string[]): Promise<FileInfo[]> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return unwrap(commands.inspectFiles(paths));
+}
+
+/** The exact command MaeclyPrint would run for `req` (honesty preview). */
+export async function previewCommand(req: PrintRequest): Promise<string> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return unwrap(commands.previewCommand(req));
+}
+
+/**
+ * Format an RFC 3339 UTC timestamp to a local `HH:MM:SS` clock, matching the
+ * preformatted strings the queue views render. `null`/unparseable → `—`.
+ */
+function toClock(rfc3339: string | null): string {
+  if (!rfc3339) return '—';
+  const d = new Date(rfc3339);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString([], {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+/**
+ * Adapt a wire [`Job`] into the flat `UiQueueJob` the queue views render.
+ *
+ * Status mapping: the wire `JobState` and the UI status union are the same
+ * eight states, so `state` passes through verbatim (StatusDot, the list/screen
+ * "active" group, and the timeline already render `converted`). The only view
+ * that lacks a `converted` bucket is the board — see QueueBoardView, which
+ * folds it into the "queued" column. To keep the obscure `converted` state
+ * ("PDF cached, waiting for a free printer") legible we attach a
+ * `Ready to print` note. Shutdown-recovered jobs come back `paused` with
+ * `error.code === 'interrupted_by_shutdown'`; we surface that as a resumable
+ * note rather than a hard error (the state is paused, not failed).
+ */
+export function toUiQueueJob(job: Job): UiQueueJob {
+  const ui: UiQueueJob = {
+    id: job.id,
+    file: job.file_name,
+    ext: job.input_ext,
+    status: job.state,
+    progress: job.progress?.percent ?? (job.state === 'done' ? 1 : 0),
+    pages: job.pages ?? 0,
+    profile: job.profile_name ?? '—',
+    printer: job.printer_resolved ?? job.settings.printer ?? 'Default printer',
+    startedAt: toClock(job.started_at),
+    sizeKb: Math.round(job.input_bytes / 1024),
+  };
+  if (job.finished_at) ui.finishedAt = toClock(job.finished_at);
+  if (job.error) {
+    if (job.error.code === 'interrupted_by_shutdown') {
+      ui.note = 'Interrupted by shutdown · resume to continue';
+    } else {
+      ui.error = job.error.message;
+    }
+  } else if (job.state === 'converted') {
+    ui.note = 'Ready to print';
+  }
+  return ui;
 }

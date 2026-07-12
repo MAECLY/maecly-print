@@ -14,6 +14,10 @@ use specta::Type;
 
 use crate::util::paths;
 
+pub mod policy;
+
+pub use policy::PrinterPolicy;
+
 pub const SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -44,6 +44,29 @@ fn run_ok(program: &str, args: &[&str]) -> anyhow::Result<()> {
     }
 }
 
+/// Run a CLI and, on failure, surface its captured stderr verbatim as the error.
+///
+/// Unlike [`run_ok`], this lets the tool's own diagnostic (e.g. lpadmin's
+/// "Unable to connect to ...") reach the caller — and thus the UI toast —
+/// unaltered. Keeps the `LC_ALL=C` locale so messages are not localized.
+fn run_ok_capture(program: &str, args: &[&str]) -> anyhow::Result<()> {
+    let out = Command::new(program)
+        .args(args)
+        .env("LC_ALL", "C")
+        .env("LANG", "C")
+        .output()
+        .with_context(|| format!("failed to spawn `{program}`"))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let msg = stderr.trim();
+    if msg.is_empty() {
+        anyhow::bail!("`{program}` exited with {}", out.status);
+    }
+    anyhow::bail!("{msg}");
+}
+
 /// Set the CUPS *user* default — writes `~/.cups/lpoptions`, no privileges.
 pub fn set_os_default(name: &str) -> anyhow::Result<()> {
     run_ok("lpoptions", &["-d", name])
@@ -114,6 +137,100 @@ pub fn open_printer_settings() -> anyhow::Result<()> {
         "open",
         &["/System/Library/PreferencePanes/PrintAndFax.prefPane"],
     )
+}
+
+// ----------------------------------------------------------------------------
+// Adding a printer (`lpadmin`)
+// ----------------------------------------------------------------------------
+
+/// Install a CUPS print queue for `uri`, labelled with the human `name`.
+///
+/// `lpadmin -p EXISTING` silently *modifies* an existing queue, so we derive a
+/// legal queue id from `name` and then de-duplicate it against the installed
+/// queues before creating anything. Driverless IPP URIs use the `everywhere`
+/// model; raw sockets/LPD use the `raw` model; anything else is rejected with a
+/// message the UI can show.
+pub fn add_printer(name: &str, uri: &str) -> anyhow::Result<()> {
+    let base = sanitize_queue_name(name);
+    let queue = unique_queue_name(&base, &queue_names());
+    // The display/description keeps the user's original text; fall back to the
+    // queue id if the name was blank.
+    let trimmed = name.trim();
+    let display = if trimmed.is_empty() {
+        queue.clone()
+    } else {
+        trimmed.to_string()
+    };
+    let args = lpadmin_args(&queue, uri, &display)?;
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_ok_capture("lpadmin", &arg_refs)
+}
+
+/// Turn a free-form display name into a legal CUPS queue id.
+///
+/// CUPS queue ids may not contain spaces, `/`, or `#`; those become `_`. The
+/// result is capped at 127 characters and falls back to `"printer"` when the
+/// input sanitizes to nothing (e.g. it was empty or all whitespace).
+fn sanitize_queue_name(name: &str) -> String {
+    let cleaned: String = name
+        .trim()
+        .chars()
+        .map(|c| {
+            if matches!(c, ' ' | '\t' | '/' | '#') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .take(127)
+        .collect();
+    if cleaned.is_empty() {
+        "printer".to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// Return `base` if no installed queue already uses it, otherwise the first
+/// free `base_2`, `base_3`, … variant. This is what keeps `add` from silently
+/// overwriting an existing queue.
+fn unique_queue_name(base: &str, existing: &[String]) -> String {
+    if !existing.iter().any(|e| e == base) {
+        return base.to_string();
+    }
+    let mut n = 2u32;
+    loop {
+        let candidate = format!("{base}_{n}");
+        if !existing.iter().any(|e| e == &candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+/// Build the `lpadmin` argument vector, selecting the PPD-less model by scheme:
+/// `ipp`/`ipps`/`dnssd` are driverless (`-m everywhere`); `socket`/`lpd` are
+/// raw byte streams (`-m raw`). Any other scheme is rejected.
+fn lpadmin_args(queue: &str, uri: &str, display: &str) -> anyhow::Result<Vec<String>> {
+    let model = match scheme(uri) {
+        "ipp" | "ipps" | "dnssd" => "everywhere",
+        "socket" | "lpd" => "raw",
+        other => anyhow::bail!(
+            "MaeclyPrint can't add a printer over '{other}'. Add it from your \
+             system's printer settings instead."
+        ),
+    };
+    Ok(vec![
+        "-p".into(),
+        queue.into(),
+        "-E".into(),
+        "-v".into(),
+        uri.into(),
+        "-m".into(),
+        model.into(),
+        "-D".into(),
+        display.into(),
+    ])
 }
 
 pub fn list_printers() -> anyhow::Result<Vec<Printer>> {
@@ -580,6 +697,64 @@ mod tests {
             "EPSON L15160 Series (IPP)"
         );
         assert_eq!(pretty_conn(None), "Local");
+    }
+
+    #[test]
+    fn sanitize_queue_name_replaces_illegal_chars() {
+        assert_eq!(sanitize_queue_name("Front Desk"), "Front_Desk");
+        assert_eq!(sanitize_queue_name("HP/LaserJet"), "HP_LaserJet");
+        assert_eq!(sanitize_queue_name("Lab#3"), "Lab_3");
+    }
+
+    #[test]
+    fn sanitize_queue_name_falls_back_when_empty() {
+        assert_eq!(sanitize_queue_name(""), "printer");
+        assert_eq!(sanitize_queue_name("   "), "printer");
+    }
+
+    #[test]
+    fn sanitize_queue_name_caps_length() {
+        let out = sanitize_queue_name(&"a".repeat(300));
+        assert_eq!(out.chars().count(), 127);
+    }
+
+    #[test]
+    fn unique_queue_name_passes_through_and_suffixes() {
+        let existing = vec!["Office".to_string(), "Office_2".to_string()];
+        // no collision → unchanged
+        assert_eq!(unique_queue_name("Lab", &existing), "Lab");
+        // collides with Office and Office_2 → first free suffix is _3
+        assert_eq!(unique_queue_name("Office", &existing), "Office_3");
+    }
+
+    #[test]
+    fn lpadmin_args_selects_model_by_scheme() {
+        // Value that follows the `-m` flag in an argument vector.
+        fn model_of(args: &[String]) -> Option<&str> {
+            let i = args.iter().position(|a| a == "-m")?;
+            args.get(i + 1).map(String::as_str)
+        }
+        let ipp = lpadmin_args("Q", "ipp://host/ipp/print", "Disp").unwrap();
+        assert_eq!(model_of(&ipp), Some("everywhere"));
+        let dnssd = lpadmin_args("Q", "dnssd://Printer._ipp._tcp.local./", "Disp").unwrap();
+        assert_eq!(model_of(&dnssd), Some("everywhere"));
+        let sock = lpadmin_args("Q", "socket://10.0.0.5:9100", "Disp").unwrap();
+        assert_eq!(model_of(&sock), Some("raw"));
+        let lpd = lpadmin_args("Q", "lpd://10.0.0.5/queue", "Disp").unwrap();
+        assert_eq!(model_of(&lpd), Some("raw"));
+        // unknown scheme is rejected
+        assert!(lpadmin_args("Q", "usb://HP/Printer", "Disp").is_err());
+    }
+
+    /// Real `lpadmin` round-trip. Ignored by default so it never runs in CI;
+    /// exercise it manually with `cargo test -- --ignored add_and_remove`.
+    #[test]
+    #[ignore]
+    fn add_and_remove_real_queue() {
+        // A raw socket queue can be created without a reachable device.
+        add_printer("MaeclyPrint Test Queue", "socket://127.0.0.1:9100").expect("add should work");
+        // Best-effort cleanup of the queue id sanitize_queue_name would produce.
+        let _ = run_ok("lpadmin", &["-x", "MaeclyPrint_Test_Queue"]);
     }
 
     #[test]
