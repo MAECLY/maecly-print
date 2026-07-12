@@ -1,0 +1,123 @@
+# Print Job
+
+> **TL;DR** — The **Print Job** screen: a two-pane composer where the user assembles a batch of files on the left and dials in print settings on the right, sees the *exact* command MaeclyPrint will run, and submits the batch to the print queue. Files are added from the OS picker or by dragging them onto the window; every file is inspected for type/size/page-count before it can be printed.
+
+This document is the source of truth for the **content and behavior** of the Print Job screen (`src/screens/PrintJobScreen.tsx`). The queue that receives a submitted batch lives in [queue.md](./queue.md); the conversion/print pipeline behind it is the [print engine](../04-architecture/print-engine.md); the wire contract is the [IPC & CLI doc](../04-architecture/ipc-and-cli.md); persisted shapes are in the [data model](../04-architecture/data-model.md).
+
+The screen is the GUI counterpart to the `print_files` IPC command, with `inspect_files` and `preview_command` as its two read-only helpers. It is the destination of the **New print job** action on Home and of the right-click "Print with MaeclyPrint" shell entry.
+
+## Screen layout
+
+A two-pane split: the file list fills the main area; a fixed settings panel sits on the right.
+
+```
+┌─ Print Job ───────────────  3 files · 12 pages · 4.2 MB      [+ Add files] [🖨 Print 3] ┐
+├──────────────────────────────────────────────────────┬─────────────────────────────────┤
+│ Files in this job                          [↑↓ reorder]│ PROFILE                         │
+│ ┌────────────────────────────────────────────────────┐│ [Quick · built-in           ▾] │
+│ │ 01  📄 report.pdf            8 pages · 3.1 MB  ↑ ↓ ✕││ PRINTER                         │
+│ │ 02  🖼 chart.png             image · 480 KB    ↑ ↓ ✕││ [System default             ▾] │
+│ │ 03  📄 cover.pdf             4 pages · 610 KB  ↑ ↓ ✕││ SIDES  [Single][Long][Short]   │
+│ └────────────────────────────────────────────────────┘│ COLOR  [Color][B&W]            │
+│                                                        │ COPIES [ 1 ] × per file        │
+│  (drag files from Explorer / Finder anywhere here)     │ PAPER [A4 ▾]   ORIENT [Auto ▾] │
+│                                                        │ SCALING [Fit][Shrink][100%]    │
+│                                                        │ PAGE RANGE [ 1-5,10        ]   │
+│                                                        │ ┌ RESOLVED COMMAND ──────────┐ │
+│                                                        │ │ lp -d "Office" -o sides=…  │ │
+│                                                        │ └────────────────────────────┘ │
+└──────────────────────────────────────────────────────┴─────────────────────────────────┘
+```
+
+- **Top bar** — title `Print Job`, subtitle `{files} files · {pages} pages · {size}` (page total sums per-file page counts, images counting as 1), and two actions: **Add files** (opens the OS picker; disabled outside the desktop app) and **Print {n}** (submits; disabled until at least one file is present and every field is valid).
+- **File list (left)** — one row per file: an index, a file-type glyph, `name.ext`, a `{pages}·{size}` sub-line, and per-row **move up / move down / remove** controls. The whole pane is a drop target (dashed accent outline while dragging).
+- **Settings panel (right, 280 px)** — profile picker, then the per-invocation overrides, then the honesty **Resolved command** preview.
+
+## Adding files
+
+Two input paths, both funnelling through one `addPaths` routine:
+
+1. **Add files button** — opens the OS file picker via `@tauri-apps/plugin-dialog`, filtered to the supported extensions (multi-select).
+2. **Native drag & drop** — dragging files from Explorer/Finder onto the window (`getCurrentWebview().onDragDropEvent`, FR-007). The pane highlights on `over` and ingests paths on `drop`.
+
+`addPaths` calls `inspect_files` for the dropped/picked paths, then:
+
+- **Dedupes** against files already in the list (by absolute path).
+- **Appends** the printable ones as list rows.
+- **Rejects** unsupported/missing files, listing them by name and reason in a single error toast (never silently dropping them).
+
+Adding files requires the desktop host; in the standalone web preview the button is disabled and drag & drop is inert.
+
+## File inspection
+
+Each path is classified independently by `inspect_files` → `FileInfo { path, name, ext, bytes, pages, supported, reason }`:
+
+- `supported` is `true` only for the engine's printable extensions (below). An unsupported or missing file comes back `supported: false` with a human `reason` (`"Unsupported file type"`, `"File not found"`, `"Not a file"`) rather than failing the whole call.
+- `pages` is best-effort: PDFs are parsed with `lopdf` when ≤ 100 MB (larger PDFs report `null` until conversion), supported images are always `1`, everything else is unknown.
+
+**Supported extensions (M1):** `pdf`, `jpg`, `jpeg`, `png`, `tif`, `tiff`, `bmp`, `webp`. This mirrors the engine's allowlist; Office/HTML/Markdown are on the [print engine](../04-architecture/print-engine.md) roadmap, not yet accepted here.
+
+## Settings panel
+
+A profile provides the baseline; the controls below it are per-invocation overrides that win over the profile (FR-040/041). All of them map 1:1 onto the wire `JobSettings` — no hidden flags.
+
+| Control      | Options                                   | Wire field (`JobSettings`)                       |
+| ------------ | ----------------------------------------- | ------------------------------------------------ |
+| **Profile**  | built-in + local presets                  | `profile_name` (display/log only)                |
+| **Printer**  | `System default` + installed printers (minus MaeclyPrint-disabled) | `printer` (`null` = default) |
+| **Sides**    | Single / Long / Short                     | `duplex` = `none` / `long` / `short`             |
+| **Color**    | Color / B&W                               | `color_mode` = `color` / `monochrome`            |
+| **Copies**   | integer, validated `1..=999`              | `copies`                                         |
+| **Paper**    | A4 / Letter / Legal / A3                  | `paper_size`                                     |
+| **Orient.**  | Auto / Portrait / Landscape               | `orientation`                                    |
+| **Scaling**  | Fit / Shrink / 100%                       | `scaling` = `fit` / `shrink` / `none`            |
+| **Page range** | e.g. `1-5,10` (blank = all)             | `page_ranges` (`null` when blank)                |
+
+- **Profiles are local presets in M1** (`src/lib/profiles.ts`): they seed the panel, but the overrides are the real source of truth. There is no profiles backend yet — `profile_name` rides along purely for the log/UI. The persisted-profiles work is a follow-up.
+- **Copies** is buffered locally so an out-of-range keystroke shows an inline error instead of being silently clamped; only a valid value flows into the request (`isValidCopies`).
+- **Page range** is validated client-side against a mirror of the engine grammar (`isValidPageRange`) so the Print button reflects intent; the backend re-validates authoritatively (`engine::pagerange::parse`). Ranges apply to PDFs only — images ignore them.
+- **Printer** options come from `list_printers` with MaeclyPrint-disabled queues filtered out (via `get_printer_prefs`).
+
+## Resolved command (honesty preview)
+
+Below the settings, a **Resolved command** panel shows the *exact* command the backend will run for the current files + settings — `lp -d "…" …` on macOS/Linux, the `SumatraPDF.exe -print-to … -print-settings "…"` line on Windows. It is produced by the `preview_command` IPC (the same argument builders the dispatcher uses, so preview and dispatch never drift), debounced 300 ms, and hidden outside the desktop app, with no files, or while any field is invalid. A failed preview simply renders nothing — it is advisory.
+
+## Submitting
+
+**Print {n}** builds a `PrintRequest { files, settings, profile_name }` (`buildPrintRequest`) and calls `print_files`, which validates and fans the batch out into one job per file (see [queue.md](./queue.md)). On success the app toasts and navigates to the Queue; a validation error (empty list, bad copies/range, missing/unsupported file) surfaces as an error toast and nothing is enqueued.
+
+## Actions
+
+| Action         | Where          | Behavior                                                                 |
+| -------------- | -------------- | ------------------------------------------------------------------------ |
+| **Add files**  | top bar        | OS picker (desktop only); adds the printable, non-duplicate selections.  |
+| **Print {n}**  | top bar        | Submits the batch via `print_files`; disabled until valid.               |
+| **Reorder**    | file row       | Move a file up/down in the batch order.                                  |
+| **Remove**     | file row       | Drop a file from the batch (does not touch the file on disk).            |
+
+## Per-platform differences
+
+| Concern            | Windows                                   | macOS / Linux                          |
+| ------------------ | ----------------------------------------- | -------------------------------------- |
+| File picker & DnD  | `tauri-plugin-dialog` + `onDragDropEvent` | same (platform-neutral)                |
+| Print backend      | SumatraPDF (`-print-to … -print-settings`) | CUPS `lp`                              |
+| Preview string     | `SumatraPDF.exe -print-to …`              | `lp -d "…" -o …`                       |
+
+The screen itself is platform-neutral; only the resolved command and the eventual spool differ, and both come from the engine.
+
+## IPC mapping
+
+| UI surface                    | IPC command                                | Notes                                        |
+| ----------------------------- | ------------------------------------------ | -------------------------------------------- |
+| Add files / drag & drop       | `inspect_files(paths) => FileInfo[]`       | Per-file type/size/pages; bad paths flagged, not thrown |
+| Resolved command panel        | `preview_command(req) => string`           | Exact backend command; debounced 300 ms      |
+| Print {n}                     | `print_files(req) => JobBatch`             | Validates + enqueues one job per file        |
+| Printer dropdown              | `list_printers()` / `get_printer_prefs()`  | Installed printers minus MaeclyPrint-disabled |
+
+See [ipc-and-cli.md](../04-architecture/ipc-and-cli.md) (§ jobs/queue) for the request/response types.
+
+## Implementation status
+
+- **M0** — front-end only, mock files/settings (superseded).
+- **M1 (current)** — **real end-to-end submission, no mock data.** Files are added via the OS dialog and native drag & drop, inspected with `inspect_files`, validated inline (copies + page-range mirrors), previewed with `preview_command`, and submitted with `print_files` into the real queue. Rust: `src-tauri/src/ipc/jobs.rs` (+ `queue`, `engine`). Frontend: `PrintJobScreen.tsx`, `src/lib/profiles.ts`, `src/lib/ipc.ts`.
+- **Follow-up** — a persisted profiles backend (`profiles.toml` + IPC; today profiles are local presets), additional input formats (Office/HTML/Markdown via the engine's documented converters), folder import, and per-file (rather than per-batch) settings.

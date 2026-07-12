@@ -30,23 +30,39 @@ All commands live under namespace `app:` (auto-derived) and are declared with `#
 | ------------------------- | -------------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------- |
 | `list_printers`           | `() => Promise<Printer[]>`                                     | `ipc::printers::list_printers`                          | Rich `Printer` (extends `PrinterInfo` with capabilities) — see [printer-enumeration.md](./printer-enumeration.md) |
 | `default_printer`         | `() => Promise<string \| null>`                                | `ipc::printers::default_printer`                        | OS-default id                      |
-| `discover_printers`       | `() => Promise<DiscoveredPrinter[]>`                           | `ipc::printers::discover_printers`                      | mDNS/Bonjour on macOS; empty on Windows (deferred) |
+| `discover_printers`       | `() => Promise<DiscoveredPrinter[]>`                           | `ipc::printers::discover_printers`                      | mDNS/Bonjour on macOS (`ippfind`); empty on Windows (deferred) |
+| `get_printer_prefs`       | `() => Promise<PrinterPrefs>`                                  | `ipc::printers::get_printer_prefs`                      | MaeclyPrint-only prefs: `default_printer`, `disabled`, `routes`, `overrides` |
+| `set_printer_prefs`       | `(prefs: PrinterPrefs) => Promise<PrinterPrefs>`              | `ipc::printers::set_printer_prefs`                      | Persists and returns the saved prefs |
+| `set_default_printer`     | `(name: string) => Promise<void>`                             | `ipc::printers::set_default_printer`                    | `lpoptions -d` (macOS/Linux) / `SetDefaultPrinterW` (Windows); no elevation |
+| `print_test_page`         | `(name: string) => Promise<void>`                             | `ipc::printers::print_test_page`                        | Branded PDF via `lp` (macOS/Linux) / `printui.dll` (Windows) |
+| `open_printer_settings`   | `() => Promise<void>`                                         | `ipc::printers::open_printer_settings`                  | Opens the OS Printers pane          |
+| `add_printer`             | `(name: string, uri: string) => Promise<void>`               | `ipc::printers::add_printer`                            | `lpadmin` IPP Everywhere/raw (macOS/Linux); Microsoft IPP Class Driver, IPP/IPPS-only (Windows); spooler error surfaced verbatim |
+| `get_printer_policy`      | `() => Promise<PrinterPolicy>`                                | `ipc::printers::get_printer_policy`                     | Reads org `policy.json`; default value when absent/malformed |
 | `list_profiles`           | `() => Promise<Profile[]>`                                     | `ipc::profiles::list_profiles`                          | Sorted by `name`                   |
 | `get_profile`             | `(id: string) => Promise<Profile>`                             | `ipc::profiles::get_profile`                            |                                    |
 | `save_profile`            | `(p: Profile) => Promise<Profile>`                             | `ipc::profiles::save_profile`                           | Returns the saved profile (with id) |
 | `delete_profile`          | `(id: string) => Promise<void>`                                | `ipc::profiles::delete_profile`                         | Cannot delete default profile      |
 | `set_default_profile`     | `(id: string) => Promise<void>`                                | `ipc::profiles::set_default_profile`                    |                                    |
-| `print_files`             | `(req: PrintRequest) => Promise<JobBatch>`                     | `ipc::jobs::print_files`                                | Returns batch ID + per-file IDs    |
-| `cancel_job`              | `(id: string) => Promise<void>`                                | `ipc::jobs::cancel_job`                                 |                                    |
-| `cancel_all`              | `() => Promise<number>`                                        | `ipc::jobs::cancel_all`                                 | Returns count cancelled            |
-| `queue_status`            | `() => Promise<QueueSnapshot>`                                 | `ipc::jobs::queue_status`                               | Snapshot, not a stream             |
-| `subscribe_queue`         | event channel `queue-updated`                                  | emitted by dispatcher                                    | Use `listen('queue-updated', ...)` |
+| `print_files`             | `(req: PrintRequest) => Promise<JobBatch>`                     | `ipc::jobs::print_files`                                | Validates + fans out one job per file; returns batch id + per-file job ids |
+| `queue_status`            | `() => Promise<QueueSnapshot>`                                 | `ipc::jobs::queue_status`                               | One-shot snapshot; live updates arrive via the `queue-updated` event |
+| `cancel_job`              | `(id: string) => Promise<void>`                                | `ipc::jobs::cancel_job`                                 | `JobNotFound` / `InvalidState` on a terminal job |
+| `cancel_all`              | `() => Promise<number>`                                        | `ipc::jobs::cancel_all`                                 | Cancels every non-terminal job; returns the count |
+| `pause_job`               | `(id: string) => Promise<void>`                                | `ipc::jobs::pause_job`                                  | Refused (`InvalidState`) once a job is printing |
+| `resume_job`              | `(id: string) => Promise<void>`                                | `ipc::jobs::resume_job`                                 | Back to `converted` if the cache survives, else `queued` |
+| `retry_job`               | `(id: string) => Promise<void>`                                | `ipc::jobs::retry_job`                                  | Only a `failed` job; resets attempts |
+| `pause_queue`             | `() => Promise<void>`                                          | `ipc::jobs::pause_queue`                                | Stops starting new work; in-flight jobs continue |
+| `resume_queue`            | `() => Promise<void>`                                          | `ipc::jobs::resume_queue`                               |                                    |
+| `clear_done`              | `() => Promise<number>`                                        | `ipc::jobs::clear_done`                                 | Removes terminal jobs (and their cache); returns the count |
+| `inspect_files`           | `(paths: string[]) => Promise<FileInfo[]>`                     | `ipc::jobs::inspect_files`                              | Per-file type/size/page count for the print dialog; bad paths flagged, not thrown |
+| `preview_command`         | `(req: PrintRequest) => Promise<string>`                       | `ipc::jobs::preview_command`                            | Exact `lp` / SumatraPDF command (honesty preview) |
 | `check_for_updates`       | `() => Promise<UpdateInfo \| null>`                            | `ipc::update::check`                                    | `null` = up to date                |
 | `install_update`          | `() => Promise<void>`                                          | `ipc::update::install`                                  | Triggers download + relaunch       |
 | `get_settings`            | `() => Promise<Config>`                                        | `ipc::settings::get`                                    |                                    |
 | `update_settings`         | `(patch: Partial<Config>) => Promise<Config>`                  | `ipc::settings::update`                                 | Deep-merge patch                   |
 | `open_logs_folder`        | `() => Promise<void>`                                          | `ipc::diag::open_logs`                                  | Reveals in Explorer/Finder         |
 | `report_issue`            | `(text: string) => Promise<void>`                              | `ipc::diag::report`                                     | Opens GitHub Issues prefilled URL  |
+
+> **Wired today (M1).** The command surface actually registered via `tauri_specta::collect_commands!` (`src-tauri/src/lib.rs`) is `app_info`, the **printer** commands, and the **jobs/queue** commands above. The **profiles**, **settings**, **update**, and **diag** rows are the planned surface for later milestones and are not yet registered — profiles in particular are frontend-local presets in M1 (`src/lib/profiles.ts`), with no `list_profiles`/`save_profile` backend yet.
 
 ### 2.2 Type definitions
 
@@ -65,64 +81,77 @@ export type PrinterStatus =
   | "ready" | "offline" | "paused" | "out_of_paper"
   | "out_of_toner" | "jammed" | "needs_attention";
 
-export type ColorMode = "color" | "monochrome";
-export type Duplex    = "off" | "long-edge" | "short-edge";
-export type Scaling   = "fit" | "shrink" | "actual";
-export type Quality   = "draft" | "normal" | "high";
+// --- Print settings (job.rs; lowercase wire enums) ---
+export type Duplex      = "none" | "long" | "short";
+export type ColorMode   = "color" | "monochrome";
+export type PaperSize   = "a4" | "letter" | "legal" | "a3";
+export type Orientation = "auto" | "portrait" | "landscape";
+export type Scaling     = "fit" | "shrink" | "none";
 
-export type Profile = {
-  id: string;
-  name: string;
-  printer: "<default>" | string;
-  color_mode: ColorMode;
+export type JobSettings = {
+  printer: string | null;        // null → app/OS default resolved at dispatch
   duplex: Duplex;
-  copies: number;
-  paper_size: string;
-  orientation: "portrait" | "landscape" | "auto";
+  color_mode: ColorMode;
+  copies: number;                // 1..=999
+  paper_size: PaperSize;
+  orientation: Orientation;
   scaling: Scaling;
-  page_range: string;        // "all" | "1-5,8"
-  collate: boolean;
-  quality: Quality;
-  tray: "auto" | string;
-  margins_mm: { top: number; right: number; bottom: number; left: number };
-  notes: string;
+  page_ranges: string | null;    // "1-5,8" or null for all pages
 };
 
+// N files sharing one resolved settings bundle. `profile_name` is display/log
+// only — profiles are frontend-local presets in M1 (no backend `Profile` yet).
 export type PrintRequest = {
   files: string[];
-  profile_id: string;
-  overrides?: Partial<Omit<Profile, "id" | "name">>;
+  settings: JobSettings;
+  profile_name: string | null;
 };
 
-export type JobBatch = {
-  batch_id: string;
-  job_ids: string[];
-};
+export type JobBatch = { batch_id: string; job_ids: string[] };
 
 export type JobState =
   | "queued" | "converting" | "converted" | "printing"
   | "done" | "failed" | "paused" | "cancelled";
 
+export type JobError    = { code: string; message: string };
+export type JobProgress = { phase: string; percent: number };
+
 export type Job = {
-  id: string;
+  id: string;                    // UUID v7 (time-sortable)
   batch_id: string;
   state: JobState;
   input_path: string;
-  input_mime: string;
+  file_name: string;
+  input_ext: string;             // lowercased, no leading dot
   input_bytes: number;
-  cache_pdf: string | null;
-  profile_id: string;
+  pages: number | null;
+  cache_pdf: string | null;      // converted PDF in the cache, once produced
+  settings: JobSettings;
+  profile_name: string | null;
+  printer_resolved: string | null;  // printer chosen at dispatch time
   attempts: number;
-  error: { code: string; message: string } | null;
-  progress: { phase: string; percent: number } | null;
-  submitted_at: string;       // ISO 8601
+  error: JobError | null;
+  progress: JobProgress | null;
+  submitted_at: string;          // RFC 3339 UTC
   started_at: string | null;
   finished_at: string | null;
 };
 
 export type QueueSnapshot = {
   schema_version: number;
+  queue_paused: boolean;
   jobs: Job[];
+};
+
+// Per-file inspection for the print dialog (jobs.rs).
+export type FileInfo = {
+  path: string;
+  name: string;
+  ext: string;                   // lowercased, no dot; "" when none
+  bytes: number;
+  pages: number | null;
+  supported: boolean;
+  reason: string | null;         // why unprintable, when !supported
 };
 
 export type UpdateInfo = {
@@ -136,67 +165,70 @@ export type UpdateInfo = {
 ### 2.3 Rust handler example
 
 ```rust
-// src/ipc/jobs.rs
-use tauri::{State, AppHandle, Manager};
-use crate::queue::{QueueHandle, JobBatch, PrintRequest};
+// src-tauri/src/ipc/jobs.rs
+use tauri::State;
+use crate::queue::job::{JobBatch, PrintRequest, QueueSnapshot};
+use crate::queue::QueueHandle;
 
 #[tauri::command]
+#[specta::specta]
 pub async fn print_files(
     state: State<'_, QueueHandle>,
-    app: AppHandle,
     req: PrintRequest,
 ) -> Result<JobBatch, IpcError> {
-    state
-        .submit(req, app.clone())
-        .await
-        .map_err(IpcError::from)
+    // `submit` validates and fans the batch out synchronously (off the IPC
+    // thread), returning before any job is enqueued — a bad request never
+    // reaches the queue. The dispatcher then drives the jobs and pushes
+    // `queue-updated` events.
+    let handle = state.inner().clone();
+    run_blocking(move || handle.submit(req)).await
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn queue_status(state: State<'_, QueueHandle>) -> Result<QueueSnapshot, IpcError> {
-    Ok(state.snapshot().await)
+    Ok(state.snapshot()) // reads the dispatcher's live in-memory state directly
 }
 ```
 
 ### 2.4 Events (push from Rust to UI)
 
-| Event name        | Payload                              | Emitted by                                  |
-| ----------------- | ------------------------------------ | ------------------------------------------- |
-| `queue-updated`   | `QueueSnapshot`                      | Dispatcher on every state transition        |
-| `job-progress`    | `{ id: string, phase: string, percent: number }` | Converter & printer adapters     |
-| `update-available`| `UpdateInfo`                         | Updater on successful check                 |
-| `update-progress` | `{ downloaded: number, total: number }` | Updater during download                  |
-| `printer-changed` | `{ name: string, status: PrinterStatus }` | Printer monitor                       |
+| Event name           | TS type / payload                             | Emitted by                                  | Status       |
+| -------------------- | --------------------------------------------- | ------------------------------------------- | ------------ |
+| `queue-updated`      | `QueueUpdated` = `QueueSnapshot`              | Dispatcher, on every persisted mutation (submit / transition / cancel / clear / pause) | shipped |
+| `job-progress-event` | `JobProgressEvent` = `{ id, phase, percent }` | Dispatcher's conversion progress callback; throttled ≥ 100 ms, advisory, **not** persisted | shipped |
+| `update-available`   | `UpdateInfo`                                  | Updater on a successful check               | planned (M4) |
+| `update-progress`    | `{ downloaded: number, total: number }`       | Updater during download                     | planned (M4) |
 
-The webview subscribes via `import { listen } from "@tauri-apps/api/event"`.
+The two shipped events derive `tauri_specta::Event` (collected in `src-tauri/src/lib.rs`), so their names and payload types are generated into `src/ipc/bindings.ts`. The event *names* are the struct identifiers kebab-cased by the derive (`QueueUpdated` → `"queue-updated"`, `JobProgressEvent` → `"job-progress-event"`). The webview subscribes through the generated `events` object — `events.queueUpdated.listen(...)` / `events.jobProgressEvent.listen(...)` — not raw `listen()`. (The `printer-changed` event listed in earlier drafts is not implemented.)
 
 ### 2.5 Capability declaration
 
-Tauri 2's capability system narrows what the webview can call. Our `capabilities/main.json`:
+Tauri 2's capability system gates **core and plugin** permissions (window, webview, dialog, shell, …) per window. It does **not** gate the app's own `#[tauri::command]` handlers: commands registered through `tauri_specta::collect_commands!` / `invoke_handler` (`src-tauri/src/lib.rs`) are the application's private IPC surface and are callable from the main window regardless of the capability list. So `capabilities/main.json` carries only the core defaults plus the one plugin permission we actually use:
 
 ```json
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-capability",
-  "description": "Permissions for the MaeclyPrint main window.",
+  "description": "Permissions granted to the MaeclyPrint main window.",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "app:list_printers", "app:default_printer",
-    "app:list_profiles", "app:get_profile", "app:save_profile",
-    "app:delete_profile", "app:set_default_profile",
-    "app:print_files", "app:cancel_job", "app:cancel_all", "app:queue_status",
-    "app:check_for_updates", "app:install_update",
-    "app:get_settings", "app:update_settings",
-    "app:open_logs_folder", "app:report_issue",
-    { "identifier": "shell:allow-open", "allow": [ { "url": "https://updates.maecly.com/**" } ] }
+    "core:window:default",
+    "core:webview:default",
+    "dialog:default"
   ]
 }
 ```
 
-Anything not listed here is unreachable from the webview — a defense-in-depth measure.
+`dialog:default` grants the native file-picker plugin the Print Job screen uses. The defense-in-depth boundary for the app's own commands is therefore twofold, and does **not** come from a per-command allowlist:
+
+1. **Closed surface.** Only the commands enumerated in `collect_commands!` exist at all — there is no dynamic or third-party command surface for a compromised webview to reach.
+2. **No remote code.** The window's CSP loads only the bundled SPA and forbids remote content (see [`security-model.md`](./security-model.md) § 3.3), so there is no attacker-controlled script in the webview to call them in the first place.
 
 ## 3. CLI
+
+> **Status: planned, not yet implemented (M1).** The command surface below is the designed CLI contract. It is **not** wired up yet — the current binary runs the GUI only; there is no `--cli` mode, no `clap` subcommands, and no `src/cli/`. This section documents the intended shape (targeted around the M1 "Print Core" milestone); treat every command here as a specification, not a shipped feature. Some IPC commands the mapping in §3.5 targets are live today (jobs/queue, printers); others (profiles, update) are themselves still planned — see the "Wired today" note under §2.1.
 
 ### 3.1 Entry point
 

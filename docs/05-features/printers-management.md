@@ -98,16 +98,21 @@ The IPC `PrinterInfo` ([data-model](../04-architecture/data-model.md)) is the **
 
 ## Add-printer flows
 
-A modal with three tabs:
+A modal (`AddPrinterModal` in `PrintersScreen.tsx`) with three tabs, plus an **Open printer settings** button in the footer that always defers to the OS pane (`open_printer_settings`) for transports MaeclyPrint can't install itself.
 
-1. **Scan network** — live mDNS/Bonjour + WSD discovery; each result (name, address, transport) has an **Add** button.
-2. **By IP address** — manual entry: hostname/IP, protocol (`IPP/IPPS`, `Raw 9100`, `LPD/LPR`, `WSD`), port, optional queue name. On connect, MaeclyPrint queries the driver for capabilities.
-3. **From system spooler** — printers already known to the OS (Windows spooler / CUPS); tick any to manage them in MaeclyPrint.
+1. **Scan network** — mDNS/Bonjour discovery (`discover_printers`; `ippfind` on macOS/Linux, empty on Windows until WSD lands). Each result has an **Add** button that really installs the queue via `add_printer`, with a per-row inline error and toast on failure.
+2. **By IP address** — manual entry: host/IP, protocol, port, optional queue path, display name. Host and name are validated client-side (`isValidHost` / `buildPrinterUri` in `src/lib/printerAddress.ts`) before the URI is composed and handed to `add_printer`. The protocol list is **platform-dependent**: macOS/Linux offer IPP, IPPS, Raw (JetDirect 9100) and LPD/LPR; **Windows offers IPP/IPPS only** (a note steers raw/LPD/USB to *Open printer settings*).
+3. **From system** — every queue the OS already reports, with a checkbox per printer. Unticking one **soft-disables** it (hides it from MaeclyPrint by adding its id to `prefs.disabled`); the underlying OS print queue is never modified. This is a MaeclyPrint-only preference, not an `lpadmin`/spooler mutation.
+
+`add_printer` selects the install method per platform (see [Per-platform differences](#per-platform-differences)); on failure it surfaces the spooler's own diagnostic (e.g. `lpadmin`'s "Unable to connect to …") verbatim in the toast. It never touches MaeclyPrint preferences — only the OS spooler — and never silently overwrites an existing queue (the derived queue id is de-duplicated first).
 
 ## Edge states
 
-- **Missing-printer reconciliation** — when a profile points to a printer the spooler no longer reports, a warning banner explains that jobs using it are **paused, not failed**, and offers to reassign the profile to a ready printer or keep jobs paused. This mirrors the queue's failure semantics.
-- **Org-managed default** — when the default is pinned by `policy.json`, a lock note appears and **Set default** is effectively read-only. See the enterprise policy notes in the [security model](../04-architecture/security-model.md).
+- **Missing-printer reconciliation** — MaeclyPrint preferences can reference a printer id that the spooler no longer enumerates: a file-type route target, a per-printer tray/paper override, or the app default. When that happens, a warning banner names the missing id, explains that jobs using it are **paused, not failed** (mirroring the queue's failure semantics), and offers three actions:
+  - **Update references (reassign)** — repoints the missing printer's routes at a chosen ready printer and remaps the app default to it. The missing printer's tray/paper overrides are **dropped, not carried over** — bin and media names are model-specific and don't transfer between devices.
+  - **Forget** — removes every reference (routes, overrides, default) to the missing printer without reassigning.
+  - **Keep paused** — dismisses the banner for this session only, without touching prefs; it reappears on the next **Rescan**/reload. If several printers are missing, the banner handles them one at a time and notes how many more remain.
+- **Org-managed default** — when `policy.json` pins `default_printer`, a lock note appears and **Set default** is disabled with an explanatory tooltip. The effective default follows the precedence `policy.default_printer ?? prefs.default_printer ?? OS default`. See the enterprise policy notes in the [security model](../04-architecture/security-model.md#43-enterprise-policy-policyjson).
 
 ## Per-platform differences
 
@@ -116,27 +121,42 @@ A modal with three tabs:
 | Enumeration source | Print Spooler (`EnumPrinters`)           | CUPS (`cupsGetDests`)                    |
 | "From system" tab  | Spooler queues (XPS Writer, Fax, …)      | CUPS destinations                        |
 | Virtual default    | Microsoft Print to PDF                   | Save as PDF                              |
-| Discovery          | WSD + mDNS                               | mDNS/Bonjour (native)                    |
+| Discovery          | **Empty (WSD/mDNS deferred)**            | mDNS/Bonjour via `ippfind`               |
+| Add printer        | `Add-Printer` + **Microsoft IPP Class Driver**; **IPP/IPPS only** (raw/LPD/USB → OS pane); creates the `IPP://` port on demand; needs-admin surfaced as a friendly message | `lpadmin`: **IPP Everywhere** (`-m everywhere`) for ipp/ipps/dnssd, **raw** queue for socket/lpd |
+| Set default        | `SetDefaultPrinterW`                     | `lpoptions -d` (writes `~/.cups/lpoptions`) |
+| Test page          | `rundll32 printui.dll,PrintUIEntry`      | branded MaeclyPrint PDF via `lp`         |
+| Supply levels      | Not exposed by Win32 (SNMP/WMI/IPP TODO) | `marker-levels` via `lpoptions`          |
 
-macOS support follows [ADR-0007 (Windows first, Mac second)](../adr/0007-windows-first-mac-second.md); the screen is platform-neutral and reads whatever `list_printers` returns.
+macOS support follows [ADR-0007 (Windows first, Mac second)](../adr/0007-windows-first-mac-second.md); the screen is platform-neutral and reads whatever `list_printers` returns. Both add-printer paths avoid flashing a console window and surface the OS tool's own error text in the toast.
 
 ## IPC mapping
 
 | UI surface              | IPC command                               | Notes                              |
 | ----------------------- | ----------------------------------------- | ---------------------------------- |
 | Master list + status + capabilities | `list_printers() => Printer[]`   | rich `Printer` (extends `PrinterInfo`) incl. color/duplex/papers/trays/supplies |
-| Default star / Set default | `default_printer() => string \| null`  | OS-default id                      |
+| Default star            | `default_printer() => string \| null`     | OS-default id                      |
 | Rescan                  | re-invoke `list_printers`                 | —                                  |
 | Scan network (add modal)| `discover_printers() => DiscoveredPrinter[]` | macOS mDNS real; Windows empty (deferred) |
-| Add printer (IP/system/commit) | spooler add (follow-up)            | UI wired, mutate step not implemented |
+| Add printer (network row / IP) | `add_printer(name, uri) => void`   | Installs a real spooler queue; spooler error surfaced verbatim |
+| From-system checkboxes / tray-paper / routes | `get_printer_prefs()` / `set_printer_prefs(prefs)` | MaeclyPrint-only prefs: `disabled`, `overrides`, `routes`, `default_printer` |
+| Set default             | `set_default_printer(name) => void`       | `lpoptions -d` / `SetDefaultPrinterW`; no elevation |
+| Test page               | `print_test_page(name) => void`           | Branded PDF via `lp` / `printui.dll` |
+| Open printer settings   | `open_printer_settings() => void`         | Defers to the OS Printers pane     |
+| Org default lock        | `get_printer_policy() => PrinterPolicy`    | Reads `policy.json`; default when absent/malformed |
 
 How the data is sourced per OS — and why fields may be absent — is documented in [Printer Enumeration](../04-architecture/printer-enumeration.md). See also [IPC & CLI](../04-architecture/ipc-and-cli.md) (§ printers).
 
 ## Implementation status
 
 - **M0** — front-end only, mock-data faithful port (superseded).
-- **M1 (current)** — **real enumeration + capabilities + discovery, no mock data.** Rust: `src-tauri/src/ipc/printers.rs` + `src-tauri/src/platform/{cups,windows}.rs`. Frontend: `listPrinters` / `fetchDefaultPrinter` / `discoverPrinters` in `src/lib/ipc.ts`, consumed by `PrintersScreen.tsx` (loading / empty / unavailable states) and the Print Job printer dropdown. macOS supplies/papers/trays are live via CUPS; Windows capabilities via `DeviceCapabilities`. Set default / Test page / Remove remain local-only.
-- **Follow-up** — system-mutating Add (`lpadmin` / `Add-Printer`), Windows network discovery (WSD), Windows supply levels (SNMP/WMI/IPP), functional Test page / Remove.
+- **M1 (current)** — **the full Printers surface is real, no mock data.** Rust: `src-tauri/src/ipc/printers.rs` + `src-tauri/src/platform/{cups,windows}.rs` + `src-tauri/src/settings/{mod,policy}.rs`. Frontend: the wrappers in `src/lib/ipc.ts`, consumed by `PrintersScreen.tsx` (loading / empty / unavailable states) and the Print Job printer dropdown. Implemented end-to-end:
+  - Enumeration + capabilities (macOS supplies/papers/trays via CUPS; Windows via `DeviceCapabilities`) and OS default detection.
+  - **Set default** (`lpoptions -d` / `SetDefaultPrinterW`) and **Test page** (branded PDF via `lp` / Windows `printui.dll`) — both are live spooler actions, not local stubs.
+  - **Remove / Restore** as a MaeclyPrint-level soft-disable (OS queue untouched), **hidden for virtual printers**.
+  - Preferences persistence (`get_printer_prefs` / `set_printer_prefs`): file-type routes, per-printer tray/paper overrides, soft-disabled set, app default.
+  - **Add printer** by network discovery and by IP (`add_printer`: `lpadmin` IPP Everywhere/raw on macOS/Linux; Microsoft IPP Class Driver, IPP/IPPS-only on Windows), and **From system** spooler management.
+  - **Missing-printer reconciliation** (reassign / forget / keep-paused) and **org-policy default lock** (`get_printer_policy` reading `policy.json`).
+- **Follow-up** — Windows network discovery (WSD/mDNS), Windows supply levels (SNMP/WMI/IPP), consumption of routes/tray-paper overrides by the print engine (queue work in flight), and profile-level reconciliation once profiles are wired.
 
 ## Open questions for v1+
 

@@ -13,7 +13,7 @@ We start by being explicit about what we are defending against and what is out o
 | Malicious update binary served by a compromised CDN host       | minisign signature verification on both the manifest and the binary, both signed offline |
 | Modified installer downloaded from a tampered mirror           | Authenticode (Win EV cert) and Apple Developer ID notarization       |
 | Malicious context-menu invocation tricking the user into running arbitrary code | Shell DLL only handles paths; main exe validates each path before processing |
-| Webview compromise (XSS in a render path) escalating to arbitrary IPC calls | Tauri capabilities allowlist + CSP + no remote content loaded         |
+| Webview compromise (XSS in a render path) escalating to arbitrary IPC calls | Closed command set (`collect_commands!`, no dynamic surface) + CSP + no remote content loaded |
 | Local user without admin rights wanting to install / use the app | Install to `%LOCALAPPDATA%`, register COM in HKCU, no service required |
 | File-content exfiltration via logs                             | Logs never include file content; paths only at INFO+ when explicitly enabled |
 | User wanting to audit network behavior                         | Single outbound endpoint by default; everything else is opt-in        |
@@ -101,7 +101,7 @@ Does **not**:
 
 ### 3.3 Webview
 
-Tauri 2's capability system limits which IPC commands are reachable from the webview. The capability declaration in `capabilities/main.json` (see [`ipc-and-cli.md`](./ipc-and-cli.md)) is the *only* surface the React UI can call. Anything not listed is unreachable — even if a hypothetical XSS were achieved, it could not call into Rust beyond the listed commands.
+The webview's Rust-facing surface is bounded two ways. **First, the closed command set:** the only commands that exist are those we register in `tauri_specta::collect_commands!` (`src-tauri/src/lib.rs`) — there is no dynamic or third-party command surface, so a compromised webview cannot reach a command we did not write. (Tauri 2's capability system gates *core and plugin* permissions — window, webview, dialog, shell — **not** app-defined `#[tauri::command]`s; `capabilities/main.json` therefore lists only `core:*` defaults plus `dialog:default`. See [`ipc-and-cli.md`](./ipc-and-cli.md) § 2.5.) **Second, and the real backstop:** there is no attacker-controlled code in the webview to abuse that surface — a strict CSP loads only the bundled SPA and forbids remote content, so a hypothetical XSS has no remote script to run.
 
 CSP for the main window:
 
@@ -154,6 +154,32 @@ The one exception is **uninstalling the WebView2 Runtime** — but we don't ship
 - App installs to `/Applications` (user can drag-drop without admin if not present).
 - All state in `~/Library/Application Support/MaeclyPrint/` and friends.
 - Finder Sync Extension requires the user to enable it in System Settings — explicit consent.
+
+### 4.3 Enterprise policy (`policy.json`)
+
+An organization can pin a small set of MaeclyPrint behavior with an optional, admin-managed `policy.json`. The app **reads it but never writes it** — it is intentionally an inbound-only control, so a compromised or misbehaving webview cannot alter organization settings. Today it carries a single field, the enforced default printer. Implemented in `src-tauri/src/settings/policy.rs`; surfaced to the UI via the `get_printer_policy` IPC command.
+
+**Locations** (first hit wins — the machine-wide system path is checked before the per-user fallback):
+
+| Platform | System path (admin-writable, preferred)                | Fallback (dev/testing)                     |
+| -------- | ------------------------------------------------------ | ------------------------------------------ |
+| Windows  | `%ProgramData%\MaeclyPrint\policy.json`                | `<user config dir>\MaeclyPrint\policy.json` |
+| macOS    | `/Library/Application Support/MaeclyPrint/policy.json` | `~/Library/Application Support/MaeclyPrint/policy.json` |
+| Linux    | `/etc/maeclyprint/policy.json`                         | `<XDG config dir>/maeclyprint/policy.json` |
+
+The per-user config-dir fallback exists so developers and testers can exercise the locked state without machine-wide admin rights; in a real deployment the admin owns the system path.
+
+**Schema** — every field optional, so an empty or partial file still deserializes:
+
+```json
+{ "default_printer": "<queue id>" }
+```
+
+**Read-only semantics.** When `default_printer` is set, the Printers screen shows a lock note and disables **Set default**; policy **wins over user preferences**, giving the effective-default precedence `policy.default_printer ?? prefs.default_printer ?? OS default`. Because the file is only ever read, the lock cannot be lifted from inside the app — only by an admin editing (or removing) the file.
+
+**Failure behavior.** A missing file is not an error — policy is optional and absence means "unmanaged". A malformed file is **logged with a warning and ignored** (degrades to no-policy); it never blocks app startup. The loader is total: it always returns a value, so the UI can rely on a response.
+
+Policy is read **at page load** (each time the Printers screen mounts). There is no daemon watching the file for live changes yet — a change takes effect on the next load/rescan. A background watch is a documented follow-up.
 
 ## 5. Network egress audit
 

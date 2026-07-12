@@ -1,6 +1,16 @@
 # Print Engine
 
-> **TL;DR** — MaeclyPrint uses a **hybrid pipeline**: each input file is converted to PDF by the most appropriate converter for its format (LibreOffice for Office docs, ImageMagick for images, Pandoc for Markdown, Chromium for HTML), then printed by a single back-end (SumatraPDF on Windows, `lpr`/CUPS on macOS). This "convert-everything-to-PDF, then print PDF" strategy is dramatically simpler than per-format printing while still producing native-quality output.
+> **TL;DR** — MaeclyPrint uses a **hybrid pipeline**: each input file is converted to PDF by the most appropriate converter for its format (LibreOffice for Office docs, ImageMagick for images, Pandoc for Markdown, Chromium for HTML), then printed by a single back-end (SumatraPDF on Windows, CUPS on macOS/Linux). This "convert-everything-to-PDF, then print PDF" strategy is dramatically simpler than per-format printing while still producing native-quality output.
+
+## Implementation status (M1 — shipped)
+
+This document describes the **full hybrid design** (the M3 multi-format target). What is wired **today** is a subset — enough to print PDFs and images end-to-end — with the rest still on the roadmap. Treat matrix rows, converter invocations, and the performance/config sections below as the target design; the reality in M1 is:
+
+- **Supported inputs:** `pdf` (passthrough) plus the raster images `jpg`, `jpeg`, `png`, `tif`, `tiff`, `bmp`, `webp` (`src-tauri/src/engine/mod.rs::SUPPORTED_EXTS`). Office/HTML/Markdown (LibreOffice, Chromium, Pandoc) and the ImageMagick path are **documented targets, not yet wired** — those extensions are rejected as unsupported for now.
+- **Conversion (M1):** PDFs are validated by their `%PDF-` header and printed in place (no cache file); images are decoded with the pure-Rust `image` crate and wrapped into a one-page PDF built by hand with `lopdf` — **not** `printpdf`, whose image feature is disabled (`src-tauri/src/engine/convert/`). Documented limitations of the image path: EXIF orientation is not applied, multi-frame TIFFs use the first frame only, and CMYK JPEGs / sub-formats the codec can't handle surface as a clear `ConversionFailed`.
+- **Printing (M1):** CUPS `lp` on macOS/Linux; **SumatraPDF** on Windows, located next to the app / on `PATH` / under `%LOCALAPPDATA%\SumatraPDF` — bundling is deferred, so a missing binary is a `DependencyMissing` that pauses the job. Real flags are in §3.1 / §3.6.
+- **Capability gate:** only **duplex** is hard-checked — a duplex request against a non-duplex driver is an error (the failure would otherwise be invisible at the tray); colour on a mono printer is allowed (it prints grey, which is visible). See `engine::print::check_supported`.
+- **Orchestration lives in the queue, not the engine.** Conversion/print concurrency (≤ 2 conversions, 1 print), retries with backoff, cancellation, and the conversion cache are owned by the dispatcher — see [queue.md](../05-features/queue.md) and [data-model § 4](./data-model.md#4-queuejson--live-print-queue). The converter/printer functions here are pure, blocking, single-file units the dispatcher drives, with a page-range parser (`engine::pagerange`) shared by validation and the backends.
 
 ## 1. Why a hybrid engine
 
@@ -39,28 +49,28 @@ Anything not in this table is treated as **unsupported** and shown grouped at th
 
 ## 3. Concrete invocations
 
-### 3.1 SumatraPDF (Win)
+### 3.1 SumatraPDF (Windows, shipped)
 
 ```
 SumatraPDF.exe ^
   -print-to "HP LaserJet Pro M404dn" ^
-  -print-settings "duplex,color,fit,1-5,2x" ^
+  -print-settings "1-5,duplex,monochrome,fit,paper=A4,copies=2" ^
   -silent ^
-  "C:\Users\...\AppData\Local\MaeclyPrint\cache\<job-id>.pdf"
+  -exit-when-done ^
+  "%LOCALAPPDATA%\MaeclyPrint\cache\conversions\<job-id>.pdf"
 ```
 
-`-print-settings` accepts a comma-separated list of:
+The `-print-settings` value is a comma-separated keyword list MaeclyPrint emits in a fixed order (SumatraPDF is itself order-independent; the fixed order keeps the honesty preview stable):
 
-- `duplexlong` / `duplexshort` / `simplex`
-- `color` / `monochrome`
-- `fit` / `shrink` / `noscale`
-- `<from>-<to>` page range (e.g. `1-5`, `2,4,6-9`)
-- `<n>x` copies (e.g. `3x`)
-- `paper=A4` / `paper=letter` / `paper=legal`
-- `bin=<tray-name>`
-- `landscape` / `portrait`
+1. **page ranges** — bare, no key (e.g. `1-5,8`); omitted when printing all pages.
+2. **duplex** — `simplex` / `duplex` (long edge) / `duplexshort`.
+3. **colour** — `color` / `monochrome`.
+4. **scaling** — `fit` / `shrink` / `noscale`.
+5. **paper** — `paper=A4` / `paper=Letter` / `paper=Legal` / `paper=A3`.
+6. **copies** — `copies=<n>`, only when > 1.
+7. **orientation** — `landscape` / `portrait`; `auto` emits nothing.
 
-We translate from our internal `PrintSettings` struct to a `-print-settings` string in `engine/printer/windows.rs`.
+Defaults serialise to `simplex,color,fit,paper=A4`. Translation from the wire `JobSettings` lives in `engine/print/sumatra.rs`, and the same builder feeds the UI's honesty preview so what the user sees is exactly what runs. The child is spawned with the console window suppressed; SumatraPDF prints synchronously and reports no spooler job id.
 
 ### 3.2 LibreOffice (cross-platform)
 
@@ -115,19 +125,21 @@ pandoc "notes.md" --pdf-engine=wkhtmltopdf -o "notes.pdf"
 
 If `wkhtmltopdf` is unavailable we fall back to converting Markdown → HTML via pandoc, then HTML → PDF via the chosen Chromium binary. This avoids requiring a TeX install.
 
-### 3.6 `lpr` (Mac)
+### 3.6 CUPS `lp` (macOS / Linux, shipped)
 
 ```
-lpr -P "OfficeJet_Pro" \
-    -o sides=two-sided-long-edge \
-    -o ColorModel=Gray \
-    -o media=A4 \
-    -o page-ranges=1-5 \
-    -# 2 \
-    "/Users/.../cache/<job-id>.pdf"
+lp -d "OfficeJet_Pro" \
+   -t "report.pdf" \
+   -o sides=two-sided-long-edge \
+   -o ColorModel=Gray \
+   -n 2 \
+   -o media=A4 \
+   -o fit-to-page \
+   -o page-ranges=1-5 \
+   "~/Library/Caches/MaeclyPrint/conversions/<job-id>.pdf"
 ```
 
-CUPS is well-documented and stable. Settings translate cleanly from `PrintSettings`.
+Flag mapping (`engine/print/cups.rs`): `sides` and `media` are **always** emitted, so an explicit single-sided / paper choice beats any driver default; `ColorModel=Gray` only for monochrome (colour is the driver default, so it is omitted); copies via `lp -n`; `landscape` only for landscape; `fit-to-page` for both `fit` and `shrink` (CUPS has one fit toggle and can't distinguish them); `page-ranges` when set. On success `lp`'s `request id is <dest>-<n>` line yields the CUPS job id used later to `cancel`. The engine uses `lp` (not `lpr`), run in the C locale so its output stays parseable.
 
 ## 4. The full pipeline
 

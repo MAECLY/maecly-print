@@ -6,10 +6,10 @@ This document is the source of truth for what each milestone contains. Anything 
 
 ## Overview
 
-| Milestone | Theme | Public version | Status (2026-05-03) |
+| Milestone | Theme | Public version | Status (2026-07-11) |
 |---|---|---|---|
-| M0 | Foundation | `0.0.1` (repo only) | In progress |
-| M1 | Print Core (Win) | `0.1.0-alpha` (internal) | Planned |
+| M0 | Foundation | `0.0.1` (repo only) | Done |
+| M1 | Print Core (Win) | `0.1.0-alpha` (internal) | In progress |
 | M2 | Shell Integration (Win) | `0.1.0-beta` (public) | Planned |
 | M3 | Multi-format (Win) | `0.2.0` | Planned |
 | M4 | Auto-update + Polish (Win) | `1.0.0` GA | Planned |
@@ -65,6 +65,23 @@ None. M0 is the bootstrap.
 ## M1 — Print Core (Win)
 
 **Goal:** Printing works from a CLI on Windows for PDF inputs, with a profiles system and a minimal GUI.
+
+### Status (2026-07-11) — in progress
+
+**Delivered:**
+
+- The GUI **print core**: real printer enumeration, capabilities, discovery, add-by-IP/discovery, set-default, and test page (`ipc::printers` + `platform/{cups,windows}`), plus the convert → print pipeline for PDFs (passthrough) and raster images (pure-Rust `image` + `lopdf`), spooled via CUPS `lp` / SumatraPDF.
+- A **persistent print queue**: the single-writer dispatcher (concurrency, retries with backoff, pause/resume/cancel, crash recovery), `queue.json`, and typed `queue-updated` / `job-progress-event` events — wired end-to-end to the Print Job and Queue screens and Home's recent activity.
+- Settings / printer-preferences persistence and an org-managed default via `policy.json`.
+
+**Still open in M1:**
+
+- The **CLI** (`maeclyprint print|queue|…`) is specified ([ipc-and-cli.md § 3](../04-architecture/ipc-and-cli.md#3-cli)) but not implemented — the binary runs the GUI only.
+- **SumatraPDF bundling** is deferred: the app locates an existing `SumatraPDF.exe`; a missing one is a `DependencyMissing` that pauses the job.
+- A **persisted profiles backend** (`profiles.toml` + IPC); profiles are frontend-local presets today.
+- Note: several scope lines below are framed Windows-first, but the enumeration/print backends are cross-platform and the CUPS path is exercised in CI.
+
+Shell integration (the right-click menu) is **M2** and not yet started.
 
 ### Scope
 

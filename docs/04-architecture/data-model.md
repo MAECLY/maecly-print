@@ -12,8 +12,11 @@
 | Logs (rotated daily)                | `%LOCALAPPDATA%\MaeclyPrint\logs\maeclyprint-YYYY-MM-DD.jsonl`   | `~/Library/Logs/MaeclyPrint/maeclyprint-YYYY-MM-DD.jsonl`      |
 | Cache (converted PDFs)              | `%LOCALAPPDATA%\MaeclyPrint\cache\<job-id>.pdf`                  | `~/Library/Caches/MaeclyPrint/<job-id>.pdf`                    |
 | Updater downloads (transient)       | `%LOCALAPPDATA%\MaeclyPrint\update-staging\`                     | `~/Library/Caches/MaeclyPrint/update-staging/`                 |
+| Enterprise policy (**read-only**)   | `%ProgramData%\MaeclyPrint\policy.json`                          | `/Library/Application Support/MaeclyPrint/policy.json`         |
 
 We do not write under `%PROGRAMFILES%` or `/Applications` after install — the user does not need admin rights at any time after setup, and uninstall does not orphan user-state.
+
+Unlike every file above, `policy.json` is **read-only to MaeclyPrint**: an administrator provisions it and the app only ever reads it. The machine-wide system path (above) is preferred; a per-user copy at `<config dir>/policy.json` is honored as a dev/testing fallback. Its schema, precedence, and malformed-file behavior are documented in [security-model.md §4.3](./security-model.md#43-enterprise-policy-policyjson); the shape is a single optional field, `{ "default_printer": "<printer id>" }`.
 
 These paths are computed by the `directories` crate (XDG-conformant on Linux, `KnownFolderId` on Windows, `~/Library/...` on macOS) wrapped in a `paths` module that is the only place hardcoded names appear.
 
@@ -144,6 +147,50 @@ pub enum AutoPath {
 
 The `Default` impl provides the values shown above. Reads use `figment::Figment::from(Toml::file(...))` so that env-var overrides (`MAECLYPRINT_ENGINE__MAX_CONCURRENT_CONVERSIONS=8`) are easy.
 
+### 2.3 `[printers]` — printer preferences (M1)
+
+MaeclyPrint-level printer state that must survive restarts, persisted as a `[printers]` table inside `config.toml` and exposed to the UI via the `get_printer_prefs` / `set_printer_prefs` IPC commands (see [ipc-and-cli.md](./ipc-and-cli.md) and [printers-management.md](../05-features/printers-management.md)). These are **preferences only — they never mutate the OS spooler**: "removing" a printer here soft-disables it in the app while leaving the OS queue installed.
+
+```toml
+[printers]
+default_printer = "EPSON_L15160"      # app default printer id; absent → use the OS default
+disabled = ["Old_Fax"]                # printer ids hidden in MaeclyPrint (still installed in the OS)
+
+[printers.routes]
+".pdf"  = "EPSON_L15160"              # file extension → printer id
+".docx" = "HP_LaserJet"
+
+[printers.overrides.EPSON_L15160]     # per-printer default tray/paper, keyed by printer id
+tray  = "Tray 1"
+paper = "A4"
+```
+
+Rust binding (`src/settings/mod.rs`):
+
+```rust
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct PrinterPrefs {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_printer: Option<String>,               // app default printer id
+    #[serde(default)]
+    pub disabled: Vec<String>,                          // soft-disabled printer ids
+    #[serde(default)]
+    pub routes: BTreeMap<String, String>,               // extension → printer id
+    #[serde(default)]
+    pub overrides: BTreeMap<String, PrinterOverride>,   // printer id → tray/paper
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct PrinterOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tray: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paper: Option<String>,
+}
+```
+
+Every field defaults, so a `config.toml` with no `[printers]` table still loads. The Printers screen reconciles these ids against the live spooler on each load: a route target, override key, or default that the spooler no longer reports drives the missing-printer banner ([printers-management.md](../05-features/printers-management.md#edge-states)). Because `overrides` keys are tray/media names specific to one model, they are **dropped, not carried over**, when references are reassigned to a different printer. The effective default printer resolves as `policy.default_printer ?? printers.default_printer ?? OS default` — the org policy (§1, `policy.json`) wins when present.
+
 ## 3. `profiles.toml` — print profiles
 
 A profile is a named bundle of print settings. The user can create, rename, duplicate, and delete profiles. One is marked as the default (the one used when invoked from the context menu without a chooser).
@@ -235,49 +282,62 @@ JSON, not TOML, because:
 - It is machine-managed; not intended for hand-editing.
 - It must be readable in partial form by other tools (e.g., a tray-icon companion).
 
+The file lives at `<data_dir>/queue.json` (`paths::data_dir()`); its wire shape is the `QueueSnapshot` reused verbatim by the `queue_status` IPC command and the `queue-updated` event (see [ipc-and-cli.md](./ipc-and-cli.md)). A resolved `JobSettings` bundle is embedded in each job — there is no `profile_id`/`overrides` split (profiles are frontend-local presets in M1) and no persisted OS spool id.
+
 ### 4.1 Schema
 
 ```json
 {
   "schema_version": 1,
-  "started_at": "2026-05-03T10:42:00Z",
+  "queue_paused": false,
   "jobs": [
     {
-      "id": "01HX5KAB...",
-      "submitted_at": "2026-05-03T10:42:00Z",
-      "started_at":   "2026-05-03T10:42:01Z",
-      "finished_at":  null,
+      "id": "018f9c2e-6a10-7b3a-9c4d-2f1e0a8b7c6d",   // UUID v7 (time-sortable)
+      "batch_id": "018f9c2e-6a10-7b3a-9c4d-000000000001",
       "state": "converting",
-      "input_path":   "C:\\Users\\Miguel\\Documents\\report.docx",
-      "input_mime":   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "input_bytes":  1843201,
-      "cache_pdf":    "C:\\Users\\Miguel\\AppData\\Local\\MaeclyPrint\\cache\\01HX5KAB.pdf",
-      "profile_id":   "01HX5K9C1ZAB",
-      "overrides": {
-        "copies": 2
+      "input_path": "C:\\Users\\Miguel\\Pictures\\chart.png",
+      "file_name": "chart.png",
+      "input_ext": "png",
+      "input_bytes": 491520,
+      "pages": 1,
+      "cache_pdf": "…\\MaeclyPrint\\cache\\conversions\\018f9c2e-…-7b3a.pdf",
+      "settings": {
+        "printer": null,
+        "duplex": "none",
+        "color_mode": "color",
+        "copies": 1,
+        "paper_size": "a4",
+        "orientation": "auto",
+        "scaling": "fit",
+        "page_ranges": null
       },
-      "spool_id": null,
-      "attempts": 1,
+      "profile_name": "Photo Color",
+      "printer_resolved": null,
+      "attempts": 0,
       "error": null,
-      "progress": {
-        "phase": "converting",
-        "percent": 0.42
-      }
+      "progress": { "phase": "converting", "percent": 0.5 },
+      "submitted_at": "2026-07-11T10:42:00Z",
+      "started_at": "2026-07-11T10:42:01Z",
+      "finished_at": null
     }
   ]
 }
 ```
 
-States (`state` enum):
+Field notes: `input_ext` is the lowercased extension without a dot; `pages` is best-effort (PDFs parsed with `lopdf` when ≤ 100 MB, images always `1`, else `null`); `cache_pdf` is set only for converted inputs (a PDF prints in place, so it stays `null`); `printer_resolved` records the printer actually chosen once a job reaches `printing`/`done`; all timestamps are RFC 3339 UTC. The full TS shapes are in [ipc-and-cli.md § 2.2](./ipc-and-cli.md#22-type-definitions).
+
+States (`state` enum, lowercase):
 
 - `queued` — created but not started.
-- `converting` — converter process running.
-- `converted` — PDF in cache, waiting for printer.
-- `printing` — handed off to spooler; we hold the spool ID.
-- `done` — printer reports complete.
-- `failed` — terminal error; details in `error`.
-- `paused` — transient error (printer offline, paper out); will retry.
-- `cancelled` — user cancelled.
+- `converting` — a converter is producing the cache PDF.
+- `converted` — cache PDF ready, waiting for a free printer.
+- `printing` — handed off to the OS spooler (exactly one job prints at a time).
+- `done` — printer reported completion (terminal); the cache PDF is deleted.
+- `failed` — terminal error after retries; details in `error`.
+- `paused` — user-paused, interrupted by shutdown, or stopped on a user-fixable error (`unsupported_setting` / `dependency_missing`); resumable, **not** auto-retried.
+- `cancelled` — user cancelled (terminal).
+
+Transient conversion/print failures do not go straight to `paused`: the dispatcher retries them (up to 3 attempts, 1 s then 5 s backoff) by returning the job to `queued` (re-convert) or `converted` (re-print, cache kept), and only marks `failed` once attempts are exhausted. The full state machine (`can_transition`) and retry policy live in `src-tauri/src/queue/{job,dispatcher}.rs` and the [print engine](./print-engine.md).
 
 ### 4.2 Atomic writes
 
@@ -299,9 +359,13 @@ fn write_queue(path: &Path, q: &Queue) -> std::io::Result<()> {
 
 `tempfile::NamedTempFile::persist` is `MoveFileEx` with `MOVEFILE_REPLACE_EXISTING` on Windows and `rename` on Unix; both are atomic across the same volume.
 
-### 4.3 Recovery
+### 4.3 Load, recovery, and history cap
 
-On launch, the Rust core reads `queue.json`. Any job in `converting` or `printing` is moved to `paused` with `error = "interrupted_by_shutdown"`. The user is prompted with "You had jobs in progress when MaeclyPrint last quit. Resume?".
+On launch the core loads `queue.json` and runs shutdown recovery before serving the queue: any job left `converting` or `printing` when the app last closed is moved to `paused` with `error.code = "interrupted_by_shutdown"` and its transient progress cleared. Such a job is surfaced as resumable rather than failed; resuming it clears the error and resets its attempt count. The recovered state is immediately re-persisted (so it survives an immediate re-crash), and orphaned cache PDFs — files in `<cache_dir>/conversions` that no live job's `cache_pdf` references — are swept.
+
+**Corruption / forward-incompatibility.** A missing file loads as an empty queue with no side effects. An unreadable file, invalid JSON, or a `schema_version` greater than this build supports is renamed to `queue.json.bak` (best-effort), logged, and replaced with an empty queue — the file is taken whole or discarded whole, never partial-loaded.
+
+**History cap.** On every save the terminal (done/failed/cancelled) jobs are pruned to the 200 most-recent (ranked by `finished_at`, falling back to `submitted_at`); every non-terminal job is always kept, so the file cannot grow without bound.
 
 ## 5. Logs — JSONL
 
