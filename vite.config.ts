@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { configDefaults } from 'vitest/config';
 import path from 'node:path';
 
 const host = process.env.TAURI_DEV_HOST;
@@ -38,5 +39,30 @@ export default defineConfig(async () => ({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
+    // Scope to unit/component tests under src, and explicitly exclude the
+    // WebdriverIO e2e suite. The e2e specs are named *.e2e.ts (so vitest's
+    // default {test,spec} glob never matches them) and only run via
+    // `pnpm test:e2e`; the belt-and-suspenders include/exclude keeps
+    // `pnpm test` unit-only even if a spec is renamed.
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    exclude: [...configDefaults.exclude, 'e2e/**'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html', 'lcov'],
+      reportsDirectory: './coverage',
+      // Keep non-product code out of the denominator. Target is ~60% lines
+      // (docs/08-development/testing-strategy.md); informational, not gated.
+      exclude: [
+        'e2e/**',
+        'dist/**',
+        'node_modules/**',
+        'src/ipc/bindings.ts',
+        'src/test/**',
+        'src/**/*.test.{ts,tsx}',
+        'src/main.tsx',
+        'src/vite-env.d.ts',
+        '**/*.config.{ts,js}',
+      ],
+    },
   },
 }));

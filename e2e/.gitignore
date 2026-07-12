@@ -1,0 +1,3 @@
+# Screenshots captured on E2E failure and wdio's own run logs.
+artifacts/
+wdio-logs/

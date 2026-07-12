@@ -9,6 +9,7 @@ export default tseslint.config(
   {
     ignores: [
       'dist',
+      'coverage',
       'node_modules',
       'src-tauri/target',
       'src-tauri/gen',
@@ -18,7 +19,11 @@ export default tseslint.config(
     ],
   },
   {
-    extends: [js.configs.recommended, ...tseslint.configs.recommended, prettier],
+    extends: [
+      js.configs.recommended,
+      ...tseslint.configs.recommended,
+      prettier,
+    ],
     files: ['**/*.{ts,tsx}'],
     languageOptions: {
       ecmaVersion: 2022,
@@ -38,6 +43,15 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+    },
+  },
+  {
+    // E2E specs run under WebdriverIO + Mocha in Node, not the browser. The
+    // wdio globals (browser/$/expect) are imported from '@wdio/globals'; Mocha
+    // (describe/it/beforeEach) and Node builtins are ambient.
+    files: ['e2e/**/*.ts'],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.mocha },
     },
   },
 );
