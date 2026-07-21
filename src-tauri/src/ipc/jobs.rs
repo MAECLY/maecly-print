@@ -4,10 +4,10 @@
 //! managed state) plus two stateless helpers the print dialog needs before it
 //! submits: [`inspect_files`] (per-file metadata for the file list) and
 //! [`preview_command`] (the honest "this is what we'll run" string), plus the
-//! two-step folder flow a drop of a directory needs — [`classify_paths`] tells
-//! the UI *which* of the dropped entries are folders so it can ask the
-//! recurse-or-not question (FR-004), [`expand_folders`] then walks them with
-//! the answer. The queue
+//! two-step folder flow a drop of a directory needs — [`inspect_files`] marks
+//! which of the dropped entries are folders (and whether they hold subfolders)
+//! so the UI can ask the recurse-or-not question (FR-004), and
+//! [`expand_folders`] then walks them with the answer. The queue
 //! itself pushes updates via the events in [`crate::ipc::events`]; these
 //! commands are the request/response half of the contract in
 //! `docs/04-architecture/ipc-and-cli.md`.
@@ -38,6 +38,14 @@ pub struct FileInfo {
     pub supported: bool,
     /// Why the file is not printable, when `supported` is false.
     pub reason: Option<String>,
+    /// The path is a directory. Not printable as such, but not an error either:
+    /// the caller runs it through [`expand_folders`] after asking the FR-004
+    /// recurse-or-not question.
+    pub is_dir: bool,
+    /// Only meaningful when `is_dir`: whether the folder holds subfolders at
+    /// all. When it does not there is nothing to recurse into, so the UI skips
+    /// the question and expands top-level (FR-004 asks; it does not nag).
+    pub has_subfolders: bool,
 }
 
 /// A folder the caller dropped or picked, waiting on the FR-004 question.
@@ -82,6 +90,11 @@ pub struct PathSelection {
 /// Every path is resolved through [`canonical_input`] first (NFR-025), so the
 /// queue only ever stores absolute, symlink-resolved paths and a relative one
 /// can never be silently resolved against the process' working directory.
+///
+/// The page range is then bounds-checked against each PDF's real page count
+/// (FR-042/FR-043) before anything is enqueued, so `"500-600"` on an 8-page
+/// report is an error the user can read and fix — not a job that reaches `Done`
+/// having printed nothing.
 #[tauri::command]
 #[specta::specta]
 pub async fn print_files(
@@ -96,22 +109,50 @@ pub async fn print_files(
             .iter()
             .map(|f| canonical_input(f).map(|p| p.to_string_lossy().into_owned()))
             .collect::<Result<Vec<_>, _>>()?;
+        if let Some(ranges) = req.settings.page_ranges.as_deref() {
+            check_ranges_fit_documents(ranges, &req.files).map_err(IpcError::InvalidRequest)?;
+        }
         handle.submit(req)
     })
     .await
 }
 
-/// Resolve a drag-and-drop / file-picker selection and split files from folders
-/// (FR-004, NFR-025).
+/// Bounds-check one batch-wide page range against every file it will actually
+/// apply to.
 ///
-/// The first half of the folder flow: the UI calls this with whatever the OS
-/// handed it, and asks the recurse-or-not question only when `folders` is not
-/// empty (and only when a folder reports `has_subfolders`). Never errors — a
-/// path that will not resolve lands in `rejected` with a reason.
-#[tauri::command]
-#[specta::specta]
-pub async fn classify_paths(paths: Vec<String>) -> Result<PathSelection, IpcError> {
-    run_blocking(move || Ok(classify_selection(&paths))).await
+/// Two deliberate narrowings:
+/// - **PDFs only.** `engine::print::effective_settings` drops the range for
+///   image inputs (an image is one page), so a range that image would not honour
+///   anyway must not fail the batch — otherwise "1-5" would become unusable the
+///   moment a PNG joins the selection.
+/// - **Known page counts only.** `probe_pages` returns `None` for PDFs above the
+///   probe ceiling or that will not parse; those pass through, since refusing to
+///   print what we cannot measure is worse than trusting the user.
+///
+/// The message names the file: one range covers the whole batch, so "which one?"
+/// is the first thing the user needs to know.
+fn check_ranges_fit_documents(ranges: &str, files: &[String]) -> Result<(), String> {
+    let spans = crate::engine::pagerange::parse(ranges)?;
+    for file in files {
+        let path = Path::new(file);
+        let ext = crate::engine::extension_of(path);
+        if ext != "pdf" {
+            continue;
+        }
+        let Ok(meta) = std::fs::metadata(path) else {
+            continue; // submit reports the missing file with its own error
+        };
+        let pages = crate::queue::probe_pages(path, &ext, meta.len());
+        if let Err(e) = crate::engine::pagerange::check_bounds(&spans, pages) {
+            let name = path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| file.clone());
+            tracing::warn!(event = "page_range_out_of_bounds", path = %file, ranges = %ranges, reason = %e);
+            return Err(format!("{name}: {e}"));
+        }
+    }
+    Ok(())
 }
 
 /// Expand folders into printable files with the user's FR-004 answer
@@ -330,28 +371,17 @@ pub async fn inspect_files(paths: Vec<String>) -> Result<Vec<FileInfo>, IpcError
 #[specta::specta]
 pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
     run_blocking(move || {
-        let printer = req
-            .settings
-            .printer
-            .clone()
-            .filter(|s| !s.is_empty())
-            .or_else(|| {
-                crate::settings::Config::load_or_default()
-                    .printers
-                    .default_printer
-                    .filter(|s| !s.is_empty())
-            })
-            .or_else(|| {
-                crate::platform::default_printer()
-                    .ok()
-                    .flatten()
-                    .filter(|s| !s.is_empty())
-            })
-            .unwrap_or_else(|| "<default printer>".to_string());
+        let printer = resolve_preview_printer(
+            req.settings.printer.as_deref(),
+            crate::settings::Config::load_or_default()
+                .printers
+                .default_printer
+                .as_deref(),
+            crate::platform::default_printer().ok().flatten().as_deref(),
+        );
 
-        let display = req
-            .files
-            .first()
+        let first = req.files.first();
+        let display = first
             .map(|f| {
                 Path::new(f)
                     .file_name()
@@ -360,13 +390,40 @@ pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
             })
             .unwrap_or_else(|| "document.pdf".to_string());
 
+        // Preview what will really run for THIS file: the dispatcher narrows the
+        // settings per input (page ranges are PDF-only), so previewing the raw
+        // batch settings would show an image job a `page-ranges` flag it will
+        // never receive — exactly the drift the honesty panel exists to prevent.
+        let ext = first
+            .map(|f| crate::engine::extension_of(Path::new(f)))
+            .unwrap_or_else(|| "pdf".to_string());
+        let settings = crate::engine::print::effective_settings(&req.settings, &ext);
+
         Ok(crate::engine::print::preview_command(
-            &display,
-            &printer,
-            &req.settings,
+            &display, &printer, &settings,
         ))
     })
     .await
+}
+
+/// The printer name the preview should show, following the dispatcher's own
+/// chain: what the request asked for, else the app default, else the OS default,
+/// else a visible placeholder. Empty strings count as "not set" at every step —
+/// a blank `default_printer` in `config.toml` must not win over the OS.
+///
+/// Pure (all three inputs are arguments) so the precedence can be tested without
+/// a config file or an installed printer.
+fn resolve_preview_printer(
+    requested: Option<&str>,
+    app_default: Option<&str>,
+    os_default: Option<&str>,
+) -> String {
+    [requested, app_default, os_default]
+        .into_iter()
+        .flatten()
+        .find(|s| !s.is_empty())
+        .unwrap_or("<default printer>")
+        .to_string()
 }
 
 /// Classify one path for [`inspect_files`]. `max_mb` is the current size ceiling
@@ -378,85 +435,113 @@ pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
 /// inspected. A path that will not resolve is reported unsupported with the
 /// resolution error, keeping the never-fail contract of the whole call.
 fn inspect_one(path_str: &str, max_mb: u32) -> FileInfo {
+    let info = classify_one(path_str, max_mb);
+    // FR-059: never skip a file silently. The UI already toasts the reason, but
+    // a toast is gone in three seconds — the app log is what can still explain
+    // a thin batch tomorrow. Folders are not "skipped", they are a pending
+    // question, so they stay out of the rejection log.
+    if !info.supported && !info.is_dir {
+        tracing::warn!(
+            event = "file_rejected",
+            path = %info.path,
+            ext = %info.ext,
+            bytes = info.bytes,
+            reason = %info.reason.as_deref().unwrap_or("unknown"),
+        );
+    }
+    info
+}
+
+/// The classification itself, without the logging side effect (so tests can
+/// assert the mapping without asserting on a subscriber).
+fn classify_one(path_str: &str, max_mb: u32) -> FileInfo {
     let resolved = match canonical_input(path_str) {
         Ok(p) => p,
         Err(e) => {
             let path = Path::new(path_str);
-            return FileInfo {
-                name: path
-                    .file_name()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| path_str.to_string()),
-                ext: crate::engine::extension_of(path),
-                path: path_str.to_string(),
-                bytes: 0,
-                pages: None,
-                supported: false,
-                reason: Some(match e {
-                    IpcError::FileNotFound(_) => "File not found".to_string(),
-                    other => other.to_string(),
-                }),
+            let name = path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path_str.to_string());
+            let reason = match e {
+                IpcError::FileNotFound(_) => "File not found".to_string(),
+                other => other.to_string(),
             };
+            return unprintable(
+                path_str.to_string(),
+                name,
+                crate::engine::extension_of(path),
+                reason,
+            );
         }
     };
     let path = resolved.as_path();
     let canonical = resolved.to_string_lossy().into_owned();
-    let path_str = canonical.as_str();
     let name = path
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path_str.to_string());
+        .unwrap_or_else(|| canonical.clone());
     let ext = crate::engine::extension_of(path);
 
     match std::fs::metadata(path) {
-        Err(_) => FileInfo {
-            path: path_str.to_string(),
-            name,
-            ext,
-            bytes: 0,
-            pages: None,
-            supported: false,
-            reason: Some("File not found".to_string()),
-        },
+        Err(_) => unprintable(canonical, name, ext, "File not found".to_string()),
         Ok(m) if m.is_dir() => FileInfo {
-            path: path_str.to_string(),
-            name,
-            ext,
-            bytes: 0,
-            pages: None,
-            supported: false,
             // FR-004: folders are legal input, they just have to go through
             // `expand_folders` before they reach the file list.
-            reason: Some("Folder — expand it to print the files inside".to_string()),
+            has_subfolders: has_subfolders(path),
+            is_dir: true,
+            ..unprintable(
+                canonical,
+                name,
+                ext,
+                "Folder — expand it to print the files inside".to_string(),
+            )
         },
-        Ok(m) if !m.is_file() => FileInfo {
-            path: path_str.to_string(),
-            name,
-            ext,
-            bytes: 0,
-            pages: None,
-            supported: false,
-            reason: Some("Not a file".to_string()),
-        },
+        Ok(m) if !m.is_file() => unprintable(canonical, name, ext, "Not a file".to_string()),
         Ok(m) => {
+            // Precedence: size first (a 900 MB PDF is refused for its size, not
+            // its type), then the honest HEIC answer, then the generic one.
             let (supported, reason) = if crate::queue::exceeds_size_limit(m.len(), max_mb) {
                 (false, Some(format!("Larger than the {max_mb} MB limit")))
             } else if crate::engine::is_supported(&ext) {
                 (true, None)
+            } else if crate::engine::convert::HEIF_EXTS.contains(&ext.as_str()) {
+                (
+                    false,
+                    Some(crate::engine::convert::HEIF_UNSUPPORTED_REASON.to_string()),
+                )
             } else {
                 (false, Some("Unsupported file type".to_string()))
             };
             let pages = crate::queue::probe_pages(path, &ext, m.len());
             FileInfo {
-                path: path_str.to_string(),
+                path: canonical,
                 name,
                 ext,
                 bytes: m.len(),
                 pages,
                 supported,
                 reason,
+                is_dir: false,
+                has_subfolders: false,
             }
         }
+    }
+}
+
+/// A `supported: false` [`FileInfo`] carrying `reason`. Keeps the six unchanging
+/// fields in one place so each refusal branch reads as just its own decision.
+fn unprintable(path: String, name: String, ext: String, reason: String) -> FileInfo {
+    FileInfo {
+        path,
+        name,
+        ext,
+        bytes: 0,
+        pages: None,
+        supported: false,
+        reason: Some(reason),
+        is_dir: false,
+        has_subfolders: false,
     }
 }
 
@@ -472,5 +557,203 @@ where
     match tauri::async_runtime::spawn_blocking(f).await {
         Ok(r) => r,
         Err(e) => Err(IpcError::Internal(format!("queue task panicked: {e}"))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// A 1-page PDF written by the real image converter, so the page count the
+    /// bounds check reads is the one production would read.
+    fn one_page_pdf(dir: &Path, name: &str) -> PathBuf {
+        use ::image::{ImageFormat, Rgb, RgbImage};
+        let mut img = RgbImage::new(4, 4);
+        for (x, y, px) in img.enumerate_pixels_mut() {
+            *px = Rgb([(x * 60) as u8, (y * 60) as u8, 10]);
+        }
+        let src = dir.join("src.png");
+        img.save_with_format(&src, ImageFormat::Png).unwrap();
+        let out = dir.join(name);
+        crate::engine::convert::image::to_pdf(&src, &out, &|_p| {}).unwrap();
+        out
+    }
+
+    fn write(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+        let p = dir.join(name);
+        std::fs::write(&p, bytes).unwrap();
+        p
+    }
+
+    fn inspect(path: &Path, max_mb: u32) -> FileInfo {
+        classify_one(&path.to_string_lossy(), max_mb)
+    }
+
+    // -- inspect_one -------------------------------------------------------
+
+    #[test]
+    fn inspect_reports_a_missing_file_without_failing() {
+        let dir = tempfile::tempdir().unwrap();
+        let info = classify_one(&dir.path().join("ghost.pdf").to_string_lossy(), 100);
+        assert!(!info.supported);
+        assert_eq!(info.reason.as_deref(), Some("File not found"));
+        assert_eq!(info.name, "ghost.pdf");
+        assert!(!info.is_dir);
+    }
+
+    #[test]
+    fn fr_004_inspect_reports_a_folder_as_expandable() {
+        let dir = tempfile::tempdir().unwrap();
+        let flat = dir.path().join("flat");
+        std::fs::create_dir(&flat).unwrap();
+        write(&flat, "a.pdf", b"%PDF-1.4\n");
+
+        let info = inspect(&flat, 100);
+        assert!(info.is_dir, "a directory must be flagged, not just refused");
+        assert!(!info.supported);
+        assert!(!info.has_subfolders, "no subfolders → no FR-004 question");
+        assert!(info.reason.as_deref().unwrap().contains("Folder"));
+
+        let nested = dir.path().join("nested");
+        std::fs::create_dir_all(nested.join("inner")).unwrap();
+        let info = inspect(&nested, 100);
+        assert!(info.is_dir);
+        assert!(info.has_subfolders, "subfolders → ask recurse-or-not");
+    }
+
+    #[test]
+    fn inspect_size_limit_wins_over_format() {
+        let dir = tempfile::tempdir().unwrap();
+        // 2 MB against a 1 MB ceiling, with a perfectly printable extension.
+        let big = write(dir.path(), "big.pdf", &vec![b'x'; 2 * 1024 * 1024]);
+        let info = inspect(&big, 1);
+        assert!(!info.supported);
+        assert_eq!(info.reason.as_deref(), Some("Larger than the 1 MB limit"));
+    }
+
+    #[test]
+    fn fr_052_inspect_names_heic_instead_of_hiding_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let heic = write(dir.path(), "photo.HEIC", b"\0\0\0\x18ftypheic");
+        let info = inspect(&heic, 100);
+        assert!(!info.supported);
+        assert_eq!(
+            info.reason.as_deref(),
+            Some(crate::engine::convert::HEIF_UNSUPPORTED_REASON)
+        );
+        assert_eq!(info.ext, "heic", "extension is lowercased");
+
+        // Anything else still gets the generic message.
+        let txt = write(dir.path(), "notes.txt", b"hi");
+        assert_eq!(
+            inspect(&txt, 100).reason.as_deref(),
+            Some("Unsupported file type")
+        );
+    }
+
+    #[test]
+    fn inspect_accepts_a_real_pdf_with_its_page_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = one_page_pdf(dir.path(), "doc.pdf");
+        let info = inspect(&pdf, 100);
+        assert!(info.supported, "reason: {:?}", info.reason);
+        assert_eq!(info.reason, None);
+        assert_eq!(info.pages, Some(1));
+        assert!(info.bytes > 0);
+    }
+
+    #[test]
+    fn nfr_025_inspect_returns_the_canonical_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = write(dir.path(), "doc.pdf", b"%PDF-1.4\n");
+        let indirect = dir.path().join("sub").join("..").join("doc.pdf");
+        std::fs::create_dir_all(dir.path().join("sub")).unwrap();
+        let info = classify_one(&indirect.to_string_lossy(), 100);
+        assert!(info.supported);
+        assert_eq!(
+            std::fs::canonicalize(&info.path).unwrap(),
+            std::fs::canonicalize(&pdf).unwrap(),
+            "the caller must submit exactly what was inspected"
+        );
+    }
+
+    // -- page-range bounds (FR-042) ---------------------------------------
+
+    #[test]
+    fn fr_042_range_past_the_document_is_rejected_by_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = one_page_pdf(dir.path(), "report.pdf");
+        let files = vec![pdf.to_string_lossy().into_owned()];
+
+        let err = check_ranges_fit_documents("2-3", &files).unwrap_err();
+        assert!(err.starts_with("report.pdf:"), "names the file: {err}");
+        assert!(err.contains("1 page"), "names the document length: {err}");
+
+        assert!(check_ranges_fit_documents("1", &files).is_ok());
+    }
+
+    #[test]
+    fn fr_042_images_never_fail_the_bounds_check() {
+        // The engine drops the range for images, so it must not gate them —
+        // otherwise one PNG would make "1-5" unusable for the whole batch.
+        let dir = tempfile::tempdir().unwrap();
+        let png = write(dir.path(), "chart.png", b"\x89PNG\r\n\x1a\n");
+        let files = vec![png.to_string_lossy().into_owned()];
+        assert!(check_ranges_fit_documents("2-3", &files).is_ok());
+    }
+
+    #[test]
+    fn fr_042_unprobeable_pdf_passes_through() {
+        // Junk named .pdf: lopdf will not parse it, so the page count is
+        // unknown and the range cannot be bounded.
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = write(dir.path(), "weird.pdf", b"%PDF-1.4 but not really");
+        let files = vec![pdf.to_string_lossy().into_owned()];
+        assert!(check_ranges_fit_documents("40-50", &files).is_ok());
+    }
+
+    #[test]
+    fn fr_042_missing_file_is_left_to_submit() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = vec![dir.path().join("ghost.pdf").to_string_lossy().into_owned()];
+        assert!(check_ranges_fit_documents("40-50", &files).is_ok());
+    }
+
+    #[test]
+    fn fr_042_bad_grammar_is_reported_before_any_file_is_read() {
+        assert!(check_ranges_fit_documents("5-1", &[]).is_err());
+    }
+
+    // -- preview printer resolution ---------------------------------------
+
+    #[test]
+    fn preview_printer_follows_request_then_app_then_os() {
+        assert_eq!(
+            resolve_preview_printer(Some("Front Desk"), Some("Office"), Some("OS")),
+            "Front Desk"
+        );
+        assert_eq!(
+            resolve_preview_printer(None, Some("Office"), Some("OS")),
+            "Office"
+        );
+        assert_eq!(resolve_preview_printer(None, None, Some("OS")), "OS");
+        assert_eq!(
+            resolve_preview_printer(None, None, None),
+            "<default printer>"
+        );
+    }
+
+    #[test]
+    fn preview_printer_treats_empty_strings_as_unset() {
+        assert_eq!(
+            resolve_preview_printer(Some(""), Some(""), Some("OS")),
+            "OS",
+            "a blank config value must not beat the OS default"
+        );
+        assert_eq!(
+            resolve_preview_printer(Some(""), Some(""), Some("")),
+            "<default printer>"
+        );
     }
 }

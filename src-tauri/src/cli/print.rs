@@ -37,6 +37,9 @@ use crate::util::error::IpcError;
 #[derive(Debug, Clone, Serialize)]
 pub struct FileOutcome {
     pub path: String,
+    /// Where this file actually went. Per file because a file-type routing rule
+    /// can split one batch across printers.
+    pub printer: String,
     /// `done` or `failed` — the same vocabulary as [`crate::queue::job::JobState`].
     pub state: String,
     /// The spooler's own job id, when the backend reports one (CUPS does).
@@ -49,6 +52,9 @@ pub struct FileOutcome {
 #[derive(Debug, Clone, Serialize)]
 pub struct PrintReport {
     pub batch_id: String,
+    /// The batch target: the shared printer, or `<per file type>` when routing
+    /// rules split the batch. The authoritative per-file value lives in
+    /// [`FileOutcome::printer`].
     pub printer: String,
     pub profile_name: Option<String>,
     pub settings: JobSettings,
@@ -80,8 +86,34 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
     let settings = resolve_settings(&profile, args.printer.clone(), &args.settings)?;
 
     let files = accept_files(&expanded, engine.max_file_size_mb)?;
-    let (printer, duplex_supported) = resolve_printer(paths, settings.printer.as_deref())?;
-    crate::engine::print::check_supported(&settings, &printer, duplex_supported, true)?;
+
+    // Resolve and validate every file up front. A file-type routing rule can
+    // send a `.pdf` and a `.jpg` of the same batch to different printers, and
+    // duplex support is a property of the printer, so both the resolution and
+    // the capability gate are per file. Doing the whole pass before printing
+    // anything preserves the all-or-nothing acceptance described above: one
+    // unusable target means nothing is spooled.
+    let targets: Vec<String> = files
+        .iter()
+        .map(|file| {
+            let name = Path::new(file)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| file.clone());
+            let (printer, duplex_supported) =
+                resolve_printer(paths, settings.printer.as_deref(), &name)?;
+            crate::engine::print::check_supported(&settings, &printer, duplex_supported, true)?;
+            Ok(printer)
+        })
+        .collect::<Result<_, CliError>>()?;
+    // What the batch reports as its target: the common printer when routing did
+    // not split it, otherwise a marker rather than one file's printer standing
+    // in for the rest.
+    let printer = match targets.first() {
+        Some(first) if targets.iter().all(|p| p == first) => first.clone(),
+        Some(_) => "<per file type>".to_string(),
+        None => String::new(),
+    };
     let timeout = match engine.conversion_timeout_seconds {
         0 => None,
         secs => Some(std::time::Duration::from_secs(secs as u64)),
@@ -103,16 +135,18 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
 
     for (index, file) in files.iter().enumerate() {
         let job_id = format!("{batch_id}-{index}");
+        let target = targets.get(index).cloned().unwrap_or_default();
         match print_one(
             Path::new(file),
             cache.path(),
             &job_id,
-            &printer,
+            &target,
             &settings,
             timeout,
         ) {
             Ok(os_job_id) => outcomes.push(FileOutcome {
                 path: file.clone(),
+                printer: target,
                 state: "done".to_string(),
                 os_job_id,
                 error: None,
@@ -121,6 +155,7 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
                 worst = worst.worst(err.exit);
                 outcomes.push(FileOutcome {
                     path: file.clone(),
+                    printer: target,
                     state: "failed".to_string(),
                     os_job_id: None,
                     error: Some(job_error(&err.error)),
@@ -298,19 +333,20 @@ fn accept_files(files: &[String], max_mb: u32) -> Result<Vec<String>, CliError> 
 /// misconfigured" from "the job itself failed". Where the GUI *pauses* such a
 /// job for the user to pick a replacement, the CLI has no one to ask and says
 /// so immediately.
-fn resolve_printer(paths: &Paths, requested: Option<&str>) -> Result<(String, bool), CliError> {
-    let name = match requested {
-        Some(p) if !p.trim().is_empty() => p.to_string(),
-        _ => crate::settings::Config::load_from(&paths.config)
-            .printers
-            .default_printer
+fn resolve_printer(
+    paths: &Paths,
+    requested: Option<&str>,
+    file_name: &str,
+) -> Result<(String, bool), CliError> {
+    let prefs = crate::settings::Config::load_from(&paths.config).printers;
+    // Same order as the queue: explicit request, then the file-type routing
+    // rule, then the app default — one definition, in `ipc::printers`.
+    let name = match crate::ipc::printers::resolve_app_printer(&prefs, requested, file_name) {
+        Some(p) => p,
+        None => crate::platform::default_printer()
+            .ok()
+            .flatten()
             .filter(|s| !s.is_empty())
-            .or_else(|| {
-                crate::platform::default_printer()
-                    .ok()
-                    .flatten()
-                    .filter(|s| !s.is_empty())
-            })
             .ok_or_else(|| {
                 CliError::printer("no printer is configured; pass --printer or set a default")
             })?,

@@ -29,9 +29,8 @@ use windows::Win32::Storage::Xps::{
     PRINTER_DEVICE_CAPABILITIES,
 };
 
-use crate::ipc::printers::{
-    DiscoveredPrinter, Printer, PrinterKind, PrinterStatus, Supplies, Tray,
-};
+use crate::ipc::printers::{DiscoveredPrinter, Printer, PrinterStatus, Supplies, Tray};
+use crate::platform::infer_kind;
 
 /// Read a (possibly null) wide string pointer into an owned `String`.
 fn pwstr(p: PWSTR) -> String {
@@ -102,8 +101,16 @@ fn wide(s: &str) -> Vec<u16> {
 }
 
 /// Run a CLI and succeed only on a zero exit status.
+///
+/// `CREATE_NO_WINDOW` matters here: the release binary is built with
+/// `windows_subsystem = "windows"` (no console of its own), so a console-
+/// subsystem child such as `cmd.exe` would allocate — and flash — a window of
+/// its own on screen.
 fn run_ok(program: &str, args: &[&str]) -> anyhow::Result<()> {
-    let status = Command::new(program).args(args).status()?;
+    let status = Command::new(program)
+        .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .status()?;
     if status.success() {
         Ok(())
     } else {
@@ -121,9 +128,62 @@ pub fn set_os_default(name: &str) -> anyhow::Result<()> {
     }
 }
 
-/// Print the Windows test page via the print UI helper.
+/// Print the branded MaeclyPrint test page, applying the user's configured
+/// default paper for this printer — the same contract the CUPS path honours.
+///
+/// The PDF goes through the ordinary print backend
+/// ([`crate::engine::print::sumatra`]), which is the only Windows path whose
+/// **failure is observable**: `rundll32 printui.dll,PrintUIEntry` exits 0 even
+/// when `PrintUIEntry` itself fails (it shows its own dialog), so an `Ok(())`
+/// from it never meant the page was accepted, and the UI's "test page sent"
+/// was a guess. Spooling a real job gives a real exit status.
+///
+/// `rundll32` survives only as the fallback for hosts without the SumatraPDF
+/// sidecar — printing *something* beats printing nothing — and the UI copy is
+/// worded so it does not over-claim on that path either.
+///
+/// Known gap: the per-printer **tray** override cannot be expressed through
+/// SumatraPDF's `-print-settings` (it has no bin selector), so only `paper` is
+/// applied here. Honouring tray would need a GDI/DEVMODE spool path.
 pub fn print_test_page(name: &str) -> anyhow::Result<()> {
-    run_ok("rundll32", &["printui.dll,PrintUIEntry", "/k", "/n", name])
+    use std::io::Write as _;
+
+    let prefs = crate::settings::Config::load_or_default().printers;
+    let over = prefs.overrides.get(name).cloned().unwrap_or_default();
+
+    let pdf = super::testpage::render(&super::testpage::TestPageInfo {
+        printer: name.to_string(),
+        paper: over.paper.clone(),
+        tray: over.tray.clone(),
+    });
+
+    let mut tmp = tempfile::Builder::new()
+        .prefix("maeclyprint-testpage-")
+        .suffix(".pdf")
+        .tempfile()
+        .with_context(|| "failed to create temp PDF")?;
+    tmp.write_all(&pdf)?;
+    tmp.flush()?;
+
+    let settings = crate::queue::job::JobSettings {
+        paper_size: super::media_paper_size(over.paper.as_deref()),
+        ..Default::default()
+    };
+    // SumatraPDF blocks until the spooler accepts the job, so the temp file is
+    // still alive for the whole call and the status is meaningful.
+    match crate::engine::print::sumatra::spool(
+        tmp.path(),
+        name,
+        &settings,
+        "MaeclyPrint Test Page",
+        Some(std::time::Duration::from_secs(120)),
+    ) {
+        Ok(_) => Ok(()),
+        Err(crate::engine::print::PrintError::Engine(
+            crate::engine::EngineError::DependencyMissing(_),
+        )) => run_ok("rundll32", &["printui.dll,PrintUIEntry", "/k", "/n", name]),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// Open Settings → Printers & scanners.
@@ -286,7 +346,7 @@ fn printer_from(info: &PRINTER_INFO_2W, default: Option<&str>) -> Printer {
         } else {
             name.clone()
         },
-        kind: infer_kind(&driver),
+        kind: infer_kind(&driver, &name, Some(&port)),
         color: dc_flag(device, port_w, DC_COLORDEVICE) == 1,
         duplex: dc_flag(device, port_w, DC_DUPLEX) == 1,
         status: status_from(info.Status, info.cJobs),
@@ -393,22 +453,6 @@ fn dc_resolution(device: PCWSTR, port: PCWSTR) -> Option<u32> {
         .map(|x| x as u32)
 }
 
-fn infer_kind(driver: &str) -> PrinterKind {
-    let d = driver.to_ascii_lowercase();
-    if d.contains("pdf") || d.contains("xps") || d.contains("onenote") || d.contains("fax") {
-        PrinterKind::Virtual
-    } else if d.contains("zebra") || d.contains("label") || d.contains("zpl") || d.contains("dymo")
-    {
-        PrinterKind::Label
-    } else if d.contains("designjet") || d.contains("wide") || d.contains("plotter") {
-        PrinterKind::Wide
-    } else if d.contains("mfp") || d.contains("workforce") || d.contains("pixma") {
-        PrinterKind::Mfp
-    } else {
-        PrinterKind::Laser
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -492,22 +536,30 @@ mod tests {
 
     #[test]
     fn kind_inference() {
+        use crate::ipc::printers::PrinterKind;
+        // The keyword table lives in `platform::mod` and is tested there; this
+        // pins the Windows call shape (driver + queue name + port), which is
+        // what makes a generic universal driver classify correctly.
         assert!(matches!(
-            infer_kind("Microsoft Print to PDF"),
+            infer_kind(
+                "HP Smart Universal Printing Driver",
+                "HP OfficeJet Pro 9015",
+                Some("IPP://10.0.0.9")
+            ),
+            PrinterKind::Mfp
+        ));
+        assert!(matches!(
+            infer_kind("Microsoft Print to PDF", "Microsoft Print to PDF", None),
             PrinterKind::Virtual
-        ));
-        assert!(matches!(
-            infer_kind("ZDesigner ZD420 ZPL"),
-            PrinterKind::Label
-        ));
-        assert!(matches!(
-            infer_kind("HP LaserJet Pro M404"),
-            PrinterKind::Laser
         ));
     }
 
     /// Enumeration must not panic/error on a real Windows host (CI runner has
     /// Microsoft Print to PDF). Tolerates any count.
+    ///
+    /// Unlike the CUPS smoke test this one spawns no subprocess — it is a
+    /// direct `EnumPrinters` call — so it stays in the default lane, where it
+    /// is the only guard that the `unsafe` buffer walk is sound.
     #[test]
     fn list_printers_smoke() {
         let printers = list_printers().expect("list_printers should not error");

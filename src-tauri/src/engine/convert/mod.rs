@@ -25,6 +25,21 @@ pub mod image;
 /// with [`super::SUPPORTED_EXTS`] minus `pdf`.
 const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp"];
 
+/// HEIF-family extensions. Listed as MVP in
+/// `docs/03-requirements/supported-formats.md`, but genuinely undecodable here:
+/// the `image` crate ships no HEIF decoder at any feature combination, so
+/// supporting it means a native dependency (libheif) or shelling out to
+/// ImageMagick — an architecture decision, not a bug fix (see ADR-0003's
+/// "pure-Rust codecs" line). Until that is taken, the honest answer is an
+/// explicit "not supported yet" rather than the generic unsupported-format
+/// message a user would read as "MaeclyPrint does not know what a .heic is".
+pub const HEIF_EXTS: &[&str] = &["heic", "heif"];
+
+/// The user-facing reason a HEIF-family file is refused. Shared with the file
+/// inspection surface so the drop toast and the engine tell the same story.
+pub const HEIF_UNSUPPORTED_REASON: &str =
+    "HEIC is not supported yet — convert it to JPEG or PNG first";
+
 /// Route `input` to the right converter and produce a printable PDF.
 ///
 /// Returns:
@@ -57,6 +72,12 @@ pub fn convert_to_pdf(
         validate_pdf_header(input)?;
         check_cancel(cancel)?;
         return Ok(None);
+    }
+
+    if HEIF_EXTS.contains(&ext.as_str()) {
+        return Err(EngineError::UnsupportedFormat(
+            HEIF_UNSUPPORTED_REASON.to_string(),
+        ));
     }
 
     if IMAGE_EXTS.contains(&ext.as_str()) {
@@ -195,6 +216,25 @@ mod tests {
         let progress = |_p: f32| {};
         let err = convert_to_pdf(&txt, dir.path(), "job", &cancel, &progress).unwrap_err();
         assert!(matches!(err, EngineError::UnsupportedFormat(_)));
+    }
+
+    #[test]
+    fn fr_052_heic_is_refused_with_an_explicit_reason() {
+        // Not decodable with the bundled codecs; the refusal must say so
+        // instead of hiding behind the generic unsupported-format message.
+        let dir = tempfile::tempdir().unwrap();
+        let cancel = AtomicBool::new(false);
+        let progress = |_p: f32| {};
+        for name in ["photo.heic", "photo.HEIF"] {
+            let src = dir.path().join(name);
+            std::fs::write(&src, b"\0\0\0\x18ftypheic").unwrap();
+            match convert_to_pdf(&src, dir.path(), "job", &cancel, &progress) {
+                Err(EngineError::UnsupportedFormat(msg)) => {
+                    assert_eq!(msg, HEIF_UNSUPPORTED_REASON, "{name}");
+                }
+                other => panic!("{name}: expected an explicit HEIC refusal, got {other:?}"),
+            }
+        }
     }
 
     #[test]

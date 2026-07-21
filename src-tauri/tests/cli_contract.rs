@@ -439,12 +439,14 @@ fn fr_010_print_report_is_a_stable_json_object() {
         files: vec![
             FileOutcome {
                 path: "/tmp/a.pdf".to_string(),
+                printer: "Front-Desk".to_string(),
                 state: "done".to_string(),
                 os_job_id: Some("Front-Desk-42".to_string()),
                 error: None,
             },
             FileOutcome {
                 path: "/tmp/b.pdf".to_string(),
+                printer: "Front-Desk".to_string(),
                 state: "failed".to_string(),
                 os_job_id: None,
                 error: Some(JobError::new("PrintFailed", "spooler said no")),

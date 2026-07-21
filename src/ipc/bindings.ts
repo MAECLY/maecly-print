@@ -181,6 +181,11 @@ async getPrinterPolicy() : Promise<Result<PrinterPolicy, IpcError>> {
  * Every path is resolved through [`canonical_input`] first (NFR-025), so the
  * queue only ever stores absolute, symlink-resolved paths and a relative one
  * can never be silently resolved against the process' working directory.
+ * 
+ * The page range is then bounds-checked against each PDF's real page count
+ * (FR-042/FR-043) before anything is enqueued, so `"500-600"` on an 8-page
+ * report is an error the user can read and fix — not a job that reaches `Done`
+ * having printed nothing.
  */
 async printFiles(req: PrintRequest) : Promise<Result<JobBatch, IpcError>> {
     try {
@@ -616,7 +621,19 @@ ext: string; bytes: number; pages: number | null; supported: boolean;
 /**
  * Why the file is not printable, when `supported` is false.
  */
-reason: string | null }
+reason: string | null; 
+/**
+ * The path is a directory. Not printable as such, but not an error either:
+ * the caller runs it through [`expand_folders`] after asking the FR-004
+ * recurse-or-not question.
+ */
+is_dir: boolean; 
+/**
+ * Only meaningful when `is_dir`: whether the folder holds subfolders at
+ * all. When it does not there is nothing to recurse into, so the UI skips
+ * the question and expands top-level (FR-004 asks; it does not nag).
+ */
+has_subfolders: boolean }
 /**
  * The result of walking one folder: what will print, what will not and why,
  * plus whether a safety ceiling cut the walk short.

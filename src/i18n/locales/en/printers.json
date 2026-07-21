@@ -1,1 +1,189 @@
-{}
+{
+  "title": "Printers",
+  "subtitle": {
+    "detecting": "Detecting printers…",
+    "counts": "{{total}} configured · {{ready}} ready"
+  },
+  "notice": {
+    "loadingTitle": "Detecting printers…",
+    "emptyTitle": "No printers installed",
+    "errorTitle": "Printers unavailable",
+    "hint": "Use \"Add printer\" to install one from the network or by IP address, or press Rescan.",
+    "noHost": "Printers are read from the operating system — run the MaeclyPrint desktop app to manage them."
+  },
+  "actions": {
+    "rescan": "Rescan",
+    "addPrinter": "Add printer",
+    "addAPrinter": "Add a printer",
+    "testPage": "Test page",
+    "setDefault": "Set default",
+    "remove": "Remove",
+    "restore": "Restore"
+  },
+  "type": {
+    "laser": "Laser",
+    "mfp": "Multifunction",
+    "wide": "Wide format",
+    "label": "Label",
+    "virtual": "Virtual"
+  },
+  "status": {
+    "ready": "Ready",
+    "offline": "Offline",
+    "error": "Error",
+    "busy": "Printing"
+  },
+  "state": {
+    "default": "Default",
+    "active": "Active",
+    "disabled": "Disabled"
+  },
+  "header": {
+    "defaultBadge": "default",
+    "meta": "{{type}} · {{conn}} · queue {{queue}}",
+    "listEntry": "{{status}} · {{type}}"
+  },
+  "tooltip": {
+    "policyLocked": "Your organization manages the default printer",
+    "alreadyDefault": "Already your default printer",
+    "restoreFirst": "Restore this printer before setting it as default"
+  },
+  "confirm": {
+    "testPageTitle": "Send test page",
+    "testPageMessage": "Send a test page to {{name}}? It will print on paper.",
+    "testPageConfirm": "Send test page"
+  },
+  "toast": {
+    "settingDefault": "Setting {{name}} as default…",
+    "defaultSet": "{{name}} is now the default",
+    "sendingTestPage": "Sending test page to {{name}}…",
+    "testPageSent": "Test page sent to {{name}} — if nothing comes out, check the printer's own queue.",
+    "removed": "Removed {{name}} from MaeclyPrint (still installed in {{os}})",
+    "removedUnknownOs": "Removed {{name}} from MaeclyPrint (the system print queue is untouched)",
+    "restored": "Restored {{name}}",
+    "savedTray": "Saved default tray",
+    "savedPaper": "Saved default paper",
+    "clearedTray": "Default tray now follows the printer",
+    "clearedPaper": "Default paper now follows the printer",
+    "routeAdded": "{{ext}} routes to {{name}}",
+    "invalidExtension": "Enter a valid extension, e.g. .pdf",
+    "adding": "Adding {{name}}…",
+    "added": "{{name}} added",
+    "referencesUpdated": "References updated to {{name}}",
+    "referencesRemoved": "Removed references to the missing printer",
+    "hidden": "{{name}} hidden from MaeclyPrint",
+    "managed": "{{name}} is managed by MaeclyPrint again"
+  },
+  "missing": {
+    "title": "Printer referenced by MaeclyPrint settings is no longer available",
+    "body": "{{id}} is referenced by your MaeclyPrint settings, but the system spooler no longer reports it. Jobs sent to it are {{outcome}} until you reassign or forget it.",
+    "bodyOutcome": "paused, not failed,",
+    "more_one": "({{count}} more also missing.)",
+    "more_other": "({{count}} more also missing.)",
+    "reassignTo": "Reassign to",
+    "reassignLabel": "Printer to take over the missing printer's rules",
+    "update": "Update references",
+    "forget": "Forget",
+    "keepPaused": "Keep paused"
+  },
+  "policy": {
+    "managed": "Default printer {{name}} is managed by your organization via {{file}}.",
+    "managedMissing": "Your organization pins the default printer to {{id}} via {{file}}, but the system spooler does not currently report it. Ask your administrator, or add it via Add printer."
+  },
+  "connection": {
+    "label": "Connection",
+    "driver": "Driver",
+    "port": "Port / address",
+    "location": "Location",
+    "shared": "Shared",
+    "sharedYes": "Yes — on LAN",
+    "sharedNo": "No",
+    "maxResolution": "Max resolution",
+    "dpi": "{{dpi}} dpi",
+    "notReported": "Not reported"
+  },
+  "defaults": {
+    "label": "Defaults for this printer",
+    "tray": "Default tray",
+    "paper": "Default paper",
+    "printerDefault": "Printer default",
+    "noTrays": "This driver reports no selectable trays.",
+    "noPapers": "This driver reports no paper sizes."
+  },
+  "routes": {
+    "label": "Route file types here",
+    "addRule": "add rule",
+    "placeholder": ".ext",
+    "removeRule": "Remove {{ext}} rule",
+    "hint": "Files with these extensions default to this printer when no profile overrides it."
+  },
+  "capabilities": {
+    "label": "Capabilities",
+    "source": "queried from driver",
+    "duplex": "Duplex",
+    "duplexUnavailable": "Duplex unavailable",
+    "color": "Color",
+    "monoOnly": "Monochrome only",
+    "papers_one": "{{count}} paper size",
+    "papers_other": "{{count}} paper sizes",
+    "trays_one": "{{count}} tray",
+    "trays_other": "{{count}} trays",
+    "duplexWarning": "Profiles requesting duplex will pause with {{code}} on this device."
+  },
+  "supplies": {
+    "label": "Supply levels",
+    "cyan": "cyan",
+    "magenta": "magenta",
+    "yellow": "yellow",
+    "black": "black"
+  },
+  "trays": {
+    "label": "Input trays",
+    "unknownPaper": "—"
+  },
+  "modal": {
+    "title": "Add a printer",
+    "close": "Close",
+    "done": "Done",
+    "openSettings": "Open printer settings",
+    "tabsLabel": "How to add the printer",
+    "tabs": {
+      "network": "Scan network",
+      "ip": "By IP address",
+      "system": "From system"
+    }
+  },
+  "network": {
+    "intro": "Printers on your network, discovered via mDNS / Bonjour. Not listed? Try {{byIp}}, or {{openSettings}} for USB and other transports.",
+    "scanning": "Scanning the network via mDNS / Bonjour…",
+    "empty": "No new printers found on the network.",
+    "failed": "Network scan failed: {{error}}",
+    "unsupported": "Network discovery is not available on Windows yet, so nothing was scanned. Add the printer with {{byIp}}, or use {{openSettings}}.",
+    "add": "Add",
+    "adding": "Adding…"
+  },
+  "ip": {
+    "host": "Host / IP address",
+    "hostPlaceholder": "10.0.0.41 or printer.local",
+    "protocol": "Protocol",
+    "port": "Port",
+    "queuePath": "Queue path (optional)",
+    "queuePathPlaceholder": "ipp/print",
+    "queuePathNone": "none",
+    "displayName": "Display name",
+    "displayNamePlaceholder": "Front desk printer",
+    "connect": "Connect",
+    "connecting": "Connecting…",
+    "windowsNote": "Windows installs IPP / IPPS queues only. Add raw (9100), LPD, or USB printers via {{openSettings}}.",
+    "proto": {
+      "ipp": "IPP",
+      "ipps": "IPPS (secure)",
+      "socket": "Raw · JetDirect 9100",
+      "lpd": "LPD / LPR"
+    }
+  },
+  "system": {
+    "intro": "Queues already known to {{os}}. Unticking one hides it from MaeclyPrint (soft-disable) — the OS print queue is left untouched.",
+    "introUnknownOs": "Queues the operating system already reports. Unticking one hides it from MaeclyPrint (soft-disable) — the OS print queue is left untouched."
+  }
+}

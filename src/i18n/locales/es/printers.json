@@ -1,1 +1,189 @@
-{}
+{
+  "title": "Impresoras",
+  "subtitle": {
+    "detecting": "Detectando impresoras…",
+    "counts": "{{total}} configuradas · {{ready}} listas"
+  },
+  "notice": {
+    "loadingTitle": "Detectando impresoras…",
+    "emptyTitle": "No hay impresoras instaladas",
+    "errorTitle": "Impresoras no disponibles",
+    "hint": "Usa «Añadir impresora» para instalar una desde la red o por dirección IP, o pulsa Reexplorar.",
+    "noHost": "Las impresoras se leen del sistema operativo: abre la aplicación de escritorio MaeclyPrint para gestionarlas."
+  },
+  "actions": {
+    "rescan": "Reexplorar",
+    "addPrinter": "Añadir impresora",
+    "addAPrinter": "Añadir una impresora",
+    "testPage": "Página de prueba",
+    "setDefault": "Predeterminada",
+    "remove": "Quitar",
+    "restore": "Restaurar"
+  },
+  "type": {
+    "laser": "Láser",
+    "mfp": "Multifunción",
+    "wide": "Gran formato",
+    "label": "Etiquetas",
+    "virtual": "Virtual"
+  },
+  "status": {
+    "ready": "Lista",
+    "offline": "Sin conexión",
+    "error": "Error",
+    "busy": "Imprimiendo"
+  },
+  "state": {
+    "default": "Predeterminada",
+    "active": "Activa",
+    "disabled": "Desactivada"
+  },
+  "header": {
+    "defaultBadge": "predeterminada",
+    "meta": "{{type}} · {{conn}} · cola {{queue}}",
+    "listEntry": "{{status}} · {{type}}"
+  },
+  "tooltip": {
+    "policyLocked": "Tu organización gestiona la impresora predeterminada",
+    "alreadyDefault": "Ya es tu impresora predeterminada",
+    "restoreFirst": "Restaura esta impresora antes de ponerla como predeterminada"
+  },
+  "confirm": {
+    "testPageTitle": "Enviar página de prueba",
+    "testPageMessage": "¿Enviar una página de prueba a {{name}}? Se imprimirá en papel.",
+    "testPageConfirm": "Enviar página de prueba"
+  },
+  "toast": {
+    "settingDefault": "Estableciendo {{name}} como predeterminada…",
+    "defaultSet": "{{name}} ya es la impresora predeterminada",
+    "sendingTestPage": "Enviando página de prueba a {{name}}…",
+    "testPageSent": "Página de prueba enviada a {{name}}: si no sale nada, revisa la cola de la propia impresora.",
+    "removed": "{{name}} ya no se gestiona en MaeclyPrint (sigue instalada en {{os}})",
+    "removedUnknownOs": "{{name}} ya no se gestiona en MaeclyPrint (la cola del sistema queda intacta)",
+    "restored": "{{name}} restaurada",
+    "savedTray": "Bandeja predeterminada guardada",
+    "savedPaper": "Papel predeterminado guardado",
+    "clearedTray": "La bandeja predeterminada vuelve a ser la de la impresora",
+    "clearedPaper": "El papel predeterminado vuelve a ser el de la impresora",
+    "routeAdded": "{{ext}} se enviará a {{name}}",
+    "invalidExtension": "Escribe una extensión válida, por ejemplo .pdf",
+    "adding": "Añadiendo {{name}}…",
+    "added": "{{name}} añadida",
+    "referencesUpdated": "Referencias actualizadas a {{name}}",
+    "referencesRemoved": "Se han eliminado las referencias a la impresora que falta",
+    "hidden": "{{name}} oculta en MaeclyPrint",
+    "managed": "{{name}} vuelve a gestionarse en MaeclyPrint"
+  },
+  "missing": {
+    "title": "Una impresora a la que apuntan los ajustes de MaeclyPrint ya no está disponible",
+    "body": "Tus ajustes de MaeclyPrint hacen referencia a {{id}}, pero el sistema de impresión ya no la reporta. Los trabajos que se le envíen quedarán {{outcome}} hasta que la reasignes o la olvides.",
+    "bodyOutcome": "en pausa, no fallidos,",
+    "more_one": "({{count}} más también falta.)",
+    "more_other": "({{count}} más también faltan.)",
+    "reassignTo": "Reasignar a",
+    "reassignLabel": "Impresora que asumirá las reglas de la impresora que falta",
+    "update": "Actualizar referencias",
+    "forget": "Olvidar",
+    "keepPaused": "Mantener en pausa"
+  },
+  "policy": {
+    "managed": "La impresora predeterminada {{name}} la gestiona tu organización mediante {{file}}.",
+    "managedMissing": "Tu organización fija la impresora predeterminada en {{id}} mediante {{file}}, pero el sistema de impresión no la reporta ahora mismo. Consulta con tu administrador o añádela desde «Añadir impresora»."
+  },
+  "connection": {
+    "label": "Conexión",
+    "driver": "Controlador",
+    "port": "Puerto / dirección",
+    "location": "Ubicación",
+    "shared": "Compartida",
+    "sharedYes": "Sí, en la red local",
+    "sharedNo": "No",
+    "maxResolution": "Resolución máxima",
+    "dpi": "{{dpi}} ppp",
+    "notReported": "Sin datos"
+  },
+  "defaults": {
+    "label": "Valores por defecto de esta impresora",
+    "tray": "Bandeja predeterminada",
+    "paper": "Papel predeterminado",
+    "printerDefault": "El de la impresora",
+    "noTrays": "Este controlador no informa de bandejas seleccionables.",
+    "noPapers": "Este controlador no informa de tamaños de papel."
+  },
+  "routes": {
+    "label": "Enviar aquí estos tipos de archivo",
+    "addRule": "añadir regla",
+    "placeholder": ".ext",
+    "removeRule": "Quitar la regla {{ext}}",
+    "hint": "Los archivos con estas extensiones se imprimirán en esta impresora salvo que un perfil indique otra."
+  },
+  "capabilities": {
+    "label": "Capacidades",
+    "source": "consultado al controlador",
+    "duplex": "Dúplex",
+    "duplexUnavailable": "Sin dúplex",
+    "color": "Color",
+    "monoOnly": "Solo blanco y negro",
+    "papers_one": "{{count}} tamaño de papel",
+    "papers_other": "{{count}} tamaños de papel",
+    "trays_one": "{{count}} bandeja",
+    "trays_other": "{{count}} bandejas",
+    "duplexWarning": "Los perfiles que pidan dúplex quedarán en pausa con {{code}} en este dispositivo."
+  },
+  "supplies": {
+    "label": "Niveles de consumibles",
+    "cyan": "cian",
+    "magenta": "magenta",
+    "yellow": "amarillo",
+    "black": "negro"
+  },
+  "trays": {
+    "label": "Bandejas de entrada",
+    "unknownPaper": "—"
+  },
+  "modal": {
+    "title": "Añadir una impresora",
+    "close": "Cerrar",
+    "done": "Hecho",
+    "openSettings": "Abrir ajustes de impresoras",
+    "tabsLabel": "Cómo añadir la impresora",
+    "tabs": {
+      "network": "Explorar la red",
+      "ip": "Por dirección IP",
+      "system": "Del sistema"
+    }
+  },
+  "network": {
+    "intro": "Impresoras de tu red, descubiertas por mDNS / Bonjour. ¿No aparece? Prueba con {{byIp}}, o con {{openSettings}} para USB y otras conexiones.",
+    "scanning": "Explorando la red por mDNS / Bonjour…",
+    "empty": "No se han encontrado impresoras nuevas en la red.",
+    "failed": "Falló la exploración de la red: {{error}}",
+    "unsupported": "La búsqueda en la red todavía no está disponible en Windows, así que no se ha explorado nada. Añade la impresora con {{byIp}} o usa {{openSettings}}.",
+    "add": "Añadir",
+    "adding": "Añadiendo…"
+  },
+  "ip": {
+    "host": "Host / dirección IP",
+    "hostPlaceholder": "10.0.0.41 o impresora.local",
+    "protocol": "Protocolo",
+    "port": "Puerto",
+    "queuePath": "Ruta de la cola (opcional)",
+    "queuePathPlaceholder": "ipp/print",
+    "queuePathNone": "ninguna",
+    "displayName": "Nombre visible",
+    "displayNamePlaceholder": "Impresora de recepción",
+    "connect": "Conectar",
+    "connecting": "Conectando…",
+    "windowsNote": "Windows solo instala colas IPP / IPPS. Añade impresoras raw (9100), LPD o USB desde {{openSettings}}.",
+    "proto": {
+      "ipp": "IPP",
+      "ipps": "IPPS (seguro)",
+      "socket": "Raw · JetDirect 9100",
+      "lpd": "LPD / LPR"
+    }
+  },
+  "system": {
+    "intro": "Colas que {{os}} ya conoce. Al desmarcar una se oculta en MaeclyPrint (desactivación suave); la cola del sistema no se toca.",
+    "introUnknownOs": "Colas que el sistema operativo ya reporta. Al desmarcar una se oculta en MaeclyPrint (desactivación suave); la cola del sistema no se toca."
+  }
+}

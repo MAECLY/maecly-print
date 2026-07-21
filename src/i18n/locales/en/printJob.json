@@ -1,1 +1,96 @@
-{}
+{
+  "title": "Print Job",
+  "subtitle": "{{files}} · {{pages}} · {{size}}",
+  "units": {
+    "file_one": "{{count}} file",
+    "file_other": "{{count}} files",
+    "page_one": "{{count}} page",
+    "page_other": "{{count}} pages"
+  },
+  "actions": {
+    "addFolder": "Add folder",
+    "addFiles": "Add files",
+    "print": "Print {{count}}"
+  },
+  "list": {
+    "heading": "Files in this job",
+    "label": "Files in this job, in print order",
+    "reorderHint": "reorder",
+    "reorderKeys": "Alt + ↑↓",
+    "row": "{{position}} of {{total}}: {{name}}",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "remove": "Remove {{name}}",
+    "image": "image"
+  },
+  "empty": {
+    "desktop": "No files yet. Drag files or folders from Explorer or Finder, or use Add files.",
+    "web": "Adding files requires the desktop app."
+  },
+  "folders": {
+    "title_one": "{{count}} folder dropped",
+    "title_other": "{{count}} folders dropped",
+    "question": "Print everything inside “{{name}}”, including subfolders?",
+    "recursive": "Include subfolders",
+    "topLevel": "Top level only",
+    "skip": "Skip this folder",
+    "expanding": "Reading “{{name}}”…",
+    "empty": "“{{name}}” holds no printable files.",
+    "truncatedFiles": "“{{name}}” holds more than {{max}} entries — only the first {{max}} were read.",
+    "truncatedDepth": "“{{name}}” is deeper than {{max}} levels — the deepest folders were not read."
+  },
+  "toasts": {
+    "rejected_one": "Can't print {{count}} file",
+    "rejected_other": "Can't print {{count}} files",
+    "skipped_one": "Skipped {{count}} file in “{{name}}”",
+    "skipped_other": "Skipped {{count}} files in “{{name}}”",
+    "added_one": "Added {{count}} file from “{{name}}”",
+    "added_other": "Added {{count}} files from “{{name}}”"
+  },
+  "settings": {
+    "profile": "Profile",
+    "builtinSuffix": " · built-in",
+    "printer": "Printer",
+    "systemDefault": "System default",
+    "sides": "Sides",
+    "color": "Color",
+    "copies": "Copies",
+    "copiesSuffix": "× per file",
+    "paper": "Paper",
+    "orientation": "Orient.",
+    "orientationLabel": "Orientation",
+    "scaling": "Scaling",
+    "pageRange": "Page range"
+  },
+  "sides": {
+    "single": "Single",
+    "long": "Long",
+    "short": "Short"
+  },
+  "color": {
+    "color": "Color",
+    "monochrome": "B&W"
+  },
+  "orientation": {
+    "auto": "Auto",
+    "portrait": "Portrait",
+    "landscape": "Landscape"
+  },
+  "scaling": {
+    "fit": "Fit",
+    "shrink": "Shrink",
+    "none": "100%"
+  },
+  "copies": {
+    "error": "Enter a whole number from 1 to 999."
+  },
+  "pageRange": {
+    "placeholder": "e.g. 1-5,10",
+    "syntaxError": "Use page numbers like 1-5,10 (ranges must ascend).",
+    "outOfBounds": "“{{name}}” only has {{pages}} pages.",
+    "hint": "Applies to PDFs only — images ignore the range."
+  },
+  "preview": {
+    "title": "Resolved command"
+  }
+}

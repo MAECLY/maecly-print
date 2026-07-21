@@ -222,7 +222,14 @@ pub(crate) trait JobRunner: Send + Sync + 'static {
     ) -> Result<SpoolOutcome, PrintError>;
 
     /// Resolve the printer name to use and whether it supports duplex.
-    fn resolve_printer(&self, requested: Option<&str>) -> Result<(String, bool), PrintError>;
+    ///
+    /// `file_name` carries the input's name so a file-type routing rule can
+    /// apply (see [`crate::ipc::printers::resolve_app_printer`]).
+    fn resolve_printer(
+        &self,
+        requested: Option<&str>,
+        file_name: &str,
+    ) -> Result<(String, bool), PrintError>;
 
     /// Best-effort cancellation of an already-spooled OS job.
     fn cancel_os_job(&self, os_job_id: &str);
@@ -295,10 +302,14 @@ impl JobRunner for EngineRunner {
     /// empty enumeration (the platform backends are best-effort) keeps the old
     /// behaviour of trusting the name and letting spooling speak, so a flaky
     /// `lpstat` can never pause the whole queue.
-    fn resolve_printer(&self, requested: Option<&str>) -> Result<(String, bool), PrintError> {
-        let name = match requested {
-            Some(p) if !p.is_empty() => p.to_string(),
-            _ => resolve_default_printer()?,
+    fn resolve_printer(
+        &self,
+        requested: Option<&str>,
+        file_name: &str,
+    ) -> Result<(String, bool), PrintError> {
+        let name = match resolve_app_printer_for(requested, file_name) {
+            Some(p) => p,
+            None => resolve_os_default_printer()?,
         };
         let enumerated = crate::platform::list_printers()
             .ok()
@@ -326,25 +337,23 @@ impl JobRunner for EngineRunner {
     }
 }
 
-/// Resolve a default printer without an explicit request: MaeclyPrint's app
-/// default, then the OS default. Having neither is user-fixable (pick a
-/// printer), so it pauses the job rather than burning retries.
-fn resolve_default_printer() -> Result<String, PrintError> {
-    if let Some(name) = crate::settings::Config::load_or_default()
-        .printers
-        .default_printer
-        .filter(|s| !s.is_empty())
-    {
-        return Ok(name);
-    }
-    if let Some(name) = crate::platform::default_printer()
+/// The MaeclyPrint-level choice for this input: an explicit request, then the
+/// file-type routing rule, then the app default. Delegates to the single
+/// definition of that order so the queue, the CLI and the GUI agree.
+fn resolve_app_printer_for(requested: Option<&str>, file_name: &str) -> Option<String> {
+    let prefs = crate::settings::Config::load_or_default().printers;
+    crate::ipc::printers::resolve_app_printer(&prefs, requested, file_name)
+}
+
+/// The OS default, used only once nothing at the app level applies. Having no
+/// printer at all is user-fixable (pick one), so the caller pauses the job
+/// rather than burning retries.
+fn resolve_os_default_printer() -> Result<String, PrintError> {
+    crate::platform::default_printer()
         .ok()
         .flatten()
         .filter(|s| !s.is_empty())
-    {
-        return Ok(name);
-    }
-    Err(PrintError::NoPrinter)
+        .ok_or(PrintError::NoPrinter)
 }
 
 /// Production [`EventSink`] emitting typed `tauri-specta` events to the webview.
@@ -1047,7 +1056,7 @@ impl Dispatcher {
         self.spawner.spawn_blocking(Box::new(move || {
             let result = (|| -> Result<PrintOk, PrintError> {
                 let (name, duplex_supported) =
-                    runner.resolve_printer(job.settings.printer.as_deref())?;
+                    runner.resolve_printer(job.settings.printer.as_deref(), &job.file_name)?;
                 // Pure capability gate (honesty policy): a duplex request against
                 // a non-duplex driver is an error rather than a silent downgrade.
                 crate::engine::print::check_supported(
@@ -1423,6 +1432,10 @@ mod tests {
         /// The settings the fake was handed for each `print` call, so a test can
         /// assert what would have reached the spooler.
         print_settings: Mutex<Vec<JobSettings>>,
+        /// The file name handed to each `resolve_printer` call. A file-type
+        /// routing rule can only apply if the dispatcher passes it, so this is
+        /// how a test proves the plumbing exists.
+        resolve_file_names: Mutex<Vec<String>>,
     }
 
     impl FakeRunner {
@@ -1440,6 +1453,7 @@ mod tests {
                 print_calls: AtomicUsize::new(0),
                 print_timeouts: Mutex::new(Vec::new()),
                 print_settings: Mutex::new(Vec::new()),
+                resolve_file_names: Mutex::new(Vec::new()),
             }
         }
     }
@@ -1503,7 +1517,15 @@ mod tests {
             }
         }
 
-        fn resolve_printer(&self, requested: Option<&str>) -> Result<(String, bool), PrintError> {
+        fn resolve_printer(
+            &self,
+            requested: Option<&str>,
+            file_name: &str,
+        ) -> Result<(String, bool), PrintError> {
+            self.resolve_file_names
+                .lock()
+                .unwrap()
+                .push(file_name.to_string());
             if !self.resolve_ok.load(Ordering::Relaxed) {
                 return Err(PrintError::NoPrinter);
             }
@@ -2479,6 +2501,36 @@ mod tests {
             "an image is one page; a 2-3 range would spool nothing"
         );
         assert_eq!(spooled[1].page_ranges.as_deref(), Some("2-3"));
+    }
+
+    // ---- File-type routing ------------------------------------------------
+
+    /// The "Route file types here" rules on the Printers screen were persisted
+    /// but never consumed by any print path. Routing is decided per file, so
+    /// the dispatcher has to hand the file name to `resolve_printer`; without
+    /// it the rule can never match, which is exactly how the feature was dead.
+    #[tokio::test]
+    async fn routing_needs_the_file_name_at_printer_resolution() {
+        let mut h = harness();
+        let mut pdf = Job::new(
+            "batch",
+            "/tmp/report.pdf",
+            JobSettings::default(),
+            None,
+            now_rfc3339(),
+        );
+        pdf.state = JobState::Queued;
+        pdf.file_name = "report.pdf".to_string();
+        pdf.input_ext = "pdf".to_string();
+        h.submit(vec![pdf]);
+        h.run_to_idle();
+
+        let seen = h.runner.resolve_file_names.lock().unwrap();
+        assert_eq!(
+            seen.as_slice(),
+            ["report.pdf"],
+            "the job's file name must reach printer resolution for a .pdf rule to apply"
+        );
     }
 
     // ---- Progress honesty -------------------------------------------------

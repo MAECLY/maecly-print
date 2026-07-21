@@ -1,1 +1,96 @@
-{}
+{
+  "title": "Trabajo de impresión",
+  "subtitle": "{{files}} · {{pages}} · {{size}}",
+  "units": {
+    "file_one": "{{count}} archivo",
+    "file_other": "{{count}} archivos",
+    "page_one": "{{count}} página",
+    "page_other": "{{count}} páginas"
+  },
+  "actions": {
+    "addFolder": "Añadir carpeta",
+    "addFiles": "Añadir archivos",
+    "print": "Imprimir {{count}}"
+  },
+  "list": {
+    "heading": "Archivos de este trabajo",
+    "label": "Archivos de este trabajo, en orden de impresión",
+    "reorderHint": "reordenar",
+    "reorderKeys": "Alt + ↑↓",
+    "row": "{{position}} de {{total}}: {{name}}",
+    "moveUp": "Subir {{name}}",
+    "moveDown": "Bajar {{name}}",
+    "remove": "Quitar {{name}}",
+    "image": "imagen"
+  },
+  "empty": {
+    "desktop": "Aún no hay archivos. Arrastra archivos o carpetas desde el Explorador o el Finder, o usa Añadir archivos.",
+    "web": "Para añadir archivos se necesita la aplicación de escritorio."
+  },
+  "folders": {
+    "title_one": "{{count}} carpeta soltada",
+    "title_other": "{{count}} carpetas soltadas",
+    "question": "¿Imprimir todo lo que hay en «{{name}}», incluidas las subcarpetas?",
+    "recursive": "Incluir subcarpetas",
+    "topLevel": "Solo el primer nivel",
+    "skip": "Omitir esta carpeta",
+    "expanding": "Leyendo «{{name}}»…",
+    "empty": "«{{name}}» no contiene archivos imprimibles.",
+    "truncatedFiles": "«{{name}}» tiene más de {{max}} entradas: solo se han leído las {{max}} primeras.",
+    "truncatedDepth": "«{{name}}» tiene más de {{max}} niveles: las carpetas más profundas no se han leído."
+  },
+  "toasts": {
+    "rejected_one": "No se puede imprimir {{count}} archivo",
+    "rejected_other": "No se pueden imprimir {{count}} archivos",
+    "skipped_one": "Se ha descartado {{count}} archivo de «{{name}}»",
+    "skipped_other": "Se han descartado {{count}} archivos de «{{name}}»",
+    "added_one": "Se ha añadido {{count}} archivo de «{{name}}»",
+    "added_other": "Se han añadido {{count}} archivos de «{{name}}»"
+  },
+  "settings": {
+    "profile": "Perfil",
+    "builtinSuffix": " · integrado",
+    "printer": "Impresora",
+    "systemDefault": "Predeterminada del sistema",
+    "sides": "Caras",
+    "color": "Color",
+    "copies": "Copias",
+    "copiesSuffix": "× por archivo",
+    "paper": "Papel",
+    "orientation": "Orient.",
+    "orientationLabel": "Orientación",
+    "scaling": "Escalado",
+    "pageRange": "Intervalo de páginas"
+  },
+  "sides": {
+    "single": "Una cara",
+    "long": "Borde largo",
+    "short": "Borde corto"
+  },
+  "color": {
+    "color": "Color",
+    "monochrome": "B/N"
+  },
+  "orientation": {
+    "auto": "Automática",
+    "portrait": "Vertical",
+    "landscape": "Horizontal"
+  },
+  "scaling": {
+    "fit": "Ajustar",
+    "shrink": "Reducir",
+    "none": "100%"
+  },
+  "copies": {
+    "error": "Escribe un número entero del 1 al 999."
+  },
+  "pageRange": {
+    "placeholder": "p. ej. 1-5,10",
+    "syntaxError": "Usa números de página como 1-5,10 (los intervalos deben ir en orden ascendente).",
+    "outOfBounds": "«{{name}}» solo tiene {{pages}} páginas.",
+    "hint": "Solo se aplica a los PDF: las imágenes ignoran el intervalo."
+  },
+  "preview": {
+    "title": "Comando resuelto"
+  }
+}

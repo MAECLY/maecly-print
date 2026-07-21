@@ -9,7 +9,10 @@
 //! - `lpoptions -p N -l` — capability lists (`ColorModel`, `Duplex`, `PageSize`, `InputSlot`, `Resolution`).
 //! - `ippfind` — mDNS/Bonjour discovery.
 //!
-//! Everything is best-effort: missing tools or fields degrade to empty/`None`.
+//! Per-queue enumeration is best-effort: missing tools or fields degrade to
+//! empty/`None`, because a half-readable printer is still worth showing.
+//! **Discovery is the exception**: a scan that could not run returns `Err` so
+//! the UI can say so, instead of claiming the network holds no printers.
 
 use std::collections::HashMap;
 use std::process::Command;
@@ -19,6 +22,7 @@ use anyhow::Context;
 use crate::ipc::printers::{
     DiscoveredPrinter, Printer, PrinterKind, PrinterStatus, Supplies, Tray,
 };
+use crate::platform::infer_kind;
 
 /// Run a CLI in the C locale and return its stdout (lossy UTF-8).
 fn lc_run(program: &str, args: &[&str]) -> anyhow::Result<String> {
@@ -260,9 +264,60 @@ pub fn default_printer() -> anyhow::Result<Option<String>> {
     })
 }
 
+/// Run `ippfind`, telling "the scan found nothing" apart from "the scan could
+/// not run".
+///
+/// This deliberately does NOT go through [`lc_run`]/[`run_ok`]: `ippfind` exits
+/// **1** when it matched no service, which is an empty network — the normal,
+/// successful outcome of scanning a room with no printers in it. Only a spawn
+/// failure (the CUPS client tools are not installed), a signal, or a non-0/1
+/// status is a real error, and that error must reach the UI instead of being
+/// painted as "no printers found" (which is what `unwrap_or_default()` used to
+/// do).
+fn run_ippfind(args: &[&str]) -> anyhow::Result<String> {
+    let out = match Command::new("ippfind")
+        .args(args)
+        .env("LC_ALL", "C")
+        .env("LANG", "C")
+        .output()
+    {
+        Ok(out) => out,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => anyhow::bail!(
+            "`ippfind` is not installed — network discovery needs the CUPS client tools"
+        ),
+        Err(e) => anyhow::bail!("failed to run `ippfind`: {e}"),
+    };
+    classify_ippfind(
+        out.status.code(),
+        &out.status.to_string(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        &String::from_utf8_lossy(&out.stderr),
+    )
+}
+
+/// Pure exit-status policy for [`run_ippfind`], split out so it is unit-testable
+/// without spawning anything: exit **0** (matches) and **1** (no matches) are
+/// both successful scans; anything else surfaces the tool's own stderr.
+fn classify_ippfind(
+    code: Option<i32>,
+    status_text: &str,
+    stdout: String,
+    stderr: &str,
+) -> anyhow::Result<String> {
+    if matches!(code, Some(0) | Some(1)) {
+        return Ok(stdout);
+    }
+    let msg = stderr.trim();
+    if msg.is_empty() {
+        anyhow::bail!("`ippfind` exited with {status_text}");
+    }
+    anyhow::bail!("{msg}");
+}
+
 pub fn discover_printers() -> anyhow::Result<Vec<DiscoveredPrinter>> {
     // `-T 4` bounds the scan; ippfind prints one URI per match by default.
-    let out = lc_run("ippfind", &["_ipp._tcp", "_ipps._tcp", "-T", "4"]).unwrap_or_default();
+    // A failure propagates: the UI renders a scan error, not an empty network.
+    let out = run_ippfind(&["_ipp._tcp", "_ipps._tcp", "-T", "4"])?;
     // Skip anything already installed (matched loosely by host/service).
     let installed: Vec<String> = queue_names()
         .iter()
@@ -323,7 +378,7 @@ fn detail(name: &str, default: Option<&str>, jobs: &HashMap<String, u32>) -> Pri
     Printer {
         id: name.to_string(),
         name: display,
-        kind: infer_kind(&driver, uri),
+        kind: infer_kind(&driver, name, uri),
         color: color_capable(&caps),
         duplex: duplex_capable(&caps),
         status: status_from(
@@ -584,33 +639,6 @@ fn pretty_conn(uri: Option<&str>) -> String {
     }
 }
 
-fn infer_kind(model: &str, uri: Option<&str>) -> PrinterKind {
-    let m = model.to_ascii_lowercase();
-    let u = uri.unwrap_or("").to_ascii_lowercase();
-    if m.contains("pdf") || u.contains("cups-pdf") || m.contains("virtual") {
-        PrinterKind::Virtual
-    } else if m.contains("zebra") || m.contains("label") || m.contains("zpl") || m.contains("dymo")
-    {
-        PrinterKind::Label
-    } else if m.contains("designjet")
-        || m.contains("wide")
-        || m.contains("plotter")
-        || m.contains("versa")
-    {
-        PrinterKind::Wide
-    } else if m.contains("mfp")
-        || m.contains("workforce")
-        || m.contains("imagerunner")
-        || m.contains("all-in-one")
-        || m.contains("pixma")
-        || m.contains("officejet")
-    {
-        PrinterKind::Mfp
-    } else {
-        PrinterKind::Laser
-    }
-}
-
 // ----------------------------------------------------------------------------
 // Tests — fixtures are verbatim from real macOS CUPS output.
 // ----------------------------------------------------------------------------
@@ -759,31 +787,58 @@ mod tests {
 
     #[test]
     fn kind_inference() {
+        // The keyword table itself lives in `platform::mod` and is tested
+        // there; this only pins the CUPS call shape (model + queue + URI).
         assert!(matches!(
-            infer_kind("Zebra ZD420 ZPL", None),
+            infer_kind("Zebra ZD420 ZPL", "labels", None),
             PrinterKind::Label
         ));
         assert!(matches!(
-            infer_kind("Microsoft Print to PDF", None),
+            infer_kind("Generic", "Save_as_PDF", Some("cups-pdf:/")),
             PrinterKind::Virtual
         ));
         assert!(matches!(
-            infer_kind("HP DesignJet T650", None),
-            PrinterKind::Wide
-        ));
-        assert!(matches!(
-            infer_kind("Canon PIXMA MFP", None),
-            PrinterKind::Mfp
-        ));
-        assert!(matches!(
-            infer_kind("HP LaserJet M404", None),
+            infer_kind("HP LaserJet M404", "office", Some("usb://HP/M404")),
             PrinterKind::Laser
         ));
     }
 
+    /// `ippfind` exits 1 on an empty network; that must stay a successful,
+    /// empty scan rather than becoming an error the UI paints red.
+    #[test]
+    fn fr_classify_ippfind_no_matches_is_an_empty_scan_not_a_failure() {
+        assert_eq!(
+            classify_ippfind(Some(1), "exit status: 1", String::new(), "").unwrap(),
+            ""
+        );
+        assert_eq!(
+            classify_ippfind(Some(0), "exit status: 0", "ipp://a/\n".into(), "").unwrap(),
+            "ipp://a/\n"
+        );
+    }
+
+    /// A broken scan must NOT be reported as "no printers on the network".
+    #[test]
+    fn fr_classify_ippfind_surfaces_real_failures() {
+        let e = classify_ippfind(Some(2), "exit status: 2", String::new(), "bad argument")
+            .expect_err("a non-0/1 exit is a failed scan");
+        assert_eq!(e.to_string(), "bad argument");
+
+        // Killed by a signal (no exit code) with nothing on stderr.
+        let e = classify_ippfind(None, "signal: 9", String::new(), "  ")
+            .expect_err("a signalled scan is a failed scan");
+        assert!(e.to_string().contains("signal: 9"), "{e}");
+    }
+
     /// Real-environment smoke test: enumeration must not error and must yield
     /// well-formed records (tolerates zero printers on a headless CI runner).
+    ///
+    /// Ignored by default — it shells out to the host's CUPS install, so its
+    /// result depends on the developer's real queues. `docs/08-development/
+    /// testing-strategy.md` § "When to skip subprocess tests" requires exactly
+    /// this gate; CI opts in with `cargo test -- --include-ignored`.
     #[test]
+    #[ignore = "requires a real CUPS install; run with --include-ignored"]
     fn list_printers_smoke() {
         let printers = list_printers().expect("list_printers should not error");
         for p in &printers {

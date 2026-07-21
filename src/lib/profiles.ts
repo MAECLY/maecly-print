@@ -130,23 +130,82 @@ function isPageToken(token: string): boolean {
  * confusing error. See `src-tauri/src/engine/pagerange.rs`.
  */
 export function isValidPageRange(raw: string): boolean {
-  if (raw.trim() === '') return true;
+  return parsePageRange(raw) !== null;
+}
+
+/** One inclusive, 1-based page span. */
+export interface PageSpan {
+  start: number;
+  end: number;
+}
+
+/**
+ * Parse a page-range expression into its spans, or `null` when the grammar is
+ * violated. An empty expression means "all pages" and parses to `[]`.
+ *
+ * Same grammar as {@link isValidPageRange} — that predicate is now this
+ * function's yes/no shadow, so the two can never disagree.
+ */
+export function parsePageRange(raw: string): PageSpan[] | null {
+  if (raw.trim() === '') return [];
+  const spans: PageSpan[] = [];
   for (const rawEntry of raw.split(',')) {
     const entry = rawEntry.trim();
-    if (entry === '') return false; // stray empty entry (",," / "1,") — rejected
+    if (entry === '') return null; // stray empty entry (",," / "1,") — rejected
     const dash = entry.indexOf('-');
     if (dash === -1) {
-      if (!isPageToken(entry)) return false;
+      if (!isPageToken(entry)) return null;
+      spans.push({ start: Number(entry), end: Number(entry) });
     } else {
       // Split on the FIRST dash only (mirrors Rust's `split_once`); trim each
       // side so " 1 - 3 " is fine but "1 2-3" (space inside a number) is not.
       const lhs = entry.slice(0, dash).trim();
       const rhs = entry.slice(dash + 1).trim();
-      if (!isPageToken(lhs) || !isPageToken(rhs)) return false;
-      if (Number(rhs) < Number(lhs)) return false;
+      if (!isPageToken(lhs) || !isPageToken(rhs)) return null;
+      if (Number(rhs) < Number(lhs)) return null;
+      spans.push({ start: Number(lhs), end: Number(rhs) });
     }
   }
-  return true;
+  return spans;
+}
+
+/** The little a document needs to expose to be bounds-checked. */
+export interface RangeCheckable {
+  name: string;
+  ext: string;
+  pages?: number | null | undefined;
+}
+
+/**
+ * The first document `raw` overflows, or `null` when the range fits everywhere
+ * it applies. Client-side mirror of `engine::pagerange::check_bounds` +
+ * `ipc::jobs::check_ranges_fit_documents`, so the inline error (FR-042/FR-043)
+ * says the same thing the backend would say on submit.
+ *
+ * Two narrowings, both matching the backend exactly:
+ * - **PDFs only** — the engine drops the range for images (they are one page),
+ *   so an image must never invalidate a range it will not receive.
+ * - **Known page counts only** — `pages` is `null`/absent for PDFs too large or
+ *   too broken to probe; an unmeasurable document cannot be bounded.
+ *
+ * A syntactically invalid range returns `null`: that error is already reported
+ * by {@link isValidPageRange}, and reporting two errors for one field would
+ * just be noise.
+ */
+export function findPageRangeOverflow(
+  raw: string,
+  files: readonly RangeCheckable[],
+): { name: string; pages: number } | null {
+  const spans = parsePageRange(raw);
+  if (spans === null || spans.length === 0) return null;
+  const last = Math.max(...spans.map((s) => s.end));
+  for (const f of files) {
+    if (f.ext.toLowerCase() !== 'pdf') continue;
+    const pages = f.pages;
+    if (pages == null || pages <= 0) continue;
+    if (last > pages) return { name: f.name, pages };
+  }
+  return null;
 }
 
 /**

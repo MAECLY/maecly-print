@@ -3,8 +3,10 @@ import { describe, it, expect } from 'vitest';
 import {
   BUILT_IN_PROFILES,
   buildPrintRequest,
+  findPageRangeOverflow,
   findProfileIn,
   isValidPageRange,
+  parsePageRange,
   nextUniqueName,
   toJobSettings,
   validateProfileName,
@@ -86,6 +88,15 @@ describe('toJobSettings', () => {
     expect(
       toJobSettings(mk({ pageRange: '1-5' }), { range: '2-4' }).page_ranges,
     ).toBe('2-4');
+  });
+
+  it('FR-041: an emptied range field overrides the profile back to all pages', () => {
+    // '' is not nullish, so it must win over the profile's saved range — this
+    // is the only way to print every page under a range-carrying profile, and
+    // the screen's derived field relies on it.
+    expect(
+      toJobSettings(mk({ pageRange: '1-5' }), { range: '' }).page_ranges,
+    ).toBeNull();
   });
 
   it('treats an all-pages profile as null page_ranges', () => {
@@ -193,5 +204,69 @@ describe('validateProfileName', () => {
     expect(
       validateProfileName('  Fresh name  ', [mk({ name: 'Other' })]),
     ).toBeNull();
+  });
+});
+
+describe('parsePageRange', () => {
+  it('FR-042: returns the spans of a valid expression', () => {
+    expect(parsePageRange('1-5,10')).toEqual([
+      { start: 1, end: 5 },
+      { start: 10, end: 10 },
+    ]);
+  });
+
+  it('FR-042: an empty expression means "all pages", not an error', () => {
+    expect(parsePageRange('')).toEqual([]);
+    expect(parsePageRange('   ')).toEqual([]);
+  });
+
+  it('FR-042: returns null for every shape isValidPageRange rejects', () => {
+    for (const bad of ['5-1', '0', '1-0', '5-', '-5', '1-2-3', '1,,3', 'abc']) {
+      expect(parsePageRange(bad), bad).toBeNull();
+      expect(isValidPageRange(bad), bad).toBe(false);
+    }
+  });
+});
+
+describe('findPageRangeOverflow', () => {
+  const pdf = (name: string, pages: number | null) => ({
+    name,
+    ext: 'pdf',
+    pages,
+  });
+
+  it('FR-042: names the first PDF the range runs past', () => {
+    expect(
+      findPageRangeOverflow('2-12', [pdf('long.pdf', 40), pdf('short.pdf', 8)]),
+    ).toEqual({ name: 'short.pdf', pages: 8 });
+  });
+
+  it('FR-042: accepts a range that fits every document', () => {
+    expect(
+      findPageRangeOverflow('1-8', [pdf('a.pdf', 40), pdf('b.pdf', 8)]),
+    ).toBeNull();
+  });
+
+  it('FR-042: a blank range never overflows', () => {
+    expect(findPageRangeOverflow('', [pdf('a.pdf', 1)])).toBeNull();
+  });
+
+  it('FR-042: images are exempt — the engine drops the range for them', () => {
+    expect(
+      findPageRangeOverflow('2-3', [
+        { name: 'chart.png', ext: 'png', pages: 1 },
+      ]),
+    ).toBeNull();
+  });
+
+  it('FR-042: an unknown page count cannot be bounded', () => {
+    expect(findPageRangeOverflow('900', [pdf('huge.pdf', null)])).toBeNull();
+    expect(
+      findPageRangeOverflow('900', [{ name: 'huge.pdf', ext: 'pdf' }]),
+    ).toBeNull();
+  });
+
+  it('FR-042: a syntactically invalid range reports nothing (one error at a time)', () => {
+    expect(findPageRangeOverflow('5-1', [pdf('a.pdf', 1)])).toBeNull();
   });
 });

@@ -14,6 +14,8 @@ import {
   type AppSettings,
   type DiscoveredPrinter as IpcDiscoveredPrinter,
   type FileInfo,
+  type FolderExpansion,
+  type FolderScan,
   type IpcError,
   type Job,
   type JobBatch,
@@ -36,13 +38,18 @@ export type {
 // Queue wire types, re-exported so screens/stores import them from one place
 // (the print-dialog screen reuses PrintRequest/JobBatch/FileInfo/JobSettings).
 export type {
+  ExpansionLimits,
   FileInfo,
+  FolderExpansion,
+  FolderScan,
   Job,
   JobBatch,
   JobSettings,
   JobState,
   PrintRequest,
   QueueSnapshot,
+  SkippedFile,
+  SkipReason,
 } from '@/ipc/bindings';
 // Profiles/Settings/About wire types, re-exported for the same single-import
 // convenience. `Profile` is the wire shape; screens render the adapted
@@ -300,6 +307,22 @@ export async function clearDone(): Promise<number> {
 export async function inspectFiles(paths: string[]): Promise<FileInfo[]> {
   if (!isTauri()) throw new Error(NO_HOST);
   return unwrap(commands.inspectFiles(paths));
+}
+
+/**
+ * Walk dropped/picked folders into printable files with the user's FR-004
+ * answer (`top_level` vs `recursive`), one result per folder.
+ *
+ * The discarded files come back in `skipped` with a reason rather than
+ * vanishing (FR-005), and the backend logs them against the app log (FR-059),
+ * so the caller only has to *show* them.
+ */
+export async function expandFolders(
+  paths: string[],
+  scan: FolderScan,
+): Promise<FolderExpansion[]> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return unwrap(commands.expandFolders(paths, scan));
 }
 
 /** The exact command MaeclyPrint would run for `req` (honesty preview). */

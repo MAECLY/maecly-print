@@ -323,3 +323,83 @@ fn bindings_ts_is_committed_in_sync() {
         first_difference(COMMITTED_BINDINGS, &regenerated)
     );
 }
+
+/// Every `#[tauri::command]` in the tree must be listed in the `invoke_handler`
+/// in `src/lib.rs`.
+///
+/// An unregistered command compiles, passes its own unit tests and looks
+/// finished in review, but never reaches `src/ipc/bindings.ts`, so the frontend
+/// has no way to call it. This campaign shipped that bug twice —
+/// `expand_folders` (folder support implemented and unreachable) and
+/// `classify_paths` (dead on arrival) — which is why it is a gate rather than a
+/// habit.
+///
+/// The check is textual on purpose: it needs to see the *source*, since an
+/// unregistered command leaves no trace in the compiled artifact to inspect.
+#[test]
+fn every_tauri_command_is_registered_in_the_invoke_handler() {
+    use std::collections::BTreeSet;
+
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let lib_rs = std::fs::read_to_string(src.join("lib.rs")).expect("read lib.rs");
+
+    // The `collect_commands![...]` list, which is what actually gets wired up.
+    let registered: BTreeSet<String> = lib_rs
+        .split_once("collect_commands![")
+        .map(|(_, rest)| rest.split_once(']').map(|(list, _)| list).unwrap_or(""))
+        .unwrap_or("")
+        .split(',')
+        .filter_map(|entry| entry.trim().rsplit("::").next())
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect();
+    assert!(
+        !registered.is_empty(),
+        "could not parse collect_commands! out of lib.rs — has the macro moved?"
+    );
+
+    let mut declared: BTreeSet<String> = BTreeSet::new();
+    let mut stack = vec![src];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("read_dir").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read source");
+            // Match the attribute only when it is the whole line, so prose that
+            // *mentions* `#[tauri::command]` is not mistaken for one. The
+            // function follows within a few lines, after `#[specta::specta]`
+            // and any doc comments.
+            let lines: Vec<&str> = text.lines().collect();
+            for (i, line) in lines.iter().enumerate() {
+                if line.trim() != "#[tauri::command]" {
+                    continue;
+                }
+                let name = lines[i + 1..]
+                    .iter()
+                    .find_map(|l| l.split_whitespace().skip_while(|t| *t != "fn").nth(1))
+                    .map(|tok| tok.split(['(', '<']).next().unwrap_or(tok));
+                if let Some(name) = name {
+                    declared.insert(name.to_owned());
+                }
+            }
+        }
+    }
+    assert!(
+        !declared.is_empty(),
+        "found no #[tauri::command] functions — has the scan broken?"
+    );
+
+    let missing: Vec<&String> = declared.difference(&registered).collect();
+    assert!(
+        missing.is_empty(),
+        "these #[tauri::command] functions are not in the collect_commands! list \
+         in src/lib.rs, so the frontend cannot call them: {missing:?}\n\
+         Either register them or drop the attribute if they are not IPC."
+    );
+}
