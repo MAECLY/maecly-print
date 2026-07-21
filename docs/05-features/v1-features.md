@@ -4,6 +4,8 @@
 
 These features are sequenced into intermediate releases (`v0.2`, `v0.3`, …) before `v1.0`. The order may shift based on user feedback after MVP.
 
+> **Already delivered ahead of schedule.** Three items below were built during the M1 screen-completeness work and are marked **Delivered** in place: GUI folder drag-drop with the recursion prompt (v0.2), profile import/export (v0.3), and the English/Spanish i18n layer with OS-locale detection and a Settings selector (v0.4). They stay in this document — moving them would lose the sequencing record — but they are not open work.
+
 ## v0.2 — Multi-format
 
 The headline feature of v0.2 is **format breadth**. After v0.2, MaeclyPrint covers ~95% of the documents an office user needs to print.
@@ -24,6 +26,8 @@ The headline feature of v0.2 is **format breadth**. After v0.2, MaeclyPrint cove
 
 The Settings page gains a **Dependencies** panel showing the status of LibreOffice / Chromium / Pandoc / ImageMagick (✓ Found / ✗ Missing) with download links and a refresh button.
 
+Partly delivered already: the probe itself exists (`engine::deps`, reported through `app_info`) and covers LibreOffice, Chromium and Pandoc — not ImageMagick, which the MVP does not use. It surfaces on the **Print Job** screen, where only the dependencies that actually gate a file the user added are shown, with remediation text. What v0.2 still owes is the always-on Settings panel with links and a refresh button.
+
 ### New print settings
 
 - **Tray** (input bin) — pulled from driver capabilities at print time
@@ -32,8 +36,8 @@ The Settings page gains a **Dependencies** panel showing the status of LibreOffi
 ### Quality of life
 
 - The "Configure print job" dialog gains a **preview** pane for PDFs (using PDFium rendering).
-- Drag-drop in the GUI accepts folders and recurses with a confirmation prompt.
-- Recent files / recent jobs shown on the Home page.
+- ~~Drag-drop in the GUI accepts folders and recurses with a confirmation prompt.~~ **Delivered in M1.** This was never really a v0.2 item — [FR-004](../03-requirements/functional-requirements.md) and FR-007 both mark folders as MVP, so listing it here was the drift. A dropped folder with subfolders is parked until the screen asks recurse-or-top-level, then walked by the `expand_folders` command; a folder with no subfolders skips the question. Discarded files come back with a reason (FR-005/FR-059) rather than vanishing.
+- ~~Recent files / recent jobs shown on the Home page.~~ **Delivered in M1** — Home's recent activity is fed by the real queue.
 
 ## v0.3 — Watermark, separator, polish
 
@@ -48,10 +52,10 @@ The Settings page gains a **Dependencies** panel showing the status of LibreOffi
 - Divider shows next file's name and page count.
 - Configurable from per-profile settings.
 
-### Profile import/export
+### Profile import/export — **delivered in M1**
 
-- Export a profile to `<name>.maecly-profile.toml`.
-- Import via drag-drop on the Profiles page or `maeclyprint profiles import <file>`.
+- Export a profile to a TOML file, import one or many back (`export_profile` / `import_profiles`, wired to the Profiles screen).
+- Still open: importing by **drag-drop** onto the Profiles page, and the `maeclyprint profiles import|export <file>` CLI verbs — neither exists.
 
 ### Per-job overrides remembered
 
@@ -59,12 +63,12 @@ The Settings page gains a **Dependencies** panel showing the status of LibreOffi
 
 ## v0.4 — Internationalization
 
-### Languages
+### Languages — **delivered in M1**
 
-- **Spanish (es-ES, es-MX)** lands as the second language, alongside English.
-- All UI strings externalized in `i18n/{lang}.json`.
-- ICU MessageFormat for plurals and gendered forms.
-- Language selector in Settings; first run uses OS locale if matching.
+- **Spanish** lands as the second language, alongside English. The shipped locales are exactly `en-US` and `es-ES`; there is no separate `es-MX` catalogue, so `es-MX` matches on the language subtag and resolves to `es-ES`.
+- All UI strings externalized — as `src/i18n/locales/{lang}/<namespace>.json`, one file per screen, rather than the single flat `i18n/{lang}.json` originally planned.
+- Language selector in Settings; first run uses OS locale if matching, then persists the choice to `config.toml`.
+- **Not delivered:** ICU MessageFormat. The translator is a small in-house one with parameter substitution and a count-based plural rule; there is no `react-i18next` and no ICU. Gendered forms are unsupported. Backend (Rust) strings are not translated at all.
 
 ### RTL preparedness
 
@@ -84,7 +88,7 @@ The Settings page gains a **Dependencies** panel showing the status of LibreOffi
 ## v0.6 — Update channels
 
 - **Stable** (default), **Beta**, **Nightly** channels.
-- User can switch in Settings; downgrading channel requires confirmation.
+- User can switch in Settings; downgrading channel requires confirmation. *Partly present already: the selector and the persisted `updater.channel` field exist, but every value resolves to the same feed and there is no downgrade confirmation. The switch is inert until the feeds below exist.*
 - `https://updates.maecly.com/maeclyprint/{channel}.json` per channel.
 - Nightly: built every night from `main`, signed with self-signed cert.
 - Beta: cut from `main` weekly, EV-signed.
@@ -105,9 +109,9 @@ The Settings page gains a **Dependencies** panel showing the status of LibreOffi
 
 ## v0.8 — Quality, queue depth, history
 
-- **Quality** setting: draft / normal / high (~150 / ~300 / ~600 dpi hint).
-- **Queue concurrency**: configurable from 1–8 simultaneous jobs (default 2).
-- **Job history** persisted indefinitely (until user clears) with full search/filter.
+- **Quality** setting: draft / normal / high (~150 / ~300 / ~600 dpi hint). *A `quality` field already exists on a profile and the editor sets it, but no print backend reads it — this milestone is what makes it do something.*
+- ~~**Queue concurrency**: configurable from 1–8 simultaneous jobs (default 2).~~ **Delivered in M1**, though it bounds concurrent *conversions*, not concurrent spooling: `engine.max_concurrent_conversions`, clamped to 1–8, default 2, read into the dispatcher at app start.
+- **Job history** persisted indefinitely (until user clears) with full search/filter. *Today the queue holds finished jobs until `clear_done` (with an undo window); there is no separate searchable history store.*
 - Export history to CSV.
 
 ## v0.9 — Polish & hardening

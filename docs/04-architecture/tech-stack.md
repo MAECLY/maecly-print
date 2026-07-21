@@ -1,27 +1,37 @@
 # Tech Stack
 
-> **TL;DR** — MaeclyPrint is built on **Tauri 2 + Rust + React (TypeScript)**. This combination gives us a 5-10 MB installer, sub-500 ms cold start, 30-50 MB idle RAM, a built-in signed auto-updater, and a 95% shared codebase across Windows and macOS — which is exactly what a context-menu-invoked utility needs.
+> **TL;DR** — MaeclyPrint is built on **Tauri 2 + Rust + React (TypeScript)**. This combination gives us a small installer, fast cold start, low idle RAM, and a near-fully shared codebase across Windows and macOS — which is exactly what a context-menu-invoked utility needs. Note that the shipped build does **not** use Tauri's updater plugin; see §2 and [`auto-updater.md`](./auto-updater.md).
 
 ## 1. Stack at a glance
 
+Everything in this table is declared in `src-tauri/Cargo.toml`, `shell-ext-win/Cargo.toml`, `package.json` or `tauri.conf.json`.
+
 | Layer                  | Choice                                                  |
 | ---------------------- | ------------------------------------------------------- |
-| Application shell      | **Tauri 2.x** (Rust host + system webview)              |
+| Application shell      | **Tauri 2.1** (Rust host + system webview)              |
 | Backend / core logic   | **Rust 1.78+** (stable, edition 2021)                   |
-| Frontend / UI          | **React 18 + TypeScript 5 + Vite 5 + Tailwind CSS 3**   |
-| Async runtime          | `tokio` (multi-threaded, with `rt-multi-thread`)        |
+| Frontend / UI          | **React 18 + TypeScript 5 + Vite 5 + Tailwind CSS 3** (layout utilities only; design tokens are CSS custom properties, Tailwind `preflight` disabled) |
+| Frontend state         | `zustand` 5; toasts via `sonner`                        |
+| Localization           | **In-house** (`src/i18n/`, JSON catalogues per screen) — no i18n library |
+| Typed IPC              | `tauri-specta` + `specta` (pinned `=` pre-release) → generated `src/ipc/bindings.ts` |
+| Async runtime          | `tokio` 1.41 (queue dispatcher). The print/convert hops are **blocking** `std::process` / pure functions the dispatcher drives |
 | Serialization          | `serde`, `serde_json`, `toml`                           |
-| Logging / tracing      | `tracing`, `tracing-subscriber`, `tracing-appender`     |
-| Windows API bindings   | `windows-rs` (official MS crate), `winreg`              |
-| macOS API bindings     | `objc2`, `core-foundation`, `core-graphics` (M5+)       |
-| Process orchestration  | `tokio::process`, `which` (locate external binaries)    |
-| Shell extension (Win)  | **C++17** COM DLL implementing `IExplorerCommand`       |
-| Shell extension (Mac)  | **Swift** Finder Sync Extension (M5+)                   |
-| Installer (Win)        | **Inno Setup 6** + **Sparse MSIX** for shell identity   |
-| Installer (Mac)        | `.dmg` + notarized `.app` bundle (M5+)                  |
-| Auto-update            | `tauri-plugin-updater` (MIT, built-in)                  |
-| CI/CD                  | GitHub Actions (Windows + macOS runners)                |
-| Code signing           | DigiCert / Sectigo EV cert (Win), Apple Developer ID    |
+| Logging / tracing      | `tracing`, `tracing-subscriber` (JSON), `tracing-appender` (non-blocking writer only — rotation/retention is our own `RollingJsonl`) |
+| HTTP (update check)    | `ureq` 2.12, blocking, 10 s timeout                     |
+| Windows API bindings   | `windows` 0.58 (`Win32_Graphics_Printing`, `Win32_Storage_Xps`, …) |
+| macOS API bindings     | `objc2` 0.6 + `objc2-app-kit` / `objc2-foundation` 0.3, feature-narrowed |
+| Image → PDF            | `image` 0.25 (jpeg/png/tiff/bmp/webp) + `lopdf` 0.34, **in-process** |
+| PDF inspection         | `lopdf`; `printpdf` 0.9 with `default-features = false` |
+| CLI                    | `clap` 4 (`derive`), plus `wait-timeout` for bounded child waits and `walkdir` for folder expansion |
+| Shell extension (Win)  | **Rust** `cdylib` implementing `IExplorerCommand` (`shell-ext-win/`), built with `windows` + `embed-resource` |
+| Shell extension (Mac)  | NSServices provider declared in `Info.plist`, backed by `objc2` |
+| Installer (Win)        | Tauri's **NSIS** target, `installMode: currentUser` + Sparse MSIX for shell identity |
+| Installer (Mac)        | `.dmg` + notarized `.app` bundle                        |
+| Update flow            | **Read-only check against the GitHub Releases API.** No `tauri-plugin-updater`, no download, no install |
+| Tauri plugins in use   | `tauri-plugin-dialog`, `tauri-plugin-opener`, `tauri-plugin-single-instance` |
+| Tests                  | `vitest` + `@testing-library/react` (frontend), `cargo test` incl. `src-tauri/tests/*` (backend), **WebdriverIO** for e2e |
+| CI/CD                  | GitHub Actions (`.github/workflows/ci.yml`, `dco.yml`)  |
+| Code signing           | EV cert (Win), Apple Developer ID (Mac)                 |
 
 ## 2. Why Tauri 2
 
@@ -46,7 +56,7 @@ Tauri 2 was selected after benchmarking five competing frameworks. The full comp
 
 ### Concrete Tauri 2 advantages
 
-1. **Updater plugin.** Generates delta diffs, verifies minisign signatures, supports either a static JSON manifest on S3/CDN or a dynamic server. Hosting on `updates.maecly.com` (S3 + CloudFront) means we are not coupled to GitHub Releases.
+1. **Updater plugin — evaluated, and deliberately not used today.** The framework offers a signed-manifest updater; the shipped build instead performs a read-only update *check* against the GitHub Releases API and lets the user install the artifact themselves. That keeps us from operating a signing key and a release CDN for a v0 utility, at the cost of a one-click in-app update. The comparison table below therefore over-credits Tauri on the "auto-update" axis relative to what we actually ship — the capability is real and available, we just have not taken it. See [`auto-updater.md`](./auto-updater.md) §8 for the open decision this leaves against ADR-0004.
 2. **System webview.** Uses WebView2 on Windows and WKWebView on macOS — no Chromium bundled. This is the source of the small installer and low RAM.
 3. **Rust backend.** Memory-safe, zero garbage-collection pauses, fast startup, excellent FFI for the COM DLL boundary, and a strong ecosystem (`tokio`, `serde`, `tracing`).
 4. **Type-safe IPC.** `tauri::command` macros plus generated TypeScript bindings (`tauri-specta` or hand-rolled) make the React ↔ Rust boundary safe.
@@ -60,32 +70,39 @@ The Rust core handles file enumeration, format detection, conversion orchestrati
 - **Memory safety** in a process that ingests untrusted file paths and shells out to converters. A use-after-free in the print queue would be embarrassing.
 - **Performance.** Enumerating thousands of files, dispatching conversions in parallel, and maintaining an IPC stream to the webview is throughput-bound. Rust + `tokio` excels here.
 - **Single binary deployment.** Statically linked Rust binaries ship without a runtime — important for a utility that should never make the user "install Java" or ".NET Framework".
-- **Ecosystem maturity.** All the crates we need exist and are mature (`serde`, `tokio`, `tracing`, `windows-rs`, `clap`, `notify`, `which`, `mime_guess`, `walkdir`, `rayon`).
-- **FFI to C/C++.** The shell extension is a C++ COM DLL. Rust talks to it via well-defined IPC, but having the option of FFI is reassuring.
+- **Ecosystem maturity.** Every crate the design needs exists and is mature — see the table below, which is the real list.
+- **One language across the OS boundary.** The Windows shell extension is a Rust `cdylib` too, so the handoff contract (`shell-ext-win/src/handoff.rs` ↔ `src-tauri/src/cli/handoff.rs`) is written once in one language, and both sides resolve the handoff directory through the same `directories` call.
 
-### Rust dependencies (key crates)
+### Rust dependencies (direct, `src-tauri/Cargo.toml`)
 
-| Crate              | Purpose                                              |
-| ------------------ | ---------------------------------------------------- |
-| `tauri`            | App framework                                        |
-| `tauri-plugin-updater` | Auto-update                                      |
-| `tauri-plugin-cli` | CLI parsing integration                              |
-| `tokio`            | Async runtime, process management                    |
-| `serde`, `serde_json`, `toml` | Config / queue / IPC serialization        |
-| `tracing`, `tracing-subscriber`, `tracing-appender` | Structured logging |
-| `clap`             | CLI argument parsing (when running headless)         |
-| `windows`          | Win32 API bindings (printers, shell, registry)       |
-| `winreg`           | Higher-level registry helpers                        |
-| `which`            | Locate `soffice`, `magick`, `pandoc`, `SumatraPDF`   |
-| `mime_guess`       | Format detection from extension                      |
-| `infer`            | Format detection from magic bytes (fallback)         |
-| `walkdir`          | Directory enumeration                                |
-| `rayon`            | Data-parallel format conversion                      |
-| `thiserror`        | Library-level error types                            |
-| `anyhow`           | Application-level error wrapping                     |
-| `directories`      | XDG-conformant config / data / cache paths           |
-| `notify`           | Filesystem watching (queue.json hot reload)          |
-| `minisign-verify`  | Verify update manifest signatures                    |
+| Crate                                  | Purpose |
+| -------------------------------------- | ------- |
+| `tauri` 2.1                            | App framework |
+| `tauri-plugin-dialog`                  | Native file picker |
+| `tauri-plugin-opener`                  | Open URLs / reveal folders (Rust-side only) |
+| `tauri-plugin-single-instance`         | Forward a second launch's argv (NFR-014) |
+| `tauri-specta`, `specta`, `specta-typescript` | Typed IPC bindings; pinned `=` because they are pre-release |
+| `tokio` 1.41                           | Async runtime for the queue dispatcher |
+| `serde`, `serde_json`, `toml`          | Config / profiles / queue / IPC serialization |
+| `tracing`, `tracing-subscriber`, `tracing-appender` | Structured JSONL logging |
+| `clap` 4 (`derive`)                    | The headless CLI surface. `env` is deliberately **off** so exit codes stay the only contract |
+| `wait-timeout` 0.2                     | Bounded wait on the print child, so a hung process cannot wedge the queue |
+| `walkdir` 2                            | Folder expansion with bounded depth and symlink-loop handling (FR-004) |
+| `image` 0.25                           | Pure-Rust image decoding (jpeg/png/tiff/bmp/webp) |
+| `lopdf` 0.34                           | PDF page counts, and hand-built single-page image PDFs |
+| `printpdf` 0.9.1                       | PDF primitives (`default-features = false`; its image path is a stub) |
+| `ureq` 2.12                            | Blocking HTTPS for the GitHub release check — no async runtime in the update path |
+| `semver` 1                             | Version comparison by SemVer *precedence* |
+| `percent-encoding` 2.3                 | Prefilled "report issue" URL |
+| `uuid` 1 (`v7`)                        | Time-sortable job ids — queue ordering falls out of the id |
+| `time` 0.3                             | RFC 3339 timestamps |
+| `thiserror` 2 / `anyhow` 1             | Library / application error types |
+| `directories` 5                        | Per-OS config, data, cache paths |
+| `tempfile` 3                           | Atomic writes and the CLI's private conversion cache |
+| `windows` 0.58 *(Windows only)*        | winspool `EnumPrinters` + GDI `DeviceCapabilities` |
+| `objc2` + `objc2-app-kit` / `objc2-foundation` *(macOS only)* | NSServices provider (FR-001) |
+
+Crates named in earlier drafts and **not** used: `tauri-plugin-updater`, `tauri-plugin-cli`, `reqwest`, `winreg`, `which`, `mime_guess`, `infer`, `rayon`, `notify`, `minisign-verify`.
 
 ## 4. Why React + TypeScript for the UI
 
@@ -93,32 +110,30 @@ The frontend is a small SPA: a print dialog, a profile editor, a queue viewer, a
 
 - **Productivity.** Building rich form UIs in React with hooks and component libraries is fast.
 - **TypeScript** catches IPC mismatches at compile time when paired with generated bindings.
-- **Ecosystem.** `react-hook-form` for the print dialog, `@tanstack/react-query` for IPC state, `zustand` for local UI state, `radix-ui` + `tailwind` for accessible primitives, `lucide-react` for icons.
+- **Small, deliberate dependency set.** The runtime frontend has five packages, not fifty: React, React DOM, the two `@tauri-apps` bridges, `zustand` and `sonner`. UI primitives, forms, icons and IPC caching are hand-written, which is affordable at this app's size and keeps the bundle honest.
 - **Testability.** `vitest` + `@testing-library/react` is a well-trodden path.
 
-### Frontend dependencies (key packages)
+### Frontend dependencies
 
-| Package                  | Purpose                                       |
-| ------------------------ | --------------------------------------------- |
-| `react`, `react-dom`     | UI runtime                                    |
-| `vite`                   | Dev server + bundler                          |
-| `typescript`             | Static typing                                 |
-| `tailwindcss`            | Utility CSS                                   |
-| `@radix-ui/react-*`      | Accessible primitives (Dialog, Select, Tabs) |
-| `react-hook-form`        | Form state                                    |
-| `@tanstack/react-query`  | Async IPC state                               |
-| `zustand`                | Local UI state                                |
-| `lucide-react`           | Icon set                                      |
-| `clsx`, `tailwind-merge` | Conditional class names                       |
-| `vitest`                 | Unit tests                                    |
-| `@testing-library/react` | Component tests                               |
-| `playwright`             | E2E (drives the WebView2 webview)             |
+**Runtime (bundled):**
+
+| Package                      | Purpose |
+| ---------------------------- | ------- |
+| `react`, `react-dom` 18.3    | UI runtime |
+| `@tauri-apps/api` 2.1        | `invoke` + event bridge (used through the generated bindings) |
+| `@tauri-apps/plugin-dialog`  | Native file picker |
+| `zustand` 5                  | Cross-route state (queue, profiles, settings stores) |
+| `sonner` 1.7                 | Toasts |
+
+**Build / dev only:** `vite` 5, `typescript` 5.7, `tailwindcss` 3.4 + `postcss` + `autoprefixer`, `eslint` 9 (+ react, react-hooks, jsx-a11y, react-refresh plugins), `prettier`, `vitest` 2 + `@vitest/coverage-v8` + `jsdom`, `@testing-library/{react,jest-dom,user-event}`, `@wdio/*` 9 for e2e, `husky` + `lint-staged` + `@commitlint/*`, `@tauri-apps/cli`.
+
+Packages named in earlier drafts and **not** used: `@radix-ui/*`, `react-hook-form`, `@tanstack/react-query`, `lucide-react`, `clsx`, `tailwind-merge`, `react-i18next`, `playwright`.
 
 ### Frontend conventions
 
-- No `index.css` global file beyond Tailwind directives. All component styling is via Tailwind utilities or CSS modules.
-- All IPC calls go through a typed wrapper module (`src/ipc/index.ts`). No raw `invoke()` calls in components.
-- All component boundaries are pure presentational + a hook that talks to IPC.
+- Styling is Tailwind for layout plus design tokens as CSS custom properties in `src/styles/tokens.css` (`--mp-*`), imported by `src/styles/globals.css`. Tailwind's `preflight` is disabled so the tokens own the base look. Fonts are bundled, never fetched.
+- Localization lives in `src/i18n/` — a provider plus one JSON catalogue per screen, in `en` and `es`. No i18n runtime dependency.
+- IPC goes through the generated `src/ipc/bindings.ts` (never hand-edited) and the `src/lib/ipc.ts` wrapper. No raw `invoke()` in components.
 - State that crosses route boundaries lives in `zustand`. Anything component-local stays in `useState`.
 
 ## 5. Stacks we considered and rejected
@@ -199,20 +214,19 @@ The frontend is a small SPA: a print dialog, a profile editor, a queue viewer, a
 | Visual Studio Build Tools | 2022 (Win)         |
 | Windows SDK   | 10.0.22621.0+ (for WebView2 + COM)  |
 | WebView2 Runtime | Evergreen (auto-installed by Win 11; bootstrapper for Win 10) |
-| Xcode         | 15+ (Mac, M5+)      |
-| Inno Setup    | 6.2+                |
+| Xcode         | 15+ (Mac)           |
 
-The `rust-toolchain.toml` and `package.json` in the repo pin exact versions. CI (`.github/workflows/ci.yml`) verifies all of the above on every PR.
+`package.json` pins the package manager (`pnpm@9.15.0`) and declares `engines.node >= 20`; both `Cargo.toml`s declare `rust-version = "1.78"`. There is **no `rust-toolchain.toml`** in the repo, so the Rust version CI uses is whatever `.github/workflows/ci.yml` installs — adding one is an open item (see [`security-model.md`](./security-model.md) §9). Inno Setup is not part of the toolchain; the Windows installer comes from Tauri's NSIS target.
 
 ## 7. Where this decision is recorded
 
 - ADR [`0001-stack-tauri-rust-react`](../adr/0001-stack-tauri-rust-react.md) — the canonical record of this decision, with full alternatives and consequences.
 - ADR [`0002-license-gplv3`](../adr/0002-license-gplv3.md) — license choice that constrains some dependencies.
-- ADR [`0004-auto-updater-tauri-builtin`](../adr/0004-auto-updater-tauri-builtin.md) — updater choice tied to Tauri.
+- ADR [`0004-auto-updater-tauri-builtin`](../adr/0004-auto-updater-tauri-builtin.md) — updater choice tied to Tauri. **The shipped build does not follow it**; the disagreement is tracked in [`auto-updater.md`](./auto-updater.md) §8 and needs a superseding ADR or an implementation.
 
 ## 8. Related documents
 
 - [`system-architecture.md`](./system-architecture.md) — how the layers fit together.
-- [`shell-extensions.md`](./shell-extensions.md) — the C++/Swift glue at the OS boundary.
-- [`auto-updater.md`](./auto-updater.md) — Tauri updater configuration in detail.
+- [`shell-extensions.md`](./shell-extensions.md) — the glue at the OS boundary.
+- [`auto-updater.md`](./auto-updater.md) — what the update path actually does.
 - [`security-model.md`](./security-model.md) — what we sign, what we sandbox, and why.

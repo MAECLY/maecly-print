@@ -1,6 +1,6 @@
 # Data Model
 
-> **TL;DR** — MaeclyPrint persists three kinds of state: human-editable **TOML** (config and profiles), machine-managed **JSON** (the live print queue), and append-only **JSONL** (logs). Files live under XDG-equivalent paths on each OS. Each file carries a `schema_version` so older clients can refuse to load forward-incompatible data and a forward migration path is always defined.
+> **TL;DR** — MaeclyPrint persists three kinds of state: human-editable **TOML** (`config.toml`, `profiles.toml`), machine-managed **JSON** (`queue.json`, `update-state.json`, and the transient shell-extension handoff files), and append-only **JSONL** (logs). Files live under XDG-equivalent paths on each OS. The two files that need it — `config.toml` and `queue.json` — carry a `schema_version` (both `1` today); `update-state.json` deliberately does not, because it is disposable bookkeeping that must degrade to "start over" rather than to a parse refusal. Its shape is documented in [auto-updater.md §4.1](./auto-updater.md#41-persisted-state).
 
 ## 1. File locations
 
@@ -9,10 +9,15 @@
 | Config                              | `%APPDATA%\MaeclyPrint\config.toml`                              | `~/Library/Application Support/MaeclyPrint/config.toml`        |
 | Profiles                            | `%APPDATA%\MaeclyPrint\profiles.toml`                            | `~/Library/Application Support/MaeclyPrint/profiles.toml`      |
 | Queue (live state)                  | `%LOCALAPPDATA%\MaeclyPrint\queue.json`                          | `~/Library/Application Support/MaeclyPrint/queue.json`         |
-| Logs (rotated daily)                | `%LOCALAPPDATA%\MaeclyPrint\logs\maeclyprint-YYYY-MM-DD.jsonl`   | `~/Library/Logs/MaeclyPrint/maeclyprint-YYYY-MM-DD.jsonl`      |
-| Cache (converted PDFs)              | `%LOCALAPPDATA%\MaeclyPrint\cache\<job-id>.pdf`                  | `~/Library/Caches/MaeclyPrint/<job-id>.pdf`                    |
-| Updater downloads (transient)       | `%LOCALAPPDATA%\MaeclyPrint\update-staging\`                     | `~/Library/Caches/MaeclyPrint/update-staging/`                 |
+| Update bookkeeping                  | `%LOCALAPPDATA%\MaeclyPrint\update-state.json`                   | `~/Library/Application Support/MaeclyPrint/update-state.json`  |
+| Shell-extension handoff             | `%LOCALAPPDATA%\MaeclyPrint\handoff\`                            | `~/Library/Application Support/MaeclyPrint/handoff/`           |
+| Logs (see §5.2 for rotation)        | `%LOCALAPPDATA%\MaeclyPrint\logs\maeclyprint-YYYY-MM-DD.jsonl`   | `~/Library/Logs/MaeclyPrint/maeclyprint-YYYY-MM-DD.jsonl`      |
+| Cache (converted PDFs)              | `%LOCALAPPDATA%\MaeclyPrint\conversions\<job-id>.pdf`            | `~/Library/Caches/MaeclyPrint/conversions/<job-id>.pdf`        |
 | Enterprise policy (**read-only**)   | `%ProgramData%\MaeclyPrint\policy.json`                          | `/Library/Application Support/MaeclyPrint/policy.json`         |
+
+Note the **`conversions/` subdirectory** — converted PDFs are not written directly into the cache root. There is no updater staging directory, because nothing is ever downloaded (see [auto-updater.md](./auto-updater.md)).
+
+`update-state.json` and `handoff/` live under the **data** directory, alongside `queue.json`, because all three are live machine-managed state rather than user configuration. On Windows the data and cache directories both resolve to `%LOCALAPPDATA%\MaeclyPrint\`, which is why several rows above share a prefix; on macOS they are genuinely different trees.
 
 We do not write under `%PROGRAMFILES%` or `/Applications` after install — the user does not need admin rights at any time after setup, and uninstall does not orphan user-state.
 
@@ -30,19 +35,28 @@ const ORG:       &str = "Maecly";
 const APP:       &str = "MaeclyPrint";
 
 pub fn config_dir() -> PathBuf { dirs().config_dir().to_path_buf() }
-pub fn data_dir()   -> PathBuf { dirs().data_dir().to_path_buf() }
+pub fn data_dir()   -> PathBuf { dirs().data_local_dir().to_path_buf() }   // note: *local*
 pub fn cache_dir()  -> PathBuf { dirs().cache_dir().to_path_buf() }
 pub fn log_dir()    -> PathBuf {
     #[cfg(target_os = "macos")]
-    { home_dir().unwrap().join("Library/Logs/MaeclyPrint") }
+    { /* ~/Library/Logs/MaeclyPrint, falling back to data_dir()/logs */ }
     #[cfg(not(target_os = "macos"))]
     { data_dir().join("logs") }
 }
 
 fn dirs() -> ProjectDirs {
-    ProjectDirs::from(QUALIFIER, ORG, APP).expect("home dir resolvable")
+    ProjectDirs::from(QUALIFIER, ORG, APP).expect("home directory must be resolvable")
 }
 ```
+
+`data_dir()` uses `data_local_dir()`, **not** `data_dir()`: on Windows that is the difference between `%LOCALAPPDATA%` (machine-local, not roamed) and `%APPDATA%` (roamed). A print queue and a conversion cache must not follow a user onto another machine.
+
+The same module owns **`canonical_input`**, the single gate every externally-supplied path passes through before it is stored or printed (NFR-025):
+
+- A **relative** path is refused, never resolved — it would silently land on the process' working directory, which is wherever the OS happened to launch the app from (an Explorer window, `/`, the shell extension's cwd) and is never what the user pointed at. The CLI is the one exception and resolves relative paths itself, *before* calling in.
+- `.`/`..` segments and symlinks are resolved, so the same file always gets the same identity in the queue no matter how it was named. A symlink resolving to its target is deliberate: a link to a real document prints that document.
+- A path that does not exist is refused up front, so the error names the file instead of surfacing later from inside a converter.
+- On Windows the verbatim `\\?\C:\…` form that `canonicalize` returns is simplified back to a drive-letter path, because the external tools we spawn and the UI both dislike it. Verbatim **UNC** paths (`\\?\UNC\…`) are left alone, since there the prefix carries meaning.
 
 ## 2. `config.toml` — global settings
 
@@ -381,30 +395,49 @@ Mandatory fields:
 - `module` — `tracing` target.
 - `event` — short identifier for the event type (snake_case).
 
-Other fields are event-specific. We do not log file *contents* and do not log absolute paths in WARN/ERROR records unless `logging.include_paths_in_errors = true`.
+Other fields are event-specific. We do not log file *contents*. File **paths** do appear at `debug`, which the default filter enables for our own crate (see §5.3); there is no `logging.include_paths_in_errors` switch — `config.toml` has no `[logging]` section at all.
 
 ### 5.2 Rotation and retention
 
-`tracing-appender` rotates daily (`maeclyprint-YYYY-MM-DD.jsonl`). On startup the logger sweeps anything older than `logging.retain_days` (default 14).
+Rotation and retention are implemented by **`logging::RollingJsonl`**, not by `tracing-appender`'s rolling appender. That appender only rotates on a clock boundary and never deletes anything, so logs grew without bound; `tracing-appender` is still used, but only for its non-blocking writer thread.
+
+`RollingJsonl` is a plain `Write`, so the JSON layer and the non-blocking writer are wired exactly as they would be otherwise. It does both halves of the requirement:
+
+- **Roll** when the **UTC date changes or the file passes `max_bytes` (10 MB), whichever comes first.** The day's first file is `maeclyprint-<date>.jsonl`; each size roll after it is `maeclyprint-<date>.<n>.jsonl` (n ≥ 2). So the documented daily name is what a user finds unless a single day is unusually chatty.
+- **Sweep**, once at startup, *before* the writer opens today's file — so a file about to be appended to can never be counted among the ones to drop. It deletes anything older than `retain_days` (**14**) and then keeps only the newest `retain_files` (**7**). **Both** bounds apply; whichever bites first wins.
+
+Dates are **UTC** for both file names and the retention cutoff, so a machine crossing a timezone or a DST boundary never re-opens yesterday's file.
+
+These are the spec's numbers (NFR-081, FR-113), not tunables: there is no `[logging]` section in `config.toml`. They live in a `Policy` struct rather than three constants so tests can shrink them (a 10 MB rotation test would be absurd) and so wiring them to settings later is a one-liner.
 
 ### 5.3 Tracing setup
 
 ```rust
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+// src-tauri/src/logging/mod.rs (shape)
+pub fn init() -> io::Result<()> {
+    let log_dir = paths::log_dir();
+    paths::ensure_dir(&log_dir)?;
 
-pub fn init(dir: &Path, level: tracing::Level) {
-    let file = tracing_appender::rolling::daily(dir, "maeclyprint.jsonl");
-    let (nb, guard) = tracing_appender::non_blocking(file);
+    let policy = Policy::default();          // 10 MB / 14 days / 7 files
+    let swept = sweep(&log_dir, today_utc(), &policy);   // before opening today's file
+
+    let writer = RollingJsonl::new(log_dir, policy);
+    let (non_blocking, guard) = tracing_appender::non_blocking(writer);
+    let _ = GUARD.set(guard);                // held for the process lifetime
+
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,maeclyprint=debug"));
 
     tracing_subscriber::registry()
-        .with(EnvFilter::from_default_env().add_directive(level.into()))
-        .with(fmt::layer().json().with_writer(nb))
+        .with(env_filter)
+        .with(fmt::layer().json().with_writer(non_blocking))  // JSONL to disk
+        .with(fmt::layer().compact().with_target(false))      // human-readable to stdout
         .init();
-
-    // Hold guard for the lifetime of the process.
-    Box::leak(Box::new(guard));
+    // ...
 }
 ```
+
+Two consequences worth knowing: the default filter is **`info,maeclyprint=debug`** (overridable with `RUST_LOG`), so our own crate logs at debug — including paths — out of the box; and a second `compact` layer writes to stdout for `pnpm tauri dev`, which is also what makes `attach_parent()` matter for the headless CLI on Windows.
 
 ## 6. Schema migration policy
 

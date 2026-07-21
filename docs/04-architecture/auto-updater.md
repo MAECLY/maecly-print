@@ -1,295 +1,170 @@
-# Auto-Updater
+# Update Check
 
-> **TL;DR** — MaeclyPrint uses the **Tauri Updater plugin** (MIT). The app polls a static manifest at `https://updates.maecly.com/maeclyprint/<channel>/<platform>.json`, verifies its signature with an embedded minisign public key, downloads the platform-specific binary (or delta), verifies that signature too, and replaces the running binary on the next launch. Hosting is on S3 + CloudFront (or Cloudflare R2). Three channels: `stable`, `beta`, `nightly`.
+> **TL;DR** — MaeclyPrint ships an **update *check*, not an updater**. It asks the GitHub Releases API (`https://api.github.com/repos/<owner>/<repo>/releases/latest`) whether a newer tag exists, compares it to the running version with semver precedence, and — if so — hands the user a link to the release page. There is **no download, no install, no signature verification and no `tauri-plugin-updater`** in this build. `updates.maecly.com` does not exist and is not contacted.
 
-## 1. Why the Tauri Updater plugin
+## 0. Status and scope
 
-Every alternative we evaluated required either (a) a third-party dependency that we'd have to maintain across two platforms, or (b) tying our release pipeline to GitHub Releases as the only download host. The Tauri Updater plugin gives us:
+| Capability                                | Shipped today | Where |
+| ----------------------------------------- | ------------- | ----- |
+| Check whether a newer release exists      | ✅            | `src-tauri/src/update/mod.rs` |
+| Launch-time check (delayed, throttled)    | ✅            | `src-tauri/src/lib.rs` `setup` |
+| Manual check from the About screen        | ✅            | `check_for_updates` IPC command |
+| Manual check from a script                | ✅            | `maeclyprint update check [--json]` |
+| "Skip this version"                       | ✅            | `set_skipped_update_version`, FR-084 |
+| Download an update                        | ❌            | — |
+| Install / replace the running binary      | ❌            | `maeclyprint update install` exits 11 with an explanation |
+| Signature verification (minisign/Ed25519) | ❌            | nothing is downloaded, so nothing is verified |
+| Separate `beta` / `nightly` release feeds | ❌            | the preference is stored; every check hits `releases/latest` |
 
-- A single MIT-licensed Rust crate (`tauri-plugin-updater`) shipped by the Tauri team.
-- **Cryptographic signing** out of the box. Tauri uses minisign-style Ed25519 signatures.
-- **Static manifest URL.** No server needed; any HTTPS-capable static host works.
-- **Optional delta updates** when both old and new binaries can be hashed by the publisher (saves ~70% of bandwidth on small updates).
-- **Cross-platform** — same code path on Windows and macOS.
-- A clean Tauri command (`invoke('plugin:updater|check')`) that the React UI can drive.
+`tauri-plugin-updater` is **not** a dependency (`src-tauri/Cargo.toml`), and `tauri.conf.json` has no `plugins.updater` block, no `endpoints` and no `pubkey`. The sections that described those are gone from this document; see §7 for the open decision this leaves.
 
-Alternatives we rejected and why are documented in ADR [`0004-auto-updater-tauri-builtin`](../adr/0004-auto-updater-tauri-builtin.md).
+## 1. Why a read-only check
 
-## 2. The manifest
+The check is deliberately the smallest thing that answers the only question a user actually asks — "am I running the current version?" — without owning a release CDN, a signing key, or an in-process binary-replacement path. Distribution is GitHub Releases; the user follows the link and installs the artifact the same way they installed the app.
 
-### 2.1 URL convention
+Everything except the one network call is a pure function with co-located tests (`repo_slug` / `parse_release` / `is_newer` / `evaluate` / `interpret_response` / `interpret_repo_probe` / `due_for_check` / `should_check_on_startup` / `should_notify`). `fetch_latest` is the only part that touches the network and is kept tiny so the rest is reasoned about — and tested — entirely offline.
 
-```
-https://updates.maecly.com/maeclyprint/{channel}/{platform}.json
-```
-
-Where:
-
-- `{channel}` is `stable`, `beta`, or `nightly`.
-- `{platform}` is one of:
-  - `windows-x86_64`
-  - `windows-aarch64`
-  - `darwin-aarch64`  (Apple Silicon)
-  - `darwin-x86_64`   (Intel Mac)
-
-A request to a stable Windows x64 build:
+## 2. The request
 
 ```
-GET https://updates.maecly.com/maeclyprint/stable/windows-x86_64.json
+GET https://api.github.com/repos/{owner}/{repo}/releases/latest
+User-Agent: MaeclyPrint/<version>
+Accept: application/vnd.github+json
+X-GitHub-Api-Version: 2022-11-28
 ```
 
-### 2.2 Manifest schema
+- `{owner}/{repo}` is parsed at compile time from the crate's `repository` URL (`CARGO_PKG_REPOSITORY`) by `repo_slug()`. A URL that is not a recognizable `https://github.com/<owner>/<repo>` yields "repository not configured" rather than a bogus API path.
+- The client is **`ureq`** (blocking, 10-second timeout). There is no `reqwest` and no async runtime in the update path.
+- A system proxy is honoured from the standard environment variables — the first of `HTTPS_PROXY` / `https_proxy` / `HTTP_PROXY` / `http_proxy` that parses. `ureq` does not read these itself, so `build_agent()` wires them explicitly. Only HTTP `CONNECT` proxies are supported (the `socks-proxy` feature is off), so a `socks://` value fails to parse and is skipped — the connection is then direct.
+- **No request body, no identifiers, no telemetry.** GitHub sees a plain unauthenticated GET.
+
+### 2.1 Status → outcome
+
+`interpret_response(status, body)` owns the whole mapping, so the decision table is unit-tested without a network:
+
+| Status | Outcome |
+| ------ | ------- |
+| `200` + parseable release | `Ok(Some(ReleaseInfo))` |
+| `200` + unparseable body  | **Error.** Reporting "you're up to date" off an unreadable payload would be a lie. |
+| `404`                     | `Ok(None)` — no releases published yet |
+| `403` / `429`             | Error: "GitHub rate limit reached — try again later" |
+| anything else             | Error: "github.com returned an unexpected status (N)" |
+| transport failure         | Error: "could not reach github.com — check your connection" |
+
+**The 404 probe.** GitHub answers `404` both for "this repo has no releases" and for "this repo does not exist", so a wrong `repository` slug would otherwise render as a reassuring "You're up to date" forever. On that one branch only, a second request probes `GET /repos/{owner}/{repo}`; `interpret_repo_probe` turns a `404` there into a hard "the configured repository was not found — this build's repository URL is wrong", and treats every other status (including a rate-limited `403`) as inconclusive, i.e. "the repo exists, it just has no releases yet". The happy path stays a single request.
+
+### 2.2 Parsed payload
+
+Only three fields are read from the release JSON:
+
+| Field       | Required | Used for |
+| ----------- | -------- | -------- |
+| `tag_name`  | yes      | The version compared against the running one |
+| `html_url`  | no       | The link shown when an update is available |
+| `body`      | no       | Release notes (markdown) shown in the prompt |
+
+## 3. Version comparison
+
+`is_newer(current, tag)` strips a single leading `v`/`V` from both sides and compares with **`semver::Version::cmp_precedence`**, not `Ord`. This matters: `Ord` totally-orders versions and therefore ranks `0.0.1+build` *above* `0.0.1`, which would flag a build-metadata-only "release" as an update. SemVer §10 excludes build metadata from precedence, and `cmp_precedence` implements exactly that.
+
+An unparseable version on either side yields `false` and logs a warning, so a weird tag never spuriously prompts.
+
+## 4. The launch-time check (FR-080)
+
+The check lives in `run()`'s Tauri `setup`, not in a frontend effect, for three reasons: the single-instance plugin guarantees `setup` runs exactly once per process, so a second launch cannot double-check; the webview can be reloaded or its window closed and reopened, neither of which should re-run a network call; and the preference, the throttle and the skip rule already live in Rust next to the state file.
+
+```
+T = 0        App launches; window mounts. Nothing network happens.
+T = 30 s     STARTUP_CHECK_DELAY elapses on a detached thread.
+             run_startup_check():
+               - updater.check_on_startup off?          -> None (no request)
+               - last check < MIN_CHECK_INTERVAL_HOURS? -> None (no request)
+               - fetch fails / rate-limited / offline?  -> None
+               - not strictly newer?                    -> None (state stamped)
+               - tag == skipped_version?                -> None (state stamped)
+               - otherwise                              -> Some(UpdateCheck)
+T = ~30 s+   Some(_) is emitted as the `update-available` event.
+```
+
+The whole thread — the sleep included — is detached, so a cold start never waits on the network and a user who quits before the delay elapses simply takes the thread down with the process, having persisted nothing.
+
+`STARTUP_CHECK_DELAY` is 30 s and `MIN_CHECK_INTERVAL_HOURS` is 24 (`update/mod.rs`). Because every uninteresting outcome collapses to `None`, the frontend never has to filter the event — receiving `update-available` *is* the decision to tell the user.
+
+### 4.1 Persisted state
+
+`update-state.json` lives in the per-user **data** directory next to `queue.json` — it is live bookkeeping, not configuration, so it is deliberately *not* part of `config.toml`: a corrupt or deleted file must degrade to "check again", never to a settings-parse refusal.
 
 ```json
 {
-  "version": "1.2.3",
-  "notes": "- Fix: queue would stall on encrypted PDFs\n- Add: Pandoc converter for .epub\n- Improve: cold start by ~120 ms on Win 11",
-  "pub_date": "2026-06-01T12:00:00Z",
-  "platforms": {
-    "windows-x86_64": {
-      "signature": "untrusted comment: signature from minisign secret key\nRWQf6LRCGA9i...base64...==\ntrusted comment: timestamp:1717243200 file:maeclyprint_1.2.3_x64-setup.nsis.zip\nC2k...base64...==",
-      "url": "https://updates.maecly.com/maeclyprint/stable/binaries/maeclyprint_1.2.3_x64-setup.nsis.zip"
-    },
-    "windows-aarch64": {
-      "signature": "...",
-      "url": "https://updates.maecly.com/maeclyprint/stable/binaries/maeclyprint_1.2.3_arm64-setup.nsis.zip"
-    },
-    "darwin-aarch64": {
-      "signature": "...",
-      "url": "https://updates.maecly.com/maeclyprint/stable/binaries/MaeclyPrint_1.2.3_aarch64.app.tar.gz"
-    },
-    "darwin-x86_64": {
-      "signature": "...",
-      "url": "https://updates.maecly.com/maeclyprint/stable/binaries/MaeclyPrint_1.2.3_x64.app.tar.gz"
-    }
-  }
+  "last_check_at": "2026-07-20T09:12:44Z",
+  "skipped_version": "v1.3.0"
 }
 ```
 
-Field semantics:
+| Field             | Meaning |
+| ----------------- | ------- |
+| `last_check_at`   | RFC 3339 stamp of the last **completed** check, manual or automatic |
+| `skipped_version` | The tag the user chose to skip (FR-084) |
 
-| Field            | Type                  | Notes                                                                                        |
-| ---------------- | --------------------- | -------------------------------------------------------------------------------------------- |
-| `version`        | semver string         | The new version. Compared against `Cargo.toml`'s `version` using `semver::Version`.          |
-| `notes`          | markdown string       | Shown in the in-app update prompt.                                                            |
-| `pub_date`       | RFC 3339 timestamp    | Informational only.                                                                          |
-| `platforms.<key>.signature` | minisign signature blob | Signs the bytes of the binary at `url`. Verified with the embedded public key. |
-| `platforms.<key>.url` | HTTPS URL              | Must be HTTPS; mixed content rejected.                                                       |
+Writes are atomic (temp file in the same directory, then rename). An unreadable file is logged and ignored; the worst case is one extra check.
 
-### 2.3 Manifest signing
+**Throttle edge cases** (`due_for_check`): never having checked is due; an unparseable timestamp is due (a hand-edited or older-build file must not wedge updates forever); a timestamp in the *future* is due (the clock moved backwards, or the file was copied between machines). In all three, refusing to check would be the worse failure.
 
-The manifest itself is *also* signed (separate `<platform>.json.sig` next to it) and the updater plugin can require this. We configure it to **always require** manifest signatures so a host compromise that swaps the JSON cannot inject a malicious binary URL.
+The state is stamped whenever a check **completed**, including one that found nothing — the throttle counts checks, not findings, or an up-to-date app would re-check on every launch. A manual check from the About screen stamps it too, so pressing the button postpones the next automatic check rather than adding to it.
 
-```
-https://updates.maecly.com/maeclyprint/stable/windows-x86_64.json
-https://updates.maecly.com/maeclyprint/stable/windows-x86_64.json.sig
-```
+### 4.2 Skipping a version (FR-084)
 
-## 3. Hosting strategy
+`should_notify` silences the launch-time prompt while `skipped_version` names the same release as `latest`. Skipping is **version-scoped**: skipping `1.2.0` silences that release only — `1.3.0` prompts again. Comparison ignores a leading `v` and build metadata, falling back to a case-insensitive string compare for non-semver tags. A *manual* check does not consult this: the user asked, so they get the answer either way.
 
-```
-+------------------+   origin pull    +-------------------+   serves   +-----------+
-| S3 / R2 bucket   |  <------------   | CloudFront / R2   |  -------->| End user  |
-| updates.maecly   |                  | edge cache        |            | App       |
-+------------------+                  +-------------------+            +-----------+
-       ^
-       | release pipeline upload
-       | (GitHub Actions, signed before upload)
-+------------------+
-| build runner     |
-+------------------+
-```
+## 5. Surfaces
 
-- **Primary**: AWS S3 + CloudFront. ACL is private; CloudFront uses an Origin Access Identity. Edge caches binaries for 1 year (immutable filenames include version), manifests for 60 seconds.
-- **Mirror (optional)**: Cloudflare R2 with a Workers route, mirrored from S3 nightly.
-- **DNS**: `updates.maecly.com` CNAME → CloudFront distribution. ACM certificate, HTTPS only, HSTS.
+| Surface | How |
+| ------- | --- |
+| React (About screen) | `commands.checkForUpdates()`, `commands.getUpdateState()`, `commands.setSkippedUpdateVersion(v)`; passive notification via the `update-available` event |
+| CLI | `maeclyprint update check [--json]` — the same `evaluate()` over the same feed |
+| CLI | `maeclyprint update channel [stable\|beta\|nightly]` — reads/writes `updater.channel` in `config.toml` |
+| CLI | `maeclyprint update install [--yes]` — reports exit code 11 with "installing updates is not available in this version" |
 
-The cost is small — manifests are <1 KB and binaries are 10-30 MB. A monthly active install base of 100k pulling one update per month is ~30 GB egress / month, well inside CloudFront's free tier or a few dollars on R2.
+The wire shape is `UpdateCheck` (`current`, `latest`, `available`, `url`, `notes`, `checked_at`); `url` and `notes` are populated **only** when `available` is true. See [ipc-and-cli.md](./ipc-and-cli.md) §2.2.
 
-### 3.1 File layout in the bucket
-
-```
-s3://updates-maecly-com/maeclyprint/
-├── stable/
-│   ├── windows-x86_64.json
-│   ├── windows-x86_64.json.sig
-│   ├── windows-aarch64.json
-│   ├── windows-aarch64.json.sig
-│   ├── darwin-aarch64.json
-│   ├── darwin-aarch64.json.sig
-│   ├── darwin-x86_64.json
-│   ├── darwin-x86_64.json.sig
-│   └── binaries/
-│       ├── maeclyprint_1.2.3_x64-setup.nsis.zip
-│       ├── maeclyprint_1.2.3_x64-setup.nsis.zip.sig
-│       ├── maeclyprint_1.2.3_arm64-setup.nsis.zip
-│       ├── MaeclyPrint_1.2.3_aarch64.app.tar.gz
-│       └── ...
-├── beta/
-│   └── ...
-└── nightly/
-    └── ...
-```
-
-## 4. Channels
-
-| Channel  | Audience                           | Cadence            | Stability target           |
-| -------- | ---------------------------------- | ------------------ | -------------------------- |
-| `stable` | Default for all installs           | Every 4-6 weeks    | All tests + manual QA pass |
-| `beta`   | Opt-in via Settings → Updates       | Weekly             | All tests pass             |
-| `nightly`| Opt-in; built on `main` push        | Per merge to main  | CI green                   |
-
-The channel is read from `~/.config/MaeclyPrint/config.toml`:
+## 6. Channels
 
 ```toml
 [updater]
-channel = "stable"   # "stable" | "beta" | "nightly"
+channel = "stable"        # "stable" | "beta" | "nightly"
 check_on_startup = true
-startup_delay_seconds = 30
-include_prerelease = false
 ```
 
-Switching channels in the UI is non-destructive — it just changes the URL the plugin queries on the next check.
+Those are the only two `[updater]` keys `settings::UpdaterCfg` defines. There is no `startup_delay_seconds` and no `include_prerelease`; the delay is the `STARTUP_CHECK_DELAY` constant.
 
-## 5. Tauri configuration
+**The channel is recorded but not yet honoured.** Every check hits `releases/latest` regardless of the value, because there are no separate beta/nightly feeds. This is stated on the type itself (`UpdaterCfg`'s doc comment) so a reader of the generated bindings sees it too.
 
-### 5.1 `tauri.conf.json` (excerpt)
+## 7. Failure modes
 
-```json
-{
-  "plugins": {
-    "updater": {
-      "active": true,
-      "endpoints": [
-        "https://updates.maecly.com/maeclyprint/{{channel}}/{{target}}-{{arch}}.json"
-      ],
-      "dialog": false,
-      "pubkey": "untrusted comment: minisign public key\nRWQf6LRCGA9iPBuQc8s+u9xXqYxkB0tF5x3eO0X2c9aYx/D5ZtRq8s0H"
-    }
-  }
-}
-```
+| Failure | Handling |
+| ------- | -------- |
+| DNS / connection failure | "could not reach github.com — check your connection". Automatic check: silent (`None`). Manual check: shown as `UpdateCheckFailed`; CLI exits 10. |
+| `403` / `429` rate limit | "GitHub rate limit reached — try again later". Same silent/loud split. |
+| `200` with an unreadable body | Error, never "up to date". |
+| `404` on `releases/latest`, repo exists | Normal state: no releases yet, `available = false`. |
+| `404` on `releases/latest`, repo missing | Hard error naming the misconfiguration. |
+| Unparseable running version or tag | Logged; treated as "not newer". |
+| Corrupt `update-state.json` | Logged and ignored; degrades to "check again". |
 
-Notes:
+There is no backoff ladder: the 24 h throttle *is* the rate limiter for the automatic path, and the manual path is user-initiated.
 
-- `dialog: false` — we render our own prompt UI instead of the Tauri-provided system dialog. This lets us match the rest of the app's React design.
-- The `{{channel}}` token is interpolated at runtime from settings; we register a custom URL builder so the token is replaced by `stable`, `beta`, or `nightly`.
-- `pubkey` is the *manifest* signing key. The binary signing key is verified against the same public key in our config (a single key signs both, simplifying key management).
+## 8. Open decision (needs a human)
 
-### 5.2 Generating keys
+ADR [`0004-auto-updater-tauri-builtin`](../adr/0004-auto-updater-tauri-builtin.md) records the decision to use `tauri-plugin-updater` with a signed manifest on `updates.maecly.com`. **The implementation does not do that**, and this document now describes the implementation. ADRs are not rewritten, they are superseded — so either:
 
-```
-tauri signer generate -w ~/.tauri/maeclyprint.key
-```
+- a new ADR supersedes 0004 and records "read-only check against GitHub Releases" as the standing decision, or
+- the plugin path is actually implemented and this document is rewritten back toward 0004.
 
-This produces:
+Until one of those happens, ADR-0004 and this file disagree by design, and that disagreement is the open item — not a doc bug to be patched away. The same applies to the release-pipeline documents that still describe minisign manifest signing.
 
-- `~/.tauri/maeclyprint.key` — secret. Stored in the release-runner's GitHub Actions secret as `TAURI_SIGNING_PRIVATE_KEY`.
-- `~/.tauri/maeclyprint.key.pub` — public. Embedded in `tauri.conf.json`.
+## 9. Related documents
 
-### 5.3 Signing during release
-
-The release workflow runs:
-
-```
-TAURI_SIGNING_PRIVATE_KEY=$KEY \
-TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$PASS \
-pnpm tauri build --target x86_64-pc-windows-msvc
-```
-
-Tauri produces the installer and a `.sig` file alongside it. The release script then:
-
-1. Uploads `installer.zip` and `installer.zip.sig` to `s3://updates-maecly-com/maeclyprint/<channel>/binaries/`.
-2. Generates the `<platform>.json` manifest with the signature inlined.
-3. Signs the manifest itself: `minisign -S -m <platform>.json -s ~/.tauri/maeclyprint.key`.
-4. Uploads `<platform>.json` and `<platform>.json.sig`.
-5. Issues a CloudFront invalidation for `/maeclyprint/<channel>/*.json*`.
-
-## 6. UX flow inside the app
-
-### 6.1 Silent check on startup
-
-```
-T = 0          App launches.
-T = 30 s       Background task fires: invoke('plugin:updater|check').
-T = ~31 s      Manifest downloaded + verified.
-                If version > current: emit `update-available` event.
-                If version == current: no-op.
-                If error: log, no UI.
-```
-
-We delay 30 s so that a context-menu invocation that needs to print *now* is not slowed by an HTTPS round trip.
-
-### 6.2 Notification badge
-
-When `update-available` fires, the React shell shows a small dot on the menu/avatar in the upper-right. Clicking it opens the **Updates** panel:
-
-```
-+------------------------------------------------+
-| Updates                                        |
-|                                                |
-| MaeclyPrint 1.2.3 is available.               |
-| (You are on 1.2.0.)                            |
-|                                                |
-| What's new:                                    |
-|   - Fix: queue would stall on encrypted PDFs  |
-|   - Add: Pandoc converter for .epub           |
-|   - Improve: cold start by ~120 ms on Win 11  |
-|                                                |
-| [ Download and Install ]  [ Remind me later ] |
-|                                                |
-| Channel: [ stable v ]    [ Check for updates ]|
-+------------------------------------------------+
-```
-
-### 6.3 Installation
-
-Clicking **Download and Install** invokes `plugin:updater|download_and_install`. Progress is streamed to the UI as `download-progress` events. When complete:
-
-- **Windows**: the new installer runs (NSIS or MSI, silent mode), the current process exits, and the new binary is launched on the user's confirmation. Sparse MSIX is re-registered.
-- **Mac**: the tarball is extracted into a temporary directory, the running `.app` is replaced atomically, and the app relaunches.
-
-### 6.4 Manual check
-
-The **About** dialog has a `Check for updates` button that does the same thing as the startup task but synchronously, with a spinner.
-
-## 7. Security properties
-
-| Property                           | How we guarantee it                                          |
-| ---------------------------------- | ------------------------------------------------------------- |
-| Authenticity of manifest           | minisign signature on `<platform>.json` verified against embedded public key. |
-| Authenticity of binary             | Separate minisign signature on the binary; key may be the same or different. |
-| Transport security                 | HTTPS only (`http://` URLs in manifest are rejected by the plugin). |
-| Downgrade attack resistance        | Plugin only installs versions strictly > current.            |
-| Update host compromise (S3 swap)   | Attacker cannot forge signatures without the secret key, which never leaves CI/HSM. |
-| TOFU on first install              | Public key is shipped *inside the binary*; first-run trust is bootstrapped by the installer signature (EV cert on Windows, Developer ID on Mac). |
-| Replay (older signed binary)       | Version comparison rejects.                                  |
-
-## 8. Failure modes
-
-| Failure                            | Handling                                                                                |
-| ---------------------------------- | ---------------------------------------------------------------------------------------- |
-| Manifest URL DNS fails             | Log; show "Couldn't reach update server" in About panel; retry on next startup.          |
-| Manifest 5xx                       | Treat as transient; backoff (1 min, 5 min, 30 min, capped at 12 h).                      |
-| Manifest signature invalid         | **Hard fail.** Log a warning and *never* prompt. This is a tampered host situation.     |
-| Binary signature invalid           | **Hard fail.** Delete the partial download. Show user "Update was corrupted; please retry." |
-| Disk full during download          | Abort, clean partial. User-facing error.                                                 |
-| Process replace fails (file lock)  | Defer to next launch; show banner "Update queued — restart MaeclyPrint to apply."        |
-
-## 9. Operational checklist for releases
-
-1. Bump version in `Cargo.toml`, `package.json`, and `tauri.conf.json`.
-2. Update `CHANGELOG.md` (release notes are extracted from this for the manifest).
-3. Push tag `v1.2.3`.
-4. CI: build for all four targets, sign installers, upload binaries + sigs to S3.
-5. CI: generate four `<platform>.json` manifests with the platform's binary signature inlined.
-6. CI: sign each manifest with minisign.
-7. CI: upload manifests + manifest signatures to the right channel folder.
-8. CI: CloudFront invalidate `/maeclyprint/<channel>/*.json*`.
-9. Manual: smoke-test by a maintainer on each platform (auto-update from N-1 → N).
-
-## 10. Related documents
-
-- [`security-model.md`](./security-model.md) — broader signing and key management context.
-- [`tech-stack.md`](./tech-stack.md) — why Tauri, which gives us this updater for free.
-- ADR [`0004-auto-updater-tauri-builtin`](../adr/0004-auto-updater-tauri-builtin.md) — the decision rationale.
+- [`security-model.md`](./security-model.md) — network egress audit and signing context.
+- [`ipc-and-cli.md`](./ipc-and-cli.md) — `UpdateCheck` / `UpdateState` wire types, the `update-available` event, and the `update` subcommand.
+- [`../09-legal/privacy.md`](../09-legal/privacy.md) — what this one network call means for privacy.
+- ADR [`0004-auto-updater-tauri-builtin`](../adr/0004-auto-updater-tauri-builtin.md) — the superseded-in-practice decision (see §8).

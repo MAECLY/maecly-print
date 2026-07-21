@@ -1,6 +1,6 @@
 # Security Model
 
-> **TL;DR** — MaeclyPrint signs every artifact (installer, binary, update manifest), runs without admin privileges, isolates the high-risk shell-extension code in a tiny C++ DLL, narrows the webview to a vetted IPC surface via Tauri capabilities, and ships with telemetry **off** by default. The only outbound network destination in default configuration is `updates.maecly.com`.
+> **TL;DR** — MaeclyPrint signs its release artifacts, runs without admin privileges, isolates the high-risk shell-extension code in a tiny Rust COM DLL, keeps the webview's Rust-facing surface closed, and ships with telemetry **off** by default (and, in this version, inert). The only outbound network destination in the shipped app is **`api.github.com`**, for a read-only update *check* — there is no in-app updater and no `updates.maecly.com`.
 
 ## 1. Threat model
 
@@ -10,8 +10,9 @@ We start by being explicit about what we are defending against and what is out o
 
 | Threat                                                         | What we do about it                                                  |
 | -------------------------------------------------------------- | -------------------------------------------------------------------- |
-| Malicious update binary served by a compromised CDN host       | minisign signature verification on both the manifest and the binary, both signed offline |
+| Malicious update binary served by a compromised host           | **Structurally out of reach today**: the app never downloads or executes an update. The update path fetches release *metadata* only and hands the user a link; installation is a manual, signature-checked OS operation. |
 | Modified installer downloaded from a tampered mirror           | Authenticode (Win EV cert) and Apple Developer ID notarization       |
+| Hostile response from `api.github.com` (or a MITM on it)       | The response is parsed into at most three strings (tag, URL, notes) and never executed. A `200` that does not parse is an error, not "up to date". The link the user is offered is re-checked against the HTTPS allow-list before `open_external` will open it. |
 | Malicious context-menu invocation tricking the user into running arbitrary code | Shell DLL only handles paths; main exe validates each path before processing |
 | Webview compromise (XSS in a render path) escalating to arbitrary IPC calls | Closed command set (`collect_commands!`, no dynamic surface) + CSP + no remote content loaded |
 | Local user without admin rights wanting to install / use the app | Install to `%LOCALAPPDATA%`, register COM in HKCU, no service required |
@@ -38,8 +39,8 @@ From day 1 (`v0.1.0` GA), all release artifacts are signed with an **Extended Va
 Signed artifacts:
 
 - The main executable: `MaeclyPrint.exe`.
-- The shell-extension DLL: `MaeclyPrintShellExt.dll`.
-- The Inno Setup installer: `maeclyprint_<version>_x64-setup.exe`.
+- The shell-extension DLL: `shell_ext_win.dll` (the `cdylib` produced by the `maeclyprint-shellext` crate).
+- The Windows installer produced by `tauri build` (NSIS, `installMode: currentUser`).
 - The Sparse MSIX package: `MaeclyPrint.msix` (signed via `signtool`).
 
 Signing happens in the GitHub Actions release workflow on a Windows runner with the EV key residing in an Azure Key Vault HSM accessed through `signtool` and the Azure Code Signing extension. The key never lives on disk in CI.
@@ -58,32 +59,32 @@ Signing keys live in macOS Keychain on the macOS runner, fetched from a 1Passwor
 
 ### 2.3 Update integrity
 
-See [`auto-updater.md`](./auto-updater.md) for the full flow. Summary:
+See [`auto-updater.md`](./auto-updater.md) for the full flow. The security-relevant summary for the **shipped** build:
 
-- Manifests (`<platform>.json`) are signed with **minisign** (Ed25519).
-- Binaries are independently signed with **minisign**, signature is included inline in the manifest.
-- The minisign **public key is embedded in the application binary** itself (in `tauri.conf.json` and compiled into the updater plugin). It cannot be replaced without re-installing.
-- The minisign **secret key** never leaves the release runner's encrypted secret store.
-- A compromised CDN cannot serve a malicious binary because the attacker cannot forge a signature; the updater plugin will refuse to install.
+- **There is no in-app updater.** `tauri-plugin-updater` is not a dependency and `tauri.conf.json` declares no `endpoints` and no `pubkey`. The app therefore has no code path that turns a network response into an executable, which removes the entire "malicious update payload" class rather than mitigating it.
+- The update path is a read-only `GET` to `api.github.com` for release metadata. The only thing it can influence is a version string, a URL and a markdown blob shown to the user.
+- The URL is not opened automatically. Opening it goes through `open_external`, which enforces HTTPS and an exact-host allow-list (`github.com`, `maecly.com`, `*.maecly.com`; no userinfo, no port, no lookalike suffixes).
+- Integrity of the artifact the user then installs rests on the **installer signature** — Authenticode on Windows, Developer ID + notarization on macOS (§2.1/§2.2) — verified by the OS, not by us.
 
-Key rotation policy: keys are rotated every 24 months or immediately on suspected compromise. Rotation requires a coordinated release that ships an updated binary with both old and new pubkeys (accepting either), followed by a release a few weeks later that drops the old key.
+Minisign/Ed25519 signing of update manifests is **not implemented**. If the plugin path is ever adopted (see [`auto-updater.md`](./auto-updater.md) §8), a key-rotation policy has to be written then; documenting one now would describe keys that do not exist.
 
 ## 3. Sandboxing and process boundaries
 
 ### 3.1 Shell-extension DLL
 
-The C++ DLL runs **in the address space of `explorer.exe`**, which is the most dangerous place possible for code: a crash brings down Explorer; a vulnerability exposes the entire user session.
+The DLL runs **in the address space of `explorer.exe`**, which is the most dangerous place possible for code: a crash brings down Explorer; a vulnerability exposes the entire user session.
+
+It is written in **Rust**, not C++: the crate `maeclyprint-shellext` in `shell-ext-win/`, built as a `cdylib` implementing `IExplorerCommand` via the `windows` crate's `implement` feature.
 
 Mitigations:
 
-- **Tiny code surface.** The whole DLL is ~500-1000 LOC. Auditable in an afternoon.
-- **No allocations larger than necessary.** Pre-sized buffers; bounded JSON growth; explicit bounds checks.
-- **No file I/O.** The DLL reads paths from `IShellItemArray` and writes only command-line arguments or a single tempfile. It never opens, reads, or modifies the user's documents.
-- **No networking.** Outright forbidden by code review.
-- **`/guard:cf`, `/CETCOMPAT`, `/DYNAMICBASE`, `/HIGHENTROPYVA`, `/NXCOMPAT`, `/SAFESEH`** all enabled.
-- **`__declspec(noinline)` + structured exception filters** on the public entry points to prevent SEH-based exploits from escalating.
-- **Fuzz testing** of the path-serialization code with `cargo-fuzz` (against a Rust port of the routine).
-- **No third-party libraries.** Only `windowsapp.lib` and `wil` (Microsoft's Windows Implementation Library — header-only).
+- **Memory safety by construction.** The COM boundary is the only `unsafe` surface; the path handling above it is safe Rust.
+- **Tiny code surface.** ~1,800 lines across fourteen small modules, with unit tests co-located and two integration tests (`handoff_roundtrip`, `strings_cache`). Auditable in an afternoon.
+- **Panics never cross the COM boundary.** Every entry point is wrapped by `guard::guard()`, which `catch_unwind`s and returns an HRESULT. This is why the crate pins `panic = "unwind"` in **both** its `dev` and `release` profiles, and why it is deliberately *not* a workspace member: `src-tauri`'s `panic = "abort"` would silently turn `catch_unwind` into a no-op and a panic would take Explorer down.
+- **Bounded file I/O only.** The DLL reads paths from `IShellItemArray` and writes one handoff JSON file under the **per-user data directory** (`<data dir>/handoff`), never a world-writable temp dir — so another user cannot plant a payload. It never opens, reads, or modifies the user's documents. The consumer independently refuses any handoff path that does not canonicalize inside that directory, and any payload that is stale, empty, over-long or of the wrong schema version.
+- **The handoff directory is derived, not hardcoded.** Both sides resolve it through the same `directories::ProjectDirs::from("com", "Maecly", "MaeclyPrint")` call, which is what guarantees producer and consumer agree on the path.
+- **No networking.** The crate has no HTTP dependency; its whole dependency set is `serde`/`serde_json`, `uuid`, `time`, `directories`, and the Windows bindings.
+- **Hardened release profile:** `lto = true`, `codegen-units = 1`, `opt-level = "s"`, `strip = true`.
 
 ### 3.2 Tauri main process
 
@@ -103,33 +104,39 @@ Does **not**:
 
 The webview's Rust-facing surface is bounded two ways. **First, the closed command set:** the only commands that exist are those we register in `tauri_specta::collect_commands!` (`src-tauri/src/lib.rs`) — there is no dynamic or third-party command surface, so a compromised webview cannot reach a command we did not write. (Tauri 2's capability system gates *core and plugin* permissions — window, webview, dialog, shell — **not** app-defined `#[tauri::command]`s; `capabilities/main.json` therefore lists only `core:*` defaults plus `dialog:default`. See [`ipc-and-cli.md`](./ipc-and-cli.md) § 2.5.) **Second, and the real backstop:** there is no attacker-controlled code in the webview to abuse that surface — a strict CSP loads only the bundled SPA and forbids remote content, so a hypothetical XSS has no remote script to run.
 
-CSP for the main window:
+CSP for the main window, verbatim from `src-tauri/tauri.conf.json` (`app.security.csp`):
 
 ```
 default-src 'self';
-script-src 'self';
-style-src 'self' 'unsafe-inline';     /* tailwind */
-img-src 'self' data: blob:;
-connect-src 'self' ipc: tauri: https://updates.maecly.com;
-font-src 'self';
-object-src 'none';
-frame-ancestors 'none';
+img-src 'self' data: asset: http://asset.localhost;
+style-src 'self' 'unsafe-inline';
+font-src 'self' data:;
+connect-src 'self' ipc: http://ipc.localhost
 ```
+
+Notes on what this does and does not say:
+
+- `connect-src` allows **no external origin**. The update check is made by Rust, not by the webview, so the webview never needs to reach the network — and cannot.
+- `style-src 'unsafe-inline'` is required by Tailwind's generated styles; `font-src … data:` covers the inlined bundled font.
+- `asset:` / `http://asset.localhost` is Tauri's own protocol for serving local files to the webview.
+- There is no explicit `script-src`, `object-src` or `frame-ancestors` directive; `default-src 'self'` covers scripts, and the remaining two are a hardening gap worth closing.
 
 We never `loadUrl()` remote content. The webview only loads the bundled SPA.
 
 ### 3.4 Converter subprocesses
 
-Each converter is spawned with `tokio::process::Command`:
+In this version the only conversion that runs is **image → PDF, and it runs in-process** in pure Rust (`engine/convert/image.rs`, the `image` + `lopdf` crates). No external converter is spawned, so the converter-CVE row in §1.1 is currently vacuous — a property worth keeping in mind when the Office/HTML/Markdown converters land.
 
-- As the current user (no elevation).
-- With a hard timeout (default 60 s).
-- With its working directory set to `cache_dir` (so any incidental temp files go there).
-- With env minimized to `PATH`, `TEMP`, `TMP`, `LOCALAPPDATA`, `APPDATA`, `USERPROFILE`, `HOME` — not the full inherited env.
-- With stdout and stderr captured (length-bounded).
-- With `kill_on_drop(true)` so leaving scope (panic, cancellation) terminates the child.
+Processes the engine *does* spawn today are the **printing** hops — `lp` on macOS/Linux, `SumatraPDF.exe` on Windows — via `std::process::Command`:
 
-LibreOffice runs with `-env:UserInstallation=...` to a temp profile so we don't pollute the user's normal LibreOffice profile.
+- As the current user, never elevated.
+- Bounded by a hard timeout enforced with the `wait-timeout` crate, so a hung child cannot wedge the queue; a timeout is reported as a print failure (exit code 9 on the CLI).
+- With stdout/stderr captured, so the spooler's own message reaches the user rather than being invented by us.
+- On Windows, with `CREATE_NO_WINDOW`, so a GUI-subsystem launch never flashes a console.
+
+The image decoder is hardened against decompression bombs independently of any subprocess boundary: `image::Limits` caps decoded dimensions, and the emitted page is clamped to the 14,400 pt (200 in) PDF page ceiling.
+
+**Not yet true, and worth stating as a gap:** env minimization, a dedicated working directory, and `kill_on_drop`-style teardown are not implemented for spawned children. When LibreOffice/Chromium/Pandoc are wired up — each of which is a far larger attack surface than `lp` — those mitigations (and LibreOffice's `-env:UserInstallation=` temp profile) need to land with them.
 
 ## 4. Permissions
 
@@ -137,7 +144,7 @@ LibreOffice runs with `-env:UserInstallation=...` to a temp profile so we don't 
 
 Installation:
 
-- Inno Setup installs to `%LOCALAPPDATA%\Programs\MaeclyPrint` (per-user install).
+- The bundler is Tauri's **NSIS** target with `installMode: "currentUser"` (`tauri.conf.json`), i.e. a per-user install under `%LOCALAPPDATA%` — not Inno Setup.
 - Sparse MSIX is registered via `Add-AppxPackage -Register -ExternalLocation`, which is per-user.
 - Registry entries (fallback shell ext) live in `HKCU\Software\Classes\*\shell\MaeclyPrint`.
 - No services, no scheduled tasks, no drivers.
@@ -183,44 +190,43 @@ Policy is read **at page load** (each time the Printers screen mounts). There is
 
 ## 5. Network egress audit
 
-By default, MaeclyPrint makes exactly **one kind of network request**:
+MaeclyPrint makes exactly **two** possible requests, both to GitHub's public API, both unauthenticated `GET`s, and the second only on one branch:
 
 ```
-GET https://updates.maecly.com/maeclyprint/<channel>/<platform>.json
-GET https://updates.maecly.com/maeclyprint/<channel>/<platform>.json.sig
-GET https://updates.maecly.com/maeclyprint/<channel>/binaries/<file>
-GET https://updates.maecly.com/maeclyprint/<channel>/binaries/<file>.sig
+GET https://api.github.com/repos/<owner>/<repo>/releases/latest
+GET https://api.github.com/repos/<owner>/<repo>            # only if the first returned 404
 ```
 
-That is everything. We:
+`<owner>/<repo>` is compiled in from the crate's `repository` field; it is not configurable at runtime. Headers are `User-Agent: MaeclyPrint/<version>`, `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`. The request bodies are empty and carry no identifier of any kind. The client is `ureq` with a 10-second timeout; a system proxy is honoured from `HTTPS_PROXY`/`HTTP_PROXY` (either case) when set.
 
-- Do not phone home with usage stats.
-- Do not load fonts or scripts from CDNs.
-- Do not check for updates of converters.
-- Do not communicate with printer manufacturers' clouds.
+Frequency: at most once per 24 h automatically (30 s after launch, off the main thread), plus whenever the user explicitly asks. Disabling `[updater].check_on_startup` removes the automatic one entirely — and the check is skipped *before* any socket is opened, which is asserted by test.
 
-If the user opts in (Settings → Privacy):
+That is everything. The app:
 
-- **Crash reports** (M3+) — sent to Sentry-compatible endpoint at `https://crash.maecly.com/`. Stack traces only; no file paths or content.
-- **Anonymous usage metrics** (post-1.0) — daily ping with version, OS, locale, install age. No identifiers.
+- Does not phone home with usage stats. **This version has no telemetry transmitter at all** — the two consent flags in `[telemetry]` are recorded and never read by any sending code (documented on `TelemetryCfg` itself).
+- Does not download or install updates.
+- Does not load fonts, scripts or styles from CDNs — the CSP forbids it and the one webfont is bundled.
+- Does not check for updates of converters.
+- Does not communicate with printer manufacturers' clouds.
+- Does not contact any Maecly-operated host. Links to `maecly.com`/`github.com` are opened in the **user's browser**, on an explicit click, through the `open_external` allow-list.
 
-Both are off by default and require an explicit toggle.
+There is no `crash.maecly.com` and no metrics endpoint. If either is ever built, this section and [`../09-legal/privacy.md`](../09-legal/privacy.md) must change in the same commit.
 
 ## 6. Privacy
 
 ### 6.1 What we never collect
 
-- File contents (ever).
-- File names (in default logging level).
-- Printer names with brand/model identifiers (in opt-in metrics).
-- IP addresses (Sentry endpoint sees them but is configured to scrub).
-- User identifiers, hostname, MAC address.
+Nothing is collected, because nothing is transmitted. In particular the app never sends file contents, file names, printer names, or any user/host identifier — there is no code path that sends anything at all.
 
 ### 6.2 Logs
 
-Local-only. Live under `%LOCALAPPDATA%\MaeclyPrint\logs\` (Windows) or `~/Library/Logs/MaeclyPrint/` (macOS). The user can delete them at any time. They are **not** uploaded automatically — even with crash reporting on, the report is a stack trace, not the log file. A separate "Send logs to maintainers" button exists in the diagnostics screen which uploads to a one-shot URL after explicit confirmation.
+Local-only. Files are named `maeclyprint-<UTC date>.jsonl` (and `maeclyprint-<date>.<n>.jsonl` for each size roll within one day) under `%LOCALAPPDATA%\MaeclyPrint\logs\` (Windows) or `~/Library/Logs/MaeclyPrint/` (macOS). The user can delete them at any time, and the About screen has a button that reveals the folder.
 
-Default log level is `info`. At `info`:
+Rotation and retention are implemented by `logging::RollingJsonl`, not by `tracing-appender`'s rolling appender (which only rotates on a clock boundary and never deletes): the current file rolls when the **UTC date changes or it passes 10 MB, whichever comes first**, and a sweep at startup deletes anything older than **14 days** and then keeps only the **7 newest** files. Both bounds apply; whichever bites first wins. There is no `[logging]` section in `config.toml` — these are the whole policy.
+
+Logs are **never** uploaded. There is no "send logs to maintainers" upload path in this version; `report_issue` opens a prefilled GitHub issue in the browser with an environment block, and the user pastes whatever they choose.
+
+Default log level is `info` (`EnvFilter` default `info,maeclyprint=debug`, overridable with `RUST_LOG`). At `info`:
 
 - Job IDs, profile IDs, printer names, exit codes, durations.
 - File extensions (e.g., "converted .docx → PDF in 1.4 s") but **not** filenames.
@@ -253,14 +259,17 @@ What you'll never send:
 [ Read the full privacy notice ]
 ```
 
+**Both switches are inert in this version.** They persist consent (`[telemetry].crash_reports`, `[telemetry].anonymous_usage_metrics`) so a future build can honour a choice already made; no code reads them to decide whether to send, because no code sends. Turning them on changes nothing about the app's network behaviour.
+
 ## 7. Dependency hygiene
 
 - `Cargo.lock` and `pnpm-lock.yaml` are committed. CI installs are lockfile-only.
 - `cargo deny check` runs in CI: blocks unmaintained crates, GPL-incompatible licenses, advisories.
 - `cargo audit` runs nightly against RustSec.
 - `pnpm audit --audit-level high` runs in CI.
-- Renovate bot opens PRs for dep bumps, with grouping (e.g., all `@radix-ui/*` together).
 - Dependabot security updates are auto-merged once CI is green; non-security bumps require human review.
+- `tauri-specta` / `specta` are pinned with `=` because they are pre-release; a wildcard would let a breaking rc land silently.
+- The `objc2*` crates are version-constrained to the ones tao/wry already pull in. Taking a different major would build a **second** copy of the objc2 tree into the same binary — two incompatible views of the Objective-C runtime — which is a correctness and safety hazard, not a preference.
 
 ## 8. Vulnerability disclosure
 
@@ -270,13 +279,13 @@ A `SECURITY.md` at the repo root documents:
 - A 90-day coordinated disclosure window by default.
 - Acknowledgement targets: 72 h.
 - A hall-of-fame credit list for reporters.
-- Scope: this repo and the published binaries. Out of scope: `updates.maecly.com` infrastructure (report directly), the SumatraPDF / LibreOffice / Pandoc projects (report upstream).
+- Scope: this repo and the published binaries. Out of scope: the SumatraPDF / LibreOffice / Pandoc projects (report upstream) and GitHub's own infrastructure.
 
 Critical issues are patched out-of-cycle and pushed to the `stable` channel within 48 h.
 
 ## 9. Build reproducibility
 
-- Rust release builds use `--locked` and pinned toolchain (`rust-toolchain.toml`).
+- Rust release builds use `--locked`. The minimum toolchain is pinned as `rust-version = "1.78"` in both `Cargo.toml`s; there is **no** `rust-toolchain.toml` in the repo today, so CI's Rust version is whatever the workflow installs — pinning it is an open hardening item.
 - Frontend builds use `pnpm install --frozen-lockfile`.
 - Build environment is documented (Windows runner image, Node version, pnpm version, Rust version).
 - We do **not** claim bit-for-bit reproducibility yet — Tauri bundling has non-determinism we have not yet eliminated. Tracked as a future goal.
@@ -288,8 +297,8 @@ Before tagging a release, the maintainer verifies:
 - [ ] `cargo audit` clean.
 - [ ] `cargo deny check` clean.
 - [ ] `pnpm audit --audit-level high` clean.
-- [ ] All artifacts signed (Authenticode / Apple Developer ID / minisign).
-- [ ] Manifest signed and uploaded to S3.
+- [ ] All artifacts signed (Authenticode / Apple Developer ID).
+- [ ] The bundled SumatraPDF matches the pinned version **and checksum** in `scripts/fetch-sumatrapdf.*`, and its upstream `LICENSE` was copied next to the executable (GPLv3 §6 obligation — see [`../09-legal/third-party-licenses.md`](../09-legal/third-party-licenses.md)).
 - [ ] CSP unchanged (or change reviewed).
 - [ ] Capability allowlist unchanged (or change reviewed).
 - [ ] No new outbound URLs added without privacy-doc update.

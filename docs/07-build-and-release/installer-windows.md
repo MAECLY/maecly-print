@@ -1,10 +1,50 @@
 # Installer (Windows)
 
-> **TL;DR.** MaeclyPrint uses Inno Setup 6 to produce a self-extracting `setup.exe` (~10 MB) that installs to `%LOCALAPPDATA%\Programs\MaeclyPrint` (no admin rights required), registers HKCU shell entries, and deploys a Sparse MSIX package to grant identity to the Win 11 modern shell extension.
+> **TL;DR.** [ADR-0006](../adr/0006-installer-inno-setup.md) accepted **Inno Setup 6 + a Sparse MSIX package** as the Windows install story. **That decision is not implemented.** `src-tauri/tauri.conf.json` packages with **NSIS** today (`bundle.windows.nsis`, `installMode: "currentUser"`), `installers/windows/` contains nothing but a `.gitkeep`, and there is no `.iss` file, no `AppxManifest.xml` and no `build.ps1` anywhere in the tree. This document describes the real state first, then keeps the ADR-0006 design as the specification to build against.
 
-This document specifies the structure of the Inno Setup script, the Sparse MSIX manifest, the install layout, all registry writes, dependency handling, and the uninstall flow. The goal: any contributor can reproduce a byte-identical installer from a clean checkout, and any user can trust that uninstall leaves no residue.
+## Status: an open contradiction
 
-## Why Inno Setup
+| Claim | Reality |
+|---|---|
+| ADR-0006 (Accepted, 2026-05-03) selects Inno Setup as the primary installer, explicitly rejecting NSIS as "quirky … less polished" | `tauri.conf.json` configures `bundle.windows.nsis` and nothing else. NSIS is what a `pnpm tauri build` produces. |
+| ADR-0006 requires a post-install PowerShell step registering a Sparse MSIX via `Add-AppxPackage -Register -ExternalLocation` | No sparse package exists. `installers/windows/sparse-msix/` was never created. |
+| ADR-0006 requires `installers/windows/inno-setup.iss` + `build.ps1` | Neither file exists. `installers/windows/` holds a single `.gitkeep`. |
+| ADR-0005 / ADR-0006 assume a C++ COM DLL named `shell-ext-win.dll` / `MaeclyPrintShellExt.dll` | The extension is a Rust `cdylib` and the built artifact is **`shell_ext_win.dll`** (underscores — `[lib] name = "shell_ext_win"`). |
+| ADR-0006 fixes the app CLSID as `{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}` in draft snippets | The real CLSID, in `shell-ext-win/src/clsid.rs`, is **`{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}`**. |
+
+**This needs a human decision, and it is not one this document can make.** Either:
+
+1. **Implement ADR-0006** — write the `.iss`, the sparse MSIX and `build.ps1`, and stop using Tauri's NSIS bundler for release artifacts; or
+2. **Supersede ADR-0006** with a new ADR that accepts NSIS (Tauri's bundler already produces a per-user NSIS installer, which satisfies the no-admin constraint) and specifies how the sparse-MSIX identity requirement from ADR-0005 is met alongside it — that requirement does not go away, because `shell-ext-win/res/shellext.manifest` already embeds an `<msix>` element that is meaningless without a matching package.
+
+ADRs are not rewritten, they are superseded. Do not edit ADR-0006 to match the code.
+
+Whichever way it goes, one constraint binds both options: `SumatraPDF.exe` is **not committed**. Any packaging job must run `scripts/fetch-sumatrapdf.ps1` first, or `bundle.resources` (`resources/sumatrapdf/*`) copies only a `README.md` and every print job on the installed app fails with `DependencyMissing`.
+
+## What actually ships today
+
+`bundle` in `src-tauri/tauri.conf.json`:
+
+```json
+"bundle": {
+  "active": true,
+  "targets": "all",
+  "resources": ["resources/sumatrapdf/*"],
+  "publisher": "Maecly",
+  "windows": { "nsis": { "installMode": "currentUser" } }
+}
+```
+
+- `installMode: "currentUser"` is what keeps the no-admin requirement (NFR-020) satisfied: a per-user install under `%LOCALAPPDATA%`, `HKCU` only.
+- `targets: "all"` means the bundler emits every target it can for the host — on Windows that is both the NSIS `setup.exe` and a WiX MSI. Only the NSIS half is configured deliberately; the MSI falls out of `"all"` and has had no design attention.
+- No `plugins.updater` block: the app checks for updates against the GitHub releases API and does not self-install (`src-tauri/src/update/mod.rs`). Nothing in the bundle is updater-signed.
+- Nothing is code-signed. See [ci-cd.md](./ci-cd.md) § *What does not exist yet*.
+
+Everything from here down is **the ADR-0006 design, unimplemented**. Treat every file path in it as a path to be created.
+
+---
+
+## Why Inno Setup (ADR-0006 rationale)
 
 Inno Setup 6 was chosen over alternatives for these reasons:
 
@@ -66,7 +106,7 @@ Source: "..\..\src-tauri\target\release\maeclyprint.exe"; DestDir: "{app}"; Flag
 Source: "..\..\src-tauri\target\release\WebView2Loader.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\src-tauri\resources\sumatrapdf\SumatraPDF.exe"; DestDir: "{app}\sumatrapdf"; Flags: ignoreversion
 Source: "..\..\src-tauri\resources\sumatrapdf\LICENSE.txt"; DestDir: "{app}\sumatrapdf"; Flags: ignoreversion
-Source: "..\..\target\release\shell-ext-win.dll"; DestDir: "{app}"; Flags: ignoreversion regserver 64bit
+Source: "..\..\shell-ext-win\target\release\shell_ext_win.dll"; DestDir: "{app}"; Flags: ignoreversion regserver 64bit
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "..\..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "sparse-msix\MaeclyPrint.msix"; DestDir: "{app}\sparse-msix"; Flags: ignoreversion; Check: IsWindows11
@@ -85,12 +125,12 @@ For Win 10 fallback (when Sparse MSIX is not deployed), we register a classic `I
 ```iss
 [Registry]
 ; CLSID for the in-proc COM server
-Root: HKCU; Subkey: "Software\Classes\CLSID\{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}}"; ValueType: string; ValueData: "MaeclyPrint Shell Extension"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\CLSID\{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}}\InprocServer32"; ValueType: string; ValueData: "{app}\shell-ext-win.dll"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\CLSID\{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}}\InprocServer32"; ValueType: string; ValueName: "ThreadingModel"; ValueData: "Apartment"
+Root: HKCU; Subkey: "Software\Classes\CLSID\{{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}}"; ValueType: string; ValueData: "MaeclyPrint Shell Extension"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\CLSID\{{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}}\InprocServer32"; ValueType: string; ValueData: "{app}\shell_ext_win.dll"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\CLSID\{{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}}\InprocServer32"; ValueType: string; ValueName: "ThreadingModel"; ValueData: "Apartment"
 
 ; Attach to "AllFileSystemObjects" so the verb appears for any file/folder selection
-Root: HKCU; Subkey: "Software\Classes\AllFileSystemObjects\shellex\ContextMenuHandlers\MaeclyPrint"; ValueType: string; ValueData: "{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\AllFileSystemObjects\shellex\ContextMenuHandlers\MaeclyPrint"; ValueType: string; ValueData: "{{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}}"; Flags: uninsdeletekey
 
 ; Register the application URL handler for the maeclyprint:// scheme (used by IPC handoff)
 Root: HKCU; Subkey: "Software\Classes\maeclyprint"; ValueType: string; ValueData: "URL:MaeclyPrint Protocol"; Flags: uninsdeletekey
@@ -102,7 +142,8 @@ Notes:
 
 - All entries are `HKCU\Software\Classes\` (per-user). No `HKLM` writes; no admin needed.
 - `uninsdeletekey` ensures the key is removed on uninstall.
-- The CLSID GUID `{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}` is fixed across versions; it's the contract with Windows.
+- The CLSID GUID `{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}` is fixed across versions; it's the contract with Windows. Its single source of truth is `shell-ext-win/src/clsid.rs` (`CLSID_MAECLYPRINT_COMMAND`), which documents the three places it must agree in. Never regenerate it: an already-installed machine keeps the old CLSID registered and the menu entry simply stops appearing.
+- Note the Win 10 fallback shape the crate documents is a **verb** under `HKCU\Software\Classes\*\shell\MaeclyPrint\ExplorerCommandHandler`, i.e. an `IExplorerCommand` handler, not the `shellex\ContextMenuHandlers` `IContextMenu` shape sketched above. The crate implements `IExplorerCommand` only. Whoever writes the real registration must reconcile this before shipping.
 
 ### `[Icons]` section
 
@@ -226,9 +267,16 @@ sparse-msix/
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap uap3 uap10 com desktop rescap">
 
+  <!-- These three values MUST match shell-ext-win/res/shellext.manifest
+       character for character: Identity/@Publisher, Identity/@Name and
+       Applications/Application/@Id. The embedded manifest already commits to
+       publisher="CN=Maecly, O=Maecly, C=ES", packageName="MaeclyPrint",
+       applicationId="MaeclyPrint" — so this Identity block is not free to
+       choose. A mismatch surfaces as 0x80073D54, or as an extension that
+       simply never appears. -->
   <Identity
     Name="MaeclyPrint"
-    Publisher="CN=MaeclyPrint Project, O=MaeclyPrint Project, C=US"
+    Publisher="CN=Maecly, O=Maecly, C=ES"
     Version="1.0.0.0" />
 
   <Properties>
@@ -267,7 +315,7 @@ sparse-msix/
         <com:Extension Category="windows.comServer">
           <com:ComServer>
             <com:SurrogateServer DisplayName="MaeclyPrint Shell Extension">
-              <com:Class Id="A1B2C3D4-E5F6-7890-ABCD-EF1234567890" Path="shell-ext-win.dll" ThreadingModel="STA" />
+              <com:Class Id="B269B8DC-044F-4D65-8F1E-8F20A2E653EA" Path="shell_ext_win.dll" ThreadingModel="STA" />
             </com:SurrogateServer>
           </com:ComServer>
         </com:Extension>
@@ -275,10 +323,10 @@ sparse-msix/
         <desktop:Extension Category="windows.fileExplorerContextMenus">
           <desktop:FileExplorerContextMenus>
             <desktop:ItemType Type="*">
-              <desktop:Verb Id="MaeclyPrintVerb" Clsid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890" />
+              <desktop:Verb Id="MaeclyPrintVerb" Clsid="B269B8DC-044F-4D65-8F1E-8F20A2E653EA" />
             </desktop:ItemType>
             <desktop:ItemType Type="Directory">
-              <desktop:Verb Id="MaeclyPrintVerb" Clsid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890" />
+              <desktop:Verb Id="MaeclyPrintVerb" Clsid="B269B8DC-044F-4D65-8F1E-8F20A2E653EA" />
             </desktop:ItemType>
           </desktop:FileExplorerContextMenus>
         </desktop:Extension>
@@ -288,7 +336,7 @@ sparse-msix/
 </Package>
 ```
 
-The CLSID `A1B2C3D4-...` matches the one in the Inno Setup `[Registry]` section. They must agree.
+The CLSID `B269B8DC-...` matches the one in the Inno Setup `[Registry]` section. They must agree.
 
 ## Install directory layout
 
@@ -297,7 +345,7 @@ After install:
 ```
 %LOCALAPPDATA%\Programs\MaeclyPrint\
 ├── maeclyprint.exe              # Main app (Tauri runtime + all logic)
-├── shell-ext-win.dll            # COM in-proc server
+├── shell_ext_win.dll            # COM in-proc server
 ├── WebView2Loader.dll           # WebView2 (system WebView2 used; this is loader stub)
 ├── LICENSE.txt                  # GPLv3
 ├── CHANGELOG.md
@@ -314,26 +362,28 @@ User data lives separately:
 
 ```
 %APPDATA%\MaeclyPrint\
-└── profiles\
-    ├── default.toml
-    └── (user-created profiles)
+├── config.toml       # App settings (FR-100..103)
+└── profiles.toml     # ALL custom profiles, as [[profile]] entries — one file,
+                      #   not a directory of per-profile files
 
 %LOCALAPPDATA%\MaeclyPrint\
+├── queue.json        # The persisted queue (NFR-010: survives a crash)
 └── logs\
     ├── maeclyprint.2026-05-03.jsonl
-    └── (rotated daily, retained 30 days)
+    └── (rolls daily AND at a size ceiling; retained 14 days / 7 files,
+         whichever bound bites first — see src-tauri/src/logging/mod.rs)
 ```
 
 This separation matters: install-area is read-only after install (we never write there at runtime); user-area is everything that survives uninstall unless the user opts in to wipe.
 
 ## Registry surface
 
-Complete list of registry writes performed by the installer (all under `HKCU\Software\Classes\`):
+Complete list of the registry writes the designed installer would perform (all under `HKCU\Software\Classes\`). Nothing writes them today; during development the registration is manual.
 
 | Key | Purpose |
 |---|---|
-| `CLSID\{A1B2C3D4-...}` | Friendly name of the COM server |
-| `CLSID\{A1B2C3D4-...}\InprocServer32` | DLL path + threading model |
+| `CLSID\{B269B8DC-...}` | Friendly name of the COM server |
+| `CLSID\{B269B8DC-...}\InprocServer32` | DLL path + threading model |
 | `AllFileSystemObjects\shellex\ContextMenuHandlers\MaeclyPrint` | Hooks the verb into Win 10 File Explorer |
 | `maeclyprint` | URL protocol handler for `maeclyprint://` IPC scheme |
 | `maeclyprint\shell\open\command` | Command to launch when URL is invoked |
@@ -348,15 +398,23 @@ Inno Setup's standard `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\
 
 ## Dependency detection
 
-The installer **detects** but does not **install** optional runtimes:
+> Still part of the unimplemented design. The installer that would run these
+> checks does not exist. Note also that only the WebView2 row is meaningful
+> today: LibreOffice, Pandoc and Chromium gate **no** format, because no
+> converter shells out to them (see
+> [supported-formats.md](../03-requirements/supported-formats.md)). Warning a
+> user about them before that changes would be a false alarm.
+
+The installer would **detect** but never **install** optional runtimes:
 
 | Dependency | Detection method | If missing |
 |---|---|---|
 | WebView2 Runtime | `HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}\pv` | Hard error: WebView2 is required (preinstalled on Win 11; bootstrap link shown for Win 10). |
-| LibreOffice | `HKLM` or `HKCU` `SOFTWARE\LibreOffice\UNO\InstallPath` | Soft warning: Office documents will be skipped at runtime. |
-| Pandoc | `where.exe pandoc` returns 0 | Soft warning: Markdown formatting may be reduced (we have a fallback). |
-| ImageMagick | `where.exe magick` returns 0 | Soft warning: Image preprocessing skipped (raw image print still works). |
-| Chromium / Edge | Edge is preinstalled; check `where.exe msedge` | Soft warning: HTML printing may have reduced fidelity. |
+| LibreOffice | `HKLM` or `HKCU` `SOFTWARE\LibreOffice\UNO\InstallPath` | Soft warning — *only once an Office converter exists*; today Office files are refused regardless. |
+| Pandoc | `where.exe pandoc` returns 0 | Same: no Markdown converter exists yet. |
+| Chromium / Edge | Edge is preinstalled; check `where.exe msedge` | Same: no HTML converter exists yet. |
+
+**ImageMagick is deliberately not on this list.** Image conversion is in-process (the pure-Rust `image` crate), so there is nothing to detect; an earlier draft of this table listed it.
 
 We **never** silently install third-party software. Every install action is the user's choice.
 
@@ -366,25 +424,26 @@ When the user runs the uninstaller (`unins000.exe`):
 
 1. **Stop running app:** if `maeclyprint.exe` is running, prompt the user to close it (or wait + retry).
 2. **Remove sparse MSIX:** `Remove-AppxPackage -Name MaeclyPrint`. If this fails (rare), log and continue — orphan MSIX entries are harmless.
-3. **Unregister shell extension DLL:** `regsvr32 /u shell-ext-win.dll` (no-op if Inno Setup's `regserver` flag wasn't used, but defensive).
+3. **Unregister shell extension DLL:** `regsvr32 /u shell_ext_win.dll` (no-op if Inno Setup's `regserver` flag wasn't used, but defensive).
 4. **Delete registry entries:** all `HKCU\Software\Classes\` entries listed in `[Registry]` (Inno Setup handles via `uninsdeletekey`).
 5. **Delete install directory:** Inno Setup default behavior.
 6. **Prompt for user data:** ask whether to delete `%APPDATA%\MaeclyPrint` and `%LOCALAPPDATA%\MaeclyPrint`. Default is **no** (preserve user data).
 7. **Refresh shell:** broadcast `WM_SETTINGCHANGE` so File Explorer re-reads context menu registrations.
 
-After a clean uninstall (with user data wiped), `regedit` and `Process Monitor` should find zero MaeclyPrint references. We test this in CI as part of the installer test job.
+After a clean uninstall (with user data wiped), `regedit` and `Process Monitor` should find zero MaeclyPrint references. **This is not tested anywhere.** There is no installer test job in `ci.yml`, and there cannot be one until an installer exists; today it is a manual QA item on the release checklist.
 
 ## Build script
 
-`installers/windows/build.ps1` is the single entrypoint. It:
+**This file does not exist.** `installers/windows/build.ps1` would be the single entrypoint. It would:
 
-1. Validates that `maeclyprint.exe`, `shell-ext-win.dll`, and `SumatraPDF.exe` exist in expected locations.
-2. Reads version from `src-tauri/tauri.conf.json`.
-3. Generates the sparse MSIX with `MakeAppx.exe` from the Windows SDK.
-4. Signs the MSIX with the EV cert (release builds) or self-signed cert (nightly builds).
-5. Invokes `iscc.exe inno-setup.iss /DMyAppVersion=<version>`.
-6. Verifies the produced `setup.exe` is signed: `signtool verify /pa /v setup.exe`.
-7. Outputs SHA-256 of the final installer for the release manifest.
+0. Run `scripts/fetch-sumatrapdf.ps1` (or verify a previous run left `SumatraPDF.exe` and `LICENSE.txt` in `src-tauri/resources/sumatrapdf/`). Skipping this is the difference between a working installer and one whose every print job fails.
+1. Validate that `maeclyprint.exe`, `shell_ext_win.dll` and `SumatraPDF.exe` exist in expected locations — note the DLL comes out of `shell-ext-win/target/<triple>/release/`, a *separate* target directory from the app's, because the crate is not a workspace member.
+2. Read the version from `src-tauri/tauri.conf.json`.
+3. Generate the sparse MSIX with `MakeAppx.exe` from the Windows SDK.
+4. Sign the MSIX with the EV cert (release builds) or self-signed cert (nightly builds) — neither certificate exists yet; see [code-signing.md](./code-signing.md).
+5. Invoke `iscc.exe inno-setup.iss /DMyAppVersion=<version>`.
+6. Verify the produced `setup.exe` is signed: `signtool verify /pa /v setup.exe`.
+7. Output the SHA-256 of the final installer for the release manifest.
 
 ```powershell
 # installers/windows/build.ps1 (excerpt)
@@ -438,11 +497,13 @@ Two builds from the same commit must produce byte-identical `setup.exe`. To achi
 - Sparse MSIX is built with `MakeAppx /nv` (no version stamp randomness).
 - Signing introduces a timestamp; we accept that signed binaries differ in the timestamp byte range only. The unsigned binary is the bit-for-bit reproducible artifact.
 
-CI verifies reproducibility by building twice on the same commit and `diff`ing the unsigned installers.
+**Not verified.** CI does not build twice and diff the results; NFR-064 has no automated check today. The intent is a double-build reproducibility job in the release pipeline whenever that pipeline is written.
 
 ## See also
 
 - [installer-macos.md](./installer-macos.md) — macOS counterpart
 - [code-signing.md](./code-signing.md) — signing details for both platforms
 - [auto-update-flow.md](./auto-update-flow.md) — how installed apps receive updates
-- [ci-cd.md](./ci-cd.md) — where this installer is built in CI
+- [ci-cd.md](./ci-cd.md) — what CI really builds, and the list of release machinery that does not exist
+- [../adr/0006-installer-inno-setup.md](../adr/0006-installer-inno-setup.md) — the decision this document is measured against
+- [../adr/0005-shell-extension-sparse-msix.md](../adr/0005-shell-extension-sparse-msix.md) — why package identity is required at all

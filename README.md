@@ -21,34 +21,44 @@ MaeclyPrint adds a native entry to the **modern Windows 11 right-click menu**:
 
 ```
 Right-click on any number of files → MaeclyPrint ▸
-                                       ├─ Print with default profile
-                                       ├─ Print with profile…
-                                       └─ Configure print job…
+                                       ├─ Print 12 files          (default profile)
+                                       ├─ ──────────
+                                       ├─ Print with “Duplex BW”  (one row per profile †)
+                                       ├─ Print with “Photo Color”
+                                       ├─ ──────────
+                                       ├─ Configure print job…
+                                       └─ Add to print queue
 ```
 
+† The per-profile rows and the translated labels come from a `shell-menu.json` cache that the app is supposed to write. It does not write it yet, so today the handler falls back to built-in English with no profile rows.
+
 - Select **5, 50, or 500** files. They print.
-- Mix PDFs, images, Word docs, Excel sheets, HTML, Markdown — MaeclyPrint routes each to the right engine.
 - Use **profiles** (built-in or custom) to lock in your favorite settings: duplex BW, photo color, A3 simplex, whatever.
 - All **local**: no cloud, no telemetry, no account.
-- Auto-update built in: just click "Check for updates" — no GitHub Releases hunting.
+
+Two of the headline promises are still on the roadmap and are called out as such below: routing **Word, Excel, HTML and Markdown** to the right converter is M3 (today PDFs and raster images print, everything else is reported as unsupported), and **updating in place** is M4 (today the app tells you a new version exists and links to it).
 
 ## Status
 
-**Pre-alpha · M0 scaffold landed.** The repository now contains:
+**Pre-alpha · M1 (Print Core) largely delivered.** It prints. What works today:
 
-- The full [`docs/`](./docs/README.md) tree (vision, requirements, architecture, ADRs, roadmap).
-- The Claude Design handoff bundle under [`claude design/`](./claude%20design/maeclyprint/README.md) — the source of truth for the visual design.
-- The frontend scaffold (`src/`): six screens (Home, Print Job, Queue, Profiles, Settings, About) ported 1:1 from the mockups, with mock data, theme + density switching, and an onboarding flow.
-- The backend skeleton (`src-tauri/`): Rust crate with `paths`, `error`, `logging`, `settings`, and a single diagnostic IPC command (`app_info`) wired through `tauri-specta` for typed bindings.
-- CI (`.github/workflows/ci.yml`), commit hooks (Husky + lint-staged + commitlint), and the standard community files (CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, CHANGELOG).
+- **Printing**, end to end: PDFs pass through untouched, raster images (JPG/JPEG, PNG, TIFF, BMP, WebP) are wrapped into a one-page PDF by a pure-Rust converter, and both are spooled through SumatraPDF on Windows or `lp` (CUPS) on macOS.
+- **A persistent print queue** (`queue.json`): a single-writer dispatcher with bounded concurrency, automatic retries with backoff, per-job and whole-queue pause/resume/cancel, and crash recovery.
+- **Profiles and settings on disk**: `profiles.toml` and `config.toml`, written atomically with a `schema_version`, plus profile import/export.
+- **Seven GUI screens** (Home, Print Job, Queue, Printers, Profiles, Settings, About) wired to the real backend over 40 typed IPC commands — no mock data in the desktop app — with keyboard shortcuts and an English/Spanish UI.
+- **A headless CLI**: `maeclyprint print|printers|profiles|queue|update`, `--help` everywhere, `--json` output, and documented exit codes.
+- **Context-menu handlers**: an `IExplorerCommand` COM DLL for Windows Explorer (`shell-ext-win/`, written in Rust) and an `NSServices` provider for the macOS Finder.
+- **An update check** on startup and from About, with defer / skip-this-version.
 
-**What is NOT here yet** — the M1 plan covers this:
+**What is NOT here yet:**
 
-- Real printing (queue, SumatraPDF adapter, image converter, CLI).
-- Persistence of profiles and config to disk via IPC.
-- Shell extension, multi-format adapters, auto-updater, signed installer.
+- **No installer.** `installers/` is still empty, so nothing registers the Sparse MSIX, the shell extension, or a Start-menu shortcut. The Explorer DLL builds and is tested in CI, but you have to place and register it yourself.
+- **No download-and-install updater.** The app detects a newer release and links to it; verifying the signature and applying the update is M4. Channel selection is persisted but every channel reads the same feed.
+- **No multi-format adapters.** Office, ODF, HTML, Markdown, TXT/RTF and HEIC are rejected with an explicit reason, not converted. That is M3.
+- **No bundled SumatraPDF.** The app locates an existing `SumatraPDF.exe`; a missing one pauses the job with a dependency error.
+- **No code signing**, so expect SmartScreen and Gatekeeper warnings on anything you build.
 
-See the [roadmap](./docs/06-roadmap/milestones.md) for the full milestone path from `M0 — Foundation` through `M5 — macOS Port`.
+See the [roadmap](./docs/06-roadmap/milestones.md) for the full milestone path from `M0 — Foundation` through `M5 — macOS Port`, and the [functional requirements](./docs/03-requirements/functional-requirements.md) for per-requirement status.
 
 ## Quick start (developers)
 
@@ -72,7 +82,9 @@ pnpm dev
 pnpm tauri dev
 ```
 
-The web preview shows every screen with mock data so you can validate the UI without the Rust toolchain. The Tauri loop boots the real app, including the live `app_info` IPC round-trip on the About page.
+The web preview renders every screen without the Rust toolchain, but it has no Tauri host: IPC calls fail, so the screens show their empty and error states rather than real printers, jobs or profiles. Use it for layout and styling work only. `pnpm tauri dev` boots the real app against the real backend.
+
+The Explorer context-menu DLL is a separate crate with its own target directory — build and test it with `cargo build --manifest-path shell-ext-win/Cargo.toml` (Windows only; see [`shell-ext-win/README.md`](./shell-ext-win/README.md) for registering it by hand until the installer lands).
 
 ## Documentation
 
@@ -87,22 +99,25 @@ All documentation lives under [`docs/`](./docs/README.md). Recommended starting 
 
 ## Stack
 
-| Layer                        | Technology                                                |
-| ---------------------------- | --------------------------------------------------------- |
-| Application framework        | [Tauri 2](https://tauri.app)                              |
-| Backend                      | Rust                                                      |
-| Frontend                     | React + TypeScript + Vite + Tailwind CSS                  |
-| Print engine (Win)           | [SumatraPDF](https://www.sumatrapdfreader.org/) (CLI)     |
-| Print engine (macOS, future) | CUPS (`lpr`)                                              |
-| Office conversion            | [LibreOffice](https://www.libreoffice.org/) (headless)    |
-| HTML conversion              | Chromium (headless)                                       |
-| Markdown conversion          | [Pandoc](https://pandoc.org/)                             |
-| Image preprocessing          | [ImageMagick](https://imagemagick.org/)                   |
-| Shell extension (Win)        | C++ COM DLL implementing `IExplorerCommand` + Sparse MSIX |
-| Installer (Win)              | [Inno Setup](https://jrsoftware.org/isinfo.php)           |
-| Auto-updater                 | Tauri Updater plugin                                      |
+| Layer                  | Technology                                                  | State                    |
+| ---------------------- | ----------------------------------------------------------- | ------------------------ |
+| Application framework  | [Tauri 2](https://tauri.app)                                | In use                   |
+| Backend                | Rust                                                        | In use                   |
+| Frontend               | React + TypeScript + Vite + Tailwind CSS                    | In use                   |
+| Print engine (Win)     | [SumatraPDF](https://www.sumatrapdfreader.org/) (CLI)       | In use                   |
+| Print engine (macOS)   | CUPS (`lp`)                                                 | In use                   |
+| Image → PDF            | Rust `image` + `lopdf` (no external binary)                 | In use                   |
+| Shell extension (Win)  | Rust COM DLL implementing `IExplorerCommand` + Sparse MSIX  | DLL in use; MSIX planned |
+| Finder integration     | `NSServices` provider inside the app (no separate `.appex`) | In use                   |
+| Update check           | `ureq` against the GitHub releases API                      | In use                   |
+| Office / ODF / RTF     | [LibreOffice](https://www.libreoffice.org/) (headless)      | M3                       |
+| HTML conversion        | Chromium (headless)                                         | M3                       |
+| Markdown conversion    | [Pandoc](https://pandoc.org/)                               | M3                       |
+| Image resampling       | [ImageMagick](https://imagemagick.org/)                     | M3                       |
+| Installer (Win)        | [Inno Setup](https://jrsoftware.org/isinfo.php)             | Planned                  |
+| Auto-updater (install) | Tauri Updater plugin                                        | M4                       |
 
-Justification in [tech-stack.md](./docs/04-architecture/tech-stack.md) and the [ADRs](./docs/adr/README.md).
+Rows marked M3/M4/Planned are decided but not yet wired; the app already detects LibreOffice, Chromium and Pandoc on the machine and reports them, but no adapter calls them yet. Justification in [tech-stack.md](./docs/04-architecture/tech-stack.md) and the [ADRs](./docs/adr/README.md).
 
 ## License
 

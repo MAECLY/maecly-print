@@ -1,8 +1,8 @@
 # Privacy Policy
 
-> **TL;DR.** MaeclyPrint does not collect telemetry, does not phone home, does not transmit your file contents, and does not have user accounts. The only network call we make by default is to check for updates against `updates.maecly.com`. An opt-in crash reporter exists for users who want to help us debug; it is off by default. Logs stay on your machine.
+> **TL;DR.** MaeclyPrint does not collect telemetry, does not phone home, does not transmit your file contents, and does not have user accounts. The only network call it makes by default is an update **check** against the public GitHub Releases API (`api.github.com`) — no download, no identifiers, no payload. **This version transmits nothing else at all: there is no crash reporter and no usage-metrics reporter in the shipped code**, opt-in or otherwise. Logs stay on your machine.
 
-This document describes what data MaeclyPrint collects, transmits, stores, and shares — which is nearly nothing. It is current as of **2026-05-03** and applies to all installed versions of MaeclyPrint on Windows and macOS.
+This document describes what data MaeclyPrint collects, transmits, stores, and shares — which is nearly nothing. It is current as of **2026-07-21** and applies to all installed versions of MaeclyPrint on Windows and macOS.
 
 ## Our principles
 
@@ -25,7 +25,7 @@ The list of things we explicitly do not do:
 - We do not transmit file contents anywhere, ever.
 - We do not transmit file names.
 - We do not transmit profile names or contents.
-- We do not collect crash data unless you opt in (see below).
+- We do not collect crash data. This version has no crash reporter at all (see below).
 - We do not have user accounts. There is no sign-in, no email collection.
 - We do not use cookies (the app is not a website; the webview only loads our local bundle).
 - We do not embed third-party tracking scripts in the app.
@@ -34,38 +34,32 @@ The list of things we explicitly do not do:
 
 ## Network calls we **do** make (by default)
 
-There is exactly one outbound network call MaeclyPrint makes by default:
+There is exactly one kind of outbound network call MaeclyPrint makes by default, and it goes to GitHub — **not** to any Maecly-operated server. MaeclyPrint does not run an update server; there is no `updates.maecly.com`.
 
 ### Update check
 
-- **Endpoint:** `https://updates.maecly.com/maeclyprint/<channel>.json` where `<channel>` is `stable`, `beta`, or `nightly`.
-- **Frequency:** every 24 hours after launch (and on demand if the user clicks "Check for updates").
-- **Request payload:** none. It's a plain HTTPS GET.
-- **Request headers:** standard HTTP headers including a `User-Agent` of the form `MaeclyPrint/<version> (<os>)` (e.g. `MaeclyPrint/1.2.3 (Windows NT 10.0)`). This is technically necessary for HTTP and does not contain personally identifying information.
-- **What our server does with the request:** serves a JSON manifest. It logs the request in standard CDN/web-server access logs (timestamp, source IP, user agent, requested URL, HTTP status). We do not link these logs to anything else, do not analyze them for marketing, and do not retain them beyond 30 days.
-- **What you can disable:** the periodic update check can be disabled in Settings → Updates. The on-demand button still works when needed.
+- **Endpoint:** `https://api.github.com/repos/<owner>/<repo>/releases/latest`, where `<owner>/<repo>` is this build's own repository, compiled into the binary. If that request returns `404`, one follow-up request to `https://api.github.com/repos/<owner>/<repo>` distinguishes "no releases yet" from "the repository URL in this build is wrong". Those are the only two URLs the app ever requests.
+- **Frequency:** at most once every 24 hours, and only 30 seconds after launch — never during startup. Plus on demand when you press "Check for updates" or run `maeclyprint update check`.
+- **Request payload:** none. It is a plain unauthenticated HTTPS GET. No account, no token, no install id.
+- **Request headers:** `User-Agent: MaeclyPrint/<version>`, plus GitHub's `Accept` and API-version headers. The user agent carries the app version and nothing else — no OS string, no identifiers.
+- **Proxy:** if `HTTPS_PROXY` / `HTTP_PROXY` (or their lowercase forms) are set in your environment, the request goes through that proxy. Nothing else about your environment is read.
+- **What is downloaded:** only the release metadata JSON — a tag name, a link to the release page, and the release notes. **No binary is ever downloaded and nothing is ever installed.** If a newer version exists, the app shows you a link; you install it yourself.
+- **What GitHub sees:** whatever any unauthenticated HTTPS request to `api.github.com` exposes — your IP address, the user agent above, and the requested URL. GitHub's privacy policy governs that; we operate no server in this path and therefore keep no logs of it.
+- **What you can disable:** the automatic check, via Settings → Updates (`[updater].check_on_startup`). The on-demand button still works when you want it.
 
-If you also choose to install an update, that triggers an additional download from a URL like `https://updates.maecly.com/maeclyprint/<version>/setup.exe` — same logging properties.
+### Things this version does **not** do over the network
 
-### What `updates.maecly.com` is hosted on
+- It does not download or install updates.
+- It does not fetch fonts, scripts, styles or images from any CDN — the webview loads only the bundled app, and the one font it uses ships inside the bundle.
+- It does not check for updates of external converters.
+- It does not contact printer manufacturers' cloud services.
+- It does not contact `maecly.com` on its own. The **About** screen and the "report an issue" button open links in your normal browser when *you* click them; that is your browser making the request, not the app, and only `github.com`, `maecly.com` and `*.maecly.com` over HTTPS are accepted as link targets.
 
-The endpoint is served by Cloudflare R2 with Cloudflare CDN. Cloudflare is processing the requests on our behalf. Cloudflare's privacy policy applies to that infrastructure layer. We do not pass any user-identifying data to them; they see only the standard HTTP request data described above.
+## Telemetry settings that record consent but send nothing
 
-## Optional features that involve network calls
+Settings → Privacy exposes two switches, `Send anonymized crash reports` and `Send anonymous usage metrics`. Both default to **off**, and in this version **both are inert**: the code that would transmit anything does not exist. There is no crash reporter, no Sentry integration, and no metrics ping in the shipped binary — the flags exist only so your choice survives restarts and a future build can honour it. This is stated in the code itself, on the `TelemetryCfg` type.
 
-These are **off by default** and require explicit user consent.
-
-### Opt-in crash reporter
-
-- **What it does:** if MaeclyPrint crashes, an anonymized crash report (stack trace, OS version, MaeclyPrint version, last few log lines with file paths redacted) is sent to a self-hosted Sentry instance.
-- **What is not collected:** file contents, file names, profile names, printer names, IP address (Sentry config strips IPs), user identifiers.
-- **What is collected:** stack trace (function names + line numbers from our own code), OS version string, MaeclyPrint version, the last 50 log lines from our `tracing` output (which never include file contents but may include error messages — we redact file paths automatically before sending).
-- **How to enable:** Settings → Privacy → Send anonymous crash reports. Off by default.
-- **How to disable:** the same setting. Disabling stops all crash reporting immediately.
-- **Where reports go:** a self-hosted Sentry instance under our control. Not Sentry's hosted SaaS.
-- **Retention:** crash reports retained for 90 days, then deleted.
-
-We may add other opt-in features in the future (e.g. usage stats, feature voting). They will all be:
+If either is ever wired up, it will be:
 
 - Off by default.
 - Clearly disclosed in this document.
@@ -76,14 +70,18 @@ We will **never** flip a default from off to on without a major version bump and
 
 ## Data we store on your machine
 
-Locally, the app maintains:
+These are the real file names and locations, as resolved by `src-tauri/src/util/paths.rs`. There is no `settings.toml`, no `profiles/` folder and no `update-cache/` — earlier drafts of this document named files that never existed.
 
 | Data | Location (Windows) | Location (macOS) | Contents |
 |---|---|---|---|
-| Logs | `%LOCALAPPDATA%\MaeclyPrint\logs\` | `~/Library/Logs/MaeclyPrint/` | JSON-lines tracing output. Includes file paths of jobs you've printed (we use these for debugging). Rotates daily, retained 30 days. |
-| Profiles | `%APPDATA%\MaeclyPrint\profiles\` | `~/Library/Application Support/MaeclyPrint/profiles/` | TOML files with your printer presets. |
-| Settings | `%APPDATA%\MaeclyPrint\settings.toml` | `~/Library/Application Support/MaeclyPrint/settings.toml` | Channel choice, language, opt-in flags. |
-| Update cache | `%LOCALAPPDATA%\MaeclyPrint\update-cache\` | `~/Library/Caches/MaeclyPrint/update/` | Temp files during update download. Auto-cleaned after install. |
+| Settings | `%APPDATA%\MaeclyPrint\config.toml` | `~/Library/Application Support/MaeclyPrint/config.toml` | Language, theme, engine limits, update channel, printer preferences, the two consent flags. |
+| Profiles | `%APPDATA%\MaeclyPrint\profiles.toml` | `~/Library/Application Support/MaeclyPrint/profiles.toml` | One TOML file holding the print presets **you** created. The three built-in presets live in code and are never written to disk. |
+| Print queue | `%LOCALAPPDATA%\MaeclyPrint\queue.json` | `~/Library/Application Support/MaeclyPrint/queue.json` | The live queue, so it survives a restart. Contains the **paths and names of files you queued**, their sizes and page counts. |
+| Update bookkeeping | `%LOCALAPPDATA%\MaeclyPrint\update-state.json` | `~/Library/Application Support/MaeclyPrint/update-state.json` | Two fields: when the last update check ran, and which version you chose to skip. |
+| Converted PDFs | `%LOCALAPPDATA%\MaeclyPrint\conversions\` | `~/Library/Caches/MaeclyPrint/conversions/` | Temporary PDFs produced while printing non-PDF files. Swept by the app; deleting them by hand is safe. |
+| Shell-extension handoff | `%LOCALAPPDATA%\MaeclyPrint\handoff\` | `~/Library/Application Support/MaeclyPrint/handoff/` | Short-lived JSON files listing the paths you right-clicked. Consumed immediately; leftovers are swept at the next launch. Kept under your own user directory rather than a shared temp folder so another user cannot read or plant one. |
+| Logs | `%LOCALAPPDATA%\MaeclyPrint\logs\maeclyprint-<date>.jsonl` | `~/Library/Logs/MaeclyPrint/maeclyprint-<date>.jsonl` | JSON-lines tracing output. **May include file paths** of jobs you printed. Rolls on a new UTC day or at 10 MB, whichever comes first; a startup sweep deletes anything older than 14 days and then keeps only the 7 newest files. |
+| Enterprise policy (read-only) | `%ProgramData%\MaeclyPrint\policy.json` | `/Library/Application Support/MaeclyPrint/policy.json` | Provisioned by an administrator; the app only ever reads it. |
 
 This data stays on your device. We never transmit it. You can inspect or delete any of it manually at any time. Uninstalling the app prompts you to delete this data; the default is to preserve it (in case you reinstall).
 
@@ -92,8 +90,8 @@ This data stays on your device. We never transmit it. You can inspect or delete 
 When MaeclyPrint prints a file:
 
 - The file is read from disk by MaeclyPrint.
-- It is passed to a print adapter (SumatraPDF, LibreOffice, etc.).
-- The adapter renders it.
+- If it is not already a PDF, it is converted to one — in this version, images are converted **inside MaeclyPrint itself** (no external tool involved); other formats are handed to a converter installed on your machine (LibreOffice, Chromium/Edge, Pandoc) as a normal subprocess running as you.
+- The resulting PDF is handed to the printing backend: SumatraPDF on Windows, the CUPS `lp` command on macOS/Linux.
 - The rendered output is sent to your printer (via the OS print spooler).
 
 At no point is the file content transmitted over the network. The print spooler may keep the rendered output in a temp folder briefly (this is OS behavior, not ours), then deletes it after the job completes.
@@ -102,24 +100,24 @@ For network printers: the rendered output is sent **to the printer**, over your 
 
 ## Children's privacy
 
-MaeclyPrint is a desktop utility for printing files. We do not knowingly collect data from children under 13 because we do not knowingly collect data from anyone. If you are a parent and have concerns about your child using MaeclyPrint, the answer is: there is no data flow that reaches us under default settings.
+MaeclyPrint is a desktop utility for printing files. We do not knowingly collect data from children under 13 because we do not knowingly collect data from anyone. If you are a parent and have concerns about your child using MaeclyPrint, the answer is: there is no data flow that reaches us at all.
 
 ## GDPR posture
 
 The General Data Protection Regulation (GDPR) governs the processing of personal data of individuals in the European Union. MaeclyPrint:
 
-- Does not process personal data under default settings, because we do not collect any.
+- Does not process personal data, because we do not collect any. We operate no server that MaeclyPrint contacts.
 - Does not require user accounts or identifiers.
 - Does not transfer personal data outside the EU because we don't have any to transfer.
 - Does not use personal data for profiling, automated decision-making, or marketing.
 
-If you opt in to crash reporting, the data sent (stack trace, OS version, app version, redacted log excerpts) is generally not personal data under GDPR (no name, no email, no IP), but in some interpretations a stack trace plus IP address could constitute pseudonymous data. We strip IPs in our Sentry config to remove this ambiguity.
+The one network call the app makes goes to GitHub, a third party we do not control and receive nothing from. GitHub is the data controller for its own access logs; its privacy policy applies. We hold no copy of them.
 
-If you have a GDPR data subject request and you've opted in to crash reporting, contact the email in `SECURITY.md`. Because we store crash reports without user identifiers, the most we can do is delete crash reports matching certain criteria (e.g. all reports from a specific OS version + app version + IP range). We will respond to legitimate requests within 30 days.
+If you have a GDPR data subject request, contact the email in `SECURITY.md`. In practice there is nothing for us to produce or erase, because we hold no data about you; we will say so in writing within 30 days.
 
 ## CCPA / state-level US privacy laws
 
-The California Consumer Privacy Act (CCPA) and similar state laws (Virginia VCDPA, Colorado CPA, Connecticut CTDPA, Utah UCPA) grant rights regarding personal information. Same posture as GDPR: under default settings we collect no personal information, so the rights to access, delete, opt out of sale, etc. all have nothing to act on. We do not sell data; we don't have data to sell.
+The California Consumer Privacy Act (CCPA) and similar state laws (Virginia VCDPA, Colorado CPA, Connecticut CTDPA, Utah UCPA) grant rights regarding personal information. Same posture as GDPR: we collect no personal information at all, so the rights to access, delete, opt out of sale, etc. all have nothing to act on. We do not sell data; we don't have data to sell.
 
 ## Third-party services
 
@@ -127,11 +125,11 @@ We use these services in the operation of the project. None of them receive user
 
 | Service | What for | Data they see |
 |---|---|---|
-| GitHub | Source hosting, CI/CD, releases | Source code, CI logs (no user data). When you download a release from GitHub Releases, GitHub sees the standard HTTP request including IP. |
-| Cloudflare R2 + CDN | Update manifest hosting, binary distribution | Standard HTTP request data when your app or browser fetches manifests/binaries. |
-| Sentry (self-hosted, optional) | Crash reports (opt-in only) | Sanitized crash reports if you opt in. |
+| GitHub | Source hosting, CI/CD, releases — **and the update check the app performs** | Source code, CI logs (no user data). For the update check and for any release you download, GitHub sees the standard HTTP request including your IP and the `MaeclyPrint/<version>` user agent. |
 | Apple (during macOS use) | Notarization checks (Gatekeeper phones home on first launch) | Apple sees the app bundle hash + your IP. This is OS behavior, not ours. Stapled tickets allow offline verification once notarized. |
 | Microsoft (during Windows use) | SmartScreen reputation lookup at install time | Microsoft sees the installer hash + your IP. This is OS behavior, not ours. |
+
+We do not operate a CDN, an update server, or a crash-report endpoint. Earlier drafts of this document listed Cloudflare R2 and a self-hosted Sentry instance; neither is used by the shipped app.
 
 We do **not** use Google Analytics, Facebook Pixel, ad networks, marketing platforms, or any other consumer-tracking services.
 
@@ -140,18 +138,15 @@ We do **not** use Google Analytics, Facebook Pixel, ad networks, marketing platf
 Although unrelated to privacy directly, security is the foundation of any privacy claim. Brief notes:
 
 - We sign all binaries (see [code-signing.md](../07-build-and-release/code-signing.md)) so you can verify they came from us, unmodified.
-- We sign updater payloads with Ed25519 (see [auto-update-flow.md](../07-build-and-release/auto-update-flow.md)) so updates can be verified offline.
+- The app never downloads or replaces its own code. Because there is no in-app updater, there is no updater payload to sign and no path by which a network response can become executable code on your machine — see [auto-updater.md](../04-architecture/auto-updater.md).
 - We disclose vulnerabilities responsibly per `SECURITY.md`.
 - We do not bundle remote-code-execution tools or scripting engines that would let an update silently change app behavior beyond what the new version does.
 
 ## Logging on our infrastructure
 
-For our website (`maecly.com`) and update endpoint (`updates.maecly.com`):
+MaeclyPrint contacts no server we operate, so there is no application traffic for us to log. Any web-server logging that applies to the project website (`maecly.com`) is a property of that website and not of the app; the app never requests it.
 
-- Cloudflare keeps standard access logs (timestamp, source IP, user agent, requested URL, HTTP status, response time, country code derived from IP).
-- These logs are retained for **30 days** and used only for security monitoring (DDoS detection, anomalous traffic patterns) and basic operational debugging.
-- We do not analyze these logs for marketing, audience profiling, or product analytics.
-- We do not share these logs with third parties (other than Cloudflare itself, which is the host).
+Release downloads and the update check are served by GitHub, whose logging practices are governed by GitHub's own privacy policy. We have no access to per-request logs for them.
 
 ## Children and accessibility
 
@@ -181,6 +176,7 @@ For privacy questions or concerns:
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.1 | 2026-07-21 | Corrected to match the shipped code: the update check targets `api.github.com`, not `updates.maecly.com`; removed the description of a crash reporter and a metrics ping that do not exist (the consent flags are inert); replaced the local-storage table with the real file names and paths; removed Cloudflare and Sentry from third-party services. |
 | 1.0 | 2026-05-03 | Initial policy. |
 
 ## See also

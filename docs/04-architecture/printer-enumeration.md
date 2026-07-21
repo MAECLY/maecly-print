@@ -48,7 +48,7 @@ Values may be single-quoted (spaces) or bare (empty); `printer-state` is `3=idle
 | Trays | `DC_BINNAMES` (24-WCHAR entries) |
 | Max DPI | `DC_ENUMRESOLUTIONS` (LONG x,y pairs) |
 
-**`windows` crate gotchas (0.58), discovered via `cargo check --target x86_64-pc-windows-msvc`:** `DeviceCapabilitiesW` and the `DC_*` constants live under `Win32::Storage::Xps` (not `Gdi`); `PRINTER_INFO_2W` needs the `Win32_Security` **and** `Win32_Graphics_Gdi` features; `PRINTER_STATUS_*` / `PRINTER_ATTRIBUTE_*` are plain `u32`; `GetDefaultPrinterW` returns `BOOL`. **Toner/supply levels are not exposed by Win32** (they require SNMP/WMI/IPP) and are left empty in M1. Network discovery (WSD/mDNS) returns empty for now.
+**`windows` crate gotchas (0.58), discovered via `cargo check --target x86_64-pc-windows-msvc`:** `DeviceCapabilitiesW` and the `DC_*` constants live under `Win32::Storage::Xps` (not `Gdi`); `PRINTER_INFO_2W` needs the `Win32_Security` **and** `Win32_Graphics_Gdi` features; `PRINTER_STATUS_*` / `PRINTER_ATTRIBUTE_*` are plain `u32`; `GetDefaultPrinterW` returns `BOOL`. **Toner/supply levels are not exposed by Win32** (they require SNMP/WMI/IPP) and are left empty. Network **discovery** (WSD/mDNS) still returns an empty list on Windows — `platform::windows::discover_printers` is an explicit `Ok(Vec::new())`, not a stub that fails.
 
 ## Cross-platform capability matrix
 
@@ -66,7 +66,9 @@ This is the user-visible reason fields can be missing: **we depend on the system
 
 ## Data shape
 
-Rust `Printer` (snake_case, `src-tauri/src/ipc/printers.rs`) → UI `UiPrinter` (camelCase) is mapped in `src/lib/ipc.ts` (`toUiPrinter`). Key renames: `kind→type`, `is_default→isDefault`, `connection→conn`, `queued_jobs→queue`, `supplies→levels`. This extends the documented `PrinterInfo` (the spooler-reliable subset) with the capability fields.
+Rust `Printer` (snake_case, `src-tauri/src/ipc/printers.rs`) → UI `UiPrinter` (camelCase) is mapped in `src/lib/ipc.ts` (`toUiPrinter`). Key renames: `kind→type`, `is_default→isDefault`, `connection→conn`, `queued_jobs→queue`, `supplies→levels`.
+
+`Printer` is the **only** printer shape on the wire. There is no `PrinterInfo` type — earlier drafts described `Printer` as "extending" a spooler-reliable `PrinterInfo` subset, and no such type exists in the code or in `src/ipc/bindings.ts`. Likewise `PrinterStatus` has exactly **four** variants — `ready` | `offline` | `error` | `busy` — not the seven-value set (`paused`, `out_of_paper`, `out_of_toner`, `jammed`, `needs_attention`) some documents still show; the per-platform status bitmaps are normalized down to those four. The full field list is in [ipc-and-cli.md §2.2](./ipc-and-cli.md#22-type-definitions).
 
 ## Testing
 
@@ -78,19 +80,28 @@ Rust `Printer` (snake_case, `src-tauri/src/ipc/printers.rs`) → UI `UiPrinter` 
 
 ## Add-printer & discovery — status
 
-| Capability | macOS | Windows |
+| Capability | macOS / Linux | Windows |
 | --- | --- | --- |
 | Enumerate installed | ✅ | ✅ |
-| Network discovery (scan) | ✅ `ippfind` (mDNS/Bonjour) | ⛔ WSD/mDNS deferred |
-| Add by IP / from system / mutate spooler | ⛔ `lpadmin` deferred | ⛔ `AddPrinter` deferred |
+| Set OS default | ✅ `lpoptions -d` | ✅ `SetDefaultPrinterW` |
+| Print test page | ✅ branded PDF via `lp` | ✅ `printui.dll` |
+| Open the OS printers pane | ✅ | ✅ |
+| Network discovery (scan) | ✅ `ippfind` (mDNS/Bonjour) | ⛔ WSD/mDNS still deferred — returns an empty list |
+| **Add a printer (mutates the spooler)** | ✅ **implemented** — `lpadmin` | ✅ **implemented** — PowerShell, IPP/IPPS only |
 
-The actual system-mutating *add* (privileged) is intentionally out of scope this pass; the UI's add flows are wired but the commit step is a documented follow-up.
+**Add is shipped, not deferred.** `ipc::printers::add_printer` is wired end to end; the earlier "the commit step is a documented follow-up" note is stale.
+
+- **macOS / Linux** (`platform::cups::add_printer`): the display name is sanitized into a legal CUPS queue id — spaces, `/` and `#` become `_`, the result is capped at 127 characters and falls back to `"printer"` if it sanitizes to nothing — then de-duplicated against the existing queue names. `lpadmin` is invoked with that queue id, the URI, and the user's original text kept as the description. The spooler's own stderr is surfaced verbatim on failure.
+- **Windows** (`platform::windows::add_printer`): only `ipp://` and `ipps://` URIs are accepted; anything else is refused up front with "must be added via system settings". A port is derived from the URI and a PowerShell 5.1 one-liner creates the port and the printer against the Microsoft IPP Class Driver, run with `CREATE_NO_WINDOW`. An access-denied outcome is detected **by HRESULT `0x80070005`** as well as by message text — because that text is localized on non-English Windows — and is turned into actionable guidance ("may require administrator rights; use Open printer settings") rather than a retry, since creating the port needs the same rights.
+
+Elevation is never requested by the app itself; a machine that requires admin to add a port gets the guidance message instead.
 
 ## Open questions for v1+
 
 - Cache driver capabilities (slow network drivers) — for how long, invalidated how?
 - Supply-level polling cadence — on focus, on demand, or a background interval?
 - Windows supply levels — adopt SNMP or IPP (for IPP-Everywhere printers) as a best-effort source?
-- Should the mutating add land behind an explicit "Manage printers" elevation prompt?
+- Windows network discovery — WSD, mDNS, or both?
+- Should `add_printer` on Windows keep shelling out to PowerShell, or move to `AddPrinter`/`AddPortEx` through the `windows` crate?
 
 These are tracked as design discussions, not commitments.

@@ -1,39 +1,45 @@
 # Print Settings
 
-> **TL;DR** — Every printing setting MaeclyPrint exposes, mapped to the underlying engine flag (SumatraPDF for Windows, CUPS `lpr -o` for macOS), with default value, MVP/v1/future status, and driver-dependency notes.
+> **TL;DR** — Every printing setting MaeclyPrint exposes, mapped to the underlying engine flag (SumatraPDF on Windows, CUPS **`lp -o`** on macOS/Linux), with default value, implementation status, and driver-dependency notes. Eight settings reach the spooler today; two more (`quality`, `tray`) are stored in profiles but **never rendered to a flag**; the rest are unimplemented.
 
-A print setting is anything that can be different per job: the printer, paper, duplex, color, copies, range, etc. Some settings are universally supported by the OS spooler; others depend on the specific printer driver; a few we synthesize via PDF preprocessing.
+A print setting is anything that can be different per job: the printer, paper, duplex, color, copies, range, etc. Some settings are universally supported by the OS spooler; others depend on the specific printer driver; a few would have to be synthesized via PDF preprocessing.
 
 ## Quick reference table
 
-| Setting | Type | Default | SumatraPDF (Win) | CUPS (macOS) | MVP | v1 | Driver-dependent? |
-|---|---|---|---|---|---|---|---|
-| `printer` | string | system default | `-print-to "<name>"` | `-P <name>` | ✓ | — | no |
-| `duplex` | enum: none / long / short | none | `-print-settings duplex` | `-o sides=two-sided-long-edge \| short-edge` | ✓ | — | yes (printer must support) |
-| `color_mode` | enum: color / monochrome | color | `-print-settings color \| monochrome` | `-o ColorModel=CMYK \| Gray` | ✓ | — | yes |
-| `copies` | int ≥ 1 | 1 | `-print-settings copies=N` | `-o copies=N` | ✓ | — | no |
-| `page_ranges` | string `1-5,10` | all | `-print-settings <range>` | `-o page-ranges=1-5,10` | ✓ | — | no |
-| `paper_size` | enum: A4 / Letter / Legal / A3 | A4 | `-print-settings paper=A4` | `-o media=A4` | ✓ | — | yes |
-| `paper_size_custom` | width × height (mm) | — | not supported (use preprocessing) | `-o media=Custom.WxHmm` | ✗ | ✓ | yes |
-| `orientation` | enum: portrait / landscape / auto | auto | `-print-settings landscape` | `-o landscape` | ✓ | — | no |
-| `scaling` | enum: fit / shrink / none | fit | `-print-settings fit \| shrink` | `-o fit-to-page` | ✓ | — | no |
-| `tray` | int (bin id) | driver default | `-print-settings bin=N` | `-o InputSlot=Tray2` | ✗ | ✓ | yes |
-| `n_up` | enum: 1 / 2 / 4 / 6 / 9 | 1 | not supported (use `qpdf`/`pdfjam` preprocessing) | `-o number-up=N` | ✗ | ✓ | yes |
-| `collate` | bool | true | implicit (depends on copies handling) | `-o Collate=true` | ✗ | ✓ | yes |
-| `quality` | enum: draft / normal / high | normal | (driver default) | `-o print-quality=3 \| 4 \| 5` | ✗ | ✓ | yes |
-| `margins` | object (top/right/bottom/left in mm) | driver default | not supported (preprocess with `qpdf`) | not directly | ✗ | ✗ | partial |
-| `watermark` | object (text/image, opacity, position) | none | preprocess with watermark step | preprocess | ✗ | ✓ | no (synthesized) |
-| `separator_pages` | bool | false | preprocess (concatenate dividers) | preprocess | ✗ | ✓ | no (synthesized) |
+`JobSettings` (`src-tauri/src/queue/job.rs`) is the authoritative struct: `printer`, `duplex`, `color_mode`, `copies`, `paper_size`, `orientation`, `scaling`, `page_ranges`. Anything not in it does not reach the engine.
 
-✓ = supported in this milestone, ✗ = not yet, — = already in earlier milestone.
+| Setting | Type | Default | SumatraPDF (Win) | CUPS `lp` (macOS) | Status | Driver-dependent? |
+|---|---|---|---|---|---|---|
+| `printer` | string | system default | `-print-to "<name>"` | `-d <name>` | **Shipped** | no |
+| `duplex` | enum: none / long / short | **none** | `simplex` / `duplex` / `duplexshort` | `-o sides=one-sided \| two-sided-long-edge \| two-sided-short-edge` | **Shipped** | yes (printer must support) |
+| `color_mode` | enum: color / monochrome | color | `color` / `monochrome` | `-o ColorModel=Gray` for mono; **colour omitted** (driver default) | **Shipped** | yes |
+| `copies` | int 1–999 | 1 | `copies=N` (only when N > 1) | `-n N` (only when N > 1) | **Shipped** | no |
+| `page_ranges` | string `1-5,10` | all | bare `1-5,10`, prepended, no key | `-o page-ranges=1-5,10` | **Shipped** | no |
+| `paper_size` | enum: A4 / Letter / Legal / A3 | A4 | `paper=A4` | `-o media=A4` | **Shipped** | yes |
+| `orientation` | enum: portrait / landscape / auto | auto | `landscape` / `portrait`; **auto emits nothing** | `-o landscape`; portrait and auto emit nothing | **Shipped** | no |
+| `scaling` | enum: fit / shrink / none | fit | `fit` / `shrink` / `noscale` | `-o fit-to-page` for fit **and** shrink; none emits nothing | **Shipped** | no |
+| `quality` | enum: draft / normal / high | normal | — | — | **Stored, never applied** | yes |
+| `tray` | string | driver default | — | — | **Stored, never applied** | yes |
+| `paper_size_custom` | width × height (mm) | — | would need preprocessing | `-o media=Custom.WxHmm` | Not implemented | yes |
+| `n_up` | enum: 1 / 2 / 4 / 6 / 9 | 1 | would need `qpdf`/`pdfjam` preprocessing | `-o number-up=N` | Not implemented | yes |
+| `collate` | bool | true | implicit | `-o Collate=true` | Not implemented | yes |
+| `margins` | object (mm) | driver default | would need preprocessing | not directly | Not implemented | partial |
+| `watermark` | object | none | would need a preprocessing step | same | Not implemented | no (synthesized) |
+| `separator_pages` | bool | false | would need concatenation | same | Not implemented | no (synthesized) |
+
+Three things in that table contradict earlier drafts and are worth stating plainly:
+
+- **`duplex` defaults to `none`, not to anything inherited.** `sides=` is emitted on every CUPS invocation precisely so an explicit "none" beats a driver default that duplexes.
+- **`quality` and `tray` are a trap.** They are real fields on `Profile` and `StoredProfile`, they round-trip through `profiles.toml`, and the UI can set them — but they are not on `JobSettings` and no renderer reads them. Setting them changes nothing about the printed output. Either wire them or remove them; documenting them as working would be the worst of the three options.
+- **CUPS cannot distinguish `fit` from `shrink`.** It has a single `fit-to-page` toggle, so both map to it. Only SumatraPDF honours the distinction (`fit` vs `shrink`).
 
 ## Setting details
 
 ### `printer`
 
-The destination printer. Special value `"<default>"` resolves to the OS default printer at print time. Use `maeclyprint printers list` to enumerate available printers.
+The destination printer. On a profile, the sentinel `"<default>"` defers to the app printer and then the OS default at print time; on `JobSettings` the same meaning is carried by `printer: None`. Use `maeclyprint printers list` to enumerate available printers.
 
-**Behavior on missing printer.** If a profile names a printer that no longer exists (e.g., user uninstalled it), the job is paused, not failed, and the user is prompted to choose a replacement.
+**Behavior on missing printer.** Not specially handled. A profile naming a printer that no longer exists (uninstalled, renamed) produces a job that fails at the spooler with `EngineError::PrintFailed`. A "pause and prompt for a replacement" flow is desirable — `JobState::Paused` exists and the state machine already permits `Printing → Paused` — but nothing implements it.
 
 ### `duplex`
 
@@ -43,7 +49,7 @@ The destination printer. Special value `"<default>"` resolves to the OS default 
 | `long` (long-edge) | Duplex flip on long edge — typical for portrait documents. |
 | `short` (short-edge) | Duplex flip on short edge — typical for landscape or notepad-style. |
 
-If the printer does not support duplex, the job MUST fail explicitly with `DuplexNotSupported` rather than silently fall back to single-sided.
+If the printer does not support duplex, the job fails explicitly with `EngineError::UnsupportedSetting { setting: "duplex", printer }` rather than silently falling back to single-sided. (The error is the generic `UnsupportedSetting`, not a dedicated `DuplexNotSupported` variant — duplex is simply the only setting that currently reaches it.)
 
 ### `color_mode`
 
@@ -52,11 +58,13 @@ If the printer does not support duplex, the job MUST fail explicitly with `Duple
 | `color` | Print in color (or color-emulated grayscale on B&W printers). |
 | `monochrome` | Force grayscale; saves ink/toner. |
 
-For mixed jobs (some pages color, some B&W), use `auto` (v1.0+) which lets the driver decide.
+There is no `auto` value. On CUPS, `color` emits no flag at all — the driver's own default is the colour path — and only `monochrome` forces `ColorModel=Gray`.
 
 ### `copies` and `collate`
 
-`copies` sets the number of copies of the **whole job**. When `copies > 1`:
+`copies` is validated as `1..=999` by `JobSettings::validate` and sets the number of copies of the **whole job**. It is only emitted when greater than 1 (`copies=N` for SumatraPDF, `-n N` for `lp`).
+
+`collate` is **not implemented** — there is no such field, and neither renderer emits a collation flag. What follows describes the intended semantics:
 
 - `collate = true` (default): full document repeated. (1,2,3 / 1,2,3)
 - `collate = false`: each page repeated. (1,1 / 2,2 / 3,3)
@@ -65,13 +73,13 @@ Most modern printers handle collation in firmware. The application sets the flag
 
 ### `page_ranges`
 
-A comma-separated range string: `"1-5,10,20-25"`. Whitespace ignored. Negative numbers count from the end (`-1` = last page) — supported in v1.
+A comma-separated range string: `"1-5,10,20-25"`. Whitespace is stripped before the string reaches SumatraPDF. Negative "count from the end" indices are **not** supported.
 
-Validation: ranges must be positive, ascending within a span, and within document bounds. Invalid ranges fail at validation time, not at print time.
+Validation is split deliberately. `JobSettings::validate` owns only what that layer can know — it rejects an empty range string so the UI can show an inline error early (FR-042). The range *grammar* is parsed by `engine::pagerange`, which owns it. Document-bounds checking happens at neither layer today: a range past the last page is passed to the spooler.
 
 ### `paper_size` and `paper_size_custom`
 
-MVP supports the four common sizes (A4, Letter, Legal, A3). v1 adds custom sizes (width × height in millimeters). Custom sizes only work on macOS in v1; Windows requires more involved preprocessing and is deferred to v2.
+Four sizes are supported: A4 (default), Letter, Legal, A3. Custom sizes are **not implemented** on either platform; when they are, CUPS can express them (`-o media=Custom.WxHmm`) and Windows will need preprocessing.
 
 If the printer's tray does not have the requested paper, behavior is driver-dependent (most prompt the user at the device).
 
@@ -93,15 +101,21 @@ If the printer's tray does not have the requested paper, behavior is driver-depe
 
 ### `tray`
 
-Integer index of the printer's input bin. The list of available trays is queried from the driver. Most users leave this at default; useful for offices with letterhead in tray 2, plain paper in tray 1.
+> **Stored but inert.** `tray` is a `String` field on `Profile`/`StoredProfile` that persists in `profiles.toml`, but it is not part of `JobSettings` and neither renderer emits a tray flag. Changing it has no effect on printed output.
+
+Intended: an identifier for the printer's input bin, queried from the driver — useful for offices with letterhead in tray 2 and plain paper in tray 1.
 
 ### `n_up` (pages-per-sheet)
 
+> **Not implemented.**
+
 Sheets are subdivided into a 1×1, 1×2, 2×2, 2×3, or 3×3 grid. Sheet count = ceil(pages / n).
 
-CUPS implements n-up natively (`number-up`). On Windows, SumatraPDF does not; we implement it by pre-processing the PDF with [`pdfjam`](https://github.com/rrthomas/pdfjam) (a Perl wrapper for `pdfpages`) or `qpdf` and then printing the result. This adds a few seconds and one temp file per job.
+CUPS implements n-up natively (`number-up`); nothing emits that flag today. On Windows, SumatraPDF does not support it at all, so it would have to be implemented by pre-processing the PDF with [`pdfjam`](https://github.com/rrthomas/pdfjam) (a Perl wrapper for `pdfpages`) or `qpdf` and then printing the result. This adds a few seconds and one temp file per job.
 
 ### `quality`
+
+> **Stored but inert.** Same situation as `tray`: a `Quality` enum (`Draft`/`Normal`/`High`, defaulting to `Normal`) on the profile, absent from `JobSettings`, never rendered.
 
 | Value | DPI hint |
 |---|---|
@@ -113,11 +127,15 @@ The actual DPI is the printer's choice; we pass a hint via the spooler.
 
 ### `margins`
 
+> **Not implemented.**
+
 Margin overrides (top/right/bottom/left in mm). Implemented by preprocessing the PDF: rendering each page onto a new page with the desired margins. Lossless if margins are larger than the original; centered if smaller.
 
 This is **deferred to v2** because it interacts poorly with `scaling=fit` and `n_up`. Most users want the document's intrinsic margins.
 
 ### `watermark`
+
+> **Not implemented.** There is no `[profile.watermark]` table in `profiles.toml`; the schema below is a proposal.
 
 A textual or image overlay on every printed page. Configured per-profile.
 
@@ -135,6 +153,8 @@ Implemented by preprocessing with `qpdf` overlay. Image watermarks accept PNG wi
 
 ### `separator_pages`
 
+> **Not implemented.**
+
 When printing N files in one job, insert a divider page between each file. The divider shows the next file's name and page count.
 
 Implemented by generating a small PDF on the fly and concatenating into the job stream.
@@ -144,28 +164,32 @@ Implemented by generating a small PDF on the fly and concatenating into the job 
 Pseudocode for the resolution chain:
 
 ```
-final_settings = merge(
-    OS_defaults,
-    profile.settings,
-    cli_overrides_or_gui_overrides,
-    per_file_overrides   // future
-)
-validate(final_settings)
-flag_string = render_for_engine(final_settings, target_engine)
-spawn(engine, ..flag_string)
+JobSettings  =  profile defaults, overridden by CLI/GUI flags
+                ↓
+JobSettings::validate      // copies in 1..=999, page_ranges non-empty
+                ↓
+engine::print::check_supported(settings, printer, duplex_supported, color_supported)
+                ↓
+sumatra::print_settings_string(settings)   |   cups::lp_opts(settings)
+                ↓
+spool(...)                                 // the only step that spawns anything
 ```
 
-The `render_for_engine` step is the only place that knows about engine-specific flag syntax. Adding a new engine means adding one renderer module, not touching the rest of the system.
+There are no "OS defaults" and no per-file overrides. The rendering step is the only place that knows engine-specific flag syntax, and it is split into two pure functions — `sumatra::print_settings_string` and `cups::lp_opts` — that the UI's command preview calls with the same arguments the spooler will, so the preview cannot drift from what actually runs. Adding a new engine means adding one such function.
 
 ## Driver dependencies
 
-Some settings (duplex, color, tray, paper sizes beyond standard) only work if the printer's driver supports them. The application:
+The rule, implemented in `engine::print::check_supported`, is narrower than earlier drafts claimed, and deliberately so:
 
-1. Queries driver capabilities at print time via OS APIs.
-2. If a profile requests an unsupported setting, the job pauses with `UnsupportedSetting { setting, printer }`.
-3. The user is prompted to override or skip the setting.
+**We hard-fail only where the failure would be invisible.**
 
-This is more honest than silently falling back. Users who want silent fallback can opt in via `--strict=false`.
+1. The dispatcher reads driver capabilities from printer enumeration and passes them in (`check_supported` itself is pure, so it is trivially testable).
+2. **Duplex is gated.** A driver that cannot duplex silently prints single-sided, and the user discovers it at the paper tray. A duplex request against a non-duplex printer therefore fails with `EngineError::UnsupportedSetting { setting, printer }`.
+3. **Colour is deliberately not gated.** A colour job on a mono printer prints in grey — visible, expected, and not worth blocking. `color_supported` is accepted without complaint.
+
+Nothing else is gated, because nothing else is rendered to a flag (see the *Stored, never applied* rows above).
+
+There is no `--strict=false` flag and no "prompt to override or skip" flow; a gated setting fails the job.
 
 ## Per-engine flag matrices
 
@@ -173,40 +197,51 @@ Quick reference for developers writing the renderer:
 
 ### SumatraPDF `-print-settings` syntax
 
-Comma-separated keywords inside one quoted string:
+Comma-separated keywords inside one quoted string. SumatraPDF is order-independent, but `print_settings_string` emits a **fixed order** so the preview shown in the UI is stable and the output is testable:
 
 ```
-"duplex,monochrome,fit,paper=A4,copies=2,1-5"
+page ranges, duplex, colour, scaling, paper, copies, orientation
 ```
 
-| Setting | Token |
-|---|---|
-| Duplex | `duplex` (long-edge) or `duplexshort` |
-| Color | `color` |
-| Monochrome | `monochrome` |
-| Fit | `fit` |
-| Shrink | `shrink` |
-| Paper size | `paper=A4` (also `Letter`, `Legal`, `A3`) |
-| Copies | `copies=N` |
-| Tray (bin) | `bin=N` |
-| Orientation | `landscape` or `portrait` |
-| Page range | `1-5,10` (loose, no key) |
+giving, for example:
 
-### CUPS `lpr -o` flags
+```
+"1-5,duplex,monochrome,fit,paper=A4,copies=2,landscape"
+```
 
-| Setting | Flag |
+Full argument vector: `-print-to <printer> -print-settings <string> -silent -exit-when-done <pdf>`.
+
+| Setting | Token emitted |
 |---|---|
-| Sides (duplex) | `-o sides=one-sided \| two-sided-long-edge \| two-sided-short-edge` |
-| Paper | `-o media=A4 \| Letter \| Legal \| A3` |
-| N-up | `-o number-up=N` |
-| Landscape | `-o landscape` |
-| Fit-to-page | `-o fit-to-page` |
-| Copies | `-o copies=N` |
+| Page range | `1-5,10` — bare, no key, whitespace stripped, **first** |
+| Duplex none / long / short | `simplex` / `duplex` / `duplexshort` — always emitted |
+| Colour / monochrome | `color` / `monochrome` — always emitted |
+| Scaling fit / shrink / none | `fit` / `shrink` / `noscale` — always emitted |
+| Paper size | `paper=A4` (also `Letter`, `Legal`, `A3`) — always emitted |
+| Copies | `copies=N`, **only when N > 1** |
+| Orientation | `landscape` / `portrait`; `auto` emits nothing |
+| Tray (bin) | *not emitted* — `bin=N` exists in SumatraPDF but no renderer produces it |
+
+`simplex` and `noscale` are worth noting: the "none" cases are stated explicitly rather than omitted, so every setting the user chose is represented in the string.
+
+### CUPS `lp -o` flags
+
+The command is **`lp`**, not `lpr`. Vector: `lp -d <printer> -t <title> <opts…> <pdf>`.
+
+| Setting | Flag emitted |
+|---|---|
+| Printer | `-d <name>` |
+| Title | `-t <title>` |
+| Sides (duplex) | `-o sides=one-sided \| two-sided-long-edge \| two-sided-short-edge` — always emitted |
+| Paper | `-o media=A4 \| Letter \| Legal \| A3` — always emitted |
+| Monochrome | `-o ColorModel=Gray`; **colour emits nothing** (driver default) |
+| Copies | `-n N` — `lp`'s own flag, **not** `-o copies=N`; only when N > 1 |
+| Landscape | `-o landscape`; portrait and auto emit nothing |
+| Fit-to-page | `-o fit-to-page` for both `fit` and `shrink`; `none` emits nothing |
 | Page ranges | `-o page-ranges=1-5,10` |
-| Collate | `-o Collate=true \| false` |
-| Tray | `-o InputSlot=Tray2` |
-| Color model | `-o ColorModel=CMYK \| Gray` |
-| Quality | `-o print-quality=3 \| 4 \| 5` |
+| N-up / Collate / Tray / Quality | *not emitted* — CUPS supports `number-up`, `Collate`, `InputSlot` and `print-quality`, but no renderer produces them |
+
+`sides` and `media` are always emitted so an explicit user choice wins over any driver default.
 
 ## Settings that we deliberately do not expose
 
@@ -220,6 +255,13 @@ Comma-separated keywords inside one quoted string:
 
 ## Round-tripping settings
 
-A profile's settings are serialized as TOML, validated, and rendered to engine flags at print time. There is no information loss between TOML and engine flags for any MVP setting.
+A profile's settings are serialized as `[[profile]]` entries in `profiles.toml`, validated, and rendered to engine flags at print time.
 
-A v1 feature is "Save current job settings as profile" which captures the user's overrides into a new profile.
+**There is information loss**, in two specific places, and it is worth being precise about it:
+
+- `quality` and `tray` round-trip through TOML perfectly and are then dropped: they are not on `JobSettings`, so they never reach a renderer.
+- `scaling` loses the `fit`/`shrink` distinction on CUPS, which has only `fit-to-page`.
+
+For the eight settings that do reach a renderer on SumatraPDF, the mapping is lossless.
+
+"Save current job settings as profile" is not implemented.

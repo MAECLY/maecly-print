@@ -6,16 +6,18 @@ This document is the source of truth for what each milestone contains. Anything 
 
 ## Overview
 
-| Milestone | Theme | Public version | Status (2026-07-12) |
+| Milestone | Theme | Public version | Status (2026-07-20) |
 |---|---|---|---|
 | M0 | Foundation | `0.0.1` (repo only) | Done |
-| M1 | Print Core (Win) | `0.1.0-alpha` (internal) | In progress |
-| M2 | Shell Integration (Win) | `0.1.0-beta` (public) | Planned |
+| M1 | Print Core (Win) | `0.1.0-alpha` (internal) | In progress — scope delivered, exit criteria unverified |
+| M2 | Shell Integration (Win) | `0.1.0-beta` (public) | In progress — handlers built, packaging not started |
 | M3 | Multi-format (Win) | `0.2.0` | Planned |
-| M4 | Auto-update + Polish (Win) | `1.0.0` GA | Planned |
-| M5 | macOS Port | `1.1.0` | Planned |
+| M4 | Auto-update + Polish (Win) | `1.0.0` GA | Planned (i18n pulled forward into M1) |
+| M5 | macOS Port | `1.1.0` | Planned (printing + Finder entry pulled forward) |
 
 Milestones are strictly sequential. We do not start M(n+1) work until M(n) exit criteria are met. Spillover items roll forward and reduce the next milestone's headroom.
+
+**That rule has been bent.** M2's shell handlers were written before M1 was signed off, and pieces of M4 (i18n) and M5 (CUPS printing, the Finder entry) landed alongside them. Each milestone's status block below says what is actually done rather than what the sequence implies. The overlap is real and is worth an explicit decision: either re-cut the milestone boundaries around what shipped, or accept that M1–M2 have merged into one release.
 
 ---
 
@@ -66,7 +68,31 @@ None. M0 is the bootstrap.
 
 **Goal:** Printing works from a CLI on Windows for PDF inputs, with a profiles system and a minimal GUI.
 
-### Status (2026-07-12) — in progress
+### Status (2026-07-20) — in progress
+
+**Delivered since the 2026-07-12 entry below:**
+
+- The **headless CLI** — the largest item that was open. `maeclyprint print|printers|profiles|queue|update` parsed with `clap`, `--help` on every subcommand, `--json` output with errors as JSON on stderr, and the documented exit-code table (FR-008/009/010/112). A CLI run creates no window. `src-tauri/tests/cli_contract.rs` pins the surface.
+- **Single instance** (NFR-014): a second launch forwards its selection to the first through `tauri-plugin-single-instance` and exits; the running app raises its window and drains the pending selection.
+- **Folder selections** (FR-004/005/007/059): `inspect_files` classifies a path as a folder and reports whether it has subfolders, the screen asks recurse-or-top-level, and `expand_folders` walks it. Discarded files come back with a reason instead of vanishing.
+- **A dependency probe** (`engine::deps`, FR-058): LibreOffice / Chromium / Pandoc located across bundled dirs, `PATH` and the usual install locations, reported through `app_info` and surfaced on the Print Job screen for the dependencies that actually gate the user's files.
+- **A print timeout** and **log rotation with retention** (FR-034/035/113, NFR-012): the spooler child is waited on with a bound and killed and reaped on expiry.
+- **i18n, externalized** (FR-090/091/092/093/094): EN + ES catalogues per screen, OS-locale detection on first run, a Settings selector. This is M4 scope pulled forward.
+- **Profile import/export** (FR-024) over IPC and in the Profiles screen — v0.3 scope pulled forward. Not in the CLI.
+- **The startup update check** (FR-080) on a detached thread after a 30 s delay, with 24 h throttling, plus **defer / skip-this-version** (FR-084).
+- **App-wide keyboard shortcuts** (NFR-034) and in-app completion/failure toasts (FR-070/071).
+
+**Still open in M1 after this pass:**
+
+- **No installer** (`installers/` is empty) and **no bundled SumatraPDF** — `scripts/fetch-sumatrapdf.{ps1,sh}` fetch it for development only.
+- The update flow is still **check-only**, against the GitHub `releases/latest` API rather than `updates.maecly.com`. Signature verification (FR-082) and per-user install (FR-083) are M4. The channel selector is persisted but inert.
+- **No native OS notification** (FR-072) — `tauri-plugin-notification` is not a dependency, so toasts only exist while the window is open. No global notification mute either (FR-073).
+- The `tray` and `quality` profile fields persist and are editable but are **never sent to a print backend**.
+- The M1 **exit criteria** below are unverified: there is no integration test that prints a known-good PDF and diffs it against a fixture, and no `clippy::panic` gate in CI.
+
+---
+
+### Status (2026-07-12) — superseded by the entry above
 
 **Delivered:**
 
@@ -77,14 +103,9 @@ None. M0 is the bootstrap.
 - Settings / printer-preferences persistence and an org-managed default via `policy.json`.
 - An **About** surface with the read-only **update check** (GitHub `releases/latest`), honest component versions, filesystem paths + open-logs, and allow-listed external links.
 
-**Still open in M1:**
+Note: several scope lines below are framed Windows-first, but the enumeration/print backends are cross-platform and the CUPS path is exercised in CI.
 
-- The **CLI** (`maeclyprint print|queue|…`) is specified ([ipc-and-cli.md § 3](../04-architecture/ipc-and-cli.md#3-cli)) but not implemented — the binary runs the GUI only.
-- **SumatraPDF bundling** is deferred: the app locates an existing `SumatraPDF.exe`; a missing one is a `DependencyMissing` that pauses the job.
-- The update flow is **check-only**: it detects and links to a newer release but does not download or install — the in-app auto-updater is **M4**. Channel selection (beta/nightly) is persisted but not yet wired to separate feeds.
-- Note: several scope lines below are framed Windows-first, but the enumeration/print backends are cross-platform and the CUPS path is exercised in CI.
-
-Shell integration (the right-click menu) is **M2** and not yet started.
+*(The "still open" list that stood here — CLI unimplemented, shell integration not started — is obsolete. See the 2026-07-20 block above for the current one.)*
 
 ### Scope
 
@@ -130,9 +151,25 @@ Shell integration (the right-click menu) is **M2** and not yet started.
 
 **Goal:** Right-click in File Explorer on a selection of files surfaces a "Print all with MaeclyPrint" submenu that hands the selection to the running app (or starts it).
 
+### Status (2026-07-20) — in progress, started ahead of M1 sign-off
+
+**Delivered:**
+
+- The **Explorer handler** in `shell-ext-win/`: an in-process COM DLL implementing `IExplorerCommand` with a dynamic submenu (default-profile print, one row per profile, "Configure print job…", "Add to print queue"), a localized string cache, selection enumeration with no count limit (FR-003), a supported-extension filter, and a panic guard so a fault cannot take Explorer down with it. It is a **Rust** crate, not the C++ one this scope line assumed — deliberately, and deliberately outside the `src-tauri` workspace so that crate's `panic = "abort"` cannot neuter `catch_unwind`. Built, clippy-gated and tested in CI (`shell-ext-win/tests/`).
+- The **handoff contract**: the DLL writes the selection to a JSON file and launches `maeclyprint --invoke=context-menu --files-from <PATH> [--action …] [--profile …]`. This is a handoff file rather than the named pipe the scope line names, because argv on Windows is capped at 32,767 characters. Both ends are pinned by round-trip tests.
+- The **macOS counterpart**, pulled forward from M5: an `NSServices` declaration in `src-tauri/Info.plist` plus a provider in `platform/macos/services.rs`, so "Print with MaeclyPrint" appears in the Finder's Services submenu. No `.appex`, no App Group, no second signature — see the M5 note below.
+
+**Not started — this is what still blocks the `0.1.0-beta`:**
+
+- **Sparse MSIX.** `installers/windows/` contains only a `.gitkeep`. Without it the DLL has no package identity, so on a normal machine the entry never appears no matter how well the handler works.
+- **The Inno Setup installer** and the Win 10 registry fallback path.
+- Install/uninstall round-trip, reproducible builds, and the Shell Extension Best Practices audit in the exit criteria below — none of them have been run.
+- **The menu-label cache is never written.** The DLL reads `<data_local_dir>\shell-menu.json` for localized labels and the profile rows, and `shell-ext-win/README.md` says the app writes it whenever the profile list or the UI language changes. Nothing in `src-tauri` writes that file. Until it does, the submenu always falls back to built-in English with **no per-profile entries**, however many profiles the user has — so "Print with profile…" is effectively missing on a real machine.
+- The **Win 10 fallback** (`IShellExtInit` + `IContextMenu`) is not implemented and is documented as deliberately not registered. Windows 10 support is therefore an open decision, not a pending task.
+
 ### Scope
 
-- C++ COM DLL in `shell-ext-win/` implementing `IExplorerCommand` (Win 11) and `IShellExtInit` + `IContextMenu` (Win 10 fallback).
+- COM DLL in `shell-ext-win/` implementing `IExplorerCommand` (Win 11) and `IShellExtInit` + `IContextMenu` (Win 10 fallback). *Implemented in Rust; the Win 10 fallback is not implemented.*
 - Sparse MSIX package in `installers/windows/sparse-msix/` to grant DLL identity for `IExplorerCommand` registration on Win 11.
 - Inno Setup installer (`installers/windows/inno-setup.iss`) that:
   - Installs to `%LOCALAPPDATA%\Programs\MaeclyPrint`.
@@ -174,6 +211,12 @@ Shell integration (the right-click menu) is **M2** and not yet started.
 ## M3 — Multi-format (Win)
 
 **Goal:** Office documents, web pages, Markdown, and images print transparently through format-specific adapters.
+
+### Status (2026-07-20) — planned, with one line already delivered
+
+**Dependency detection is done** (`engine::deps`, FR-058): LibreOffice, Chromium and Pandoc are located across bundled directories, `PATH` and the usual per-OS install locations, reported through `app_info`, and surfaced with remediation text on the Print Job screen — but only for the dependencies that actually gate a file the user added. The always-on Settings panel in the M3 deliverables table is still owed. ImageMagick is not probed, because nothing uses it yet.
+
+No adapter exists. `SUPPORTED_EXTS` is `pdf, jpg, jpeg, png, tif, tiff, bmp, webp` and everything else is refused with a reason; HEIC/HEIF gets its own message. Note that the MVP image path is pure-Rust (`image` + `lopdf`), so `engine::image` here means *adding* ImageMagick resampling to a working converter, not building the first one.
 
 ### Scope
 
@@ -218,6 +261,12 @@ Shell integration (the right-click menu) is **M2** and not yet started.
 ## M4 — Auto-update + Polish (Win)
 
 **Goal:** A signed, reputation-bearing 1.0.0 that updates itself silently, supports English and Spanish, and is ready for general public consumption.
+
+### Status (2026-07-20) — planned, minus the i18n line
+
+The **i18n scope below is already delivered** (in M1): EN + ES catalogues externalized per screen, OS-locale detection on first run, a Settings selector. Two caveats against the scope text — it is a small in-house translator, not `react-i18next`, and there is no `fluent-rs`, so **backend strings are not translated**. `i18next-parser` is not in the toolchain either, so translation completeness is not machine-checked.
+
+Everything else in M4 is untouched: no download-verify-relaunch path, no updater plugin dependency, no manifest host, no EV certificate, no per-channel feeds, no `axe-core` gate.
 
 ### Scope
 
@@ -264,9 +313,18 @@ Shell integration (the right-click menu) is **M2** and not yet started.
 
 **Goal:** A notarized, signed macOS application with a Finder Sync Extension or Quick Action that mirrors the Windows shell integration UX.
 
+### Status (2026-07-20) — planned, but the two hardest technical questions are already answered
+
+Delivered early, alongside M1/M2:
+
+- **CUPS printing works.** `engine::print::cups` spools with `lp` and cancels with `cancel`, and `platform::cups` enumerates printers. It is exercised in CI on macOS runners, not merely written.
+- **The Finder entry works, and it is not a Finder Sync Extension.** The scope line below offered Finder Sync or a Quick Action; the implementation took a third route — an `NSServices` provider answered inside the app process (`src-tauri/Info.plist` + `platform/macos/services.rs`). No `.appex`, no App Group, no sandbox, no second code signature, nothing for the user to enable. **`shell-ext-mac/` contains a README and no Swift project.** The "evaluate Finder Sync vs Quick Action" spike in the scope below is therefore closed by a decision neither option won; the scope text should be rewritten to say `NSServices`, and the choice deserves an ADR since ADR-0005 covers only the Windows side.
+
+Untouched: `.pkg` / `.dmg` packaging, Developer ID signing, notarization, stapling, the universal binary, and adapter parity (which depends on M3 existing at all).
+
 ### Scope
 
-- New crate target: `printer::macos` using `lpr` / `lp` (CUPS) via `Command`.
+- New crate target: `printer::macos` using `lpr` / `lp` (CUPS) via `Command`. *Delivered as `engine::print::cups` + `platform::cups`, using `lp`.*
 - Adapter parity: LibreOffice (cask install), `cups-pdf` for HTML print, Pandoc, ImageMagick — all via Homebrew or bundled.
 - `shell-ext-mac/` Swift project: Finder Sync Extension targeting macOS 13+ (Apple Silicon and Intel via Universal binary).
 - Alternative path evaluated: macOS Quick Action (Automator-based) as fallback if Finder Sync Extension proves too constrained.

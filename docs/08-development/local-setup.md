@@ -10,71 +10,80 @@ This document is the developer onboarding checklist. Follow it once on a clean m
 
 | Tool | Version | Install via |
 |---|---|---|
-| Rust | stable (1.80+) | [rustup.rs](https://rustup.rs/) — accepts default options |
-| Node.js | 20 LTS | [nodejs.org](https://nodejs.org/) or `winget install OpenJS.NodeJS.LTS` |
-| pnpm | latest | `npm install -g pnpm` |
+| Rust | stable; `rust-version = "1.78"` is the crate's floor | [rustup.rs](https://rustup.rs/) — accepts default options |
+| Node.js | 20 LTS (`engines.node: ">=20"`) | [nodejs.org](https://nodejs.org/) or `winget install OpenJS.NodeJS.LTS` |
+| pnpm | 9.x (`packageManager: pnpm@9.15.0`) | `npm install -g pnpm` or `corepack enable` |
 | Visual Studio Build Tools 2022 | latest | [VS Build Tools download](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) |
 | Windows SDK | 10.0.22621 or newer | Bundled with VS Build Tools |
 | WebView2 Runtime | latest | Preinstalled on Win 11; for Win 10, [bootstrap installer](https://developer.microsoft.com/microsoft-edge/webview2/) |
 | Git | latest | [git-scm.com](https://git-scm.com/) or `winget install Git.Git` |
-| Inno Setup 6 | 6.x | [innosetup.com](https://jrsoftware.org/isinfo.php) — only needed for installer builds |
+
+You do **not** need Inno Setup. There is no `.iss` script in the repo; packaging currently goes through Tauri's own bundler (see [installer-windows.md](../07-build-and-release/installer-windows.md)).
 
 #### Visual Studio Build Tools components
 
-When installing VS Build Tools, select these workloads in the installer:
+When installing VS Build Tools, select:
 
-- **Desktop development with C++** (the workload)
-- Within that workload, ensure these individual components are checked:
+- **Desktop development with C++** (the workload) — needed for `link.exe`, which Rust's MSVC toolchain shells out to.
+- Within that workload:
   - MSVC v143 - VS 2022 C++ x64/x86 build tools
   - Windows 11 SDK (10.0.22621 or newer)
-  - C++ ATL for latest v143 build tools (x86 & x64)
-  - C++ ATL for latest v143 build tools with Spectre Mitigations (x86 & x64) — required for shell extension build
 
-Without ATL, the `shell-ext-win/` build will fail with cryptic linker errors.
+**ATL is not required.** Earlier drafts of this document listed the C++ ATL components as mandatory for the shell extension. That was written when `shell-ext-win/` was planned as a C++ project; it is a Rust `cdylib` built with the `windows` crate, which needs no ATL. Installing ATL is harmless but buys nothing.
 
-### macOS 13+ (M5+ work only)
+What the shell extension *does* need is `rc.exe` (the Windows Resource Compiler, part of the Windows SDK). Its `build.rs` embeds `res/shellext.rc`, which carries the side-by-side `<msix>` manifest without which Explorer silently never loads the DLL. Set `MAECLYPRINT_REQUIRE_RESOURCES=1` to turn a missing `rc.exe` into a build failure instead of a DLL that registers fine and is never invoked — this is what CI does.
+
+To cross-compile the ARM64 slice: `rustup target add aarch64-pc-windows-msvc`.
+
+### macOS 13+
+
+macOS is a fully supported development platform: the whole Rust suite, the whole Vitest suite, the CUPS backend and the portable half of the shell extension all build and run here. Only the WebdriverIO E2E lane is unavailable (WKWebView exposes no WebDriver endpoint).
 
 | Tool | Version | Install via |
 |---|---|---|
 | Rust | stable | [rustup.rs](https://rustup.rs/) |
 | Node.js | 20 LTS | [nodejs.org](https://nodejs.org/) or `brew install node@20` |
-| pnpm | latest | `npm install -g pnpm` |
-| Xcode | 15+ | [Mac App Store](https://apps.apple.com/us/app/xcode/id497799835) |
+| pnpm | 9.x | `npm install -g pnpm` or `corepack enable` |
 | Xcode Command Line Tools | latest | `xcode-select --install` |
+| Xcode | 15+ | Only if you need the full IDE; the CLT alone is enough to build |
 | Homebrew | latest | [brew.sh](https://brew.sh/) |
-| create-dmg | latest | `brew install create-dmg` |
-| LibreOffice | latest | `brew install --cask libreoffice` (optional, for end-to-end Office tests) |
+
+`create-dmg` is not needed — there is no `.dmg` build script in the repo yet. Neither is LibreOffice: no test shells out to it, because no converter uses it (see [supported-formats.md](../03-requirements/supported-formats.md)).
 
 ### Optional but recommended (both platforms)
 
 - **VS Code** with extensions: `rust-lang.rust-analyzer`, `tamasfe.even-better-toml`, `dbaeumer.vscode-eslint`, `esbenp.prettier-vscode`, `bradlc.vscode-tailwindcss`.
 - **JetBrains RustRover** as an alternative IDE if you prefer.
-- **DBeaver** or similar for inspecting SQLite (we may add a local SQLite store post-1.0).
+- **`cargo-llvm-cov`** (`cargo install cargo-llvm-cov --locked`) if you want to reproduce CI's Rust coverage gate locally.
 
 ## Initial setup
 
-```powershell
+```bash
 # Clone
-git clone https://github.com/<org>/maecly-print.git
+git clone https://github.com/MAECLY/maecly-print.git
 cd maecly-print
 
-# Install dependencies (frontend + Tauri CLI via package.json)
-pnpm install
-
-# First-time Rust setup: this will fetch and compile dependencies
-# (~5 minutes the first time, cached thereafter)
-cd src-tauri
-cargo build
-cd ..
+# Install everything (frontend deps + `cargo fetch`)
+make install
 ```
 
-On macOS the first two commands are identical. The third uses bash (`cd src-tauri && cargo build && cd ..`), which `pnpm install` doesn't trigger.
+`make install` is exactly `pnpm install` followed by `cargo fetch --manifest-path src-tauri/Cargo.toml`. Without make:
 
-After `pnpm install`, you should have:
+```bash
+pnpm install
+cargo build --manifest-path src-tauri/Cargo.toml   # ~5 min first time, cached after
+```
+
+Run `make doctor` to confirm node, pnpm, rustc, cargo and the Tauri CLI are all visible.
+
+After this you should have:
 
 - `node_modules/` populated.
 - `src-tauri/target/debug/maeclyprint(.exe)` built.
+- `src/ipc/bindings.ts` unchanged in `git status` — the debug build regenerates it, and a diff here means the committed copy was stale.
 - No errors from either step.
+
+> Note the `--manifest-path` form. `cd src-tauri && cargo build` also works, but every command in this repo (and in `ci.yml` and the `Makefile`) uses `--manifest-path` so it can be run from the repository root, and so it is unambiguous which of the two crates — `src-tauri/` or `shell-ext-win/` — is being addressed.
 
 If errors appear, see [Troubleshooting](#troubleshooting) below.
 
@@ -88,56 +97,70 @@ pnpm tauri dev
 
 This:
 
-1. Starts Vite dev server (frontend hot reload on port 1420).
+1. Starts the Vite dev server on **port 1421** (`server.port` in `vite.config.ts`, `strictPort: true`).
 2. Builds the Rust backend in debug mode.
-3. Launches the app, pointing the webview at `http://localhost:1420`.
+3. Launches the app, pointing the webview at `http://localhost:1421` (`build.devUrl` in `tauri.conf.json`).
 4. Watches `src/` for frontend changes (instant) and `src-tauri/src/` for backend changes (full rebuild + relaunch).
+
+Because `strictPort` is on, a stale process holding 1421 makes startup fail loudly rather than silently moving to another port and leaving the webview pointed at nothing.
 
 Backend changes take 5-30 seconds to take effect (cargo incremental compile + relaunch). Frontend changes are sub-second.
 
+`make dev-web` (`pnpm dev`) runs Vite alone, with no Rust build, for UI-only iteration. IPC calls degrade to the "backend unavailable" path rather than throwing.
+
 ### Running tests
 
-```powershell
-# Rust tests (unit + integration)
-cd src-tauri
-cargo test
-cd ..
-
-# Frontend tests (Vitest)
-pnpm test
-
-# Both, in one shot, with formatting + linting:
-pnpm check-all
+```bash
+make test-rust     # cargo test --manifest-path src-tauri/Cargo.toml
+make test          # pnpm test  (vitest run)
+make test-all      # both
+make check         # EVERYTHING: lint, format:check, typecheck, vitest,
+                   #   cargo fmt --check, clippy -D warnings, cargo test
 ```
 
-The `pnpm check-all` script chains: `pnpm lint`, `pnpm prettier --check`, `pnpm typecheck`, `pnpm test`, `(cd src-tauri && cargo fmt --check && cargo clippy && cargo test)`.
+**`pnpm check-all` is frontend-only.** It chains `pnpm lint && pnpm format:check && pnpm typecheck && pnpm test` — no cargo, no clippy, no Rust tests. Use `make check` (or run the cargo commands yourself) before pushing, or CI's `backend` lane will catch what you didn't.
+
+The shell extension is a separate crate and none of the above touches it:
+
+```bash
+cargo test --manifest-path shell-ext-win/Cargo.toml    # works on any host OS
+cargo clippy --manifest-path shell-ext-win/Cargo.toml --all-targets -- -D warnings
+```
 
 ### Production build (local)
 
-```powershell
-pnpm tauri build
+```bash
+pnpm tauri build          # or: make build
 ```
+
+On Windows, run `pwsh -File scripts/fetch-sumatrapdf.ps1` first (POSIX twin: `scripts/fetch-sumatrapdf.sh`). It downloads SumatraPDF from a pinned vendor URL, verifies a pinned SHA-256, and drops the executable plus the upstream `LICENSE.txt` into `src-tauri/resources/sumatrapdf/`, which `bundle.resources` copies into the bundle. The binary is deliberately not committed; without this step the app builds but every print job fails with `DependencyMissing`.
 
 Output:
 
-- Windows: `src-tauri/target/release/bundle/nsis/maeclyprint_<version>_x64-setup.nsis.zip` (Tauri's native bundler) and the binary at `src-tauri/target/release/maeclyprint.exe`.
-- macOS: `src-tauri/target/release/bundle/macos/MaeclyPrint.app` and `.app.tar.gz`.
+- Windows: `src-tauri/target/release/bundle/nsis/` (NSIS is what `tauri.conf.json` configures today) and the binary at `src-tauri/target/release/maeclyprint.exe`.
+- macOS: `src-tauri/target/release/bundle/macos/MaeclyPrint.app`.
 
-The Inno Setup installer (`.exe`) requires the separate `installers/windows/build.ps1` script (see [installer-windows.md](../07-build-and-release/installer-windows.md)). The Apple-signed `.pkg` and `.dmg` require `installers/macos/` scripts.
+There is no separate installer script to run afterwards — `installers/windows/` and `installers/macos/` are empty placeholders. See [installer-windows.md](../07-build-and-release/installer-windows.md).
 
 ### CLI usage during dev
 
-The Rust binary can also be invoked as a CLI:
+The same binary runs headlessly when the first non-flag argument is one of `print`, `printers`, `profiles`, `queue`, `update`:
 
 ```powershell
-# Print a single PDF to a specific printer
-src-tauri\target\debug\maeclyprint.exe print sample.pdf --printer "Microsoft Print to PDF"
+# Files are a COMMA-SEPARATED --files list, not positional arguments
+src-tauri\target\debug\maeclyprint.exe print --files sample.pdf --printer "Microsoft Print to PDF"
 
-# Print multiple files using a profile
-src-tauri\target\debug\maeclyprint.exe print *.pdf --profile draft
+# Several files, or a wildcard MaeclyPrint expands itself (so it behaves the
+# same in cmd.exe and in a POSIX shell)
+src-tauri\target\debug\maeclyprint.exe print --files "a.pdf,b.pdf" --profile draft
+src-tauri\target\debug\maeclyprint.exe print --files "*.pdf" --mono --duplex long
+
+# Inspect without printing; --json is available on every subcommand
+src-tauri\target\debug\maeclyprint.exe printers list --json
+src-tauri\target\debug\maeclyprint.exe queue status
 ```
 
-This bypasses the GUI and is useful for backend debugging.
+This bypasses the GUI and is useful for backend debugging. Exit codes are the contract — see `src-tauri/src/cli/exit.rs` and `docs/04-architecture/ipc-and-cli.md`.
 
 ## Debugging
 
@@ -176,9 +199,11 @@ Set breakpoints in `src-tauri/src/`, hit F5. The debugger attaches to the Rust p
 Set `RUST_LOG`:
 
 ```powershell
-$env:RUST_LOG = "maeclyprint=debug,tauri=info,reqwest=warn"
+$env:RUST_LOG = "maeclyprint=debug,tauri=info,ureq=warn"
 pnpm tauri dev
 ```
+
+(The HTTP client is `ureq`, not `reqwest`.) The app also writes structured JSONL to its log directory — `%LOCALAPPDATA%\MaeclyPrint\logs\` on Windows, `~/Library/Logs/MaeclyPrint/` on macOS. About → "Open logs folder" reveals the live path.
 
 Module-specific filters: `maeclyprint::engine=trace` for very detailed output from the engine module.
 
@@ -230,26 +255,23 @@ For driver-quirky printers (HP, Brother), be prepared for issues that aren't Mae
 
 Run this smoke test sequence after first setup:
 
-```powershell
-# 1. Run unit tests
-cd src-tauri
-cargo test
-# Expect: tests pass, ~5-15 seconds.
-cd ..
+```bash
+# 1. Run every gate, Rust included
+make check
+# Expect: all green. This is the same set CI's blocking lanes run.
 
-# 2. Lint everything
-pnpm check-all
-# Expect: all checks green.
-
-# 3. Boot the dev app
+# 2. Boot the dev app
 pnpm tauri dev
 # Expect: app window opens within ~30 seconds.
 
-# 4. From the GUI: navigate to Settings, see your printer list.
-# Expect: at least one printer listed (e.g. "Microsoft Print to PDF").
+# 3. From the GUI: go to Printers.
+# Expect: your real queues, enumerated from the OS spooler — winspool on
+# Windows, `lpstat`/CUPS on macOS. An empty list on a machine with printers
+# means the platform backend failed, not that the screen is a mock.
 
-# 5. Print a test PDF.
-# Expect: PDF prints; queue page shows the job; output appears (or paper comes out).
+# 4. Print a PDF or an image (JPG/PNG/TIFF/BMP/WebP — those and PDF are the
+#    only formats the engine accepts today).
+# Expect: the Queue screen shows the job progressing; output appears.
 ```
 
 If any step fails, see Troubleshooting.
@@ -264,9 +286,16 @@ VS Build Tools incomplete or not on PATH. Reinstall, ensure "Desktop development
 
 Windows SDK missing. In VS Build Tools installer, add "Windows 11 SDK (10.0.22621.0)" or newer.
 
-### Windows: `error: linking with link.exe failed: exit code: 1120` mentioning `RoGetActivationFactory` or COM symbols
+### Windows: the shell extension DLL builds but Explorer never loads it
 
-ATL not installed. In VS Build Tools installer, add "C++ ATL for latest v143 build tools (x86 & x64)".
+Almost always a missing embedded manifest. `shell-ext-win/build.rs` embeds `res/shellext.rc`, which carries the `<msix>` side-by-side element that grants the DLL package identity; without it Explorer loads nothing and `Package.Current` is null — with no error anywhere. Build with `MAECLYPRINT_REQUIRE_RESOURCES=1` so a missing `rc.exe` fails the build instead:
+
+```powershell
+$env:MAECLYPRINT_REQUIRE_RESOURCES = "1"
+cargo build --release --manifest-path shell-ext-win/Cargo.toml
+```
+
+The other silent failure mode is identity mismatch: `publisher`, `packageName` and `applicationId` in `res/shellext.manifest` must match `Identity/@Publisher`, `Identity/@Name` and `Application/@Id` in the sparse-MSIX `AppxManifest.xml` character for character. A mismatch surfaces as `0x80073D54`, or as an extension that simply never appears.
 
 ### Windows: `pnpm tauri dev` says WebView2 not found
 
@@ -315,11 +344,9 @@ The Rust language server indexes `target/`. Make sure `target/` is excluded from
 
 Husky may not be set up if you're cloning a fork. Skip with `pnpm install --ignore-scripts`, or run `pnpm prepare` separately.
 
-### Windows: shell extension DLL doesn't appear in Explorer
+### Windows: shell extension registered but still not in the menu
 
-The DLL needs to be registered. The dev workflow uses Inno Setup for full registration, which is heavy for daily dev. For testing the shell extension specifically, see [installer-windows.md](../07-build-and-release/installer-windows.md) for the manual `regsvr32` flow.
-
-You'll likely need to log out + log in (or restart `explorer.exe`) for changes to take effect, because Explorer caches shell extension DLLs.
+Explorer caches shell extension DLLs aggressively. Restart `explorer.exe` (or log out and back in) after any registration change. Note that there is **no installer to do the registration for you yet** — `installers/windows/` is an empty placeholder, so registration during development is manual. See [installer-windows.md](../07-build-and-release/installer-windows.md) for the intended registration surface and what is still missing.
 
 ## Performance tips
 

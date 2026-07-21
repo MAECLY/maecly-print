@@ -1,104 +1,83 @@
 # Repository Structure
 
-> **TL;DR.** The repository is split into a Rust backend (`src-tauri/`), a React frontend (`src/`), a C++ shell extension (`shell-ext-win/`), platform-specific installers (`installers/`), and the documentation tree (`docs/`). Each directory has a single responsibility and clear boundaries; this document explains why.
+> **TL;DR.** The repository is split into a Rust backend (`src-tauri/`), a React frontend (`src/`), a **Rust** Windows shell extension (`shell-ext-win/`), a WebdriverIO end-to-end suite (`e2e/`), packaging helpers (`scripts/`, `installers/`), and the documentation tree (`docs/`). Each directory has a single responsibility and clear boundaries; this document explains why.
 
 This document is the map of the repository. It describes every top-level directory and the rationale behind the split. If you are adding a new directory or a new module, check here first to confirm where it belongs.
+
+Directories marked **(placeholder)** exist with only a `.gitkeep`/`README.md` inside; their contents are still to be written.
 
 ## Top-level layout
 
 ```
 maecly-print/
-├── README.md                    # Landing page for github.com/<org>/maecly-print
+├── README.md                    # Landing page for github.com/MAECLY/maecly-print
 ├── LICENSE                      # GPLv3 (the canonical legal text)
 ├── CHANGELOG.md                 # Keep a Changelog format, updated atomically with releases
-├── CONTRIBUTING.md              # Symlink or stub pointing to docs/08-development/contributing.md
+├── CONTRIBUTING.md              # Stub pointing to docs/08-development/contributing.md
 ├── CODE_OF_CONDUCT.md           # Contributor Covenant 2.1
 ├── SECURITY.md                  # Vulnerability disclosure policy
-├── .gitignore                   # Tracks all build outputs to ignore
-├── .gitattributes               # Line ending policy + binary file declarations
-├── .editorconfig                # Cross-editor formatting baseline
-├── .github/                     # GitHub-specific configuration
+├── Makefile                     # Canonical local task runner (make help)
+├── .gitignore / .gitattributes / .editorconfig
+├── .husky/                      # Git hooks (lint-staged, commitlint)
+├── commitlint.config.cjs        # Conventional Commits enforcement
+├── .lintstagedrc.json / .prettierrc.json / .prettierignore / eslint.config.js
+├── .github/
 │   ├── workflows/
-│   │   ├── ci.yml
-│   │   ├── release.yml
-│   │   └── nightly.yml
-│   ├── ISSUE_TEMPLATE/
+│   │   ├── ci.yml               # The only build/test workflow (see ci-cd.md)
+│   │   └── dco.yml              # Developer Certificate of Origin sign-off check
+│   ├── ISSUE_TEMPLATE/          # bug_report.yml, feature_request.yml, config.yml
 │   ├── PULL_REQUEST_TEMPLATE.md
 │   ├── CODEOWNERS
 │   └── dependabot.yml
 ├── docs/                        # ALL documentation
 │   ├── README.md                # Doc tree index
-│   ├── 01-vision/
-│   ├── 02-research/
-│   ├── 03-requirements/
-│   ├── 04-architecture/
-│   ├── 05-features/
-│   ├── 06-roadmap/
-│   ├── 07-build-and-release/
-│   ├── 08-development/
-│   ├── 09-legal/
+│   ├── 01-vision/ … 09-legal/
 │   └── adr/                     # Architecture Decision Records
 ├── src-tauri/                   # Rust backend (Tauri main process)
-│   ├── Cargo.toml
-│   ├── Cargo.lock
-│   ├── tauri.conf.json
-│   ├── build.rs
-│   ├── src/
+│   ├── Cargo.toml / Cargo.lock / tauri.conf.json / build.rs
+│   ├── capabilities/            # Tauri 2 permission sets
+│   ├── gen/schemas/             # Tauri-generated capability schemas
 │   ├── icons/
-│   ├── resources/
-│   └── tests/
-├── src/                         # React + TypeScript frontend (Tauri webview content)
-│   ├── App.tsx
-│   ├── main.tsx
-│   ├── index.html
-│   ├── pages/
-│   ├── components/
-│   ├── hooks/
-│   ├── i18n/
-│   └── styles/
-├── shell-ext-win/               # Windows shell extension (C++ COM DLL)
-│   ├── ComServer.cpp
-│   ├── dllmain.cpp
-│   ├── MaeclyPrintExt.def
-│   ├── ShellExt.h
-│   └── project.vcxproj
-├── shell-ext-mac/               # macOS Finder Sync Extension (Swift, M5+)
-│   └── MaeclyPrintFinderExt/
-│       ├── MaeclyPrintFinderExt.xcodeproj/
-│       ├── FinderSync.swift
-│       └── Info.plist
-├── installers/
-│   ├── windows/
-│   │   ├── inno-setup.iss
-│   │   ├── sparse-msix/
-│   │   │   ├── AppxManifest.xml
-│   │   │   └── Assets/
-│   │   └── build.ps1
-│   └── macos/
-│       ├── pkgbuild.sh
-│       ├── create-dmg.sh
-│       ├── notarize.sh
-│       ├── codesign.sh
-│       ├── distribution.xml
-│       └── resources/
+│   ├── resources/sumatrapdf/    # Bundle payload; the .exe is fetched, not committed
+│   ├── src/
+│   └── tests/                   # One binary per file (8 today)
+├── src/                         # React + TypeScript frontend (webview content)
+│   ├── App.tsx / main.tsx
+│   ├── assets/fonts/
+│   ├── components/              # AppShell/ + ui/ + a few standalone components
+│   ├── i18n/                    # Translation layer + locales/{en,es}/*.json
+│   ├── ipc/bindings.ts          # GENERATED by tauri-specta — never hand-edit
+│   ├── lib/                     # Frontend-only utilities
+│   ├── screens/                 # One file per top-level screen
+│   ├── stores/                  # Zustand stores
+│   ├── styles/                  # globals.css + tokens.css
+│   ├── test/                    # Vitest setup + shared fixtures
+│   └── types/domain.ts
+├── shell-ext-win/               # Windows Explorer context menu — a RUST cdylib
+│   ├── Cargo.toml / Cargo.lock  # Standalone crate, NOT a workspace member
+│   ├── build.rs                 # Embeds res/shellext.rc via embed-resource
+│   ├── res/                     # shellext.rc + shellext.manifest (the <msix> identity)
+│   ├── src/                     # COM layer + portable handoff/menu model
+│   └── tests/                   # handoff_roundtrip.rs, strings_cache.rs
+├── shell-ext-mac/               # (placeholder) macOS Finder integration
+│   └── README.md                # The NSServices provider currently lives in
+│                                #   src-tauri/src/platform/macos/, not here
+├── e2e/                         # WebdriverIO end-to-end suite
+│   ├── wdio.conf.ts             # Spawns/kills tauri-driver, screenshots on failure
+│   ├── tsconfig.json            # Standalone; NOT part of `pnpm typecheck`
+│   ├── README.md
+│   └── specs/*.e2e.ts           # One spec per screen + helpers.ts
+├── installers/                  # (placeholder) windows/ and macos/, both empty
 ├── scripts/
-│   ├── dev.ps1                  # Local dev runner (Windows)
-│   ├── dev.sh                   # Local dev runner (macOS)
-│   ├── build-release.ps1
-│   ├── build-mac-universal.sh
-│   ├── update-third-party.ps1   # Update SumatraPDF / Pandoc / etc bundled binaries
-│   ├── sign-windows-ev.ps1
-│   ├── sign-nightly.ps1
-│   ├── setup-apple-certs.sh
-│   ├── upload-to-r2.sh
-│   ├── update-manifest.sh
-│   └── verify-windows-signatures.ps1
-├── package.json                 # pnpm workspace root + frontend deps
-├── pnpm-lock.yaml
-├── pnpm-workspace.yaml
-├── tsconfig.json                # Root TS config (extended by src/)
-├── vite.config.ts
-└── tailwind.config.ts
+│   ├── fetch-sumatrapdf.ps1     # Pinned-URL + pinned-SHA256 fetch of the bundled
+│   └── fetch-sumatrapdf.sh      #   SumatraPDF; POSIX twin for cross-builds
+├── package.json                 # pnpm root + frontend deps and scripts
+├── pnpm-lock.yaml / pnpm-workspace.yaml
+├── tsconfig.json
+├── vite.config.ts               # Vite build + the Vitest `test:` block
+├── tailwind.config.ts
+├── postcss.config.js
+└── index.html                   # Vite entry (at the ROOT, not under src/)
 ```
 
 ## `README.md`, `LICENSE`, `CHANGELOG.md`
@@ -111,7 +90,7 @@ Standard top-level metadata for any open source repo. GitHub renders `README.md`
 
 GitHub-specific configuration. Treated as code: changes go through PR review.
 
-- `workflows/`: CI pipelines (see [ci-cd.md](../07-build-and-release/ci-cd.md)).
+- `workflows/`: two files today — `ci.yml` (every build, test and lint lane) and `dco.yml` (sign-off check). There is **no `release.yml` and no `nightly.yml`**; see [ci-cd.md](../07-build-and-release/ci-cd.md) for what that means for releases.
 - `ISSUE_TEMPLATE/`: structured templates for bug reports, feature requests, security issues.
 - `PULL_REQUEST_TEMPLATE.md`: required checklist when opening PRs.
 - `CODEOWNERS`: maps file paths to maintainers for auto-requested review.
@@ -146,36 +125,61 @@ The Tauri main process and all Rust logic live here.
 src-tauri/
 ├── Cargo.toml             # Crate manifest
 ├── Cargo.lock             # Committed (binary crate)
-├── tauri.conf.json        # Tauri runtime config (windows, plugins, updater)
-├── build.rs               # Build script (e.g., embed icons, generate version)
+├── tauri.conf.json        # Tauri runtime config (window, CSP, bundle)
+├── build.rs               # tauri-build
+├── capabilities/          # Tauri 2 permission sets granted to the webview
+├── gen/schemas/           # Generated capability schemas (committed by Tauri)
 ├── src/
-│   ├── main.rs            # Entry point (~10 lines, defers to lib)
-│   ├── lib.rs             # Tauri app builder, IPC registration
-│   ├── ipc.rs             # All Tauri IPC command handlers (the API surface to JS)
-│   ├── cli.rs             # CLI parsing with clap
-│   ├── queue.rs           # Print job queue (Tokio)
-│   ├── profiles.rs        # Profile load/save/validate
-│   ├── updater.rs         # Auto-update logic (uses tauri-plugin-updater)
-│   ├── shell_integration.rs  # Named pipe server for shell-ext handoff
-│   ├── engine/            # Format-specific print pipeline
-│   │   ├── mod.rs
-│   │   ├── router.rs      # Dispatch input file → adapter
-│   │   ├── pdf.rs         # SumatraPDF adapter
-│   │   ├── office.rs      # LibreOffice adapter
-│   │   ├── image.rs       # ImageMagick / direct GDI+ adapter
-│   │   ├── html.rs        # Chromium / WebView2 adapter
-│   │   └── markdown.rs    # Pandoc adapter
-│   └── printer/           # Printer abstraction (one impl per OS)
-│       ├── mod.rs         # Trait + factory
-│       ├── windows.rs     # SumatraPDF + GDI+ printing
-│       └── macos.rs       # CUPS via lpr/lp
+│   ├── main.rs            # Entry point; defers to lib
+│   ├── lib.rs             # Tauri app builder, IPC registration, plugin wiring
+│   ├── ipc/               # The API surface to JS, one module per domain
+│   │   ├── mod.rs         #   tauri-specta builder + the bindings generator
+│   │   ├── diag.rs jobs.rs printers.rs profiles.rs settings.rs update.rs
+│   │   └── events.rs      #   Typed events pushed to the frontend
+│   ├── cli/               # Headless mode (FR-008/009/112), clap-based
+│   │   ├── args.rs        #   Declaration only: subcommands, flags, vocabularies
+│   │   ├── exit.rs        #   The exit-code contract
+│   │   ├── handoff.rs     #   Consumes the shell extension's JSON selection file
+│   │   ├── single_instance.rs
+│   │   └── console.rs files.rs output.rs pending.rs print.rs printers.rs
+│   │       profiles.rs queue.rs update.rs
+│   ├── engine/            # Print pipeline (ADR-0003)
+│   │   ├── mod.rs         #   SUPPORTED_EXTS, folder expansion, EngineError
+│   │   ├── pagerange.rs   #   "1-5,10" parser
+│   │   ├── deps.rs        #   External-program resolution (FR-058)
+│   │   ├── convert/       #   Input → PDF router
+│   │   │   ├── mod.rs     #     PDF passthrough, HEIF refusal, image routing
+│   │   │   └── image.rs   #     Raster → one-page PDF (pure-Rust codecs)
+│   │   └── print/         #   Settings → spooler invocation
+│   │       ├── mod.rs     #     Capability gate + command preview
+│   │       ├── sumatra.rs #     SumatraPDF -print-settings (Windows)
+│   │       └── cups.rs    #     `lp` flags (macOS/Linux)
+│   ├── platform/          # Per-OS integration (NFR-071)
+│   │   ├── mod.rs windows.rs   # winspool + GDI DeviceCapabilities enumeration
+│   │   ├── cups.rs             # CUPS enumeration + lpadmin queue management
+│   │   ├── testpage.rs         # Generated test page
+│   │   └── macos/              # NSServices "Print with MaeclyPrint" provider
+│   │       ├── mod.rs handoff.rs services.rs
+│   ├── queue/             # Persisted print queue
+│   │   ├── mod.rs job.rs dispatcher.rs persist.rs
+│   ├── profiles/mod.rs    # Profile load/save/validate (profiles.toml)
+│   ├── settings/          # config.toml
+│   │   ├── mod.rs policy.rs
+│   ├── update/mod.rs      # GitHub-release update check (ureq + semver)
+│   ├── logging/mod.rs     # tracing-subscriber JSONL + rotation
+│   └── util/              # error.rs, paths.rs
 ├── icons/                 # App icons (multiple resolutions, .ico, .icns)
-├── resources/             # Bundled binaries (SumatraPDF.exe), user-facing files
+├── resources/sumatrapdf/  # Bundle payload. Only README.md is committed; the
+│                          #   .exe is fetched by scripts/fetch-sumatrapdf.*
 └── tests/                 # Integration tests (separate binary per file)
-    ├── pdf_print.rs
-    ├── profile_roundtrip.rs
-    └── queue_concurrency.rs
+    ├── cli_contract.rs engine_deps.rs folder_expansion.rs ipc_surface.rs
+    └── print_timeout.rs profile_roundtrip.rs settings_persist.rs update_startup.rs
 ```
+
+Two shapes here are worth calling out because they contradict older drafts of this document:
+
+- **There is no `printer/` module.** Printer enumeration and queue management live in `platform/` (`windows.rs`, `cups.rs`); turning settings into a spooler invocation lives in `engine/print/`. The split is *enumeration vs. spooling*, not *trait vs. impl*.
+- **There is no `office.rs`, `html.rs` or `markdown.rs`.** `engine/convert/` handles PDF passthrough and raster images only. LibreOffice, Chromium and Pandoc are *resolvable* by `engine/deps.rs` but no converter calls them yet.
 
 ### Why `src-tauri/` is a separate directory
 
@@ -195,17 +199,9 @@ src/
 └── models/      # All structs
 ```
 
-Right (what we do):
+Right (what we do): `queue/` owns the job model, the dispatcher and its own persistence; `profiles/` owns validation and `profiles.toml`; `settings/` owns policy and `config.toml`; `engine/` owns routing, conversion and spooling.
 
-```
-src/
-├── ipc.rs       # IPC handlers (one entry point)
-├── queue.rs     # Print queue (handler + state + persistence)
-├── profiles.rs  # Profiles (handler + state + persistence)
-└── engine/      # Print engine (router + adapters)
-```
-
-Each module owns its IPC handlers, its state, its persistence. This keeps related code adjacent and reduces cross-module coupling.
+The one deliberate exception is `ipc/`, which *is* a layer. It is a thin, generated-binding-bearing façade: each `ipc/<domain>.rs` file is the tauri-specta command surface for one domain and delegates immediately into the owning module. Keeping it in one place is what makes `src/ipc/bindings.ts` generatable and `tests/ipc_surface.rs` able to gate drift on the whole API at once.
 
 ## `src/` — React + TypeScript frontend
 
@@ -213,36 +209,47 @@ The Tauri webview content (what users see). Built with Vite, served by Tauri at 
 
 ```
 src/
-├── App.tsx              # Top-level component (router setup)
+├── App.tsx              # Top-level component (screen switching, shortcut wiring)
 ├── main.tsx             # Vite entry: mounts <App /> into #root
-├── index.html           # Single HTML page (SPA model)
-├── pages/               # One file per top-level page
-│   ├── Home.tsx
-│   ├── PrintJob.tsx
-│   ├── Profiles.tsx
-│   ├── Queue.tsx
-│   ├── Settings.tsx
-│   └── About.tsx
-├── components/          # Reusable UI primitives
-│   ├── Button.tsx
-│   ├── ProgressBar.tsx
-│   ├── ProfileCard.tsx
-│   └── ...
-├── hooks/               # Custom React hooks
-│   ├── useProfiles.ts
-│   ├── usePrintQueue.ts
-│   └── useUpdater.ts
-├── i18n/                # Translation files
-│   ├── en.json
-│   ├── es.json
-│   └── i18n.ts          # i18next setup
+├── screens/             # One file per top-level screen (+ co-located *.test.tsx)
+│   ├── HomeScreen.tsx PrintJobScreen.tsx QueueScreen.tsx
+│   ├── PrintersScreen.tsx ProfilesScreen.tsx SettingsScreen.tsx AboutScreen.tsx
+│   ├── QueueViews/      #   QueueListView / QueueBoardView / QueueTimelineView
+│   ├── profiles/        #   ProfileEditor.tsx
+│   └── auxiliary/       #   OnboardingFlow.tsx
+├── components/
+│   ├── AppShell/        # MPAppShell (also owns the global shortcut layer),
+│   │                    #   MPSidebar, Toaster
+│   ├── ui/              # Primitives: Button, Input, Select, Checkbox, Switch,
+│   │                    #   Segmented, Badge, Card, Kbd, StatusDot, TopBar, …
+│   ├── ConfirmDialog.tsx ErrorBoundary.tsx CenteredNotice.tsx Brand.tsx Icon.tsx
+├── stores/              # Zustand: queueStore, profilesStore, settingsStore
+├── ipc/
+│   └── bindings.ts      # GENERATED by tauri-specta. Never hand-edit; regenerate
+│                        #   with UPDATE_BINDINGS=1 cargo test.
+├── i18n/                # Dependency-free translation layer (no i18next)
+│   ├── index.ts         #   t(), locale matching, plural + interpolation
+│   ├── I18nProvider.tsx #   React binding
+│   └── locales/{en,es}/ #   One JSON per namespace: common, home, printJob,
+│                        #   queue, printers, profiles, settings, about
 ├── styles/
-│   ├── globals.css      # Tailwind import + base styles
-│   └── tailwind.css
-└── lib/                 # Frontend-only utilities
-    ├── ipc.ts           # Typed wrappers around tauri.invoke()
-    └── format.ts
+│   ├── tokens.css       # Design tokens
+│   └── globals.css      # Tailwind import + base styles
+├── lib/                 # Frontend-only utilities
+│   ├── ipc.ts           #   Typed wrappers / availability guard around invoke()
+│   ├── jobFiles.ts profiles.ts printerAddress.ts theme.ts repo.ts format.ts
+├── types/domain.ts
+├── assets/fonts/
+└── test/                # setup.ts (jest-dom + localStorage shim), fixtures.ts
 ```
+
+Departures from earlier drafts, all deliberate:
+
+- **`screens/`, not `pages/`.** The app is a single window with no URL router; "page" implied routing we do not have.
+- **No `hooks/` directory.** Shared state lives in `stores/` (Zustand); the few custom hooks that exist (`useAppShortcuts`) sit next to the component that owns them.
+- **`index.html` is at the repository root**, not under `src/` — that is where Vite expects it.
+- **Translations are namespaced per screen and per language** (`locales/es/queue.json`), not one flat `es.json`. Two screens are never translated in the same file, so translation PRs do not collide. English is the source of truth: key types are derived from the English JSON, so a misspelled key fails `tsc`.
+- **`src/ipc/bindings.ts` is generated**, and CI fails when the committed copy is stale.
 
 ### Why `src/` is a separate directory from `src-tauri/`
 
@@ -250,106 +257,98 @@ src/
 - **Bundle contract.** Tauri's `tauri.conf.json` declares `src/` (more precisely: the Vite output of `src/`) as the webview content. This is the canonical separation Tauri expects.
 - **Mental model.** Frontend developers can reason about `src/` without knowing Rust; backend developers can reason about `src-tauri/` without knowing React.
 
+## `e2e/` — end-to-end suite
+
+WebdriverIO specs that drive the **built** binary through `tauri-driver`.
+
+```
+e2e/
+├── wdio.conf.ts       # Spawns/kills tauri-driver, screenshots on failure
+├── tsconfig.json      # Standalone; NOT part of `pnpm typecheck`
+├── artifacts/         # Failure screenshots — created by wdio.conf.ts on the
+│                      #   first failure, gitignored via e2e/.gitignore
+├── README.md
+└── specs/
+    ├── helpers.ts     # dismissOnboarding(), navigateTo(label)
+    └── {home,print-job,queue,printers,profiles,settings,about}.e2e.ts
+```
+
+It is a sibling of `src/`, not a subdirectory, for three reasons: it needs its own `tsconfig.json` (Mocha + WebdriverIO globals, which must not leak into the app's type environment), it must be excluded from the Vitest run, and it is the only code in the repo that runs against a *packaged* artifact rather than source. The `*.e2e.ts` suffix is what keeps Vitest's default `{test,spec}` glob from picking these up. See [testing-strategy.md](./testing-strategy.md).
+
 ## `shell-ext-win/` — Windows shell extension
 
-A C++ COM DLL implementing `IExplorerCommand` (Win 11 modern shell) and `IShellExtInit` + `IContextMenu` (Win 10 fallback).
+A **Rust** `cdylib` implementing `IExplorerCommand`, built as `shell_ext_win.dll`.
 
 ```
 shell-ext-win/
-├── ComServer.cpp           # COM class registration boilerplate
-├── dllmain.cpp             # DllMain entry, DllGetClassObject, DllCanUnloadNow
-├── MaeclyPrintExt.def      # Module definition (exports)
-├── ShellExt.h              # Header for the extension classes
-├── ShellExt.cpp            # IExplorerCommand + IContextMenu implementations
-├── project.vcxproj         # Visual Studio project file
-├── project.vcxproj.filters
-└── README.md               # How to build this DLL specifically
+├── Cargo.toml              # Standalone crate; deliberately not a workspace member
+├── Cargo.lock
+├── build.rs                # Embeds res/shellext.rc (embed-resource)
+├── res/
+│   ├── shellext.rc         # Version info + the manifest reference
+│   └── shellext.manifest   # The <msix> element that grants package identity
+├── src/
+│   ├── lib.rs              # Crate root
+│   ├── clsid.rs            # THE GUID; must match AppxManifest.xml and the
+│   │                       #   Win 10 fallback registry verb
+│   ├── module.rs           # DllGetClassObject / DllCanUnloadNow / DllMain
+│   ├── factory.rs          # IClassFactory
+│   ├── command.rs          # IExplorerCommand
+│   ├── subcommands.rs      # The enumerated verb tree
+│   ├── selection.rs        # Reads the Explorer selection (IShellItemArray)
+│   ├── supported.rs        # Which selections the menu offers itself for
+│   ├── handoff.rs          # Writes the JSON selection file
+│   ├── launch.rs           # ShellExecuteExW onto maeclyprint.exe
+│   ├── guard.rs            # catch_unwind at every COM boundary
+│   ├── comstr.rs strings.rs logging.rs
+└── tests/
+    ├── handoff_roundtrip.rs  # The schema contract with src-tauri/src/cli/handoff.rs
+    └── strings_cache.rs
 ```
 
-### Why `shell-ext-win/` is at the top level (not under `src-tauri/`)
+### Why `shell-ext-win/` is at the top level (not under `src-tauri/`, and not a workspace member)
 
-- **Different toolchain.** It builds with MSVC + Visual Studio project files, not cargo. Putting it under `src-tauri/` would imply it's part of the Cargo workspace, which it isn't.
-- **Different lifecycle.** The shell extension changes infrequently after M2; segregating it makes the build script cleaner.
-- **Future macOS counterpart.** `shell-ext-mac/` is a Swift Xcode project, also outside `src-tauri/`. The naming and location are symmetric.
+- **Incompatible release profile — the load-bearing reason.** `guard.rs` relies on `catch_unwind` to stop a panic before it crosses into Explorer. That requires `panic = "unwind"`. `src-tauri` sets `panic = "abort"`, and a shared workspace profile would silently turn `catch_unwind` into a no-op, taking Explorer down with the extension. Two crates, two `target/` dirs, two profiles.
+- **Different lifecycle.** The extension changes infrequently; segregating it keeps the app's build graph small.
+- **Symmetry with `shell-ext-mac/`.**
 
-### Why C++, not Rust
+### Why Rust, not C++
 
-We considered using `windows-rs` (Rust crate for Windows APIs) for the shell extension. Rejected because:
+Earlier drafts of this document specified a C++ COM DLL. The implementation is Rust, via the `windows` / `windows-core` crates:
 
-- COM in-proc servers have strict requirements about thread affinity, DLL apartment models, and `DllMain` reentrancy that Rust's safety model fights.
-- The C++ ecosystem has decades of working `IShellExtInit` / `IExplorerCommand` examples; the Rust ecosystem has very few.
-- The DLL is small (~500 LOC), changes rarely, and is a stable interface boundary.
+- `#[implement]` from the `windows` crate generates the vtable plumbing, so the COM boilerplate that made C++ attractive is no longer hand-written in either language.
+- The portable half — the handoff schema, the menu model, the "is this selection supported" predicate — is plain Rust with no Windows types, so it compiles and is tested on macOS and Linux. The `shell-ext-portable` CI lane exists to keep it that way. A C++ project would have made the extension undevelopable off Windows.
+- Sharing the `directories` crate with the app is what *guarantees* producer and consumer agree on the handoff directory, rather than two independently-maintained path computations.
+- `catch_unwind` at every entry point gives the panic-containment guarantee explicitly, at the cost of the profile constraint described above.
 
-If a community contributor proves a clean Rust implementation, we'd happily switch. As of M2, C++ is the pragmatic choice.
+The `windows-rs` risks the C++ decision cited (thread affinity, apartment models, `DllMain` reentrancy) are handled in `module.rs` and `guard.rs` rather than avoided.
 
-## `shell-ext-mac/` — macOS Finder Sync Extension (M5+)
+## `shell-ext-mac/` — placeholder
 
-The Swift counterpart to `shell-ext-win/`. Lives at the top level for the same symmetry reasons.
-
-```
-shell-ext-mac/
-└── MaeclyPrintFinderExt/
-    ├── MaeclyPrintFinderExt.xcodeproj/
-    ├── FinderSync.swift          # Main extension class
-    ├── Info.plist
-    ├── Assets.xcassets/
-    └── Base.lproj/
-```
-
-Built with `xcodebuild`. Output bundled into `MaeclyPrint.app/Contents/PlugIns/MaeclyPrintFinderExt.appex/`.
+Contains a `README.md` and a `.gitkeep`, nothing else. **The macOS Finder integration that ships today is not here**: it is an NSServices provider ("Print with MaeclyPrint") implemented in `src-tauri/src/platform/macos/`, declared in the app's `Info.plist`, and linked into the main binary via `objc2`. A Finder Sync `.appex` would need a separate Xcode target; if one is ever built, this is where it goes.
 
 ## `installers/`
 
-Installer build artifacts and scripts, separated by platform.
+**Placeholder.** `installers/windows/` and `installers/macos/` contain only `.gitkeep`. None of the Inno Setup script, sparse-MSIX manifest, `pkgbuild.sh`, `create-dmg.sh` or `notarize.sh` exists yet.
 
-```
-installers/
-├── windows/
-│   ├── inno-setup.iss              # Inno Setup script
-│   ├── sparse-msix/                # Sparse MSIX manifest + assets
-│   │   ├── AppxManifest.xml
-│   │   └── Assets/
-│   └── build.ps1                   # Builds setup.exe (calls iscc + MakeAppx)
-└── macos/
-    ├── pkgbuild.sh                 # Builds .pkg
-    ├── create-dmg.sh               # Builds .dmg
-    ├── notarize.sh                 # Submits to Apple notarization
-    ├── codesign.sh                 # Codesigns .app and .appex
-    ├── distribution.xml            # productbuild distribution definition
-    └── resources/
-        ├── welcome.html
-        ├── conclusion.html
-        ├── LICENSE.html
-        ├── entitlements.plist
-        ├── finder-ext-entitlements.plist
-        ├── volume.icns
-        └── dmg-bg.png
-```
+Today the only installer that gets produced is whatever Tauri's own bundler emits from `tauri.conf.json` (`bundle.targets: "all"`, with a `bundle.windows.nsis` block). See [installer-windows.md](../07-build-and-release/installer-windows.md) for the open contradiction between that and ADR-0006.
 
-### Why `installers/` at top level (not in `src-tauri/`)
+### Why `installers/` is reserved at top level
 
-- **Multiple platforms.** Tauri's bundler covers basic cases but we need custom Inno Setup / pkgbuild flows. Having a dedicated `installers/` directory makes the customization explicit.
-- **Independent versioning.** Installer scripts can be tweaked without touching the app code (e.g. updating the welcome page).
-- **CI clarity.** The release pipeline reads from `installers/` directly; no path translation through Tauri's output structure.
+- **Multiple platforms.** Tauri's bundler covers basic cases; the custom flows (sparse MSIX registration, notarization) need somewhere explicit to live.
+- **Independent versioning.** Installer scripts can be tweaked without touching app code.
+- **CI clarity.** A release pipeline would read from `installers/` directly, with no path translation through Tauri's output structure.
 
 ## `scripts/`
 
-Single-purpose shell / PowerShell scripts. Each script does one thing; the file name describes it.
+Single-purpose shell / PowerShell scripts. Each script does one thing; the file name describes it. **Two exist:**
 
 | Script | Purpose |
 |---|---|
-| `dev.ps1` / `dev.sh` | Run `pnpm tauri dev` with the right env vars (e.g. `RUST_LOG=info`). |
-| `build-release.ps1` | Wraps `pnpm tauri build` for Windows release. |
-| `build-mac-universal.sh` | Builds both Mac arches and lipos them. |
-| `update-third-party.ps1` | Re-downloads bundled binaries (SumatraPDF, etc.) and updates checksums. |
-| `sign-windows-ev.ps1` | Signs all Windows binaries with EV cert. |
-| `sign-nightly.ps1` | Signs with self-signed nightly cert. |
-| `setup-apple-certs.sh` | Imports Apple certs into a temp keychain (CI). |
-| `upload-to-r2.sh` | Pushes signed artifacts to Cloudflare R2. |
-| `update-manifest.sh` | Updates a channel's `.json` manifest. |
-| `verify-windows-signatures.ps1` | Asserts every shipped binary is signed. |
+| `fetch-sumatrapdf.ps1` | Downloads the SumatraPDF build MaeclyPrint bundles on Windows, from a pinned vendor URL, verified against a pinned SHA-256, into `src-tauri/resources/sumatrapdf/` along with the upstream `LICENSE.txt`. The binary is deliberately **not** committed: it is a ~20 MB third-party artifact, and re-hosting it in our tree would make us its distributor with the GPLv3 obligations that follow. |
+| `fetch-sumatrapdf.sh` | POSIX twin of the above, for cross-builds from macOS/Linux. |
 
-These scripts are checked into the repo because the build is part of the codebase. They are not "developer convenience" — they are how release builds happen.
+Everything else the release process will eventually need (signing, notarization, artifact upload, manifest updates) is **unwritten**. Earlier drafts of this table listed ten scripts as if they existed; they never did. See [ci-cd.md](../07-build-and-release/ci-cd.md) § "What does not exist yet".
 
 ## `package.json`, `pnpm-workspace.yaml`
 
@@ -359,11 +358,17 @@ Standard Node project files. We use pnpm (not npm or yarn) because:
 - Stricter dependency resolution (no phantom dependencies).
 - Workspace support (we have a single workspace today, but may split later).
 
-The root `package.json` declares the frontend dependencies and scripts (`pnpm tauri dev`, `pnpm tauri build`, `pnpm test`, `pnpm lint`).
+The root `package.json` declares the frontend dependencies and scripts (`pnpm tauri dev`, `pnpm tauri build`, `pnpm test`, `pnpm lint`). `pnpm-workspace.yaml` currently declares a single package (`.`); the file exists so splitting later does not require restructuring.
+
+## `Makefile`
+
+The canonical entry point for local work — `make help` lists every target. It is a thin wrapper around `pnpm` and `cargo` whose value is that it spans both: `pnpm check-all` runs the **frontend** gates only, while `make check` also runs `cargo fmt --check`, `cargo clippy -D warnings` and `cargo test`. Use `make check` before pushing.
+
+GNU make is not bundled with Windows; the Makefile's header documents the winget/scoop/choco one-liners, and every target's underlying command is written out so it can be run directly instead.
 
 ## `tsconfig.json`, `vite.config.ts`, `tailwind.config.ts`
 
-Frontend tool configs at the root because Vite expects them there. These cover the `src/` directory only; they have nothing to do with Rust.
+Frontend tool configs at the root because Vite expects them there. They cover `src/` only and have nothing to do with Rust. `vite.config.ts` carries a second job: the `test:` block is the Vitest configuration (jsdom, setup file, include/exclude globs, coverage provider and exclusions).
 
 ## `.gitignore`
 

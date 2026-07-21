@@ -138,7 +138,11 @@ For changes to architectural decisions, **add a new ADR** that supersedes the ol
 
 ## Status
 
-This project is **pre-alpha**. The documentation here precedes any production code. Expect rough edges; expect change. The locked decisions in the table above are stable, but the implementation has not started.
+This project is **pre-alpha · M1 (Print Core) largely delivered**. There is real production code behind most of these pages: a print engine, a persistent queue, profiles, settings, a headless CLI, and the Explorer/Finder context-menu handlers. There is also work that is still specification only — notably the installer and the download-and-install half of the updater.
+
+[**Roadmap → Milestones**](./06-roadmap/milestones.md) is the single source of truth for what is delivered and what is open; per-requirement status lives in the `Status` column of [Functional Requirements](./03-requirements/functional-requirements.md). Those two documents are deliberately the only place that tracks status, so it cannot drift in three directions at once.
+
+Expect rough edges; expect change. The locked decisions in the table above are stable.
 
 ## License of this documentation
 
