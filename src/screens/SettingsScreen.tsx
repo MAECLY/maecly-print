@@ -9,6 +9,9 @@ import {
 } from '@/components/ui';
 import type { Density, ResolvedTheme, ThemeMode } from '@/lib/theme';
 import type { UpdateChannel } from '@/lib/ipc';
+import type { Bounds } from '@/ipc/bindings';
+import { SUPPORTED_LOCALES, type Locale } from '@/i18n';
+import { useT, type TFunction } from '@/i18n/I18nProvider';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useProfilesStore } from '@/stores/profilesStore';
 
@@ -27,6 +30,12 @@ interface SettingsScreenProps {
   setMode?: (m: ThemeMode) => void;
 }
 
+/** Language names are endonyms, so the list reads the same in every locale. */
+const LOCALE_LABELS: Record<Locale, string> = {
+  'en-US': 'English',
+  'es-ES': 'Español',
+};
+
 interface RowProps {
   label: string;
   hint?: string;
@@ -41,8 +50,11 @@ function Row({ label, hint, disabled, children }: RowProps) {
       style={{
         display: 'grid',
         gridTemplateColumns: '1fr auto',
-        gap: 20,
-        padding: '14px 0',
+        // Density is published on the document root by `src/lib/theme.ts`; the
+        // fallbacks keep the row sized when this screen renders outside the app
+        // shell (isolated tests, the standalone preview).
+        gap: 'var(--mp-row-gap, 20px)',
+        padding: 'var(--mp-row-py, 14px) 0',
         borderBottom: '1px solid var(--mp-border)',
         alignItems: 'center',
       }}
@@ -86,16 +98,73 @@ function Note({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * The banner shown when `config.toml` exists but could not be parsed (FR-101).
+ * The backend degraded to defaults for this read and refuses every write until
+ * the file is fixed, so the values below are NOT the user's settings — saying
+ * so here, at load, is the difference between a recoverable error and a screen
+ * that quietly lies and then bounces the first change.
+ */
+function ConfigWarning({
+  path,
+  t,
+}: {
+  path: string;
+  t: TFunction<'settings'>;
+}) {
+  return (
+    <div
+      role="alert"
+      style={{
+        margin: '12px 0',
+        padding: '10px 12px',
+        borderRadius: 8,
+        border: '1px solid var(--mp-warn)',
+        background: 'var(--mp-warnSoft)',
+        color: 'var(--mp-text)',
+        fontSize: 12,
+        lineHeight: 1.5,
+      }}
+    >
+      <div style={{ fontWeight: 600, marginBottom: 2 }}>
+        {t('config.corruptTitle')}
+      </div>
+      <div>{t('config.corruptBody')}</div>
+      <div
+        style={{
+          marginTop: 6,
+          fontFamily: 'var(--mp-font-mono)',
+          fontSize: 11.5,
+          wordBreak: 'break-all',
+        }}
+      >
+        {path}
+      </div>
+    </div>
+  );
+}
+
 interface EngineFieldProps {
   label: string;
   hint: string;
   suffix: string;
-  value: number;
-  /** Whole-number bounds check; commit is skipped (error shown) when it fails. */
-  validate: (n: number) => boolean;
+  /** `undefined` until the persisted settings arrive (the field is disabled). */
+  value: number | undefined;
+  /**
+   * The server's bounds for this knob (`AppSettings.meta.limits`). `undefined`
+   * — a backend that predates them — falls back to server-side validation only.
+   */
+  bounds: Bounds | undefined;
   errorHint: string;
   onCommit: (n: number) => void;
   disabled: boolean;
+}
+
+/** Mirrors the Rust `Bounds::accepts`: the only client-side copy of the rule. */
+function accepts(bounds: Bounds | undefined, n: number): boolean {
+  if (!bounds) return true;
+  if (n === 0 && bounds.zero === 'disables') return true;
+  return n >= bounds.min && n <= bounds.max;
 }
 
 /**
@@ -110,23 +179,23 @@ function EngineField({
   hint,
   suffix,
   value,
-  validate,
+  bounds,
   errorHint,
   onCommit,
   disabled,
 }: EngineFieldProps) {
-  const [text, setText] = useState(String(value));
+  const [text, setText] = useState(value === undefined ? '' : String(value));
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    setText(String(value));
+    setText(value === undefined ? '' : String(value));
     setError(false);
   }, [value]);
 
   const commit = () => {
     const s = text.trim();
     const n = Number(s);
-    if (!/^\d+$/.test(s) || !validate(n)) {
+    if (!/^\d+$/.test(s) || !accepts(bounds, n)) {
       setError(true);
       return;
     }
@@ -175,6 +244,7 @@ export function SettingsScreen({
   mode,
   setMode,
 }: SettingsScreenProps) {
+  const t = useT('settings');
   const settings = useSettingsStore((s) => s.settings);
   const status = useSettingsStore((s) => s.status);
   const initSettings = useSettingsStore((s) => s.init);
@@ -218,12 +288,24 @@ export function SettingsScreen({
   // there is no backend to revert or persist, so appearance stays local-only.
   const appearanceDisabled = status === 'loading';
 
+  const app = settings?.app;
   const engine = settings?.engine;
   const updater = settings?.updater;
   const telemetry = settings?.telemetry;
+  const meta = settings?.meta;
+  const limits = meta?.limits;
 
   const defaultProfileId =
     profiles.find((p) => p.default)?.id ?? profiles[0]?.id ?? '';
+
+  /** The inline error text for a knob, phrased from the server's own bounds. */
+  const rangeError = (bounds: Bounds | undefined): string => {
+    if (!bounds) return t('engine.wholeNumber');
+    const params = { min: bounds.min, max: bounds.max };
+    return bounds.zero === 'disables'
+      ? t('engine.rangeOrZero', params)
+      : t('engine.range', params);
+  };
 
   // Dual-write: the setter props update the localStorage cache + in-memory
   // theme now; persisting the same value to the backend (when ready) keeps the
@@ -233,9 +315,9 @@ export function SettingsScreen({
     setMode?.(m);
     if (backendReady) void patch({ app: { theme: m } });
   };
-  const onThemeResolved = (t: ResolvedTheme) => {
-    setTheme(t);
-    if (backendReady) void patch({ app: { theme: t } });
+  const onThemeResolved = (tm: ResolvedTheme) => {
+    setTheme(tm);
+    if (backendReady) void patch({ app: { theme: tm } });
   };
   const onDensity = (d: Density) => {
     setDensity(d);
@@ -244,7 +326,7 @@ export function SettingsScreen({
 
   return (
     <>
-      <MPTopBar title="Settings" />
+      <MPTopBar title={t('title')} />
       <div
         className="mp-scroll"
         style={{
@@ -254,58 +336,112 @@ export function SettingsScreen({
           maxWidth: 760,
         }}
       >
-        <MPSectionLabel>Appearance</MPSectionLabel>
+        {meta?.config_unreadable && (
+          <ConfigWarning path={meta.config_path} t={t} />
+        )}
+
+        <MPSectionLabel>{t('sections.appearance')}</MPSectionLabel>
         <Row
-          label="Theme"
-          hint="Follows your OS by default."
+          label={t('appearance.theme.label')}
+          hint={t('appearance.theme.hint')}
           disabled={appearanceDisabled}
         >
           {mode !== undefined && setMode ? (
             <MPSegmented<ThemeMode>
               value={mode}
               onChange={onThemeMode}
+              aria-label={t('appearance.theme.label')}
               options={[
-                { value: 'light', icon: 'sun', label: 'Light' },
-                { value: 'dark', icon: 'moon', label: 'Dark' },
-                { value: 'system', label: 'System' },
+                {
+                  value: 'light',
+                  icon: 'sun',
+                  label: t('appearance.theme.light'),
+                },
+                {
+                  value: 'dark',
+                  icon: 'moon',
+                  label: t('appearance.theme.dark'),
+                },
+                { value: 'system', label: t('appearance.theme.system') },
               ]}
             />
           ) : (
             <MPSegmented<ResolvedTheme>
               value={theme}
               onChange={onThemeResolved}
+              aria-label={t('appearance.theme.label')}
               options={[
-                { value: 'light', icon: 'sun', label: 'Light' },
-                { value: 'dark', icon: 'moon', label: 'Dark' },
+                {
+                  value: 'light',
+                  icon: 'sun',
+                  label: t('appearance.theme.light'),
+                },
+                {
+                  value: 'dark',
+                  icon: 'moon',
+                  label: t('appearance.theme.dark'),
+                },
               ]}
             />
           )}
         </Row>
         <Row
-          label="Density"
-          hint="Comfortable for reading, compact for big batches."
+          label={t('appearance.density.label')}
+          hint={t('appearance.density.hint')}
           disabled={appearanceDisabled}
         >
           <MPSegmented<Density>
             value={density}
             onChange={onDensity}
+            aria-label={t('appearance.density.label')}
             options={[
-              { value: 'comfortable', label: 'Comfortable' },
-              { value: 'compact', label: 'Compact' },
+              {
+                value: 'comfortable',
+                label: t('appearance.density.comfortable'),
+              },
+              { value: 'compact', label: t('appearance.density.compact') },
             ]}
           />
         </Row>
+        {/* FR-094: the language of the whole UI. Persisted like any other
+            setting; `I18nProvider` reads it back, so the app re-renders in the
+            new language as soon as the optimistic write lands. */}
+        <Row
+          label={t('appearance.language.label')}
+          hint={t('appearance.language.hint')}
+          disabled={backendDisabled}
+        >
+          <MPSelect
+            value={app?.locale ?? ''}
+            onChange={(e) => void patch({ app: { locale: e.target.value } })}
+            aria-label={t('appearance.language.label')}
+            options={SUPPORTED_LOCALES.map((l) => ({
+              value: l,
+              label: LOCALE_LABELS[l],
+            }))}
+          />
+        </Row>
+        <Row
+          label={t('appearance.launchMinimized.label')}
+          hint={t('appearance.launchMinimized.hint')}
+          disabled={backendDisabled}
+        >
+          <MPSwitch
+            checked={app?.launch_minimized ?? false}
+            aria-label={t('appearance.launchMinimized.label')}
+            onChange={() =>
+              void patch({
+                app: { launch_minimized: !(app?.launch_minimized ?? false) },
+              })
+            }
+          />
+        </Row>
 
-        {status === 'unavailable' && (
-          <Note>
-            Settings below are read from the desktop app. In this preview only
-            appearance is adjustable.
-          </Note>
-        )}
-        {status === 'loading' && <Note>Loading settings…</Note>}
+        {status === 'unavailable' && <Note>{t('status.unavailable')}</Note>}
+        {status === 'loading' && <Note>{t('status.loading')}</Note>}
         {status === 'error' && (
           <Note>
-            Couldn&rsquo;t load settings.{' '}
+            {t('status.error')}{' '}
             <button
               type="button"
               onClick={() => void initSettings()}
@@ -319,89 +455,89 @@ export function SettingsScreen({
                 textDecoration: 'underline',
               }}
             >
-              Retry
+              {t('status.retry')}
             </button>
           </Note>
         )}
 
         <div style={{ height: 24 }} />
-        <MPSectionLabel>Printing</MPSectionLabel>
+        <MPSectionLabel>{t('sections.printing')}</MPSectionLabel>
         <Row
-          label="Default profile"
-          hint="Applied to a job when no other profile is chosen."
+          label={t('printing.defaultProfile.label')}
+          hint={t('printing.defaultProfile.hint')}
           disabled={profiles.length === 0}
         >
           <MPSelect
             value={defaultProfileId}
             onChange={(e) => void setDefaultProfile(e.target.value)}
+            aria-label={t('printing.defaultProfile.label')}
             options={profiles.map((p) => ({ value: p.id, label: p.name }))}
           />
         </Row>
-        <Note>
-          Right-click printing arrives with the shell integration milestone
-          (M2).
-        </Note>
+        <Note>{t('printing.shellNote')}</Note>
 
         <div style={{ height: 24 }} />
-        <MPSectionLabel>Engine</MPSectionLabel>
+        <MPSectionLabel>{t('sections.engine')}</MPSectionLabel>
         <EngineField
-          label="Concurrent conversions"
-          hint="Applies after restart."
-          suffix="jobs"
-          value={engine?.max_concurrent_conversions ?? 2}
-          validate={(n) => n >= 1 && n <= 8}
-          errorHint="Enter a whole number from 1 to 8."
+          label={t('engine.concurrency.label')}
+          hint={t('engine.concurrency.hint')}
+          suffix={t('engine.concurrency.suffix')}
+          value={engine?.max_concurrent_conversions}
+          bounds={limits?.max_concurrent_conversions}
+          errorHint={rangeError(limits?.max_concurrent_conversions)}
           onCommit={(n) =>
             void patch({ engine: { max_concurrent_conversions: n } })
           }
           disabled={backendDisabled}
         />
         <EngineField
-          label="Conversion timeout"
-          hint="0 disables the timeout."
-          suffix="seconds"
-          value={engine?.conversion_timeout_seconds ?? 60}
-          validate={(n) => n === 0 || (n >= 10 && n <= 3600)}
-          errorHint="Enter 0, or a whole number from 10 to 3600."
+          label={t('engine.timeout.label')}
+          hint={t('engine.timeout.hint')}
+          suffix={t('engine.timeout.suffix')}
+          value={engine?.conversion_timeout_seconds}
+          bounds={limits?.conversion_timeout_seconds}
+          errorHint={rangeError(limits?.conversion_timeout_seconds)}
           onCommit={(n) =>
             void patch({ engine: { conversion_timeout_seconds: n } })
           }
           disabled={backendDisabled}
         />
         <EngineField
-          label="Max file size"
-          hint="Largest input accepted for printing."
-          suffix="MB"
-          value={engine?.max_file_size_mb ?? 200}
-          validate={(n) => n >= 1 && n <= 4096}
-          errorHint="Enter a whole number from 1 to 4096."
+          label={t('engine.maxFileSize.label')}
+          hint={t('engine.maxFileSize.hint')}
+          suffix={t('engine.maxFileSize.suffix')}
+          value={engine?.max_file_size_mb}
+          bounds={limits?.max_file_size_mb}
+          errorHint={rangeError(limits?.max_file_size_mb)}
           onCommit={(n) => void patch({ engine: { max_file_size_mb: n } })}
           disabled={backendDisabled}
         />
 
         <div style={{ height: 24 }} />
-        <MPSectionLabel>Updates</MPSectionLabel>
-        <Row label="Channel" disabled={backendDisabled}>
+        <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
+        <Row label={t('updates.channel.label')} disabled={backendDisabled}>
           <MPSegmented<UpdateChannel>
             value={updater?.channel ?? 'stable'}
             onChange={(c) => void patch({ updater: { channel: c } })}
+            aria-label={t('updates.channel.label')}
             options={[
-              { value: 'stable', label: 'Stable' },
-              { value: 'beta', label: 'Beta' },
-              { value: 'nightly', label: 'Nightly' },
+              { value: 'stable', label: t('updates.channel.stable') },
+              { value: 'beta', label: t('updates.channel.beta') },
+              { value: 'nightly', label: t('updates.channel.nightly') },
             ]}
           />
         </Row>
-        <Note>
-          Channel selection takes effect when the auto-updater ships (M4).
-        </Note>
+        <Note>{t('updates.channelNote')}</Note>
+        {/* The switch is honest about being inert: the launch-time check is
+            part of the auto-updater (M4). Today the flag is only recorded. */}
         <Row
-          label="Check on startup"
-          hint="Delayed a few seconds to keep launch fast."
+          label={t('updates.checkOnStartup.label')}
+          hint={t('updates.checkOnStartup.hint')}
           disabled={backendDisabled}
         >
           <MPSwitch
             checked={updater?.check_on_startup ?? true}
+            aria-label={t('updates.checkOnStartup.label')}
             onChange={() =>
               void patch({
                 updater: {
@@ -411,16 +547,18 @@ export function SettingsScreen({
             }
           />
         </Row>
+        <Note>{t('updates.startupNote')}</Note>
 
         <div style={{ height: 24 }} />
-        <MPSectionLabel>Privacy</MPSectionLabel>
+        <MPSectionLabel>{t('sections.privacy')}</MPSectionLabel>
         <Row
-          label="Crash reports"
-          hint="Off by default. Sent only when toggled on."
+          label={t('privacy.crashReports.label')}
+          hint={t('privacy.crashReports.hint')}
           disabled={backendDisabled}
         >
           <MPSwitch
             checked={telemetry?.crash_reports ?? false}
+            aria-label={t('privacy.crashReports.label')}
             onChange={() =>
               void patch({
                 telemetry: {
@@ -431,12 +569,13 @@ export function SettingsScreen({
           />
         </Row>
         <Row
-          label="Anonymous usage metrics"
-          hint="MaeclyPrint never enables this without consent."
+          label={t('privacy.usageMetrics.label')}
+          hint={t('privacy.usageMetrics.hint')}
           disabled={backendDisabled}
         >
           <MPSwitch
             checked={telemetry?.anonymous_usage_metrics ?? false}
+            aria-label={t('privacy.usageMetrics.label')}
             onChange={() =>
               void patch({
                 telemetry: {
@@ -448,9 +587,7 @@ export function SettingsScreen({
             }
           />
         </Row>
-        <Note>
-          No data is sent in this version — these switches record consent only.
-        </Note>
+        <Note>{t('privacy.note')}</Note>
       </div>
     </>
   );

@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 import { ConfirmDialog, type ConfirmState } from '@/components/ConfirmDialog';
 import { Icon } from '@/components/Icon';
 import { MPButton, MPSegmented, MPTopBar } from '@/components/ui';
-import { useQueueStore } from '@/stores/queueStore';
+import { useT } from '@/i18n/I18nProvider';
+import { CLEAR_UNDO_MS, useQueueStore } from '@/stores/queueStore';
 import { QueueListView } from './QueueViews/QueueListView';
 import { QueueBoardView } from './QueueViews/QueueBoardView';
 import { QueueTimelineView } from './QueueViews/QueueTimelineView';
@@ -21,10 +22,13 @@ function QueueNotice({
   spinner,
   title,
   body,
+  action,
 }: {
   spinner: boolean;
   title: string;
   body: string;
+  /** Optional recovery control, e.g. the Retry button of the error state. */
+  action?: ReactNode;
 }) {
   return (
     <div
@@ -64,64 +68,84 @@ function QueueNotice({
       >
         {body}
       </div>
+      {action}
     </div>
   );
 }
 
 export function QueueScreen({ view, setView }: QueueScreenProps) {
+  const t = useT('queue');
+  const tCommon = useT('common');
   const status = useQueueStore((s) => s.status);
   const error = useQueueStore((s) => s.error);
   const uiJobs = useQueueStore((s) => s.uiJobs);
   const counts = useQueueStore((s) => s.counts);
   const queuePaused = useQueueStore((s) => s.queuePaused);
+  const init = useQueueStore((s) => s.init);
   const pauseQueue = useQueueStore((s) => s.pauseQueue);
   const resumeQueue = useQueueStore((s) => s.resumeQueue);
-  const clearDone = useQueueStore((s) => s.clearDone);
+  const requestClearDone = useQueueStore((s) => s.requestClearDone);
+  const undoClearDone = useQueueStore((s) => s.undoClearDone);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
 
   const subtitle =
     view === 'board'
-      ? 'Board view — kanban across job phases'
+      ? t('subtitle.board')
       : view === 'timeline'
-        ? 'Timeline — chronological, with durations'
-        : `${counts.active} active · ${counts.pending} pending · ${counts.done} done`;
+        ? t('subtitle.timeline')
+        : t('subtitle.counts', {
+            active: counts.active,
+            pending: counts.pending,
+            done: counts.done,
+          });
 
   const viewToggle = (
     <MPSegmented<QueueView>
       value={view}
       onChange={setView}
+      aria-label={t('views.label')}
       options={[
-        { value: 'list', icon: 'list', label: 'List' },
-        { value: 'board', icon: 'grid', label: 'Board' },
-        { value: 'timeline', icon: 'queue', label: 'Timeline' },
+        { value: 'list', icon: 'list', label: t('views.list') },
+        { value: 'board', icon: 'grid', label: t('views.board') },
+        { value: 'timeline', icon: 'queue', label: t('views.timeline') },
       ]}
       size="sm"
     />
   );
 
-  const requestClearDone = () => {
+  /**
+   * Clearing the history is destructive, so it confirms first and then stays
+   * undoable for five seconds (NFR-032): the store hides the jobs immediately
+   * and only calls `clear_done` when the window closes.
+   */
+  const askClearDone = () => {
     setConfirm({
-      title: 'Clear finished jobs',
-      message: `Clear ${counts.done} finished ${
-        counts.done === 1 ? 'job' : 'jobs'
-      }? This removes them from history.`,
-      confirmLabel: 'Clear done',
-      run: async () => {
-        const removed = await clearDone();
-        // `null` = the backend call failed; the store already showed the
-        // error toast, so a success toast here would be a lie.
-        if (removed !== null) {
-          toast.success(
-            `Cleared ${removed} finished ${removed === 1 ? 'job' : 'jobs'}`,
-          );
-        }
+      title: t('confirm.clearTitle'),
+      message: t('confirm.clearMessage', {
+        count: counts.done,
+        seconds: CLEAR_UNDO_MS / 1000,
+      }),
+      confirmLabel: t('actions.clearDone'),
+      run: () => {
+        const hidden = requestClearDone();
+        if (hidden === 0) return;
+        toast.success(t('toast.cleared', { count: hidden }), {
+          duration: CLEAR_UNDO_MS,
+          action: {
+            label: t('toast.undo'),
+            onClick: () => {
+              undoClearDone();
+              toast.success(t('toast.restored', { count: hidden }));
+            },
+          },
+        });
       },
     });
   };
 
   const topBar = (
     <MPTopBar
-      title="Queue"
+      title={t('title')}
       subtitle={subtitle}
       right={
         view === 'list' ? (
@@ -133,16 +157,16 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
               size="sm"
               onClick={() => void (queuePaused ? resumeQueue() : pauseQueue())}
             >
-              {queuePaused ? 'Resume queue' : 'Pause queue'}
+              {queuePaused ? t('actions.resumeQueue') : t('actions.pauseQueue')}
             </MPButton>
             <MPButton
               variant="ghost"
               icon="trash"
               size="sm"
               disabled={counts.done === 0}
-              onClick={requestClearDone}
+              onClick={askClearDone}
             >
-              Clear done
+              {t('actions.clearDone')}
             </MPButton>
           </>
         ) : (
@@ -152,37 +176,49 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
     />
   );
 
-  let body: React.ReactNode;
+  let body: ReactNode;
   if (status === 'unavailable') {
     body = (
       <QueueNotice
         spinner={false}
-        title="Queue unavailable"
-        body="The print queue is managed by the desktop app — run MaeclyPrint to see and control jobs."
+        title={t('notice.unavailableTitle')}
+        body={t('notice.unavailableBody')}
       />
     );
   } else if (status === 'error') {
+    // `init()` is re-runnable after a failure, so a transient read error must
+    // not leave the queue dead until the app is restarted (NFR-033).
     body = (
       <QueueNotice
         spinner={false}
-        title="Queue unavailable"
-        body={error ?? 'The queue could not be read.'}
+        title={t('notice.errorTitle')}
+        body={`${error ?? t('notice.errorBody')} ${t('notice.errorHint')}`}
+        action={
+          <MPButton
+            variant="ghost"
+            icon="rotate"
+            size="sm"
+            onClick={() => void init()}
+          >
+            {tCommon('actions.retry')}
+          </MPButton>
+        }
       />
     );
   } else if (status === 'idle' || status === 'loading') {
     body = (
       <QueueNotice
         spinner
-        title="Loading the queue…"
-        body="Reading the current print jobs."
+        title={t('notice.loadingTitle')}
+        body={t('notice.loadingBody')}
       />
     );
   } else if (uiJobs.length === 0) {
     body = (
       <QueueNotice
         spinner={false}
-        title="No jobs in the queue"
-        body="Print something and it will show up here — active, pending, and recently finished jobs."
+        title={t('empty.title')}
+        body={t('empty.body')}
       />
     );
   } else if (view === 'list') {

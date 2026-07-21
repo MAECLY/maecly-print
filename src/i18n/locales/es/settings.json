@@ -1,1 +1,95 @@
-{}
+{
+  "title": "Ajustes",
+  "sections": {
+    "appearance": "Apariencia",
+    "printing": "Impresión",
+    "engine": "Motor",
+    "updates": "Actualizaciones",
+    "privacy": "Privacidad"
+  },
+  "appearance": {
+    "theme": {
+      "label": "Tema",
+      "hint": "Sigue al sistema operativo por defecto.",
+      "light": "Claro",
+      "dark": "Oscuro",
+      "system": "Sistema"
+    },
+    "density": {
+      "label": "Densidad",
+      "hint": "La densidad compacta reduce el espaciado de filas y listas de archivos.",
+      "comfortable": "Cómoda",
+      "compact": "Compacta"
+    },
+    "language": {
+      "label": "Idioma",
+      "hint": "Se aplica al instante en toda la aplicación."
+    },
+    "launchMinimized": {
+      "label": "Iniciar minimizada",
+      "hint": "Abre la ventana minimizada. Se aplica en el próximo inicio."
+    }
+  },
+  "printing": {
+    "defaultProfile": {
+      "label": "Perfil por defecto",
+      "hint": "Se aplica al trabajo cuando no se elige otro perfil."
+    },
+    "shellNote": "La impresión con el botón derecho llega con el hito de integración con el explorador (M2)."
+  },
+  "engine": {
+    "concurrency": {
+      "label": "Conversiones simultáneas",
+      "hint": "Se aplica al reiniciar.",
+      "suffix": "trabajos"
+    },
+    "timeout": {
+      "label": "Tiempo límite de conversión",
+      "hint": "0 desactiva el tiempo límite. Se aplica al reiniciar.",
+      "suffix": "segundos"
+    },
+    "maxFileSize": {
+      "label": "Tamaño máximo de archivo",
+      "hint": "Archivo de entrada más grande que se acepta para imprimir. Se aplica al instante.",
+      "suffix": "MB"
+    },
+    "range": "Escribe un número entero entre {{min}} y {{max}}.",
+    "rangeOrZero": "Escribe 0, o un número entero entre {{min}} y {{max}}.",
+    "wholeNumber": "Escribe un número entero."
+  },
+  "updates": {
+    "channel": {
+      "label": "Canal",
+      "stable": "Estable",
+      "beta": "Beta",
+      "nightly": "Nocturno"
+    },
+    "channelNote": "La elección de canal tendrá efecto cuando llegue el actualizador automático (M4).",
+    "checkOnStartup": {
+      "label": "Comprobar al iniciar",
+      "hint": "Tu elección se guarda para cuando exista la comprobación."
+    },
+    "startupNote": "Todavía no hay comprobación al iniciar: llegará con el actualizador automático (M4). Mientras tanto, busca actualizaciones desde la pantalla Acerca de."
+  },
+  "privacy": {
+    "crashReports": {
+      "label": "Informes de fallos",
+      "hint": "Desactivado por defecto. En esta versión no se envía nada."
+    },
+    "usageMetrics": {
+      "label": "Métricas de uso anónimas",
+      "hint": "MaeclyPrint nunca activa esto sin tu consentimiento."
+    },
+    "note": "En esta versión no se envía ningún dato: estos interruptores solo registran tu consentimiento."
+  },
+  "status": {
+    "unavailable": "Los ajustes de abajo se leen desde la aplicación de escritorio. En esta vista previa solo se puede cambiar la apariencia.",
+    "loading": "Cargando ajustes…",
+    "error": "No se pudieron cargar los ajustes.",
+    "retry": "Reintentar"
+  },
+  "config": {
+    "corruptTitle": "No se pudo leer tu archivo de ajustes",
+    "corruptBody": "Los valores de abajo son los predeterminados, no tus ajustes guardados, y los cambios no podrán guardarse hasta que arregles o elimines el archivo. Cierra MaeclyPrint y repara o borra este archivo: en el siguiente guardado se escribirá uno nuevo a partir de los valores predeterminados."
+  }
+}

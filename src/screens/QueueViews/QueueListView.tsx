@@ -1,25 +1,99 @@
 import { FileGlyph, MPIconButton, StatusDot } from '@/components/ui';
+import { useT, type TFunction } from '@/i18n/I18nProvider';
 import { useQueueStore } from '@/stores/queueStore';
-import type { UiQueueJob } from '@/types/domain';
+import type { UiQueueJobView } from '@/lib/ipc';
 import type { ConfirmState } from '@/components/ConfirmDialog';
 
 interface QueueListViewProps {
-  jobs: UiQueueJob[];
+  jobs: UiQueueJobView[];
   /** Request an in-app confirmation (used for cancelling an in-flight job). */
   onConfirm: (state: ConfirmState) => void;
 }
 
 const TERMINAL = new Set(['done', 'failed', 'cancelled']);
 
+/**
+ * A job's progress bar, honest about what the backend actually knows.
+ *
+ * `indeterminate` jobs (the printing phase: no spooler reports a completion
+ * fraction) get a sliding pulse and NO `aria-valuenow`, which is exactly how
+ * ARIA spells "in progress, amount unknown". Painting them at 0 % — or making
+ * a percentage up — would be a lie. Shared with the Board view, which renders
+ * the same bar at a smaller size.
+ */
+export function JobProgressBar({
+  job,
+  height,
+  t,
+}: {
+  job: UiQueueJobView;
+  height: number;
+  t: TFunction<'queue'>;
+}) {
+  const fill =
+    job.status === 'failed'
+      ? 'var(--mp-error)'
+      : job.status === 'done'
+        ? 'var(--mp-success)'
+        : 'var(--mp-accent)';
+  const label = t('progress.label', { file: job.file });
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      {...(job.indeterminate
+        ? { 'aria-valuetext': t('progress.indeterminate') }
+        : {
+            'aria-valuemin': 0,
+            'aria-valuemax': 100,
+            'aria-valuenow': Math.round(job.progress * 100),
+          })}
+      title={job.indeterminate ? t('progress.indeterminate') : undefined}
+      style={{
+        height,
+        background: 'var(--mp-surface3)',
+        borderRadius: 3,
+        overflow: 'hidden',
+        position: 'relative',
+      }}
+    >
+      {job.indeterminate ? (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            left: 0,
+            width: '25%',
+            background: fill,
+            animation: 'mp-progress 1.4s ease-in-out infinite',
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: `${job.progress * 100}%`,
+            background: fill,
+            transition: 'width .3s',
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 interface RowProps {
-  j: UiQueueJob;
+  j: UiQueueJobView;
+  t: TFunction<'queue'>;
   onPause: () => void;
   onResume: () => void;
   onRetry: () => void;
   onCancel: () => void;
 }
 
-function Row({ j, onPause, onResume, onRetry, onCancel }: RowProps) {
+function Row({ j, t, onPause, onResume, onRetry, onCancel }: RowProps) {
   const terminal = TERMINAL.has(j.status);
   const canPause =
     j.status === 'queued' ||
@@ -60,8 +134,8 @@ function Row({ j, onPause, onResume, onRetry, onCancel }: RowProps) {
             whiteSpace: 'nowrap',
           }}
         >
-          {j.profile} · {j.printer}
-          {j.note ? ` · ${j.note}` : ''}
+          {t('job.meta', { profile: j.profile, printer: j.printer })}
+          {j.noteKey ? ` · ${t(`note.${j.noteKey}`)}` : ''}
           {j.error ? ` · ${j.error}` : ''}
         </div>
       </div>
@@ -75,33 +149,12 @@ function Row({ j, onPause, onResume, onRetry, onCancel }: RowProps) {
             textTransform: 'uppercase',
           }}
         >
-          {j.status}
+          {/* Every `JobState` has a `status.<state>` entry, so the template
+              literal resolves to a known key of the namespace. */}
+          {t(`status.${j.status}`)}
         </span>
       </div>
-      <div
-        style={{
-          height: 5,
-          background: 'var(--mp-surface3)',
-          borderRadius: 3,
-          overflow: 'hidden',
-          position: 'relative',
-        }}
-      >
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            width: `${(j.progress || 0) * 100}%`,
-            background:
-              j.status === 'failed'
-                ? 'var(--mp-error)'
-                : j.status === 'done'
-                  ? 'var(--mp-success)'
-                  : 'var(--mp-accent)',
-            transition: 'width .3s',
-          }}
-        />
-      </div>
+      <JobProgressBar job={j} height={5} t={t} />
       <div
         className="mp-mono"
         style={{
@@ -110,15 +163,16 @@ function Row({ j, onPause, onResume, onRetry, onCancel }: RowProps) {
           textAlign: 'right',
         }}
       >
-        {j.startedAt}
-        {j.finishedAt ? ` → ${j.finishedAt}` : ''}
+        {j.finishedAt
+          ? t('job.times', { from: j.startedAt, to: j.finishedAt })
+          : j.startedAt}
       </div>
       <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
         {canPause && (
           <MPIconButton
             icon="pause"
             size={24}
-            label="Pause"
+            label={t('actions.pause')}
             onClick={onPause}
           />
         )}
@@ -126,7 +180,7 @@ function Row({ j, onPause, onResume, onRetry, onCancel }: RowProps) {
           <MPIconButton
             icon="play"
             size={24}
-            label="Resume"
+            label={t('actions.resume')}
             onClick={onResume}
           />
         )}
@@ -134,12 +188,17 @@ function Row({ j, onPause, onResume, onRetry, onCancel }: RowProps) {
           <MPIconButton
             icon="rotate"
             size={24}
-            label="Retry"
+            label={t('actions.retry')}
             onClick={onRetry}
           />
         )}
         {!terminal && (
-          <MPIconButton icon="x" size={24} label="Cancel" onClick={onCancel} />
+          <MPIconButton
+            icon="x"
+            size={24}
+            label={t('actions.cancel')}
+            onClick={onCancel}
+          />
         )}
       </div>
     </div>
@@ -147,6 +206,7 @@ function Row({ j, onPause, onResume, onRetry, onCancel }: RowProps) {
 }
 
 export function QueueListView({ jobs, onConfirm }: QueueListViewProps) {
+  const t = useT('queue');
   const pauseJob = useQueueStore((s) => s.pauseJob);
   const resumeJob = useQueueStore((s) => s.resumeJob);
   const retryJob = useQueueStore((s) => s.retryJob);
@@ -164,12 +224,12 @@ export function QueueListView({ jobs, onConfirm }: QueueListViewProps) {
 
   // Cancelling a printing job interrupts a job the spooler already started, so
   // it gets a confirm; every other non-terminal state cancels immediately.
-  const requestCancel = (j: UiQueueJob) => {
+  const requestCancel = (j: UiQueueJobView) => {
     if (j.status === 'printing') {
       onConfirm({
-        title: 'Cancel this job?',
-        message: `“${j.file}” is printing. Cancel it? Pages already sent to the printer may still come out.`,
-        confirmLabel: 'Cancel job',
+        title: t('confirm.cancelTitle'),
+        message: t('confirm.cancelMessage', { file: j.file }),
+        confirmLabel: t('confirm.cancelConfirm'),
         run: () => cancelJob(j.id),
       });
     } else {
@@ -181,9 +241,9 @@ export function QueueListView({ jobs, onConfirm }: QueueListViewProps) {
     <div className="mp-scroll" style={{ flex: 1, overflow: 'auto' }}>
       {(
         [
-          { key: 'active', label: 'Active', items: groups.active },
-          { key: 'pending', label: 'Pending', items: groups.pending },
-          { key: 'done', label: 'Recent', items: groups.done },
+          { key: 'active', label: t('groups.active'), items: groups.active },
+          { key: 'pending', label: t('groups.pending'), items: groups.pending },
+          { key: 'done', label: t('groups.done'), items: groups.done },
         ] as const
       ).map(
         (g) =>
@@ -211,13 +271,17 @@ export function QueueListView({ jobs, onConfirm }: QueueListViewProps) {
                     fontWeight: 500,
                   }}
                 >
-                  {g.label} · {g.items.length}
+                  {t('groups.header', {
+                    label: g.label,
+                    count: g.items.length,
+                  })}
                 </span>
               </div>
               {g.items.map((j) => (
                 <Row
                   key={j.id}
                   j={j}
+                  t={t}
                   onPause={() => void pauseJob(j.id)}
                   onResume={() => void resumeJob(j.id)}
                   onRetry={() => void retryJob(j.id)}

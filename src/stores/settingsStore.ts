@@ -81,9 +81,15 @@ function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** Apply a section-wise shallow patch onto the current settings. */
+/**
+ * Apply a section-wise shallow patch onto the current settings. `base` is
+ * spread first so server-computed fields the patch says nothing about — notably
+ * `meta` (config health + engine limits) — survive the round-trip instead of
+ * being dropped on the floor.
+ */
 function merge(base: AppSettings, p: SettingsPatch): AppSettings {
   return {
+    ...base,
     app: { ...base.app, ...p.app },
     engine: { ...base.engine, ...p.engine },
     updater: { ...base.updater, ...p.updater },

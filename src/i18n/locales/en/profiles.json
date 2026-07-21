@@ -1,1 +1,101 @@
-{}
+{
+  "title": "Profiles",
+  "subtitle": "Saved combinations of printer + settings",
+  "notice": {
+    "loadingTitle": "Loading profiles…",
+    "errorTitle": "Profiles unavailable",
+    "readOnly": "Editing profiles requires the desktop app. These are the built-in defaults."
+  },
+  "actions": {
+    "newProfile": "New profile",
+    "import": "Import",
+    "export": "Export",
+    "clone": "Clone",
+    "makeDefault": "Make default",
+    "delete": "Delete"
+  },
+  "badge": {
+    "unsaved": "unsaved",
+    "builtin": "built-in",
+    "default": "default"
+  },
+  "detail": {
+    "id": "id: {{id}}",
+    "unsavedId": "(unsaved)",
+    "simplex": "simplex",
+    "copyOf": "Copy of {{name}}"
+  },
+  "field": {
+    "name": "Name",
+    "printer": "Printer",
+    "color": "Color",
+    "colorMode": "Color mode",
+    "duplex": "Duplex",
+    "copies": "Copies",
+    "paper": "Paper",
+    "orientation": "Orientation",
+    "scaling": "Scaling",
+    "quality": "Quality",
+    "tray": "Tray",
+    "pageRange": "Page range"
+  },
+  "option": {
+    "systemDefault": "System default",
+    "color": "Color",
+    "monochrome": "Monochrome",
+    "duplexOff": "Single-sided",
+    "duplexLongEdge": "Double · long edge",
+    "duplexShortEdge": "Double · short edge",
+    "orientationAuto": "Auto",
+    "orientationPortrait": "Portrait",
+    "orientationLandscape": "Landscape",
+    "scalingFit": "Fit to page",
+    "scalingShrink": "Shrink to fit",
+    "scalingNone": "Actual size (100%)",
+    "qualityDraft": "Draft",
+    "qualityNormal": "Normal",
+    "qualityHigh": "High"
+  },
+  "editor": {
+    "namePlaceholder": "Profile name",
+    "trayPlaceholder": "auto",
+    "rangePlaceholder": "e.g. 1-5,10",
+    "rangeHint": "Applies to PDFs only — leave blank for all pages.",
+    "rangeError": "Use page numbers like 1-5,10 (ranges must ascend).",
+    "copiesError": "Enter a whole number from 1 to 999.",
+    "nameEmpty": "Enter a profile name.",
+    "nameTooLong": "Name must be 100 characters or fewer.",
+    "nameTaken": "A profile with this name already exists.",
+    "notApplied": "Quality and tray are saved with the profile, but the print engine does not send them yet.",
+    "restored": "Unsaved changes from your last visit were restored.",
+    "cancel": "Cancel",
+    "create": "Create profile",
+    "save": "Save changes"
+  },
+  "confirm": {
+    "discardTitle": "Discard unsaved changes?",
+    "discardMessage": "This profile has edits that haven’t been saved. Discard them?",
+    "discardConfirm": "Discard",
+    "deleteTitle": "Delete profile",
+    "deleteMessage": "Delete \"{{name}}\"? You'll have a few seconds to undo.",
+    "deleteConfirm": "Delete"
+  },
+  "toast": {
+    "saved": "Saved \"{{name}}\"",
+    "deleted": "Profile deleted",
+    "undo": "Undo",
+    "exported": "Exported \"{{name}}\"",
+    "imported_one": "Imported {{count}} profile",
+    "imported_other": "Imported {{count}} profiles"
+  },
+  "tooltip": {
+    "deleteIsDefault": "Set another profile as default first",
+    "export": "Save this profile as a TOML file you can share",
+    "import": "Add profiles from a TOML file"
+  },
+  "dialog": {
+    "exportTitle": "Export profile",
+    "importTitle": "Import profiles",
+    "fileType": "MaeclyPrint profile"
+  }
+}

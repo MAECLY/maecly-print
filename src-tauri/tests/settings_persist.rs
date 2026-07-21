@@ -124,6 +124,8 @@ fn default_app_settings() -> AppSettings {
         engine: cfg.engine,
         updater: cfg.updater,
         telemetry: cfg.telemetry,
+        // Server-computed annotations; a client sends whatever a read gave it.
+        meta: Default::default(),
     }
 }
 

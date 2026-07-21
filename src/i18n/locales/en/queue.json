@@ -1,1 +1,101 @@
-{}
+{
+  "title": "Queue",
+  "subtitle": {
+    "counts": "{{active}} active · {{pending}} pending · {{done}} done",
+    "board": "Board view — kanban across job phases",
+    "timeline": "Timeline — chronological, with durations"
+  },
+  "views": {
+    "label": "Queue view",
+    "list": "List",
+    "board": "Board",
+    "timeline": "Timeline"
+  },
+  "actions": {
+    "pauseQueue": "Pause queue",
+    "resumeQueue": "Resume queue",
+    "clearDone": "Clear done",
+    "pause": "Pause",
+    "resume": "Resume",
+    "retry": "Retry",
+    "cancel": "Cancel"
+  },
+  "groups": {
+    "active": "Active",
+    "pending": "Pending",
+    "done": "Recent",
+    "header": "{{label}} · {{count}}"
+  },
+  "board": {
+    "queued": "Queued",
+    "converting": "Converting",
+    "printing": "Printing",
+    "done": "Done"
+  },
+  "status": {
+    "queued": "Queued",
+    "converting": "Converting",
+    "converted": "Converted",
+    "printing": "Printing",
+    "paused": "Paused",
+    "done": "Done",
+    "failed": "Failed",
+    "cancelled": "Cancelled"
+  },
+  "notice": {
+    "loadingTitle": "Loading the queue…",
+    "loadingBody": "Reading the current print jobs.",
+    "unavailableTitle": "Queue unavailable",
+    "unavailableBody": "The print queue is managed by the desktop app — run MaeclyPrint to see and control jobs.",
+    "errorTitle": "Queue unavailable",
+    "errorBody": "The queue could not be read.",
+    "errorHint": "Nothing was lost — the jobs are still in the desktop app. Retry to read the queue again."
+  },
+  "empty": {
+    "title": "No jobs in the queue",
+    "body": "Print something and it will show up here — active, pending, and recently finished jobs."
+  },
+  "progress": {
+    "label": "Progress of {{file}}",
+    "indeterminate": "In progress — the print spooler reports no percentage"
+  },
+  "note": {
+    "readyToPrint": "Ready to print",
+    "interruptedByShutdown": "Interrupted by shutdown · resume to continue"
+  },
+  "job": {
+    "meta": "{{profile}} · {{printer}}",
+    "pages": "{{count}}p",
+    "times": "{{from}} → {{to}}",
+    "took": "took {{duration}}"
+  },
+  "duration": {
+    "seconds": "{{seconds}}s",
+    "minutes": "{{minutes}}m {{seconds}}s",
+    "hours": "{{hours}}h {{minutes}}m"
+  },
+  "confirm": {
+    "clearTitle": "Clear finished jobs",
+    "clearMessage_one": "Clear {{count}} finished job? It leaves the history — you get {{seconds}} seconds to undo.",
+    "clearMessage_other": "Clear {{count}} finished jobs? They leave the history — you get {{seconds}} seconds to undo.",
+    "cancelTitle": "Cancel this job?",
+    "cancelMessage": "“{{file}}” is printing. Cancel it? Pages already sent to the printer may still come out.",
+    "cancelConfirm": "Cancel job"
+  },
+  "toast": {
+    "cleared_one": "Cleared {{count}} finished job",
+    "cleared_other": "Cleared {{count}} finished jobs",
+    "undo": "Undo",
+    "restored_one": "{{count}} finished job kept",
+    "restored_other": "{{count}} finished jobs kept"
+  },
+  "notify": {
+    "batchDone_one": "{{done}} of {{total}} file printed successfully",
+    "batchDone_other": "{{done}} of {{total}} files printed successfully",
+    "batchFailed_one": "{{failed}} of {{total}} file failed to print",
+    "batchFailed_other": "{{failed}} of {{total}} files failed to print",
+    "batchFailedHint": "{{file}}: {{error}} — open the logs folder for the full job log entry.",
+    "batchCancelled_one": "{{count}} job cancelled",
+    "batchCancelled_other": "{{count}} jobs cancelled"
+  }
+}

@@ -1,15 +1,18 @@
 import { FileGlyph, MPCard, StatusDot } from '@/components/ui';
-import type { UiQueueJob } from '@/types/domain';
+import { useT } from '@/i18n/I18nProvider';
+import type { UiQueueJobView } from '@/lib/ipc';
+import { JobProgressBar } from './QueueListView';
 
 interface QueueBoardViewProps {
-  jobs: UiQueueJob[];
+  jobs: UiQueueJobView[];
 }
 
 export function QueueBoardView({ jobs }: QueueBoardViewProps) {
+  const t = useT('queue');
   const cols = [
     {
       key: 'queued',
-      label: 'Queued',
+      label: t('board.queued'),
       // `converted` (PDF ready, waiting for a printer) has no column of its own;
       // it belongs with the not-yet-printing work.
       items: jobs.filter((j) =>
@@ -18,17 +21,17 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
     },
     {
       key: 'converting',
-      label: 'Converting',
+      label: t('board.converting'),
       items: jobs.filter((j) => j.status === 'converting'),
     },
     {
       key: 'printing',
-      label: 'Printing',
+      label: t('board.printing'),
       items: jobs.filter((j) => j.status === 'printing'),
     },
     {
       key: 'done',
-      label: 'Done',
+      label: t('board.done'),
       items: jobs.filter((j) =>
         ['done', 'failed', 'cancelled'].includes(j.status),
       ),
@@ -109,26 +112,12 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
                   marginBottom: 8,
                 }}
               >
-                {j.pages}p · {j.profile}
+                {t('job.pages', { count: j.pages })} · {j.profile}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <StatusDot status={j.status} />
-                <div
-                  style={{
-                    flex: 1,
-                    height: 3,
-                    background: 'var(--mp-surface3)',
-                    borderRadius: 2,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      height: '100%',
-                      width: `${(j.progress || 0) * 100}%`,
-                      background: 'var(--mp-accent)',
-                    }}
-                  />
+                <div style={{ flex: 1 }}>
+                  <JobProgressBar job={j} height={3} t={t} />
                 </div>
               </div>
             </MPCard>

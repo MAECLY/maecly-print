@@ -347,8 +347,40 @@ function toClock(rfc3339: string | null): string {
   });
 }
 
+/** Elapsed wall-clock time between two RFC 3339 stamps, or `null`. */
+function elapsedMs(from: string | null, to: string | null): number | null {
+  if (!from || !to) return null;
+  const start = new Date(from).getTime();
+  const end = new Date(to).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return null;
+  return end - start;
+}
+
 /**
- * Adapt a wire [`Job`] into the flat `UiQueueJob` the queue views render.
+ * The job shape the queue views render: `UiQueueJob` plus three facts the
+ * shared shape cannot express.
+ *
+ * - `indeterminate` — the running phase reports NO completion fraction at all.
+ *   The backend says so explicitly (`JobProgress { phase, percent: null }`),
+ *   because no spooler reports one while printing; a bar frozen at 0 % would
+ *   be a lie, so the views paint an indeterminate one instead.
+ * - `durationMs` — how long a finished job took. `startedAt`/`finishedAt` are
+ *   already formatted to a local clock here, so the views can no longer
+ *   subtract them (the Timeline view promises durations).
+ * - `noteKey` — which advisory note to show, as a key rather than English
+ *   prose, so the views translate it (FR-092).
+ *
+ * It is declared next to the adapter that fills it because `@/types/domain` is
+ * shared by every screen, and these three fields concern only the queue.
+ */
+export interface UiQueueJobView extends UiQueueJob {
+  indeterminate?: boolean;
+  durationMs?: number;
+  noteKey?: 'readyToPrint' | 'interruptedByShutdown';
+}
+
+/**
+ * Adapt a wire [`Job`] into the flat `UiQueueJobView` the queue views render.
  *
  * Status mapping: the wire `JobState` and the UI status union are the same
  * eight states, so `state` passes through verbatim (StatusDot, the list/screen
@@ -356,32 +388,38 @@ function toClock(rfc3339: string | null): string {
  * that lacks a `converted` bucket is the board — see QueueBoardView, which
  * folds it into the "queued" column. To keep the obscure `converted` state
  * ("PDF cached, waiting for a free printer") legible we attach a
- * `Ready to print` note. Shutdown-recovered jobs come back `paused` with
+ * `readyToPrint` note. Shutdown-recovered jobs come back `paused` with
  * `error.code === 'interrupted_by_shutdown'`; we surface that as a resumable
  * note rather than a hard error (the state is paused, not failed).
  */
-export function toUiQueueJob(job: Job): UiQueueJob {
-  const ui: UiQueueJob = {
+export function toUiQueueJob(job: Job): UiQueueJobView {
+  // `percent: null` means "running, but no fraction is knowable" — distinct
+  // from "no progress reported at all" (`progress: null`) and from 0 %.
+  const percent = job.progress?.percent ?? null;
+  const ui: UiQueueJobView = {
     id: job.id,
     file: job.file_name,
     ext: job.input_ext,
     status: job.state,
-    progress: job.progress?.percent ?? (job.state === 'done' ? 1 : 0),
+    progress: percent ?? (job.state === 'done' ? 1 : 0),
     pages: job.pages ?? 0,
     profile: job.profile_name ?? '—',
     printer: job.printer_resolved ?? job.settings.printer ?? 'Default printer',
     startedAt: toClock(job.started_at),
     sizeKb: Math.round(job.input_bytes / 1024),
   };
+  if (job.progress != null && percent === null) ui.indeterminate = true;
+  const duration = elapsedMs(job.started_at, job.finished_at);
+  if (duration !== null) ui.durationMs = duration;
   if (job.finished_at) ui.finishedAt = toClock(job.finished_at);
   if (job.error) {
     if (job.error.code === 'interrupted_by_shutdown') {
-      ui.note = 'Interrupted by shutdown · resume to continue';
+      ui.noteKey = 'interruptedByShutdown';
     } else {
       ui.error = job.error.message;
     }
   } else if (job.state === 'converted') {
-    ui.note = 'Ready to print';
+    ui.noteKey = 'readyToPrint';
   }
   return ui;
 }

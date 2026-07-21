@@ -8,10 +8,16 @@ import {
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 
-import type { AppSettings } from '@/ipc/bindings';
+import type { AppSettings, EngineLimits, SettingsMeta } from '@/ipc/bindings';
 import { fixtureAppSettings } from '@/test/fixtures';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import { Toaster } from '@/components/AppShell/Toaster';
-import type { Density, ResolvedTheme, ThemeMode } from '@/lib/theme';
+import {
+  applyDensity,
+  type Density,
+  type ResolvedTheme,
+  type ThemeMode,
+} from '@/lib/theme';
 
 // The Default-profile row reads the profiles store; mock it so this suite
 // stays decoupled from that file. The mock is a plain selector over a static
@@ -40,6 +46,34 @@ vi.mock('@/stores/profilesStore', () => ({
 import { SettingsScreen } from './SettingsScreen';
 import { useSettingsStore } from '@/stores/settingsStore';
 
+/** The engine bounds a real backend ships in `meta.limits` (ENGINE_LIMITS). */
+const LIMITS: EngineLimits = {
+  max_concurrent_conversions: { min: 1, max: 8, default: 2, zero: 'clamp' },
+  conversion_timeout_seconds: {
+    min: 10,
+    max: 3600,
+    default: 60,
+    zero: 'disables',
+  },
+  max_file_size_mb: { min: 1, max: 4096, default: 200, zero: 'default' },
+};
+
+const CONFIG_PATH = '/home/u/.config/MaeclyPrint/config.toml';
+
+function meta(over: Partial<SettingsMeta> = {}): SettingsMeta {
+  return {
+    config_unreadable: false,
+    config_path: CONFIG_PATH,
+    limits: LIMITS,
+    ...over,
+  };
+}
+
+/** The wire payload a current backend returns: settings + server annotations. */
+function settingsWith(over: Partial<AppSettings> = {}): AppSettings {
+  return { ...fixtureAppSettings, meta: meta(), ...over };
+}
+
 interface Call {
   cmd: string;
   args: Record<string, unknown>;
@@ -53,7 +87,7 @@ function mockSettings(
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
     if (cmd === opts.fail) throw new Error('boom');
-    if (cmd === 'get_app_settings') return opts.initial ?? fixtureAppSettings;
+    if (cmd === 'get_app_settings') return opts.initial ?? settingsWith();
     if (cmd === 'set_app_settings')
       return (args as { settings: AppSettings }).settings;
     return null;
@@ -68,11 +102,15 @@ interface RenderOver {
   setMode?: (m: ThemeMode) => void;
 }
 
+/**
+ * Render inside the i18n provider so every assertion runs against the real
+ * catalog rather than literals baked into the component.
+ */
 function renderSettings(over: RenderOver = {}) {
   const setTheme = vi.fn();
   const setDensity = vi.fn();
   render(
-    <>
+    <I18nProvider>
       <SettingsScreen
         theme={over.theme ?? 'light'}
         setTheme={setTheme}
@@ -82,7 +120,7 @@ function renderSettings(over: RenderOver = {}) {
         {...(over.setMode ? { setMode: over.setMode } : {})}
       />
       <Toaster theme="light" />
-    </>,
+    </I18nProvider>,
   );
   return { setTheme, setDensity };
 }
@@ -121,13 +159,50 @@ describe('SettingsScreen', () => {
   });
   afterEach(() => clearMocks());
 
+  // -- smoke --------------------------------------------------------------
+
+  it('FR-090: smoke — renders every section of the persisted configuration', async () => {
+    mockSettings();
+    renderSettings();
+    await waitReady();
+
+    for (const section of [
+      'Appearance',
+      'Printing',
+      'Engine',
+      'Updates',
+      'Privacy',
+    ]) {
+      expect(screen.getByText(section)).toBeInTheDocument();
+    }
+    // One control per documented setting, none of them missing.
+    for (const label of [
+      'Theme',
+      'Density',
+      'Language',
+      'Start minimized',
+      'Default profile',
+      'Concurrent conversions',
+      'Conversion timeout',
+      'Max file size',
+      'Channel',
+      'Check on startup',
+      'Crash reports',
+      'Anonymous usage metrics',
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+  });
+
+  // -- appearance ---------------------------------------------------------
+
   it('FR: persists a 3-way theme change (System included) and drives setMode', async () => {
     // Backend theme matches the passed mode so the load reconcile is a no-op.
-    const initial: AppSettings = {
-      ...fixtureAppSettings,
-      app: { ...fixtureAppSettings.app, theme: 'light' },
-    };
-    const calls = mockSettings({ initial });
+    const calls = mockSettings({
+      initial: settingsWith({
+        app: { ...fixtureAppSettings.app, theme: 'light' },
+      }),
+    });
     const setMode = vi.fn();
     renderSettings({ mode: 'light', setMode });
     await waitReady();
@@ -163,6 +238,81 @@ describe('SettingsScreen', () => {
     expect(sent.app.density).toBe('compact');
   });
 
+  // -- FR-094 language ----------------------------------------------------
+
+  it('FR-094: the language control offers every supported locale and persists the choice', async () => {
+    const calls = mockSettings();
+    renderSettings();
+    await waitReady();
+
+    const select = within(controlOf('Language')).getByRole('combobox');
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['English', 'Español']);
+
+    fireEvent.change(select, { target: { value: 'es-ES' } });
+
+    const sent = await savedSettings(calls);
+    expect(sent.app.locale).toBe('es-ES');
+  });
+
+  it('FR-094: integration — choosing Spanish re-renders the UI in Spanish', async () => {
+    mockSettings();
+    renderSettings();
+    await waitReady();
+    expect(screen.getByText('Settings')).toBeInTheDocument();
+
+    fireEvent.change(within(controlOf('Language')).getByRole('combobox'), {
+      target: { value: 'es-ES' },
+    });
+
+    // The optimistic write lands in the store, which is what I18nProvider
+    // reads — no reload, no second round-trip.
+    expect(await screen.findByText('Ajustes')).toBeInTheDocument();
+    expect(screen.getByText('Apariencia')).toBeInTheDocument();
+    expect(screen.getByText('Idioma')).toBeInTheDocument();
+  });
+
+  it('FR-092: renders in Spanish when the persisted locale is es-ES', async () => {
+    mockSettings({
+      initial: settingsWith({
+        app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+      }),
+    });
+    renderSettings();
+    await waitReady();
+
+    expect(await screen.findByText('Ajustes')).toBeInTheDocument();
+    expect(screen.getByText('Motor')).toBeInTheDocument();
+    expect(screen.getByText('Privacidad')).toBeInTheDocument();
+    expect(screen.getByText('Iniciar minimizada')).toBeInTheDocument();
+    expect(screen.getByText('Comprobar al iniciar')).toBeInTheDocument();
+    expect(
+      screen.getByText(/solo registran tu consentimiento/),
+    ).toBeInTheDocument();
+  });
+
+  // -- launch_minimized ---------------------------------------------------
+
+  it('FR-090: persists the start-minimized switch (the flag the backend reads at launch)', async () => {
+    const calls = mockSettings();
+    renderSettings();
+    await waitReady();
+
+    fireEvent.click(
+      within(controlOf('Start minimized')).getByRole('switch', {
+        name: 'Start minimized',
+      }),
+    );
+
+    const sent = await savedSettings(calls);
+    expect(sent.app.launch_minimized).toBe(true);
+  });
+
+  // -- printing / updates / privacy ---------------------------------------
+
   it('FR: the default-profile select calls setDefault on the profiles store', async () => {
     mockSettings();
     renderSettings();
@@ -196,6 +346,20 @@ describe('SettingsScreen', () => {
     expect(sent.updater.check_on_startup).toBe(false);
   });
 
+  it('regression: the updates section does not claim a startup check that does not exist', async () => {
+    mockSettings();
+    renderSettings();
+    await waitReady();
+
+    // The old hint promised a delayed launch-time check; nothing performs one.
+    expect(
+      screen.queryByText(/Delayed a few seconds/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/There is no launch-time check yet/),
+    ).toBeInTheDocument();
+  });
+
   it('persists the crash-reports consent toggle', async () => {
     const calls = mockSettings();
     renderSettings();
@@ -205,6 +369,19 @@ describe('SettingsScreen', () => {
 
     const sent = await savedSettings(calls);
     expect(sent.telemetry.crash_reports).toBe(true);
+  });
+
+  it('regression: the crash-reports hint does not promise a transmission', async () => {
+    mockSettings();
+    renderSettings();
+    await waitReady();
+
+    expect(
+      screen.queryByText(/Sent only when toggled on/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Nothing is sent in this version/),
+    ).toBeInTheDocument();
   });
 
   it('persists the anonymous-usage-metrics consent toggle', async () => {
@@ -219,6 +396,8 @@ describe('SettingsScreen', () => {
     const sent = await savedSettings(calls);
     expect(sent.telemetry.anonymous_usage_metrics).toBe(true);
   });
+
+  // -- engine fields, validated against the SERVER's limits ----------------
 
   it('FR: an in-bounds engine value commits on blur and persists', async () => {
     const calls = mockSettings();
@@ -252,7 +431,40 @@ describe('SettingsScreen', () => {
     expect(calls.some((c) => c.cmd === 'set_app_settings')).toBe(false);
   });
 
-  it('accepts 0 for the conversion timeout (disables it)', async () => {
+  it('regression: the inline bounds come from the server, not from a hard-coded copy', async () => {
+    // A backend whose ceiling moved to 4: the client must reject 5 and say
+    // "1 to 4" without anyone editing the screen.
+    const calls = mockSettings({
+      initial: settingsWith({
+        meta: meta({
+          limits: {
+            ...LIMITS,
+            max_concurrent_conversions: {
+              min: 1,
+              max: 4,
+              default: 2,
+              zero: 'clamp',
+            },
+          },
+        }),
+      }),
+    });
+    renderSettings();
+    await waitReady();
+
+    const input = within(controlOf('Concurrent conversions')).getByRole(
+      'textbox',
+    );
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.focusOut(input);
+
+    expect(
+      await screen.findByText('Enter a whole number from 1 to 4.'),
+    ).toBeInTheDocument();
+    expect(calls.some((c) => c.cmd === 'set_app_settings')).toBe(false);
+  });
+
+  it('accepts 0 for the conversion timeout (its bounds mark 0 as "disables")', async () => {
     const calls = mockSettings();
     renderSettings();
     await waitReady();
@@ -263,7 +475,56 @@ describe('SettingsScreen', () => {
 
     const sent = await savedSettings(calls);
     expect(sent.engine.conversion_timeout_seconds).toBe(0);
+    // …while the timeout error text still advertises the 0 escape hatch.
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.focusOut(input);
+    expect(
+      await screen.findByText('Enter 0, or a whole number from 10 to 3600.'),
+    ).toBeInTheDocument();
   });
+
+  it('falls back to server-side validation when the backend ships no limits', async () => {
+    // An older backend (no `meta`): the client must not invent bounds of its
+    // own — it forwards the value and lets `set_app_settings` decide.
+    const calls = mockSettings({ initial: { ...fixtureAppSettings } });
+    renderSettings();
+    await waitReady();
+
+    const input = within(controlOf('Concurrent conversions')).getByRole(
+      'textbox',
+    );
+    fireEvent.change(input, { target: { value: '99' } });
+    fireEvent.focusOut(input);
+
+    const sent = await savedSettings(calls);
+    expect(sent.engine.max_concurrent_conversions).toBe(99);
+  });
+
+  // -- FR-101: corrupt config -------------------------------------------
+
+  it('FR-101: warns that the shown values are defaults when config.toml is unreadable', async () => {
+    mockSettings({
+      initial: settingsWith({ meta: meta({ config_unreadable: true }) }),
+    });
+    renderSettings();
+    await waitReady();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Your settings file could not be read');
+    expect(alert).toHaveTextContent(/not your saved settings/);
+    // The path is what makes it recoverable: the user has to fix that file.
+    expect(alert).toHaveTextContent(CONFIG_PATH);
+  });
+
+  it('FR-101: shows no warning when the config is healthy', async () => {
+    mockSettings();
+    renderSettings();
+    await waitReady();
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  // -- notes & edge states -------------------------------------------------
 
   it('renders the M2/M4 milestone notes and the consent note', async () => {
     mockSettings();
@@ -310,11 +571,29 @@ describe('SettingsScreen', () => {
 
     // A backend row is visually + interactively disabled.
     expect(controlOf('Crash reports').style.pointerEvents).toBe('none');
+    expect(controlOf('Language').style.pointerEvents).toBe('none');
 
     // Appearance stays enabled offline (local-only, nothing to revert).
     expect(controlOf('Theme').style.pointerEvents).not.toBe('none');
     fireEvent.click(screen.getByText('Dark'));
     expect(setTheme).toHaveBeenCalledWith('dark');
+  });
+
+  it('unit: density is published on the document root so the whole app can follow it', () => {
+    // The setting used to reach exactly one list (the Print Job file table).
+    // `applyDensity` is the app-wide hook: an attribute to select on and the
+    // spacing variables the Settings rows already consume.
+    applyDensity('compact');
+    expect(document.documentElement.dataset.density).toBe('compact');
+    expect(document.documentElement.style.getPropertyValue('--mp-row-py')).toBe(
+      '8px',
+    );
+
+    applyDensity('comfortable');
+    expect(document.documentElement.dataset.density).toBe('comfortable');
+    expect(document.documentElement.style.getPropertyValue('--mp-row-py')).toBe(
+      '14px',
+    );
   });
 
   it('E: disables the appearance controls while the settings are loading', () => {

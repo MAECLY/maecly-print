@@ -231,6 +231,50 @@ describe('settingsStore', () => {
     expect(sent.app.locale).toBe('en-US');
   });
 
+  it('regression: patch preserves the server-computed meta (limits + config health)', async () => {
+    // `merge` used to rebuild the bundle from its four sections, dropping
+    // `meta` — which would blank the engine limits and hide the corrupt-config
+    // warning after the very first change the user makes.
+    const withMeta: AppSettings = {
+      ...fixtureAppSettings,
+      meta: {
+        config_unreadable: true,
+        config_path: '/tmp/config.toml',
+        limits: {
+          max_concurrent_conversions: {
+            min: 1,
+            max: 8,
+            default: 2,
+            zero: 'clamp',
+          },
+          conversion_timeout_seconds: {
+            min: 10,
+            max: 3600,
+            default: 60,
+            zero: 'disables',
+          },
+          max_file_size_mb: {
+            min: 1,
+            max: 4096,
+            default: 200,
+            zero: 'default',
+          },
+        },
+      },
+    };
+    const calls = mockSettings({ initial: withMeta });
+    await useSettingsStore.getState().init();
+
+    await useSettingsStore.getState().patch({ app: { theme: 'dark' } });
+
+    const sent = calls.find((c) => c.cmd === 'set_app_settings')!.args
+      .settings as AppSettings;
+    expect(sent.meta).toEqual(withMeta.meta);
+    expect(useSettingsStore.getState().settings?.meta?.limits).toEqual(
+      withMeta.meta?.limits,
+    );
+  });
+
   it('patch is a no-op before settings load', async () => {
     const calls = mockSettings();
     const ok = await useSettingsStore

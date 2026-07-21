@@ -66,13 +66,109 @@ pub struct Config {
     pub telemetry: TelemetryCfg,
 }
 
+/// How a stored `0` is treated for one knob, on top of the `min..=max` range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum ZeroPolicy {
+    /// `0` is just an out-of-range value: rejected on write, clamped up to
+    /// `min` when a hand-edited file is sanitized.
+    Clamp,
+    /// `0` is a meaningful value that turns the knob off (the timeout), so it
+    /// is accepted on write and passes through sanitization untouched.
+    Disables,
+    /// `0` is bricked input that would make the app unusable (a 0 MB ceiling
+    /// rejects every file): rejected on write, and sanitized to `default`.
+    #[serde(rename = "default")]
+    FallsBackToDefault,
+}
+
+/// Inclusive bounds and the shipped default of one numeric engine knob.
+///
+/// This is the SINGLE SOURCE OF TRUTH for the engine limits (see
+/// [`ENGINE_LIMITS`]): [`EngineCfg::default`] takes its values from here,
+/// [`EngineCfg::sanitized`] clamps with [`Bounds::sanitize`], the write path
+/// ([`crate::ipc::settings::set_app_settings`]) rejects with
+/// [`Bounds::accepts`], and the very same numbers ride to the frontend in
+/// [`SettingsMeta::limits`] so the Settings screen validates against the
+/// server's bounds instead of a hand-copied second set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct Bounds {
+    /// Smallest accepted value (ignoring [`ZeroPolicy`]).
+    pub min: u32,
+    /// Largest accepted value.
+    pub max: u32,
+    /// The value a fresh install starts from, and the fallback for a bricked
+    /// `0` under [`ZeroPolicy::FallsBackToDefault`].
+    pub default: u32,
+    /// What a stored `0` means for this knob.
+    pub zero: ZeroPolicy,
+}
+
+impl Bounds {
+    /// Whether the write path accepts `value` verbatim.
+    pub fn accepts(&self, value: u32) -> bool {
+        (value == 0 && matches!(self.zero, ZeroPolicy::Disables))
+            || (self.min..=self.max).contains(&value)
+    }
+
+    /// `value` forced into a usable range, honouring this knob's
+    /// [`ZeroPolicy`]. Used for values that never went through the write path
+    /// (a hand-edited file, or one written by an older build).
+    pub fn sanitize(&self, value: u32) -> u32 {
+        match (value, self.zero) {
+            (0, ZeroPolicy::Disables) => 0,
+            (0, ZeroPolicy::FallsBackToDefault) => self.default,
+            _ => value.clamp(self.min, self.max),
+        }
+    }
+}
+
+/// The bounds of every numeric engine knob, as one bundle. Exposed on the wire
+/// so the UI can render and validate the limits without duplicating them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct EngineLimits {
+    pub max_concurrent_conversions: Bounds,
+    pub conversion_timeout_seconds: Bounds,
+    pub max_file_size_mb: Bounds,
+}
+
+/// The engine limits. Documented in `docs/05-features/settings.md` § Engine;
+/// every other copy in the codebase (validation, sanitization, the UI's inline
+/// bounds check and error text) is derived from this constant.
+pub const ENGINE_LIMITS: EngineLimits = EngineLimits {
+    max_concurrent_conversions: Bounds {
+        min: 1,
+        max: 8,
+        default: crate::queue::DEFAULT_MAX_CONCURRENT_CONVERSIONS as u32,
+        zero: ZeroPolicy::Clamp,
+    },
+    conversion_timeout_seconds: Bounds {
+        min: 10,
+        max: 3600,
+        default: 60,
+        zero: ZeroPolicy::Disables,
+    },
+    max_file_size_mb: Bounds {
+        min: 1,
+        max: 4096,
+        default: 200,
+        zero: ZeroPolicy::FallsBackToDefault,
+    },
+};
+
+impl Default for EngineLimits {
+    fn default() -> Self {
+        ENGINE_LIMITS
+    }
+}
+
 /// Engine/queue tuning knobs. All values take effect on the next app start
 /// (the queue reads them once at boot); changing them mid-session does not
 /// re-tune the running dispatcher.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct EngineCfg {
-    /// Concurrent conversions the dispatcher may run (clamped to `1..=8` at
-    /// boot). Defaults to the dispatcher's own
+    /// Concurrent conversions the dispatcher may run (clamped to
+    /// [`ENGINE_LIMITS`] at boot). Defaults to the dispatcher's own
     /// [`DEFAULT_MAX_CONCURRENT_CONVERSIONS`](crate::queue::DEFAULT_MAX_CONCURRENT_CONVERSIONS).
     pub max_concurrent_conversions: u32,
     /// Per-conversion timeout in seconds; `0` disables the timeout.
@@ -89,18 +185,13 @@ pub struct EngineCfg {
 impl Default for EngineCfg {
     fn default() -> Self {
         Self {
-            max_concurrent_conversions: crate::queue::DEFAULT_MAX_CONCURRENT_CONVERSIONS as u32,
-            conversion_timeout_seconds: 60,
-            max_file_size_mb: 200,
+            max_concurrent_conversions: ENGINE_LIMITS.max_concurrent_conversions.default,
+            conversion_timeout_seconds: ENGINE_LIMITS.conversion_timeout_seconds.default,
+            max_file_size_mb: ENGINE_LIMITS.max_file_size_mb.default,
             default_profile: None,
         }
     }
 }
-
-/// Fallback used by [`EngineCfg::sanitized`] when a stored `max_file_size_mb` of
-/// `0` (which would reject every file) is encountered. Mirrors the field's
-/// default so a bricked value lands on the same ceiling a fresh install uses.
-const DEFAULT_MAX_FILE_SIZE_MB: u32 = 200;
 
 impl EngineCfg {
     /// A copy with every tuning knob clamped to a usable range, so a
@@ -110,25 +201,25 @@ impl EngineCfg {
     /// so every *consumer* (queue spawn, submit's size check, `inspect_files`)
     /// reads through this rather than trusting the raw stored numbers.
     ///
-    /// - `max_concurrent_conversions`: clamped to `1..=8`.
-    /// - `conversion_timeout_seconds`: `0` stays `0` (timeout disabled); any
-    ///   other value clamps to `10..=3600` (a 1s timeout would kill every
-    ///   conversion).
-    /// - `max_file_size_mb`: `0` becomes [`DEFAULT_MAX_FILE_SIZE_MB`] (0 would
-    ///   reject every file); any other value clamps to `1..=4096`.
+    /// Every knob goes through its own [`Bounds::sanitize`], so the ranges and
+    /// the `0` handling come from [`ENGINE_LIMITS`] rather than a second set of
+    /// literals: concurrency clamps into range, a `0` timeout stays `0`
+    /// (disabled) while any other value clamps (a 1s timeout would kill every
+    /// conversion), and a `0` size ceiling falls back to the default (`0` would
+    /// reject every file).
     ///
     /// `default_profile` is passed through unchanged.
     pub fn sanitized(&self) -> EngineCfg {
         EngineCfg {
-            max_concurrent_conversions: self.max_concurrent_conversions.clamp(1, 8),
-            conversion_timeout_seconds: match self.conversion_timeout_seconds {
-                0 => 0,
-                secs => secs.clamp(10, 3600),
-            },
-            max_file_size_mb: match self.max_file_size_mb {
-                0 => DEFAULT_MAX_FILE_SIZE_MB,
-                mb => mb.clamp(1, 4096),
-            },
+            max_concurrent_conversions: ENGINE_LIMITS
+                .max_concurrent_conversions
+                .sanitize(self.max_concurrent_conversions),
+            conversion_timeout_seconds: ENGINE_LIMITS
+                .conversion_timeout_seconds
+                .sanitize(self.conversion_timeout_seconds),
+            max_file_size_mb: ENGINE_LIMITS
+                .max_file_size_mb
+                .sanitize(self.max_file_size_mb),
             default_profile: self.default_profile.clone(),
         }
     }
@@ -174,6 +265,39 @@ pub struct TelemetryCfg {
     pub anonymous_usage_metrics: bool,
 }
 
+/// Read-only annotations the server attaches to every settings response: state
+/// the UI cannot derive from the values themselves.
+///
+/// It travels *inside* [`AppSettings`] so the screen learns about it on the one
+/// read it already does. The client echoes it back on a write (it sends the
+/// whole bundle) and the server **ignores it entirely** — it is recomputed from
+/// disk on the way out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct SettingsMeta {
+    /// `config.toml` exists but could not be read or parsed, so the values in
+    /// this bundle are [`Config::default`], **not** the user's settings
+    /// (FR-101). Every mutator refuses while this holds (see
+    /// [`CONFIG_CORRUPT_MSG`]), so the UI must say so instead of presenting
+    /// defaults as if they were the stored configuration.
+    pub config_unreadable: bool,
+    /// Absolute path of the config file the values came from, so the UI can
+    /// name the file the user has to fix or remove.
+    pub config_path: String,
+    /// The engine bounds ([`ENGINE_LIMITS`]) the write path enforces, so the
+    /// client validates against the server's numbers instead of its own copy.
+    pub limits: EngineLimits,
+}
+
+impl Default for SettingsMeta {
+    fn default() -> Self {
+        Self {
+            config_unreadable: false,
+            config_path: String::new(),
+            limits: ENGINE_LIMITS,
+        }
+    }
+}
+
 /// The subset of [`Config`] exposed to the frontend as one bundle by
 /// `get_app_settings` / `set_app_settings`. Deliberately excludes `printers`
 /// (owned by the Printers screen) and `schema_version` (server-managed).
@@ -183,6 +307,11 @@ pub struct AppSettings {
     pub engine: EngineCfg,
     pub updater: UpdaterCfg,
     pub telemetry: TelemetryCfg,
+    /// Server-computed annotations; `#[serde(default)]` so a client that does
+    /// not know about them (or a test building the bundle by hand) still
+    /// deserializes, and so the field is optional in the generated TypeScript.
+    #[serde(default)]
+    pub meta: SettingsMeta,
 }
 
 /// MaeclyPrint-level printer preferences (never mutate the OS spooler).
@@ -253,6 +382,48 @@ pub enum Density {
     Compact,
 }
 
+/// The result of a tolerant load ([`Config::load_reporting`]): the config to
+/// use, plus whether it is a stand-in for a file that could not be read.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConfigLoad {
+    pub config: Config,
+    /// The file exists but could not be read/parsed; `config` is the default.
+    pub unreadable: bool,
+}
+
+impl ConfigLoad {
+    fn intact(config: Config) -> Self {
+        Self {
+            config,
+            unreadable: false,
+        }
+    }
+
+    fn degraded() -> Self {
+        Self {
+            config: Config::default(),
+            unreadable: true,
+        }
+    }
+}
+
+/// Whether the main window should start minimized (`[app].launch_minimized`).
+///
+/// Startup reads the config directly rather than waiting for the frontend: the
+/// window has to be minimized before it is shown, which is long before the
+/// first IPC round-trip. Path-injected core for the tests; [`launch_minimized`]
+/// is what the app calls.
+pub fn launch_minimized_at(config_path: &Path) -> bool {
+    Config::load_from(config_path).app.launch_minimized
+}
+
+/// [`launch_minimized_at`] against the real per-user config. A corrupt or
+/// missing file yields the default (`false`) — never a window the user cannot
+/// find.
+pub fn launch_minimized() -> bool {
+    launch_minimized_at(&Config::config_path())
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -275,25 +446,40 @@ impl Config {
     /// [`Config::default`] on any read or parse failure (a missing file is the
     /// common, non-error case). Path-injected so integration tests can point at
     /// a tempdir instead of the real config dir.
+    ///
+    /// Callers that can *tell the user* about a broken file should use
+    /// [`Config::load_reporting`] instead: this one throws the fact away.
     pub fn load_from(path: &Path) -> Self {
+        Self::load_reporting(path).config
+    }
+
+    /// [`Config::load_from`] that also reports whether it degraded.
+    ///
+    /// The tolerant read path must not fail (the app has to start, and every
+    /// screen has to render), but silently showing defaults as if they were the
+    /// user's settings is how a corrupt file becomes invisible until the first
+    /// save is refused. FR-101 asks for the fallback *and* a recoverable error,
+    /// so `get_app_settings` reads through this and forwards `unreadable` to
+    /// the UI in [`SettingsMeta::config_unreadable`].
+    pub fn load_reporting(path: &Path) -> ConfigLoad {
         if !path.exists() {
-            return Self::default();
+            return ConfigLoad::intact(Self::default());
         }
         match std::fs::read_to_string(path) {
             Ok(s) => match toml::from_str::<Self>(&s) {
-                Ok(c) => c,
+                Ok(c) => ConfigLoad::intact(c),
                 Err(e) => {
                     tracing::warn!(
                         event = "config_parse_failed",
                         error = %e,
                         "falling back to default config"
                     );
-                    Self::default()
+                    ConfigLoad::degraded()
                 }
             },
             Err(e) => {
                 tracing::warn!(event = "config_read_failed", error = %e);
-                Self::default()
+                ConfigLoad::degraded()
             }
         }
     }
@@ -521,6 +707,99 @@ mod tests {
         cfg.app.theme = Theme::Dark;
         cfg.save_to(&path).unwrap();
         assert_eq!(Config::load_strict(&path).unwrap(), cfg);
+    }
+
+    #[test]
+    fn engine_defaults_come_from_the_limits() {
+        // Regression: the defaults used to be literals sitting next to a second
+        // set of literals in the clamp. Both now read from ENGINE_LIMITS.
+        let e = EngineCfg::default();
+        assert_eq!(
+            e.max_concurrent_conversions,
+            ENGINE_LIMITS.max_concurrent_conversions.default
+        );
+        assert_eq!(
+            e.conversion_timeout_seconds,
+            ENGINE_LIMITS.conversion_timeout_seconds.default
+        );
+        assert_eq!(e.max_file_size_mb, ENGINE_LIMITS.max_file_size_mb.default);
+        // Every default is a value the write path would accept.
+        assert!(ENGINE_LIMITS
+            .max_concurrent_conversions
+            .accepts(e.max_concurrent_conversions));
+        assert!(ENGINE_LIMITS
+            .conversion_timeout_seconds
+            .accepts(e.conversion_timeout_seconds));
+        assert!(ENGINE_LIMITS.max_file_size_mb.accepts(e.max_file_size_mb));
+    }
+
+    #[test]
+    fn bounds_zero_policies() {
+        let clamp = Bounds {
+            min: 1,
+            max: 8,
+            default: 2,
+            zero: ZeroPolicy::Clamp,
+        };
+        assert!(!clamp.accepts(0));
+        assert_eq!(clamp.sanitize(0), 1);
+
+        let disables = Bounds {
+            min: 10,
+            max: 3600,
+            default: 60,
+            zero: ZeroPolicy::Disables,
+        };
+        assert!(disables.accepts(0));
+        assert_eq!(disables.sanitize(0), 0);
+        assert_eq!(disables.sanitize(9), 10);
+
+        let fallback = Bounds {
+            min: 1,
+            max: 4096,
+            default: 200,
+            zero: ZeroPolicy::FallsBackToDefault,
+        };
+        assert!(!fallback.accepts(0));
+        assert_eq!(fallback.sanitize(0), 200);
+        assert_eq!(fallback.sanitize(99_999), 4096);
+    }
+
+    #[test]
+    fn fr_101_load_reporting_flags_only_an_unreadable_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        // Missing is the normal first-run case, not a degradation.
+        let load = Config::load_reporting(&path);
+        assert!(!load.unreadable);
+        assert_eq!(load.config, Config::default());
+
+        // A readable file is not flagged either.
+        let mut cfg = Config::default();
+        cfg.app.theme = Theme::Dark;
+        cfg.save_to(&path).unwrap();
+        let load = Config::load_reporting(&path);
+        assert!(!load.unreadable);
+        assert_eq!(load.config.app.theme, Theme::Dark);
+
+        // A corrupt one degrades to defaults AND says so.
+        std::fs::write(&path, b"nope ][ =").unwrap();
+        let load = Config::load_reporting(&path);
+        assert!(load.unreadable);
+        assert_eq!(load.config, Config::default());
+        // `load_from` keeps its old, lossy contract for callers that can't act.
+        assert_eq!(Config::load_from(&path), Config::default());
+    }
+
+    #[test]
+    fn launch_minimized_is_read_from_the_stored_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut cfg = Config::default();
+        cfg.app.launch_minimized = true;
+        cfg.save_to(&path).unwrap();
+        assert!(launch_minimized_at(&path));
     }
 
     #[test]

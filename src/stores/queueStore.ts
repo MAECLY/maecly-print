@@ -7,17 +7,44 @@
  * merged into the matching job by id). Derived views (`uiJobs`, `counts`,
  * `queuePaused`, `recentDone`) are recomputed once per snapshot change so
  * component selectors return stable references between updates.
+ *
+ * Two behaviours live here rather than in the screen because they must survive
+ * navigation away from the Queue:
+ *
+ * - **Batch completion notifications (FR-070/FR-071).** Every snapshot is
+ *   scanned for batches whose jobs have all reached a terminal state, and the
+ *   ones that were not complete a moment ago produce a summary toast ("12 of
+ *   12 files printed successfully"), or an actionable failure toast with a way
+ *   into the job log. The snapshot loaded at `init()` only SEEDS the
+ *   already-complete set, so yesterday's history never re-announces itself.
+ * - **The "Clear done" undo window (NFR-032).** `requestClearDone()` hides the
+ *   finished jobs immediately and only calls `clear_done` five seconds later,
+ *   so `undoClearDone()` can put them back without needing the backend to
+ *   resurrect anything.
+ *
+ * Toast copy is translated at call time (a store is not a component and cannot
+ * use hooks) with the locale read from the settings store — the same pattern as
+ * `src/lib/jobFiles.ts`.
  */
 
 import { create } from 'zustand';
 import { toast } from 'sonner';
 
-import { events, type QueueSnapshot } from '@/ipc/bindings';
+import { events, type Job, type QueueSnapshot } from '@/ipc/bindings';
+import {
+  CATALOGS,
+  matchLocale,
+  translate,
+  type TranslateParams,
+  type TranslationKey,
+} from '@/i18n';
+import { detectSystemLocale } from '@/i18n/I18nProvider';
 import {
   cancelAll as cancelAllCmd,
   cancelJob as cancelJobCmd,
   clearDone as clearDoneCmd,
   isTauri,
+  openLogsFolder,
   pauseJob as pauseJobCmd,
   pauseQueue as pauseQueueCmd,
   queueStatus as queueStatusCmd,
@@ -25,8 +52,9 @@ import {
   resumeQueue as resumeQueueCmd,
   retryJob as retryJobCmd,
   toUiQueueJob,
+  type UiQueueJobView,
 } from '@/lib/ipc';
-import type { UiQueueJob } from '@/types/domain';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 /** Lifecycle of the store's connection to the backend queue. */
 export type QueueLoadStatus =
@@ -42,6 +70,13 @@ export interface QueueCounts {
   done: number;
 }
 
+/**
+ * How long "Clear done" stays undoable before the backend call goes out
+ * (NFR-032 asks for a 5 s Undo affordance). Exported so the screen can put the
+ * number in the confirmation copy and tests don't have to guess it.
+ */
+export const CLEAR_UNDO_MS = 5000;
+
 interface QueueState {
   snapshot: QueueSnapshot | null;
   status: QueueLoadStatus;
@@ -52,12 +87,22 @@ interface QueueState {
    * after a snapshot failure doesn't double-register them.
    */
   subscribed: boolean;
+  /**
+   * Ids hidden by an in-flight "Clear done" undo window. They are still in the
+   * backend snapshot; the derived views pretend they are gone.
+   */
+  pendingClear: string[];
+  /**
+   * Batch ids already announced as finished, so one completion produces one
+   * toast. A batch that leaves the set (a job was retried) can announce again.
+   */
+  notifiedBatches: string[];
   // Derived — recomputed on every snapshot change (memoized at the write).
-  uiJobs: UiQueueJob[];
+  uiJobs: UiQueueJobView[];
   counts: QueueCounts;
   queuePaused: boolean;
   /** Last five terminal jobs, newest first — for the Home "Recent activity". */
-  recentDone: UiQueueJob[];
+  recentDone: UiQueueJobView[];
 
   init: () => Promise<void>;
   pauseJob: (id: string) => Promise<void>;
@@ -66,23 +111,72 @@ interface QueueState {
   retryJob: (id: string) => Promise<void>;
   pauseQueue: () => Promise<void>;
   resumeQueue: () => Promise<void>;
-  /** Resolves to the pruned count, or `null` when the backend call failed. */
-  clearDone: () => Promise<number | null>;
+  /**
+   * Hide every finished job and schedule the real `clear_done` for
+   * {@link CLEAR_UNDO_MS} from now. Returns how many jobs were hidden (0 when
+   * there was nothing to clear, in which case nothing is scheduled).
+   */
+  requestClearDone: () => number;
+  /** Cancel a pending clear and put the hidden jobs back on screen. */
+  undoClearDone: () => void;
   /** Resolves to the cancelled count, or `null` when the backend call failed. */
   cancelAll: () => Promise<number | null>;
 }
 
 const TERMINAL = new Set(['done', 'failed', 'cancelled']);
 
+/** The locale to translate a toast into, read at call time (never a hook). */
+function activeLocale() {
+  const configured = useSettingsStore.getState().settings?.app.locale;
+  return matchLocale(configured) ?? detectSystemLocale();
+}
+
+/** Translate a `queue` key using whatever locale is active right now. */
+function t(key: TranslationKey<'queue'>, params?: TranslateParams): string {
+  return translate(CATALOGS[activeLocale()], 'queue', key, params);
+}
+
+/** Same, for the shared `common` namespace (action labels). */
+function tCommon(
+  key: TranslationKey<'common'>,
+  params?: TranslateParams,
+): string {
+  return translate(CATALOGS[activeLocale()], 'common', key, params);
+}
+
+/** Milliseconds since the epoch for an RFC 3339 stamp; `null` when unusable. */
+function epoch(ts: string | null): number | null {
+  if (!ts) return null;
+  const ms = new Date(ts).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * Recency key of a terminal job. PARSE the timestamps rather than comparing the
+ * strings: `time`'s RFC 3339 formatter emits fractional seconds only when they
+ * are non-zero, so `"…:00Z"` sorts lexicographically AFTER `"…:00.5Z"` (`.` <
+ * `Z`) — the exact trap documented in `src-tauri/src/queue/persist.rs`. Jobs
+ * with no usable `finished_at` fall back to `submitted_at`, matching what
+ * `prune_history` does on the Rust side.
+ */
+function finishedRank(job: Job): number {
+  return epoch(job.finished_at) ?? epoch(job.submitted_at) ?? 0;
+}
+
 /** Everything derived from a snapshot, computed in one place. */
-function derive(snapshot: QueueSnapshot | null): {
+function derive(
+  snapshot: QueueSnapshot | null,
+  pendingClear: readonly string[],
+): {
   snapshot: QueueSnapshot | null;
-  uiJobs: UiQueueJob[];
+  pendingClear: string[];
+  uiJobs: UiQueueJobView[];
   counts: QueueCounts;
   queuePaused: boolean;
-  recentDone: UiQueueJob[];
+  recentDone: UiQueueJobView[];
 } {
-  const jobs = snapshot?.jobs ?? [];
+  const hidden = new Set(pendingClear);
+  const jobs = (snapshot?.jobs ?? []).filter((j) => !hidden.has(j.id));
   const uiJobs = jobs.map(toUiQueueJob);
   const counts: QueueCounts = {
     active: uiJobs.filter(
@@ -96,20 +190,86 @@ function derive(snapshot: QueueSnapshot | null): {
     ).length,
     done: uiJobs.filter((j) => TERMINAL.has(j.status)).length,
   };
-  // RFC 3339 UTC timestamps sort lexicographically, so string compare on
-  // `finished_at` gives newest-first without parsing dates.
   const recentDone = jobs
     .filter((j) => TERMINAL.has(j.state))
-    .sort((a, b) => (b.finished_at ?? '').localeCompare(a.finished_at ?? ''))
+    // Newest first, with the id as a tie-break so the order is total and does
+    // not depend on the incoming job order.
+    .sort(
+      (a, b) => finishedRank(b) - finishedRank(a) || a.id.localeCompare(b.id),
+    )
     .slice(0, 5)
     .map(toUiQueueJob);
   return {
     snapshot,
+    pendingClear: [...pendingClear],
     uiJobs,
     counts,
     queuePaused: snapshot?.queue_paused ?? false,
     recentDone,
   };
+}
+
+/** Ids of the batches in `snapshot` whose every job has reached a terminal state. */
+function completeBatchIds(snapshot: QueueSnapshot | null): string[] {
+  const byBatch = new Map<string, Job[]>();
+  for (const job of snapshot?.jobs ?? []) {
+    const bucket = byBatch.get(job.batch_id);
+    if (bucket) bucket.push(job);
+    else byBatch.set(job.batch_id, [job]);
+  }
+  return [...byBatch.entries()]
+    .filter(([, jobs]) => jobs.every((j) => TERMINAL.has(j.state)))
+    .map(([id]) => id);
+}
+
+/**
+ * Announce one finished batch (FR-070 / FR-071).
+ *
+ * A batch with failures wins over the success summary: the user needs the
+ * error, what to do about it, and a way into the job log — which is the logs
+ * folder, the finest-grained entry point the backend exposes today.
+ */
+function notifyBatchComplete(snapshot: QueueSnapshot, batchId: string): void {
+  const jobs = snapshot.jobs.filter((j) => j.batch_id === batchId);
+  const total = jobs.length;
+  if (total === 0) return;
+  const done = jobs.filter((j) => j.state === 'done').length;
+  const failed = jobs.filter((j) => j.state === 'failed');
+  const cancelled = jobs.filter((j) => j.state === 'cancelled').length;
+
+  if (failed.length > 0) {
+    const first = failed[0];
+    toast.error(
+      // `count` is the batch size: it decides "file" vs "files", exactly as in
+      // the success copy ("1 of 2 files failed", not "1 of 2 file failed").
+      t('notify.batchFailed', {
+        count: total,
+        failed: failed.length,
+        total,
+      }),
+      {
+        description: t('notify.batchFailedHint', {
+          file: first?.file_name ?? '',
+          error: first?.error?.message ?? '',
+        }),
+        duration: 10000,
+        action: {
+          label: tCommon('actions.openLogsFolder'),
+          onClick: () => {
+            openLogsFolder().catch((e: unknown) => toast.error(message(e)));
+          },
+        },
+      },
+    );
+    return;
+  }
+  if (done === 0) {
+    // Nothing printed and nothing failed: the user cancelled it themselves, so
+    // a neutral acknowledgement, not a success or an error.
+    toast.message(t('notify.batchCancelled', { count: cancelled }));
+    return;
+  }
+  toast.success(t('notify.batchDone', { count: total, done, total }));
 }
 
 /** Turn an unknown thrown value into a user-facing message. */
@@ -118,6 +278,9 @@ function message(e: unknown): string {
 }
 
 export const useQueueStore = create<QueueState>()((set, get) => {
+  /** Timer of the open "Clear done" undo window, if any. */
+  let clearTimer: ReturnType<typeof setTimeout> | null = null;
+
   /**
    * Merge advisory progress into the matching job. Unknown ids are ignored,
    * and so are jobs that are no longer running: a throttled progress event can
@@ -134,7 +297,36 @@ export const useQueueStore = create<QueueState>()((set, get) => {
       changed = true;
       return { ...j, progress: { phase, percent } };
     });
-    if (changed) set(derive({ ...cur, jobs }));
+    if (changed) set(derive({ ...cur, jobs }, get().pendingClear));
+  }
+
+  /** Adopt an authoritative snapshot and announce any batch that just ended. */
+  function adopt(next: QueueSnapshot, announce: boolean): void {
+    const complete = completeBatchIds(next);
+    const known = get().notifiedBatches;
+    const fresh = announce ? complete.filter((id) => !known.includes(id)) : [];
+    set({
+      ...derive(next, get().pendingClear),
+      status: 'ready',
+      notifiedBatches: complete,
+    });
+    for (const id of fresh) notifyBatchComplete(next, id);
+  }
+
+  /** Send the deferred `clear_done` once the undo window has elapsed. */
+  async function commitClearDone(): Promise<void> {
+    clearTimer = null;
+    if (get().pendingClear.length === 0) return;
+    try {
+      await clearDoneCmd();
+    } catch (e) {
+      toast.error(message(e));
+    } finally {
+      // Drop the local mask either way: on success the backend's own
+      // `queue-updated` already removed the jobs, and on failure they must come
+      // back on screen instead of staying invisible for the session.
+      set(derive(get().snapshot, []));
+    }
   }
 
   /** Run a fallible action wrapper, surfacing failures as an error toast. */
@@ -150,6 +342,8 @@ export const useQueueStore = create<QueueState>()((set, get) => {
     snapshot: null,
     status: 'idle',
     subscribed: false,
+    pendingClear: [],
+    notifiedBatches: [],
     uiJobs: [],
     counts: { active: 0, pending: 0, done: 0 },
     queuePaused: false,
@@ -175,7 +369,7 @@ export const useQueueStore = create<QueueState>()((set, get) => {
         try {
           await events.queueUpdated.listen((ev) => {
             eventSeen = true;
-            set({ ...derive(ev.payload), status: 'ready' });
+            adopt(ev.payload, true);
           });
           await events.jobProgressEvent.listen((ev) => {
             applyProgress(ev.payload.id, ev.payload.phase, ev.payload.percent);
@@ -198,7 +392,9 @@ export const useQueueStore = create<QueueState>()((set, get) => {
           // applying the older fetch result would rewind the UI.
           set({ status: 'ready' });
         } else {
-          set({ ...derive(snap), status: 'ready' });
+          // `announce: false` — everything terminal in the first snapshot
+          // finished before this session was watching.
+          adopt(snap, false);
         }
       } catch (e) {
         if (!eventSeen) set({ status: 'error', error: message(e) });
@@ -212,14 +408,30 @@ export const useQueueStore = create<QueueState>()((set, get) => {
     pauseQueue: () => guard(() => pauseQueueCmd()),
     resumeQueue: () => guard(() => resumeQueueCmd()),
 
-    clearDone: async () => {
-      try {
-        return await clearDoneCmd();
-      } catch (e) {
-        toast.error(message(e));
-        return null;
-      }
+    requestClearDone: () => {
+      // Known limitation of doing this client-side: `clear_done` has no id
+      // list, so a job that reaches a terminal state DURING the undo window is
+      // swept too even though it was never hidden. Five seconds is short
+      // enough that this is preferable to a backend-side deferred delete.
+      const ids = (get().snapshot?.jobs ?? [])
+        .filter((j) => TERMINAL.has(j.state))
+        .map((j) => j.id);
+      if (ids.length === 0) return 0;
+      const pending = [...new Set([...get().pendingClear, ...ids])];
+      set(derive(get().snapshot, pending));
+      if (clearTimer) clearTimeout(clearTimer);
+      clearTimer = setTimeout(() => void commitClearDone(), CLEAR_UNDO_MS);
+      return ids.length;
     },
+
+    undoClearDone: () => {
+      if (clearTimer) {
+        clearTimeout(clearTimer);
+        clearTimer = null;
+      }
+      set(derive(get().snapshot, []));
+    },
+
     cancelAll: async () => {
       try {
         return await cancelAllCmd();

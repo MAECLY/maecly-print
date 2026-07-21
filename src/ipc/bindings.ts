@@ -411,6 +411,46 @@ async setDefaultProfile(id: string) : Promise<Result<null, IpcError>> {
 }
 },
 /**
+ * Export one profile — built-in or custom — to a standalone TOML document at
+ * `path`, so it can be shared across machines (FR-024).
+ * 
+ * The document holds the profile's *settings* only: the two computed flags are
+ * not part of the on-disk shape, so an exported file can never carry "I am the
+ * default" or "I am built in" onto another machine. The write is atomic, like
+ * every other profile write (FR-026).
+ */
+async exportProfile(id: string, path: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("export_profile", { id, path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Import profiles from a TOML document (FR-024), returning the newly created
+ * profiles with their computed flags.
+ * 
+ * The file is **untrusted input**: it is size-capped, parsed and validated in
+ * full before `profiles.toml` is even opened, and a single invalid entry
+ * rejects the whole document, so a rejected import can never leave a partial
+ * merge behind.
+ * 
+ * Collision policy (see [`profiles::merge_imported`]): every imported profile
+ * gets a **fresh id**, so an import only ever *adds* — it can neither
+ * overwrite an existing custom nor touch the immutable built-ins — and a name
+ * that collides case-insensitively is renamed `"{name} 2"`, `"{name} 3"`… the
+ * same way Clone does.
+ */
+async importProfiles(path: string) : Promise<Result<Profile[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("import_profiles", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Read the current app settings (the four wire sections of `config.toml`).
  */
 async getAppSettings() : Promise<Result<AppSettings, IpcError>> {
@@ -505,7 +545,42 @@ arch: string }
  * `get_app_settings` / `set_app_settings`. Deliberately excludes `printers`
  * (owned by the Printers screen) and `schema_version` (server-managed).
  */
-export type AppSettings = { app: AppCfg; engine: EngineCfg; updater: UpdaterCfg; telemetry: TelemetryCfg }
+export type AppSettings = { app: AppCfg; engine: EngineCfg; updater: UpdaterCfg; telemetry: TelemetryCfg; 
+/**
+ * Server-computed annotations; `#[serde(default)]` so a client that does
+ * not know about them (or a test building the bundle by hand) still
+ * deserializes, and so the field is optional in the generated TypeScript.
+ */
+meta?: SettingsMeta }
+/**
+ * Inclusive bounds and the shipped default of one numeric engine knob.
+ * 
+ * This is the SINGLE SOURCE OF TRUTH for the engine limits (see
+ * [`ENGINE_LIMITS`]): [`EngineCfg::default`] takes its values from here,
+ * [`EngineCfg::sanitized`] clamps with [`Bounds::sanitize`], the write path
+ * ([`crate::ipc::settings::set_app_settings`]) rejects with
+ * [`Bounds::accepts`], and the very same numbers ride to the frontend in
+ * [`SettingsMeta::limits`] so the Settings screen validates against the
+ * server's bounds instead of a hand-copied second set.
+ */
+export type Bounds = { 
+/**
+ * Smallest accepted value (ignoring [`ZeroPolicy`]).
+ */
+min: number; 
+/**
+ * Largest accepted value.
+ */
+max: number; 
+/**
+ * The value a fresh install starts from, and the fallback for a bricked
+ * `0` under [`ZeroPolicy::FallsBackToDefault`].
+ */
+default: number; 
+/**
+ * What a stored `0` means for this knob.
+ */
+zero: ZeroPolicy }
 /**
  * Color vs. grayscale output.
  */
@@ -574,8 +649,8 @@ export type Duplex =
  */
 export type EngineCfg = { 
 /**
- * Concurrent conversions the dispatcher may run (clamped to `1..=8` at
- * boot). Defaults to the dispatcher's own
+ * Concurrent conversions the dispatcher may run (clamped to
+ * [`ENGINE_LIMITS`] at boot). Defaults to the dispatcher's own
  * [`DEFAULT_MAX_CONCURRENT_CONVERSIONS`](crate::queue::DEFAULT_MAX_CONCURRENT_CONVERSIONS).
  */
 max_concurrent_conversions: number; 
@@ -593,6 +668,11 @@ max_file_size_mb: number;
  * serialize a bare `Option::None` value.
  */
 default_profile?: string | null }
+/**
+ * The bounds of every numeric engine knob, as one bundle. Exposed on the wire
+ * so the UI can render and validate the limits without duplicating them.
+ */
+export type EngineLimits = { max_concurrent_conversions: Bounds; conversion_timeout_seconds: Bounds; max_file_size_mb: Bounds }
 /**
  * Safety ceiling on one folder expansion. Dropping a disk root must bound the
  * walk rather than wedge the app, so both the number of entries considered and
@@ -1056,6 +1136,34 @@ profile_id: string | null }
  */
 export type SelectionForwarded = Selection
 /**
+ * Read-only annotations the server attaches to every settings response: state
+ * the UI cannot derive from the values themselves.
+ * 
+ * It travels *inside* [`AppSettings`] so the screen learns about it on the one
+ * read it already does. The client echoes it back on a write (it sends the
+ * whole bundle) and the server **ignores it entirely** — it is recomputed from
+ * disk on the way out.
+ */
+export type SettingsMeta = { 
+/**
+ * `config.toml` exists but could not be read or parsed, so the values in
+ * this bundle are [`Config::default`], **not** the user's settings
+ * (FR-101). Every mutator refuses while this holds (see
+ * [`CONFIG_CORRUPT_MSG`]), so the UI must say so instead of presenting
+ * defaults as if they were the stored configuration.
+ */
+config_unreadable: boolean; 
+/**
+ * Absolute path of the config file the values came from, so the UI can
+ * name the file the user has to fix or remove.
+ */
+config_path: string; 
+/**
+ * The engine bounds ([`ENGINE_LIMITS`]) the write path enforces, so the
+ * client validates against the server's numbers instead of its own copy.
+ */
+limits: EngineLimits }
+/**
  * Why a file found inside a folder did not make it into the print selection.
  * FR-005/FR-059: a discarded file is never dropped silently, it comes back
  * with the reason so the caller can show it and write it to the job log.
@@ -1129,6 +1237,25 @@ checked_at: string }
  * feed (there are no separate beta/nightly feeds yet).
  */
 export type UpdaterCfg = { channel: UpdateChannel; check_on_startup: boolean }
+/**
+ * How a stored `0` is treated for one knob, on top of the `min..=max` range.
+ */
+export type ZeroPolicy = 
+/**
+ * `0` is just an out-of-range value: rejected on write, clamped up to
+ * `min` when a hand-edited file is sanitized.
+ */
+"clamp" | 
+/**
+ * `0` is a meaningful value that turns the knob off (the timeout), so it
+ * is accepted on write and passes through sanitization untouched.
+ */
+"disables" | 
+/**
+ * `0` is bricked input that would make the app unusable (a 0 MB ceiling
+ * rejects every file): rejected on write, and sanitized to `default`.
+ */
+"default"
 
 /** tauri-specta globals **/
 

@@ -158,6 +158,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::profiles::save_profile,
             ipc::profiles::delete_profile,
             ipc::profiles::set_default_profile,
+            ipc::profiles::export_profile,
+            ipc::profiles::import_profiles,
             ipc::settings::get_app_settings,
             ipc::settings::set_app_settings,
             ipc::update::check_for_updates,

@@ -8,17 +8,27 @@
  * are always authoritative and we never drift from a mis-guessed optimistic
  * update. Outside the Tauri host the store falls back to the static built-ins
  * so the Print Job dropdown still works in the standalone Vite preview.
+ *
+ * The store also owns the **editor draft** (`draft` / `working`). That state is
+ * conceptually screen-local, but the Profiles screen is unmounted the moment
+ * the user clicks another sidebar entry, which used to throw the unsaved work
+ * away without a word. Keeping it here means navigating away and back restores
+ * exactly what was typed, so no confirmation prompt is needed on app-level
+ * navigation at all (the in-screen discard guard still covers switching
+ * profiles, where the working copy genuinely has to go).
  */
 
 import { create } from 'zustand';
 import { toast } from 'sonner';
 
+import { commands, type IpcError } from '@/ipc/bindings';
 import {
   deleteProfile as deleteProfileCmd,
   isTauri,
   listProfiles,
   saveProfile as saveProfileCmd,
   setDefaultProfile as setDefaultProfileCmd,
+  toUiProfile,
 } from '@/lib/ipc';
 import { BUILT_IN_PROFILES, findProfileIn } from '@/lib/profiles';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -32,11 +42,30 @@ export type ProfilesLoadStatus =
   | 'unavailable'
   | 'error';
 
+/**
+ * The profile editor's live working copy, kept across screen unmounts.
+ *
+ * `key` identifies the editor instance it belongs to — `'draft'` for the
+ * unsaved new/clone draft, `profile:<id>` for an in-place edit — so a copy is
+ * never restored into the wrong form.
+ */
+export interface EditorWorking {
+  key: string;
+  profile: UiProfile;
+  /** Raw copies text, buffered so an out-of-range keystroke survives too. */
+  copiesText: string;
+}
+
 interface ProfilesState {
   profiles: UiProfile[];
   status: ProfilesLoadStatus;
   /** Explicit `| undefined` so `set({ error: undefined })` can clear it. */
   error?: string | undefined;
+
+  /** The unsaved new/clone draft (id `''`), or null when none is open. */
+  draft: UiProfile | null;
+  /** The editor's live working copy, or null when nothing is being edited. */
+  working: EditorWorking | null;
 
   init: () => Promise<void>;
   /** Upsert a profile; resolves the saved profile, or null on rejection. */
@@ -47,11 +76,47 @@ interface ProfilesState {
   setDefault: (id: string) => Promise<boolean>;
   /** The current default profile (or the fallback chain), derived on demand. */
   defaultProfile: () => UiProfile;
+
+  /** Re-read one profile by id and refresh its row if the backend disagrees. */
+  refreshProfile: (id: string) => Promise<void>;
+  /** Write one profile to `path` as a TOML document (FR-024). */
+  exportProfile: (id: string, path: string) => Promise<boolean>;
+  /** Import profiles from the TOML document at `path` (FR-024). */
+  importProfiles: (path: string) => Promise<UiProfile[] | null>;
+
+  setDraft: (p: UiProfile | null) => void;
+  setWorking: (w: EditorWorking | null) => void;
+  /** Drop both the draft and the working copy (save / cancel / delete). */
+  clearEditor: () => void;
 }
 
 /** Turn an unknown thrown value into a user-facing message. */
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * Unwrap a tauri-specta `Result` into a value, or throw its message.
+ *
+ * The canonical wrapper lives in `src/lib/ipc.ts`, but the import/export
+ * commands have no wrapper there yet, so the three calls below unwrap here.
+ * Fold them back into `src/lib/ipc.ts` once it gains `getProfile` /
+ * `exportProfile` / `importProfiles`.
+ */
+async function unwrap<T>(
+  p: Promise<{ status: 'ok'; data: T } | { status: 'error'; error: IpcError }>,
+): Promise<T> {
+  let r;
+  try {
+    r = await p;
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e));
+  }
+  if (r.status === 'ok') return r.data;
+  throw new Error(
+    r.error?.message ??
+      (r.error?.code ? `IPC error: ${r.error.code}` : 'IPC error'),
+  );
 }
 
 export const useProfilesStore = create<ProfilesState>()((set, get) => {
@@ -64,6 +129,8 @@ export const useProfilesStore = create<ProfilesState>()((set, get) => {
   return {
     profiles: [],
     status: 'idle',
+    draft: null,
+    working: null,
 
     init: async () => {
       // Idempotent while loading/ready; re-runnable after a failure so one
@@ -134,5 +201,58 @@ export const useProfilesStore = create<ProfilesState>()((set, get) => {
     },
 
     defaultProfile: () => findProfileIn(get().profiles, null),
+
+    /**
+     * Re-read a single profile straight from disk and patch its row when it
+     * differs from what the cached list says.
+     *
+     * The Profiles screen calls this as it opens the editor for a saved custom:
+     * `profiles.toml` can change under us (a second window, a hand edit), and
+     * an editor seeded from a stale row would silently write the stale values
+     * back on the next save. Best-effort by design — a failure just leaves the
+     * cached row in place, which is what the screen would have shown anyway.
+     */
+    refreshProfile: async (id) => {
+      if (!isTauri()) return;
+      let fresh: UiProfile;
+      try {
+        fresh = toUiProfile(await unwrap(commands.getProfile(id)));
+      } catch {
+        return;
+      }
+      set((s) => {
+        const i = s.profiles.findIndex((p) => p.id === fresh.id);
+        if (i < 0) return {};
+        if (JSON.stringify(s.profiles[i]) === JSON.stringify(fresh)) return {};
+        const profiles = [...s.profiles];
+        profiles[i] = fresh;
+        return { profiles };
+      });
+    },
+
+    exportProfile: async (id, path) => {
+      try {
+        await unwrap(commands.exportProfile(id, path));
+        return true;
+      } catch (e) {
+        toast.error(message(e));
+        return false;
+      }
+    },
+
+    importProfiles: async (path) => {
+      try {
+        const imported = await unwrap(commands.importProfiles(path));
+        await refetch();
+        return imported.map(toUiProfile);
+      } catch (e) {
+        toast.error(message(e));
+        return null;
+      }
+    },
+
+    setDraft: (draft) => set({ draft }),
+    setWorking: (working) => set({ working }),
+    clearEditor: () => set({ draft: null, working: null }),
   };
 });

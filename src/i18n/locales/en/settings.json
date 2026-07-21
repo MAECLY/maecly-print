@@ -1,1 +1,95 @@
-{}
+{
+  "title": "Settings",
+  "sections": {
+    "appearance": "Appearance",
+    "printing": "Printing",
+    "engine": "Engine",
+    "updates": "Updates",
+    "privacy": "Privacy"
+  },
+  "appearance": {
+    "theme": {
+      "label": "Theme",
+      "hint": "Follows your OS by default.",
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    },
+    "density": {
+      "label": "Density",
+      "hint": "Compact tightens the spacing of rows and file lists.",
+      "comfortable": "Comfortable",
+      "compact": "Compact"
+    },
+    "language": {
+      "label": "Language",
+      "hint": "Applies immediately, across the whole app."
+    },
+    "launchMinimized": {
+      "label": "Start minimized",
+      "hint": "Opens the window minimized. Applies at the next launch."
+    }
+  },
+  "printing": {
+    "defaultProfile": {
+      "label": "Default profile",
+      "hint": "Applied to a job when no other profile is chosen."
+    },
+    "shellNote": "Right-click printing arrives with the shell integration milestone (M2)."
+  },
+  "engine": {
+    "concurrency": {
+      "label": "Concurrent conversions",
+      "hint": "Applies after restart.",
+      "suffix": "jobs"
+    },
+    "timeout": {
+      "label": "Conversion timeout",
+      "hint": "0 disables the timeout. Applies after restart.",
+      "suffix": "seconds"
+    },
+    "maxFileSize": {
+      "label": "Max file size",
+      "hint": "Largest input accepted for printing. Applies immediately.",
+      "suffix": "MB"
+    },
+    "range": "Enter a whole number from {{min}} to {{max}}.",
+    "rangeOrZero": "Enter 0, or a whole number from {{min}} to {{max}}.",
+    "wholeNumber": "Enter a whole number."
+  },
+  "updates": {
+    "channel": {
+      "label": "Channel",
+      "stable": "Stable",
+      "beta": "Beta",
+      "nightly": "Nightly"
+    },
+    "channelNote": "Channel selection takes effect when the auto-updater ships (M4).",
+    "checkOnStartup": {
+      "label": "Check on startup",
+      "hint": "Your choice is saved for when the check exists."
+    },
+    "startupNote": "There is no launch-time check yet — it arrives with the auto-updater (M4). Until then, check for updates from the About screen."
+  },
+  "privacy": {
+    "crashReports": {
+      "label": "Crash reports",
+      "hint": "Off by default. Nothing is sent in this version."
+    },
+    "usageMetrics": {
+      "label": "Anonymous usage metrics",
+      "hint": "MaeclyPrint never enables this without consent."
+    },
+    "note": "No data is sent in this version — these switches record consent only."
+  },
+  "status": {
+    "unavailable": "Settings below are read from the desktop app. In this preview only appearance is adjustable.",
+    "loading": "Loading settings…",
+    "error": "Couldn't load settings.",
+    "retry": "Retry"
+  },
+  "config": {
+    "corruptTitle": "Your settings file could not be read",
+    "corruptBody": "The values below are the defaults, not your saved settings, and changes cannot be saved until the file is fixed or removed. Close MaeclyPrint, then repair or delete this file — a new one is written from the defaults on the next save."
+  }
+}

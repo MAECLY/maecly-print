@@ -1,1 +1,101 @@
-{}
+{
+  "title": "Cola",
+  "subtitle": {
+    "counts": "{{active}} activos · {{pending}} pendientes · {{done}} terminados",
+    "board": "Vista de tablero — kanban por fases del trabajo",
+    "timeline": "Cronología — orden cronológico, con duraciones"
+  },
+  "views": {
+    "label": "Vista de la cola",
+    "list": "Lista",
+    "board": "Tablero",
+    "timeline": "Cronología"
+  },
+  "actions": {
+    "pauseQueue": "Pausar cola",
+    "resumeQueue": "Reanudar cola",
+    "clearDone": "Limpiar terminados",
+    "pause": "Pausar",
+    "resume": "Reanudar",
+    "retry": "Reintentar",
+    "cancel": "Cancelar"
+  },
+  "groups": {
+    "active": "Activos",
+    "pending": "Pendientes",
+    "done": "Recientes",
+    "header": "{{label}} · {{count}}"
+  },
+  "board": {
+    "queued": "En cola",
+    "converting": "Convirtiendo",
+    "printing": "Imprimiendo",
+    "done": "Terminados"
+  },
+  "status": {
+    "queued": "En cola",
+    "converting": "Convirtiendo",
+    "converted": "Convertido",
+    "printing": "Imprimiendo",
+    "paused": "En pausa",
+    "done": "Terminado",
+    "failed": "Fallido",
+    "cancelled": "Cancelado"
+  },
+  "notice": {
+    "loadingTitle": "Cargando la cola…",
+    "loadingBody": "Leyendo los trabajos de impresión actuales.",
+    "unavailableTitle": "Cola no disponible",
+    "unavailableBody": "La cola de impresión la gestiona la aplicación de escritorio: abre MaeclyPrint para ver y controlar los trabajos.",
+    "errorTitle": "Cola no disponible",
+    "errorBody": "No se pudo leer la cola.",
+    "errorHint": "No se ha perdido nada: los trabajos siguen en la aplicación de escritorio. Reintenta para volver a leerla."
+  },
+  "empty": {
+    "title": "No hay trabajos en la cola",
+    "body": "Imprime algo y aparecerá aquí: los trabajos activos, los pendientes y los recién terminados."
+  },
+  "progress": {
+    "label": "Progreso de {{file}}",
+    "indeterminate": "En curso: el gestor de impresión no informa de ningún porcentaje"
+  },
+  "note": {
+    "readyToPrint": "Listo para imprimir",
+    "interruptedByShutdown": "Interrumpido al cerrarse la aplicación · reanúdalo para continuar"
+  },
+  "job": {
+    "meta": "{{profile}} · {{printer}}",
+    "pages": "{{count}} pág.",
+    "times": "{{from}} → {{to}}",
+    "took": "duró {{duration}}"
+  },
+  "duration": {
+    "seconds": "{{seconds}} s",
+    "minutes": "{{minutes}} min {{seconds}} s",
+    "hours": "{{hours}} h {{minutes}} min"
+  },
+  "confirm": {
+    "clearTitle": "Limpiar trabajos terminados",
+    "clearMessage_one": "¿Limpiar {{count}} trabajo terminado? Desaparecerá del historial: tienes {{seconds}} segundos para deshacerlo.",
+    "clearMessage_other": "¿Limpiar {{count}} trabajos terminados? Desaparecerán del historial: tienes {{seconds}} segundos para deshacerlo.",
+    "cancelTitle": "¿Cancelar este trabajo?",
+    "cancelMessage": "«{{file}}» se está imprimiendo. ¿Lo cancelas? Las páginas que ya se enviaron a la impresora pueden salir igualmente.",
+    "cancelConfirm": "Cancelar trabajo"
+  },
+  "toast": {
+    "cleared_one": "Se limpió {{count}} trabajo terminado",
+    "cleared_other": "Se limpiaron {{count}} trabajos terminados",
+    "undo": "Deshacer",
+    "restored_one": "Se conservó {{count}} trabajo terminado",
+    "restored_other": "Se conservaron {{count}} trabajos terminados"
+  },
+  "notify": {
+    "batchDone_one": "Se imprimió correctamente {{done}} de {{total}} archivo",
+    "batchDone_other": "Se imprimieron correctamente {{done}} de {{total}} archivos",
+    "batchFailed_one": "No se pudo imprimir {{failed}} de {{total}} archivo",
+    "batchFailed_other": "No se pudieron imprimir {{failed}} de {{total}} archivos",
+    "batchFailedHint": "{{file}}: {{error}} — abre la carpeta de registros para ver la entrada completa del trabajo.",
+    "batchCancelled_one": "{{count}} trabajo cancelado",
+    "batchCancelled_other": "{{count}} trabajos cancelados"
+  }
+}

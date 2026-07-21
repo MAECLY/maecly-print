@@ -56,6 +56,8 @@ fn app_settings_from(cfg: &Config) -> AppSettings {
         engine: cfg.engine.clone(),
         updater: cfg.updater.clone(),
         telemetry: cfg.telemetry.clone(),
+        // Server-computed annotations; a client sends whatever a read gave it.
+        meta: Default::default(),
     }
 }
 
