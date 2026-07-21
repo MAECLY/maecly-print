@@ -102,6 +102,33 @@ tauri-plugin-single-instance = "2"
 [dev-dependencies]
 tokio = { version = "1.41", features = ["test-util"] }
 
+# --- macOS Finder integration (NSServices provider, FR-001) ---
+# Objective-C runtime access for the "Print with MaeclyPrint" service declared
+# in `Info.plist`. macOS-only, so the Windows build never sees these.
+#
+# The versions are pinned to the ones tao/wry already pull in (objc2 0.6,
+# objc2-* 0.3). Taking a different major would silently build a *second* copy
+# of the whole objc2 tree into the same binary — two incompatible views of the
+# same runtime — so this is a constraint, not a preference.
+#
+# `default-features = false` matters: both crates default to binding their
+# entire framework. Feature unification means the Tauri stack may still enable
+# more, but nothing extra is enabled *because of us*.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSApplication",
+  "NSPasteboard",
+  "NSResponder",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSArray",
+  "NSString",
+  "NSURL",
+] }
+
 # --- Windows printer enumeration (winspool + GDI DeviceCapabilities) ---
 # Only pulled in on Windows targets; macOS/Linux enumerate via the CUPS CLI.
 [target.'cfg(windows)'.dependencies]

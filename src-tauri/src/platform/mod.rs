@@ -14,9 +14,18 @@
 //! Anything the two backends must agree on — today the printer-family
 //! heuristic — lives here rather than being duplicated per platform, so the
 //! same device cannot be classified differently on Windows and on macOS.
+//!
+//! [`macos`] is the exception to the "printer enumeration" theme: it holds the
+//! Finder integration (the NSServices provider behind the "Print with
+//! MaeclyPrint" context-menu entry). It lives here because it is OS-specific
+//! glue of exactly the same kind — Objective-C runtime calls that must not be
+//! compiled anywhere else — and the Windows half of the same feature is a
+//! separate DLL crate outside `src-tauri` entirely.
 
 #[cfg(unix)]
 mod cups;
+#[cfg(target_os = "macos")]
+pub mod macos;
 pub mod testpage;
 #[cfg(windows)]
 mod windows;

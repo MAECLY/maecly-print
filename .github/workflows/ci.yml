@@ -445,3 +445,149 @@ jobs:
           path: e2e/artifacts/
           if-no-files-found: ignore
           retention-days: 7
+
+  # The Explorer context-menu DLL (shell-ext-win/). It is a standalone crate
+  # with its own target dir and its own release profile — `panic = "unwind"`,
+  # which src-tauri's `panic = "abort"` must never be allowed to override — so
+  # it needs its own lane; the `backend` job's `--manifest-path src-tauri` never
+  # touches it.
+  shell-ext-win:
+    name: Shell extension (Windows DLL)
+    if: github.event_name != 'schedule'
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # ARM64 is build-only: a windows-latest runner is x64 and cannot
+        # execute an aarch64 test binary.
+        include:
+          - target: x86_64-pc-windows-msvc
+            run_tests: true
+          - target: aarch64-pc-windows-msvc
+            run_tests: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            shell-ext-win/target/
+          key: ${{ runner.os }}-cargo-shellext-${{ matrix.target }}-${{ hashFiles('shell-ext-win/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-shellext-${{ matrix.target }}-
+
+      - name: cargo fmt
+        run: cargo fmt --manifest-path shell-ext-win/Cargo.toml --all -- --check
+
+      - name: cargo clippy
+        run: >-
+          cargo clippy --manifest-path shell-ext-win/Cargo.toml
+          --target ${{ matrix.target }} --all-targets -- -D warnings
+
+      # MAECLYPRINT_REQUIRE_RESOURCES turns a missing rc.exe (and therefore a
+      # DLL with no embedded <msix> manifest) into a build failure. A DLL
+      # without that manifest builds fine, registers fine, and is never loaded
+      # by Explorer — the single most expensive way for this to go wrong.
+      - name: Build DLL
+        env:
+          MAECLYPRINT_REQUIRE_RESOURCES: '1'
+        run: >-
+          cargo build --release --manifest-path shell-ext-win/Cargo.toml
+          --target ${{ matrix.target }}
+
+      # The portable half of the crate: the handoff schema (FR-001/FR-003) and
+      # the menu model (FR-002/FR-005). Host-architecture only.
+      - name: cargo test
+        if: matrix.run_tests
+        run: >-
+          cargo test --manifest-path shell-ext-win/Cargo.toml
+          --target ${{ matrix.target }}
+
+      # Cheap regression net for the COM plumbing: if these three exports are
+      # not in the DLL, Explorer cannot instantiate the handler at all, and
+      # nothing else in this lane would notice.
+      - name: Verify COM exports
+        shell: pwsh
+        run: |
+          $dll = "shell-ext-win/target/${{ matrix.target }}/release/shell_ext_win.dll"
+          if (-not (Test-Path $dll)) { throw "DLL not found at $dll" }
+
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = $null
+          if (Test-Path $vswhere) {
+            $vs = & $vswhere -latest -property installationPath
+            if ($vs) {
+              $dumpbin = Get-ChildItem -Path $vs -Filter dumpbin.exe -Recurse -ErrorAction SilentlyContinue |
+                         Select-Object -First 1 -ExpandProperty FullName
+            }
+          }
+          if (-not $dumpbin) {
+            # Do not fail the lane over a runner-image change; the build above
+            # is still the gate.
+            Write-Warning "dumpbin.exe not found - skipping the export check"
+            exit 0
+          }
+
+          $exports = & $dumpbin /EXPORTS $dll
+          # DllMain is deliberately not on this list: it is an entry point, and
+          # whether it also shows up in the export table is a toolchain detail.
+          foreach ($symbol in 'DllGetClassObject', 'DllCanUnloadNow') {
+            if ($exports -notmatch $symbol) { throw "Missing export: $symbol" }
+          }
+          Write-Host "COM exports present"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shell-ext-win-${{ matrix.target }}
+          path: shell-ext-win/target/${{ matrix.target }}/release/shell_ext_win.dll
+          if-no-files-found: error
+          retention-days: 7
+
+  # Guards the claim the crate is built on: everything except the COM layer is
+  # plain Rust, so the schema and menu contracts can be developed and tested on
+  # a machine that is not Windows. If this lane breaks, a macOS/Linux
+  # contributor can no longer work on the extension at all.
+  shell-ext-portable:
+    name: Shell extension (portable half, non-Windows host)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            shell-ext-win/target/
+          key: ${{ runner.os }}-cargo-shellext-portable-${{ hashFiles('shell-ext-win/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-shellext-portable-
+
+      - name: cargo test (host)
+        run: cargo test --manifest-path shell-ext-win/Cargo.toml
+
+      # Type-checks the whole crate, COM layer included, against the real
+      # `windows` bindings. No linker is involved, so this works from any host.
+      - name: cargo check (Windows target, no link)
+        run: >-
+          cargo check --manifest-path shell-ext-win/Cargo.toml
+          --target x86_64-pc-windows-msvc --all-targets

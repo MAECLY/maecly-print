@@ -1,6 +1,6 @@
 # Shell Extensions
 
-> **TL;DR** — On Windows we ship a tiny C++ COM DLL implementing `IExplorerCommand`, registered through a **Sparse MSIX** package so the entry appears in the modern Win 11 context menu (not relegated to "Show more options"). On macOS we start with a **Quick Action** (Automator + AppleScript) for M5, then upgrade to a **Finder Sync Extension** (Swift + XPC) when polish demands it. In both cases the shell extension does *no real work*: it serializes the user's selection and spawns the main MaeclyPrint binary.
+> **TL;DR** — On Windows we ship a tiny C++ COM DLL implementing `IExplorerCommand`, registered through a **Sparse MSIX** package so the entry appears in the modern Win 11 context menu (not relegated to "Show more options"). On macOS the integration ships **inside the app bundle** as an `NSServices` declaration answered by a Rust/`objc2` provider — no `.appex`, no sandbox, no separate signature and nothing for the user to enable (see §3). In both cases the shell extension does *no real work*: it serializes the user's selection and spawns the main MaeclyPrint binary.
 
 ## 1. The problem we are solving
 
@@ -253,82 +253,172 @@ For users on Windows 10 (or who refuse MSIX), we ship a registry-only fallback t
 
 The registry path only receives one file at a time per `%1` substitution, which is exactly the limitation Windows imposes. To work around this, the second-and-later launches are detected by the Tauri exe via a named mutex and the additional paths are pushed into the running instance over a named pipe.
 
-## 3. macOS: starting simple
+## 3. macOS: an NSService inside the app
 
-macOS does not have a multi-select right-click "Print" entry to compete with. The two paths to the same UX are:
+**Status: implemented.** The Finder integration ships in the app bundle itself, as an
+[NSService](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/SysServices/Articles/properties.html).
+There is no `.appex`, no Automator workflow and no second bundle to sign. The
+alternatives — a Finder Sync extension, an Action extension, an Automator Quick
+Action — and the reasoning that rejected them are tabulated in
+[`shell-ext-mac/README.md`](../../shell-ext-mac/README.md); this section
+describes what exists.
 
-### 3.1 Quick Action (M5)
+### 3.1 What the user sees
 
-A Quick Action is an Automator workflow installed into `~/Library/Services/`. It appears in:
+Selecting any number of files or folders in the Finder, right-clicking and
+opening the **Services** submenu offers:
 
-- `Finder → Services → Print all with MaeclyPrint`
-- The right-click context menu, under `Quick Actions` (or `Services` on older macOS).
-- The **share sheet** in some apps.
+- **Print with MaeclyPrint** — opens the print dialog pre-loaded with the
+  selection (`action = configure`);
+- **Print with MaeclyPrint (default profile)** — prints straight away with the
+  default profile (`action = print-default`).
 
-Implementation: a single `.workflow` bundle that runs an embedded AppleScript:
+The entry is one level deeper than the Windows 11 top-level menu. That is the
+price of not shipping a sandboxed extension the user has to enable, and it is
+the only mechanism of the four that keeps working under an MDM policy that
+blocks ExtensionKit. A user who wants it faster can bind a shortcut in
+**System Settings → Keyboard → Keyboard Shortcuts → Services**.
 
-```applescript
-on run {input, parameters}
-    set pathList to {}
-    repeat with f in input
-        set end of pathList to POSIX path of f
-    end repeat
+### 3.2 The declaration
 
-    set pathArg to ""
-    repeat with i from 1 to count of pathList
-        if i > 1 then set pathArg to pathArg & ","
-        set pathArg to pathArg & quoted form of (item i of pathList)
-    end repeat
+[`src-tauri/Info.plist`](../../src-tauri/Info.plist) carries an `NSServices`
+array with one dictionary per menu entry. The Tauri CLI (v2) looks for
+`Info.plist` next to `tauri.conf.json` and merges it over the plist it
+generates, so no bundler script and no `bundle.macOS.infoPlist` setting is
+needed — the file's presence is the whole mechanism.
 
-    do shell script "/Applications/MaeclyPrint.app/Contents/MacOS/maeclyprint " & ¬
-        "--invoke=context-menu --files=" & pathArg
-end run
+```xml
+<key>NSServices</key>
+<array>
+  <dict>
+    <key>NSMenuItem</key>     <dict><key>default</key><string>Print with MaeclyPrint</string></dict>
+    <key>NSMessage</key>      <string>printWithMaeclyPrint</string>
+    <key>NSPortName</key>     <string>MaeclyPrint</string>
+    <key>NSUserData</key>     <string>configure</string>
+    <key>NSSendTypes</key>    <array><string>public.file-url</string></array>
+    <key>NSSendFileTypes</key><array><string>public.item</string></array>
+    <key>NSRequiredContext</key><dict/>
+    <key>NSTimeout</key>      <string>10000</string>
+  </dict>
+  <!-- second entry: same NSMessage, NSUserData = print-default -->
+</array>
 ```
 
-Pros: no Xcode required at install; no entitlements; works on every macOS 13+ machine; shippable with the `.app` bundle.
-Cons: the entry is buried under `Quick Actions`, not a top-level menu item.
+Four keys carry the load:
 
-### 3.2 Finder Sync Extension (post-M5 polish)
+| Key | Why it is what it is |
+| --- | --- |
+| `NSMessage` | Names the provider method minus the `:userData:error:` tail AppKit appends: `printWithMaeclyPrint` ⇒ `-printWithMaeclyPrint:userData:error:`. Changing one without the other silently produces a menu entry that does nothing. |
+| `NSPortName` | Must be the app's `CFBundleName`, i.e. `MaeclyPrint`. |
+| `NSUserData` | The official way to let two menu entries share one `NSMessage`. Its values are the CLI's `--action` vocabulary (`configure`, `print-default`), so the Finder and the command line cannot drift apart. |
+| `NSSendFileTypes` | `public.item` covers both files and folders, which is what FR-004 needs. |
 
-A real Finder Sync Extension is a Swift + XPC App Extension embedded in `MaeclyPrint.app/Contents/PlugIns/`. It implements `FIFinderSync` and contributes a top-level context-menu entry.
+`NSRequiredContext` is declared empty ("no restriction"). Apple's guide treats
+it as required; several macOS releases are reported to filter out services that
+omit it entirely, and an empty dictionary costs nothing.
 
-```swift
-import FinderSync
+**Deliberately not declared: `CFBundleDocumentTypes`.** It would add a free
+"Open With → MaeclyPrint" entry, but Launch Services delivers those files
+through `application:openURLs:`, an AppKit delegate callback the app does not
+implement today. Declaring it would advertise a capability that silently drops
+the user's files. It is a follow-up, not a freebie.
 
-class FinderSync: FIFinderSync {
+### 3.3 The provider
 
-    override init() {
-        super.init()
-        FIFinderSyncController.default().directoryURLs = [URL(fileURLWithPath: "/")]
-    }
+[`src-tauri/src/platform/macos/services.rs`](../../src-tauri/src/platform/macos/services.rs)
+defines `MaeclyPrintServicesProvider`, an Objective-C class built with `objc2`
+(the same `objc2 0.6` / `objc2-*` `0.3` versions `tao` already pulls in, so the
+integration adds **zero** new crates to the dependency graph). Tauri's `setup`
+hook registers it:
 
-    override func menu(for menuKind: FIMenuKind) -> NSMenu {
-        let menu = NSMenu(title: "")
-        let item = NSMenuItem(
-            title: "Print all with MaeclyPrint",
-            action: #selector(printAllAction(_:)),
-            keyEquivalent: "")
-        item.image = NSImage(named: "MaeclyPrintIcon")
-        menu.addItem(item)
-        return menu
-    }
-
-    @objc func printAllAction(_ sender: AnyObject?) {
-        let items = FIFinderSyncController.default().selectedItemURLs() ?? []
-        let paths = items.map { $0.path }.joined(separator: ",")
-        let url = URL(fileURLWithPath: "/Applications/MaeclyPrint.app/Contents/MacOS/maeclyprint")
-        let proc = Process()
-        proc.executableURL = url
-        proc.arguments = ["--invoke=context-menu", "--files=\(paths)"]
-        try? proc.run()
-    }
+```rust
+#[cfg(target_os = "macos")]
+if let Err(e) = crate::platform::macos::services::register(app.handle()) {
+    tracing::warn!(event = "macos_services_registration_failed", error = %e);
 }
 ```
 
-Distribution: the `.appex` is signed with the same Apple Developer ID, included in the `.app`'s `PlugIns` folder, and the user enables it once in `System Settings → Privacy & Security → Extensions → Finder Extensions`.
+`register` calls `-[NSApplication setServicesProvider:]` and then
+`NSUpdateDynamicServices()`, which forces the system to re-read this bundle's
+declarations — without it a freshly built app inherits the previous build's (or
+no) entries from the Services cache.
 
-Pros: top-level context menu entry, Finder badge support if we ever want it, fully native.
-Cons: requires entitlements (`com.apple.security.application-groups` + `com.apple.security.files.user-selected.read-only`), is more code, and users must explicitly enable the extension.
+When the user picks the menu entry, AppKit calls
+`-printWithMaeclyPrint:userData:error:` on the main thread. The handler:
+
+1. maps `userData` onto a `ContextAction` (unknown ⇒ `configure`: never print
+   something the user did not ask for);
+2. reads the selection with
+   `-[NSPasteboard readObjectsForClasses:options:]` for `NSURL`, which returns
+   the **whole** selection — there is no documented ceiling, which is what
+   FR-003 needs — and drops anything that is not a file URL, the same way the
+   Windows side drops shell items with no `SIGDN_FILESYSPATH`;
+3. writes the selection as a handoff file and hands it to the app (§3.4);
+4. runs inside `catch_unwind`: a panic unwinding into an Objective-C frame is
+   undefined behaviour, and in a release build (`panic = "abort"`) it would take
+   the app down mid-print.
+
+One behaviour worth knowing: `NSURL` reports paths in the filesystem's
+**decomposed** form (NFD), so `ñ` arrives as `n` + U+0303, not the precomposed
+character a user types. The path still opens the file; string comparisons
+against a path from any other source do not match. Anything that deduplicates
+across sources must compare canonicalized paths, never raw strings. There is a
+test pinning this.
+
+### 3.4 Handoff, and why there is no relaunch
+
+The Windows extension is a DLL inside Explorer, so it *must* start or signal the
+app: it writes a handoff file and launches
+`maeclyprint --invoke=context-menu --files-from <PATH>`. On macOS the service is
+answered by the app itself — Launch Services starts it if it is not running and
+reuses it if it is, which is the same single-instance guarantee
+`tauri-plugin-single-instance` gives on Windows. Relaunching our own binary from
+inside our own process would add a spawn, a window race and an untested path,
+so the selection is delivered in-process.
+
+It still travels through the handoff file
+([`src-tauri/src/platform/macos/handoff.rs`](../../src-tauri/src/platform/macos/handoff.rs)
+writes it; [`src-tauri/src/cli/handoff.rs`](../../src-tauri/src/cli/handoff.rs)
+reads it), for three reasons: the selection then passes the *same* validation
+gate a Windows invocation passes (schema version, freshness window, directory
+containment, path and byte caps); the file is an artefact tests can assert on
+without AppKit; and the bytes are identical to what a `--files-from` relaunch
+would carry, so the schema cannot fork per platform. The write is a temp file
+plus `rename`, and the handoff directory is `chmod 0700`.
+
+After validation the selection is parked in `PendingSelections` and announced
+with the `SelectionForwarded` event — exactly what the single-instance callback
+does on Windows — and the main window is unminimized and focused.
+
+```
+Finder selection
+      │  (Services menu)
+      ▼
+NSApplication ──► MaeclyPrintServicesProvider.printWithMaeclyPrint:userData:error:
+                        │  NSPasteboard → Vec<PathBuf>
+                        ▼
+              platform::macos::handoff::write   ──►  <data_dir>/handoff/sel-<uuid>.json
+                        │
+                        ▼
+              cli::handoff::{is_within_dir, consume, is_fresh}   ← the shared gate
+                        │
+                        ▼
+              PendingSelections + SelectionForwarded  ──►  print dialog
+```
+
+### 3.5 Verifying it
+
+`cargo test` covers everything that does not need the Finder: payload writing
+and its caps, the pasteboard→paths decoding (built from real `NSURL`s), hostile
+file names, the NFD behaviour above, and the round trip through the reader.
+
+Making the menu entry actually *appear* needs a real bundle registered with
+Launch Services; the commands (`lsregister -f`, `pbs -flush`,
+`pbs -dump_pboard | grep`, `killall Finder`) are in
+[`shell-ext-mac/README.md`](../../shell-ext-mac/README.md). CI can assert two of
+those steps — that `NSServices` survived the bundler, and that `pbs` discovered
+the service — but that the entry renders in the Finder's menu is not
+automatable.
 
 ## 4. Flow: User right-click → DLL → spawn → Tauri renders
 
@@ -384,7 +474,7 @@ The Tauri exe logs in JSONL to its own log file (see [`data-model.md`](./data-mo
 - **Integration (Win).** A PowerShell script enumerates known test files, builds a `Shell.Application` COM object, finds the verb, and invokes it; assert the Tauri exe was launched with the correct `--files` payload.
 - **Manual.** A `tools/install-dev-shellext.ps1` script registers the development build of the sparse package without uninstalling the production install.
 
-On macOS the Quick Action is testable via `xcrun automator -i` and `osascript`; the Finder Sync Extension is tested in the Xcode project.
+On macOS everything that does not need the Finder is a plain `cargo test` in `platform::macos::*` — handoff writing and its caps, `NSPasteboard`→paths decoding built from real `NSURL`s, hostile file names, the action vocabulary. Whether the system *discovered* the service is assertable in CI (`plutil -extract NSServices` on the bundled `Info.plist`, then `lsregister -f` + `pbs -flush` + `pbs -dump_pboard | grep`); whether the entry renders in the Finder's menu is not automatable (see `shell-ext-mac/README.md`).
 
 ## 7. Related documents
 
