@@ -547,11 +547,13 @@ async takePendingSelections() : Promise<Result<Selection[], IpcError>> {
 export const events = __makeEvents__<{
 jobProgressEvent: JobProgressEvent,
 queueUpdated: QueueUpdated,
-selectionForwarded: SelectionForwarded
+selectionForwarded: SelectionForwarded,
+updateAvailable: UpdateAvailable
 }>({
 jobProgressEvent: "job-progress-event",
 queueUpdated: "queue-updated",
-selectionForwarded: "selection-forwarded"
+selectionForwarded: "selection-forwarded",
+updateAvailable: "update-available"
 })
 
 /** user-defined constants **/
@@ -574,7 +576,25 @@ os: string;
 /**
  * Target architecture, e.g. `"x86_64"`, `"aarch64"` (`std::env::consts::ARCH`).
  */
-arch: string }
+arch: string; 
+/**
+ * FR-058: every external program the print pipeline can shell out to,
+ * with where it was found (or the remediation message for a missing one).
+ * 
+ * It rides on `app_info` rather than a command of its own because this is
+ * exactly what `app_info` is for — "what does this build see on this
+ * host?" — and because the screens that care already fetch it once on
+ * mount. The probe itself is a handful of `is_file` calls (see
+ * [`deps::report_all`]), so it costs nothing to answer on every call and
+ * is never stale.
+ * 
+ * `#[serde(default)]` — as on `AppSettings::meta`, and for the same
+ * reason: the server always sends it, but a test building an `AppInfo` by
+ * hand should not have to enumerate the machine's dependencies to talk
+ * about a version string. Consumers treat an absent list as "not probed",
+ * which raises no warning.
+ */
+dependencies?: DependencyReport[] }
 /**
  * The subset of [`Config`] exposed to the frontend as one bundle by
  * `get_app_settings` / `set_app_settings`. Deliberately excludes `printers`
@@ -648,6 +668,59 @@ export type ContextAction =
  * UI spacing density.
  */
 export type Density = "comfortable" | "compact"
+/**
+ * An external program the print pipeline can depend on.
+ */
+export type Dependency = 
+/**
+ * The final PDF printer on Windows (ADR-0003). Not used elsewhere: macOS
+ * and Linux print through CUPS `lp`.
+ */
+"sumatra-pdf" | 
+/**
+ * Office → PDF converter (`soffice --headless --convert-to pdf`).
+ */
+"libre-office" | 
+/**
+ * HTML → PDF converter: Edge or Chrome, whichever is installed.
+ */
+"chromium" | 
+/**
+ * Markdown → PDF converter.
+ */
+"pandoc"
+/**
+ * One dependency's status, as shipped to the UI.
+ */
+export type DependencyReport = { id: Dependency; 
+/**
+ * Display name, e.g. `"SumatraPDF"`.
+ */
+name: string; 
+/**
+ * Whether this dependency is used at all on the running OS. `false` means
+ * "irrelevant here", not "broken" — nothing should be flagged for it.
+ */
+applicable: boolean; 
+/**
+ * Whether an executable was found.
+ */
+found: boolean; 
+/**
+ * Where it was found, for diagnostics.
+ */
+path: string | null; found_in: FoundIn | null; 
+/**
+ * Extensions that cannot be printed today because this is missing. Empty
+ * whenever the dependency is present, not applicable, or gates no format
+ * the engine currently supports.
+ */
+blocks: string[]; 
+/**
+ * FR-058's remediation message. `Some` only when the dependency is
+ * applicable and missing.
+ */
+remediation: string | null }
 /**
  * A printer found on the network that is not (necessarily) installed yet.
  */
@@ -799,6 +872,27 @@ export type FolderScan =
  * The whole subtree, down to [`ExpansionLimits::max_depth`].
  */
 "recursive"
+/**
+ * Which step of the search order produced the hit. Shown in diagnostics so
+ * "it picked up the wrong copy" is answerable without a debugger.
+ */
+export type FoundIn = 
+/**
+ * A copy shipped with the app, next to our executable.
+ */
+"bundled" | 
+/**
+ * A path the user configured explicitly.
+ */
+"configured" | 
+/**
+ * A `PATH` entry.
+ */
+"path" | 
+/**
+ * A well-known install directory for this OS.
+ */
+"installed"
 export type IpcError = { code: "FileNotFound"; message: string } | 
 /**
  * The caller sent a structurally invalid request (empty file list, bad
@@ -1251,6 +1345,20 @@ export type Tray = { name: string; paper: string | null;
  * Fill level in `0.0..=1.0`, if the device reports it.
  */
 level: number | null }
+/**
+ * A launch-time check found a release worth mentioning (FR-080).
+ * 
+ * Emitted **only** when [`crate::update::run_startup_check`] returns a result:
+ * the preference is on, the 24h window had elapsed, the release is strictly
+ * newer, and it is not the one the user skipped (FR-084). Silence is the
+ * normal case, so the frontend never has to filter this event — receiving it
+ * is already the decision to tell the user.
+ * 
+ * Lives here rather than in [`crate::ipc::events`] because it belongs to the
+ * update flow, the way `cli::pending::SelectionForwarded` belongs to the CLI
+ * one; the event name is the kebab-cased struct name, `"update-available"`.
+ */
+export type UpdateAvailable = UpdateCheck
 /**
  * Which release stream the user follows.
  */

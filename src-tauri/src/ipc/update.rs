@@ -11,24 +11,30 @@
 //! decision the app *can* honour today: "skip this version". The state itself
 //! lives in [`crate::update::UpdateState`].
 //!
-//! **Not wired yet — FR-080.** The launch-time check has no scheduler. The
-//! logic is ready ([`crate::update::run_startup_check`], with
-//! [`crate::update::STARTUP_CHECK_DELAY`] and the once-per-24h throttle); what
-//! is missing is one spawn in `lib.rs`'s `setup`, which is outside this
-//! module's ownership:
-//!
-//! ```ignore
-//! std::thread::spawn(|| {
-//!     std::thread::sleep(crate::update::STARTUP_CHECK_DELAY);
-//!     if let Some(check) = crate::update::run_startup_check() {
-//!         tracing::info!(event = "update_available", latest = ?check.latest);
-//!         // …and emit it to the frontend so About/a toast can surface it.
-//!     }
-//! });
-//! ```
+//! FR-080's launch-time check is scheduled from `lib.rs`'s `setup`
+//! ([`crate::update::run_startup_check`] after
+//! [`crate::update::STARTUP_CHECK_DELAY`]) and reaches the UI as the
+//! [`UpdateAvailable`] event declared below — the push counterpart to
+//! [`check_for_updates`], for the user who is not on the About screen.
+
+use serde::Serialize;
 
 use crate::update::{self, UpdateCheck, UpdateState};
 use crate::util::error::IpcError;
+
+/// A launch-time check found a release worth mentioning (FR-080).
+///
+/// Emitted **only** when [`crate::update::run_startup_check`] returns a result:
+/// the preference is on, the 24h window had elapsed, the release is strictly
+/// newer, and it is not the one the user skipped (FR-084). Silence is the
+/// normal case, so the frontend never has to filter this event — receiving it
+/// is already the decision to tell the user.
+///
+/// Lives here rather than in [`crate::ipc::events`] because it belongs to the
+/// update flow, the way `cli::pending::SelectionForwarded` belongs to the CLI
+/// one; the event name is the kebab-cased struct name, `"update-available"`.
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+pub struct UpdateAvailable(pub UpdateCheck);
 
 /// Check GitHub for a newer release than the running build.
 ///

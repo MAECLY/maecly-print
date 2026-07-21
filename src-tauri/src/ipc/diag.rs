@@ -1,7 +1,10 @@
 //! Diagnostic & "About" IPC commands.
 //!
 //! [`app_info`] is the canary that proves the React ↔ Rust round-trip works and
-//! that filesystem paths resolve on the host OS. The rest back the About/Help
+//! that filesystem paths resolve on the host OS; it also carries the
+//! external-dependency probe (FR-058), so a screen that needs to know whether
+//! SumatraPDF is installed asks the same command it already asks for the
+//! version. The rest back the About/Help
 //! surface: opening the logs folder, prefilling a GitHub issue, and opening an
 //! allow-listed external link. All three shell out via the `opener` plugin
 //! Rust-side only, so no JS `opener` capability is needed.
@@ -10,6 +13,7 @@ use serde::Serialize;
 use specta::Type;
 use tauri_plugin_opener::OpenerExt;
 
+use crate::engine::deps::{self, DependencyReport};
 use crate::util::{error::IpcError, paths};
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -23,6 +27,23 @@ pub struct AppInfo {
     pub os: String,
     /// Target architecture, e.g. `"x86_64"`, `"aarch64"` (`std::env::consts::ARCH`).
     pub arch: String,
+    /// FR-058: every external program the print pipeline can shell out to,
+    /// with where it was found (or the remediation message for a missing one).
+    ///
+    /// It rides on `app_info` rather than a command of its own because this is
+    /// exactly what `app_info` is for — "what does this build see on this
+    /// host?" — and because the screens that care already fetch it once on
+    /// mount. The probe itself is a handful of `is_file` calls (see
+    /// [`deps::report_all`]), so it costs nothing to answer on every call and
+    /// is never stale.
+    ///
+    /// `#[serde(default)]` — as on `AppSettings::meta`, and for the same
+    /// reason: the server always sends it, but a test building an `AppInfo` by
+    /// hand should not have to enumerate the machine's dependencies to talk
+    /// about a version string. Consumers treat an absent list as "not probed",
+    /// which raises no warning.
+    #[serde(default)]
+    pub dependencies: Vec<DependencyReport>,
 }
 
 #[tauri::command]
@@ -36,6 +57,7 @@ pub fn app_info() -> Result<AppInfo, IpcError> {
         data_dir: paths::data_dir().display().to_string(),
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
+        dependencies: deps::report_all(),
     })
 }
 

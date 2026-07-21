@@ -27,6 +27,11 @@
     "desktop": "No files yet. Drag files or folders from Explorer or Finder, or use Add files.",
     "web": "Adding files requires the desktop app."
   },
+  "dependencies": {
+    "title": "Missing dependency",
+    "affected_one": "{{count}} file in this job needs it.",
+    "affected_other": "{{count}} files in this job need it."
+  },
   "folders": {
     "title_one": "{{count}} folder dropped",
     "title_other": "{{count}} folders dropped",

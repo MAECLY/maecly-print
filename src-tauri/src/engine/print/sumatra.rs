@@ -1,5 +1,6 @@
-//! SumatraPDF backend: `-print-settings` string construction and locating (pure,
-//! all platforms) plus, on Windows, spooling.
+//! SumatraPDF backend: `-print-settings` string construction (pure, all
+//! platforms), locating the executable via [`crate::engine::deps`], and, on
+//! Windows, spooling.
 //!
 //! Flag mapping (`docs/03-requirements/print-settings.md` §SumatraPDF table).
 //! The `-print-settings` value is a comma-separated keyword list; SumatraPDF is
@@ -21,7 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::engine::EngineError;
+use crate::engine::{deps, EngineError};
 use crate::queue::job::{ColorMode, Duplex, JobSettings, Orientation, PaperSize, Scaling};
 
 #[cfg(windows)]
@@ -108,54 +109,32 @@ fn strip_ws(s: &str) -> String {
     s.split_whitespace().collect()
 }
 
-/// Locate `SumatraPDF.exe`. Search order: next to our own executable
-/// (`bin/`, alongside, `resources/`), then each `PATH` entry, then
-/// `%LOCALAPPDATA%\SumatraPDF\`.
-#[cfg(windows)]
+/// Locate `SumatraPDF.exe` through the shared dependency resolver
+/// ([`crate::engine::deps`]): a bundled copy next to the app first, then a
+/// configured path, then `PATH`, then the usual install directories.
+///
+/// The failure carries the same remediation text the UI shows for a missing
+/// dependency ([`deps::Spec::remediation`]), so the queue's job error and the
+/// Print Job banner say the same thing.
+///
+/// On non-Windows platforms SumatraPDF is not used at all (CUPS handles
+/// printing), and the resolver has no executable to look for there, so this is
+/// always a `DependencyMissing` — see the `applicable` flag on the report.
 pub fn locate() -> Result<PathBuf, EngineError> {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            for candidate in [
-                dir.join("bin").join("SumatraPDF.exe"),
-                dir.join("SumatraPDF.exe"),
-                dir.join("resources").join("SumatraPDF.exe"),
-            ] {
-                if candidate.is_file() {
-                    return Ok(candidate);
-                }
-            }
-        }
+    let os = deps::Os::current();
+    let spec = deps::spec(deps::Dependency::SumatraPdf, os);
+
+    if let deps::Resolution::Found { path, .. } =
+        deps::resolve_on_host(deps::Dependency::SumatraPdf, os, None)
+    {
+        return Ok(path);
     }
 
-    if let Ok(path) = std::env::var("PATH") {
-        for dir in std::env::split_paths(&path) {
-            let candidate = dir.join("SumatraPDF.exe");
-            if candidate.is_file() {
-                return Ok(candidate);
-            }
-        }
-    }
-
-    if let Ok(local) = std::env::var("LOCALAPPDATA") {
-        let candidate = PathBuf::from(local)
-            .join("SumatraPDF")
-            .join("SumatraPDF.exe");
-        if candidate.is_file() {
-            return Ok(candidate);
-        }
-    }
-
-    Err(EngineError::DependencyMissing(
-        "SumatraPDF.exe not found — install SumatraPDF or place it next to the app".to_string(),
-    ))
-}
-
-/// On non-Windows platforms SumatraPDF is not used (CUPS handles printing).
-#[cfg(not(windows))]
-pub fn locate() -> Result<PathBuf, EngineError> {
-    Err(EngineError::DependencyMissing(
-        "SumatraPDF is only used on Windows".to_string(),
-    ))
+    Err(EngineError::DependencyMissing(if spec.applicable() {
+        spec.remediation()
+    } else {
+        "SumatraPDF is only used on Windows".to_string()
+    }))
 }
 
 /// Spool `pdf` via SumatraPDF, hiding the child's console window. SumatraPDF

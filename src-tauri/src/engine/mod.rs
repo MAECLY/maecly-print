@@ -11,6 +11,9 @@
 //!   rasterised into a one-page PDF; PDFs pass through untouched).
 //! - [`print`] — translate [`crate::queue::job::JobSettings`] into the
 //!   SumatraPDF (Windows) / CUPS `lp` (Unix) invocation and spool it.
+//! - [`deps`] — locate the external programs the pipeline shells out to
+//!   (SumatraPDF and the documented converters) and say what a missing one
+//!   costs the user (FR-058).
 //!
 //! Everything is small and testable: the flag builders and parsers are pure
 //! functions with co-located unit tests; only the `spool`/`cancel` entry points
@@ -23,6 +26,7 @@ use specta::Type;
 use walkdir::WalkDir;
 
 pub mod convert;
+pub mod deps;
 pub mod pagerange;
 pub mod print;
 

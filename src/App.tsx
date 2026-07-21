@@ -11,8 +11,9 @@ import {
   buildPrintRequest,
   findProfileIn,
 } from '@/lib/profiles';
-import { isTauri, printFiles } from '@/lib/ipc';
+import { isTauri, openExternal, printFiles } from '@/lib/ipc';
 import { addPathsToJob } from '@/lib/jobFiles';
+import { events } from '@/ipc/bindings';
 import { useProfilesStore } from '@/stores/profilesStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -33,6 +34,15 @@ import { OnboardingFlow } from '@/screens/auxiliary/OnboardingFlow';
 
 const ONBOARD_KEY = 'maeclyprint:onboarding-complete';
 
+/**
+ * How long the "an update is available" toast stays up. Long enough to be read
+ * by someone who was not looking at the moment it appeared (the check fires 30
+ * seconds after launch, unprompted), short enough that it still goes away on
+ * its own — the news also waits on the About screen, so nothing is lost by
+ * missing it.
+ */
+const UPDATE_TOAST_MS = 15_000;
+
 function readOnboardingDone() {
   try {
     return window.localStorage.getItem(ONBOARD_KEY) === '1';
@@ -46,6 +56,9 @@ function App() {
   // Shortcut feedback and the cancel confirmation are documented on the Home
   // screen, so they share its namespace.
   const tHome = useT('home');
+  // The launch-time update toast is the same news the About screen's update
+  // card shows, so it reuses that screen's strings verbatim.
+  const tAbout = useT('about');
   const { mode, resolved, setMode } = useTheme();
   const { density, setDensity } = useDensity();
   const [active, setActive] = useState<ScreenId>('home');
@@ -159,6 +172,52 @@ function App() {
       unlisten?.();
     };
   }, []);
+
+  // FR-080: the backend runs the launch-time update check (delayed, throttled
+  // to once per 24h) and pushes this event only when there is something the
+  // user should hear about — a strictly newer release they have not skipped
+  // (FR-084). All of that policy lives in Rust, so there is nothing to filter
+  // here: receiving the event *is* the decision to say something.
+  //
+  // The toast deliberately stops at the release page. This build cannot verify
+  // or install a download (FR-082/FR-083 arrive with the signed auto-updater),
+  // and the About screen says so next to its own check; a toast that offered
+  // to "update" would be a promise the app cannot keep. Skipping a version
+  // also stays on that screen, where the full context is visible.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    events.updateAvailable
+      .listen(({ payload }) => {
+        const version = payload.latest;
+        if (!version) return;
+        const url = payload.url;
+        toast.info(tAbout('updates.available.title', { version }), {
+          description: tAbout('updates.available.detail', {
+            current: payload.current,
+          }),
+          duration: UPDATE_TOAST_MS,
+          action: url
+            ? {
+                label: tAbout('updates.available.releaseNotes'),
+                onClick: () => void openExternal(url),
+              }
+            : undefined,
+        });
+      })
+      .then((un) => {
+        if (cancelled) un();
+        else unlisten = un;
+      })
+      .catch((e: unknown) => {
+        console.error('update-available listener failed', e);
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [tAbout]);
 
   const completeOnboarding = () => {
     try {

@@ -14,9 +14,10 @@
 //! update flow has to remember between runs ([`UpdateState`]): when the last
 //! check ran (FR-080's once-per-24h throttle) and which version the user chose
 //! to skip (FR-084). The decisions built on top of it — [`due_for_check`],
-//! [`should_check_on_startup`], [`should_notify`] — are pure and tested; only
-//! [`run_startup_check`] ties them to the real config, the real state file and
-//! the network.
+//! [`should_check_on_startup`], [`should_notify`] — are pure and tested;
+//! [`run_startup_check_with`] sequences them against an injected state file,
+//! clock and fetcher, and [`run_startup_check`] is the thin wrapper that binds
+//! those three to the real config, the real state file and the network.
 
 use std::path::{Path, PathBuf};
 
@@ -447,7 +448,9 @@ fn same_version(a: &str, b: &str) -> bool {
     }
 }
 
-/// FR-080 launch-time check, ready to be scheduled.
+/// FR-080 launch-time check with every external dependency injected: the
+/// preference, the state file, the clock, the running version, and the fetch
+/// itself.
 ///
 /// Returns `Some(check)` only when there is something the user should be told
 /// about: the preference is on, the 24h window has elapsed, a newer release
@@ -455,24 +458,30 @@ fn same_version(a: &str, b: &str) -> bool {
 /// disabled, offline, rate-limited, up to date — is `None`, because a silent
 /// background check has no UI to fail into.
 ///
-/// **Hook point:** this is *not* wired to anything yet. It is meant to be
-/// spawned off the main thread from `lib.rs`'s `setup`, after
-/// [`STARTUP_CHECK_DELAY`]; see the module docs of `crate::ipc::update` for the
-/// exact snippet.
-pub fn run_startup_check() -> Option<UpdateCheck> {
-    let config = crate::settings::Config::load_or_default();
-    let mut state = UpdateState::load();
+/// `fetch` is only called once the decision to check has been made, which is
+/// what lets a test assert that a throttled or disabled launch performs no
+/// network call at all.
+///
+/// The state file is stamped with `now` whenever a check actually completed,
+/// including one that found nothing: the throttle counts *checks*, not
+/// findings, or an up-to-date app would re-check on every launch.
+pub fn run_startup_check_with<F>(
+    check_on_startup: bool,
+    state_path: &Path,
+    now: OffsetDateTime,
+    current: &str,
+    fetch: F,
+) -> Option<UpdateCheck>
+where
+    F: FnOnce() -> Result<Option<ReleaseInfo>, String>,
+{
+    let mut state = UpdateState::load_from(state_path);
 
-    if !should_check_on_startup(
-        config.updater.check_on_startup,
-        &state,
-        OffsetDateTime::now_utc(),
-    ) {
+    if !should_check_on_startup(check_on_startup, &state, now) {
         return None;
     }
 
-    let (owner, repo) = repo_slug()?;
-    let release = match fetch_latest(&owner, &repo) {
+    let release = match fetch() {
         Ok(release) => release,
         Err(e) => {
             // Nobody asked for this check, so there is nowhere honest to show
@@ -482,17 +491,36 @@ pub fn run_startup_check() -> Option<UpdateCheck> {
         }
     };
 
-    let check = evaluate(
-        env!("CARGO_PKG_VERSION"),
-        release,
-        crate::queue::job::now_rfc3339(),
-    );
+    let checked_at = now
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| crate::queue::job::now_rfc3339());
+    let check = evaluate(current, release, checked_at);
     state.last_check_at = Some(check.checked_at.clone());
-    if let Err(e) = state.save() {
+    if let Err(e) = state.save_to(state_path) {
         tracing::warn!(event = "update_state_save_failed", error = %e);
     }
 
     should_notify(&check, state.skipped_version.as_deref()).then_some(check)
+}
+
+/// FR-080 launch-time check against the real config, state file and network.
+///
+/// Scheduled from `lib.rs`'s `setup` on a background thread after
+/// [`STARTUP_CHECK_DELAY`]; the result (when there is one) is pushed to the
+/// webview as [`crate::ipc::update::UpdateAvailable`].
+pub fn run_startup_check() -> Option<UpdateCheck> {
+    let config = crate::settings::Config::load_or_default();
+    run_startup_check_with(
+        config.updater.check_on_startup,
+        &state_path(),
+        OffsetDateTime::now_utc(),
+        env!("CARGO_PKG_VERSION"),
+        || {
+            let (owner, repo) =
+                repo_slug().ok_or_else(|| "repository not configured".to_string())?;
+            fetch_latest(&owner, &repo)
+        },
+    )
 }
 
 #[cfg(test)]

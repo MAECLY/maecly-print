@@ -40,6 +40,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": ["resources/sumatrapdf/*"],
     "category": "Productivity",
     "shortDescription": "Batch file printing",
     "longDescription": "Open source batch file printing for Windows and macOS. Right-click and print everything, with no 15-file limit, no Adobe required, and no $149 license fee.",

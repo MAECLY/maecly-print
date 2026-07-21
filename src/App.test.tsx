@@ -27,6 +27,39 @@ vi.mock('@tauri-apps/api/webview', () => ({
   }),
 }));
 
+/**
+ * The tauri-specta `events` object drives the event plugin over IPC, which
+ * mockIPC would also intercept. Swapping just `events` for a controllable fake
+ * (commands stay real, so mockIPC still serves invokes) is how the rest of the
+ * suite emits backend events on demand — see `queueStore.test.ts`.
+ */
+type EventListener = (e: { payload: unknown }) => void;
+const eventMock = vi.hoisted(() => {
+  const registry = {
+    updateAvailable: new Set<(e: { payload: unknown }) => void>(),
+    queueUpdated: new Set<(e: { payload: unknown }) => void>(),
+    jobProgressEvent: new Set<(e: { payload: unknown }) => void>(),
+  };
+  const listener = (set: Set<(e: { payload: unknown }) => void>) => ({
+    listen: (cb: (e: { payload: unknown }) => void) => {
+      set.add(cb);
+      return Promise.resolve(() => set.delete(cb));
+    },
+  });
+  return {
+    registry,
+    events: {
+      updateAvailable: listener(registry.updateAvailable),
+      queueUpdated: listener(registry.queueUpdated),
+      jobProgressEvent: listener(registry.jobProgressEvent),
+    },
+  };
+});
+vi.mock('@/ipc/bindings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/ipc/bindings')>();
+  return { ...actual, events: eventMock.events };
+});
+
 import App from './App';
 import { shortcutLabel } from '@/components/AppShell/MPAppShell';
 import { toUiQueueJob } from '@/lib/ipc';
@@ -90,6 +123,7 @@ describe('App', () => {
       recentDone: [],
     });
     webview.handler = null;
+    for (const set of Object.values(eventMock.registry)) set.clear();
   });
   afterEach(() => clearMocks());
 
@@ -231,6 +265,92 @@ describe('App', () => {
     );
     // The reconciled value is mirrored back into the localStorage cache.
     expect(window.localStorage.getItem('maeclyprint:theme')).toBe('dark');
+  });
+
+  // -------------------------------------------------------------------------
+  // Launch-time update check (FR-080 / FR-084)
+  // -------------------------------------------------------------------------
+
+  describe('update-available notification', () => {
+    /**
+     * What the backend pushes after a launch-time check found something. The
+     * decision to push at all (preference, 24h throttle, skipped version) is
+     * made in Rust and covered by `src-tauri/tests/update_startup.rs`; the
+     * frontend's job starts here.
+     */
+    const CHECK = {
+      current: '1.0.0',
+      latest: 'v1.2.0',
+      available: true,
+      url: 'https://github.com/MAECLY/maecly-print/releases/tag/v1.2.0',
+      notes: 'Faster printing',
+      checked_at: '2026-07-20T12:00:00Z',
+    };
+
+    function emitUpdateAvailable(payload: unknown = CHECK) {
+      const set = eventMock.registry.updateAvailable as Set<EventListener>;
+      act(() => {
+        for (const cb of set) cb({ payload });
+      });
+    }
+
+    /** Render App and wait until its event listener is registered. */
+    async function renderSubscribed() {
+      render(<App />);
+      await waitFor(() =>
+        expect(eventMock.registry.updateAvailable.size).toBe(1),
+      );
+    }
+
+    it('FR-080: tells the user from whatever screen they are on', async () => {
+      mockShell();
+      await renderSubscribed();
+      // Still on Home — the point is that the About screen is not required.
+      expect(screen.getByText(/Drop files to print/i)).toBeInTheDocument();
+
+      emitUpdateAvailable();
+      expect(
+        await screen.findByText('Version v1.2.0 is available'),
+      ).toBeInTheDocument();
+      expect(screen.getByText("You're on 1.0.0.")).toBeInTheDocument();
+    });
+
+    it('links to the release page instead of offering an install this build cannot do', async () => {
+      const calls: string[] = [];
+      mockIPC((cmd, args) => {
+        calls.push(cmd);
+        if (cmd === 'open_external')
+          return (args as { url: string } | undefined)?.url ?? null;
+        if (cmd === 'get_app_settings') return fixtureAppSettings;
+        if (cmd === 'list_profiles') return fixtureProfiles;
+        if (cmd === 'queue_status')
+          return { schema_version: 1, queue_paused: false, jobs: [] };
+        return null;
+      });
+      await renderSubscribed();
+      emitUpdateAvailable();
+
+      // FR-082/FR-083 land with the signed auto-updater: nothing here may
+      // suggest the app can install anything.
+      const action = await screen.findByRole('button', {
+        name: 'Release notes',
+      });
+      expect(
+        screen.queryByRole('button', { name: /install|update now/i }),
+      ).toBeNull();
+
+      fireEvent.click(action);
+      await waitFor(() => expect(calls).toContain('open_external'));
+    });
+
+    it('says nothing when the payload names no version', async () => {
+      mockShell();
+      await renderSubscribed();
+      emitUpdateAvailable({ ...CHECK, latest: null, url: null });
+      await waitFor(() =>
+        expect(screen.queryByText(/is available/)).toBeNull(),
+      );
+    });
   });
 
   // -------------------------------------------------------------------------

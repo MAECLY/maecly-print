@@ -31,11 +31,15 @@ import {
 } from '@/lib/profiles';
 import { fmtKb } from '@/lib/format';
 import {
+  fetchAppInfo,
   getPrinterPrefs,
   isTauri,
   listPrinters,
   previewCommand,
 } from '@/lib/ipc';
+// Straight from the generated bindings: `lib/ipc` re-exports the wire types the
+// other screens use, and this one is not on that list yet.
+import type { DependencyReport } from '@/ipc/bindings';
 import { useT } from '@/i18n/I18nProvider';
 import { useProfilesStore } from '@/stores/profilesStore';
 import {
@@ -156,6 +160,42 @@ export function PrintJobScreen({
       ? [{ value: unknownPrinter, label: unknownPrinter }]
       : []),
   ];
+
+  // FR-058: the external programs the print pipeline shells out to, probed by
+  // the backend (`engine::deps`) and shipped on `app_info`. Fetched once; a
+  // dependency is not something that appears mid-session, and a failed fetch
+  // leaves the list empty, which surfaces no warning — the honest fallback,
+  // since we then know nothing rather than know it is missing.
+  const [dependencies, setDependencies] = useState<DependencyReport[]>([]);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let alive = true;
+    fetchAppInfo()
+      .then((info) => {
+        if (alive) setDependencies(info.dependencies ?? []);
+      })
+      .catch((e) => {
+        console.error('dependency probe failed', e);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Only dependencies that actually gate a file the user added are shown: the
+  // backend lists what each missing program blocks *today* (never what it would
+  // enable one day), and we intersect that with the extensions in this job. So
+  // a missing LibreOffice is silent — it blocks nothing the engine can print —
+  // while a missing SumatraPDF on Windows, which is the final printer for every
+  // format, is not.
+  const jobExts = new Set(files.map((f) => f.ext.toLowerCase()));
+  const blockingDependencies = dependencies.filter(
+    (d) =>
+      d.applicable &&
+      !d.found &&
+      d.remediation !== null &&
+      d.blocks.some((ext) => jobExts.has(ext)),
+  );
 
   const totalPages = files.reduce((s, f) => s + (f.pages ?? 1), 0);
   const totalKb = files.reduce((s, f) => s + f.kb, 0);
@@ -381,6 +421,47 @@ export function PrintJobScreen({
             transition: 'background .12s',
           }}
         >
+          {blockingDependencies.length > 0 && (
+            <section
+              // `alert`: the files are already in the list and the Print button
+              // is still live, so a user who does not look up will spool a job
+              // that cannot run. This has to reach a screen reader on its own.
+              role="alert"
+              aria-label={t('dependencies.title')}
+              style={{
+                border: '1px solid var(--mp-warn)',
+                background: 'var(--mp-warnSoft)',
+                borderRadius: 8,
+                padding: '12px 14px',
+                marginBottom: 12,
+              }}
+            >
+              <MPSectionLabel>{t('dependencies.title')}</MPSectionLabel>
+              {blockingDependencies.map((dep) => {
+                const affected = files.filter((f) =>
+                  dep.blocks.includes(f.ext.toLowerCase()),
+                ).length;
+                return (
+                  <div key={dep.id} style={{ marginTop: 8 }}>
+                    {/* The remediation text comes from the backend verbatim
+                        (English only for now): it names the program and states
+                        what it costs, and inventing a second wording here would
+                        risk promising something the engine does not do. */}
+                    <div style={{ fontSize: 12.5 }}>{dep.remediation}</div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: 'var(--mp-textDim)',
+                        marginTop: 4,
+                      }}
+                    >
+                      {t('dependencies.affected', { count: affected })}
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+          )}
           {pendingFolders.length > 0 && (
             <section
               aria-label={t('folders.title', {

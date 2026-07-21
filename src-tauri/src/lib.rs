@@ -108,6 +108,34 @@ pub fn run_with(selection: Option<cli::Selection>) {
                 .map_err(|e| format!("failed to start print queue: {e}"))?;
             app.manage(queue);
 
+            // FR-080: the launch-time update check. It lives here, in `setup`,
+            // rather than in a frontend effect, for three reasons: the
+            // single-instance plugin above guarantees `setup` runs exactly once
+            // per process, so a second launch cannot double-check; the webview
+            // can be reloaded or its window closed and reopened, neither of
+            // which should re-run a network check; and the preference, the
+            // 24h throttle and the skipped-version rule already live in Rust
+            // next to the state file, so the frontend would only be able to
+            // re-derive them. Everything runs on a detached thread — the sleep
+            // included — so a cold start never waits on the network, and a user
+            // who quits before the delay elapses simply takes the thread down
+            // with the process, having persisted nothing.
+            let update_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(update::STARTUP_CHECK_DELAY);
+                // `None` is every uninteresting outcome (disabled, throttled,
+                // offline, up to date, skipped version) — see
+                // `update::run_startup_check`.
+                let Some(check) = update::run_startup_check() else {
+                    return;
+                };
+                use tauri_specta::Event;
+                tracing::info!(event = "update_available", latest = ?check.latest);
+                if let Err(e) = ipc::update::UpdateAvailable(check).emit(&update_handle) {
+                    tracing::warn!(event = "update_available_emit_failed", error = %e);
+                }
+            });
+
             // Resolve the window so failures here surface as setup errors,
             // not silent missing-window bugs.
             if let Some(_main) = app.get_webview_window("main") {
@@ -170,6 +198,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .events(tauri_specta::collect_events![
             ipc::events::QueueUpdated,
             ipc::events::JobProgressEvent,
+            ipc::update::UpdateAvailable,
             cli::pending::SelectionForwarded
         ])
 }

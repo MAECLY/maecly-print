@@ -21,7 +21,7 @@ import {
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { clearPendingFolders } from '@/lib/jobFiles';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { fixtureAppSettings } from '@/test/fixtures';
+import { fixtureAppInfo, fixtureAppSettings } from '@/test/fixtures';
 import { fixtureProfiles } from '@/test/fixtures';
 import { Toaster } from '@/components/AppShell/Toaster';
 
@@ -35,9 +35,19 @@ const dnd = vi.hoisted(() => ({
 }));
 // Stub the tauri-specta `events` object (the queue store subscribes on App
 // init); real `commands` stay so mockIPC serves the print/inspect commands.
+// Every event the app subscribes to has to appear here: the stub replaces the
+// `events` object wholesale, so a missing name surfaces as an undefined
+// `.listen` deep inside a screen rather than as an obvious gap in the mock.
 const eventMock = vi.hoisted(() => {
   const noop = { listen: () => Promise.resolve(() => {}) };
-  return { events: { queueUpdated: noop, jobProgressEvent: noop } };
+  return {
+    events: {
+      queueUpdated: noop,
+      jobProgressEvent: noop,
+      updateAvailable: noop,
+      selectionForwarded: noop,
+    },
+  };
 });
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: openMock }));
@@ -141,6 +151,11 @@ function mockJob(opts: MockOpts = {}): Call[] {
         return null;
       case 'get_printer_prefs':
         return {};
+      // The screen probes external dependencies (FR-058) through app_info;
+      // answering with the real shape keeps that path exercised rather than
+      // failing on a null payload.
+      case 'app_info':
+        return fixtureAppInfo;
       default:
         return null;
     }

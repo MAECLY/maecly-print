@@ -27,6 +27,11 @@
     "desktop": "Aún no hay archivos. Arrastra archivos o carpetas desde el Explorador o el Finder, o usa Añadir archivos.",
     "web": "Para añadir archivos se necesita la aplicación de escritorio."
   },
+  "dependencies": {
+    "title": "Falta una dependencia",
+    "affected_one": "{{count}} archivo de este trabajo la necesita.",
+    "affected_other": "{{count}} archivos de este trabajo la necesitan."
+  },
   "folders": {
     "title_one": "{{count}} carpeta soltada",
     "title_other": "{{count}} carpetas soltadas",
