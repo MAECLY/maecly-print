@@ -39,6 +39,19 @@ anyhow = "1"
 # --- Filesystem / paths ---
 directories = "5"
 tempfile = "3"
+# Folder expansion for FR-004: recursive walks with a bounded depth and
+# symlink loops handled for us.
+walkdir = "2"
+
+# --- Headless CLI (FR-008/009/112) ---
+# `derive` keeps the subcommand surface declarative; `env` is unused on
+# purpose so the exit codes stay the only contract.
+clap = { version = "4", features = ["derive"] }
+
+# --- Process control ---
+# The print hop shells out to SumatraPDF/lp; without a bounded wait a hung
+# child wedges the whole queue, so the dispatcher needs a timed wait.
+wait-timeout = "0.2"
 
 # --- Update check + issue reporting ---
 # Semantic-version comparison for the GitHub-release update check.
@@ -78,6 +91,9 @@ tauri-plugin-dialog = "2"
 # Open URLs / reveal folders in the OS default handler (logs folder, issue
 # reporter, external links). Called Rust-side only; no JS capability needed.
 tauri-plugin-opener = "2"
+# NFR-014: a second launch (shell extension, CLI, shortcut) must hand its
+# argv to the running instance instead of racing it over queue.json.
+tauri-plugin-single-instance = "2"
 
 # --- Dev/test only ---
 # `test-util` unlocks tokio's virtual clock (`start_paused` / `time::advance`)

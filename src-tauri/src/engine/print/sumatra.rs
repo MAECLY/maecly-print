@@ -162,13 +162,19 @@ pub fn locate() -> Result<PathBuf, EngineError> {
 /// prints synchronously and reports no OS job id, so `os_job_id` is `None`.
 /// `title` is accepted for parity with the CUPS backend but SumatraPDF has no
 /// job-title flag, so it is not forwarded.
+///
+/// The wait is bounded by `timeout` and the child killed when it expires (see
+/// [`super::wait_with_timeout`]): SumatraPDF blocks until the spooler accepts
+/// the job, so a driver dialog or a stalled spooler would otherwise hold the
+/// queue's single print slot forever.
 #[cfg(windows)]
 pub fn spool(
     pdf: &Path,
     printer: &str,
     settings: &JobSettings,
     title: &str,
-) -> Result<super::SpoolOutcome, EngineError> {
+    timeout: Option<std::time::Duration>,
+) -> Result<super::SpoolOutcome, super::PrintError> {
     use std::os::windows::process::CommandExt;
 
     // Suppress the transient console window when spawning the child.
@@ -177,18 +183,18 @@ pub fn spool(
 
     let exe = locate()?;
     let args = sumatra_args(printer, settings, pdf);
-    let status = Command::new(exe)
+    let mut child = Command::new(exe)
         .args(&args)
         .creation_flags(CREATE_NO_WINDOW)
-        .status()
+        .spawn()
         .map_err(|e| EngineError::PrintFailed(format!("failed to run SumatraPDF: {e}")))?;
+
+    let status = super::wait_with_timeout(&mut child, timeout)?;
 
     if status.success() {
         Ok(super::SpoolOutcome { os_job_id: None })
     } else {
-        Err(EngineError::PrintFailed(format!(
-            "SumatraPDF exited with {status}"
-        )))
+        Err(EngineError::PrintFailed(format!("SumatraPDF exited with {status}")).into())
     }
 }
 

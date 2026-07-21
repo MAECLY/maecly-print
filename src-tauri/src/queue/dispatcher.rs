@@ -24,7 +24,14 @@
 //!   exactly one print runs at a time (spoolers serialise anyway, and it keeps
 //!   job ordering legible). A conversion that outruns
 //!   [`DispatcherLimits::conversion_timeout`] is failed with a
-//!   `"conversion_timeout"` error (no retry).
+//!   `"conversion_timeout"` error (no retry). The print stage is bounded the
+//!   same way by [`DispatcherLimits::print_timeout`]: the spooler child is
+//!   killed and the job failed with `"print_timeout"` (also terminal), so a hung
+//!   `lp`/SumatraPDF can never hold the single print slot forever.
+//! - A printer that the OS no longer enumerates — or no configured printer at
+//!   all — **pauses** the job with `"printer_unavailable"` instead of failing
+//!   it, so the user can pick a replacement
+//!   (`docs/03-requirements/print-settings.md` §printer).
 //! - `queue_paused` gates *starting* new work only. Work already in flight runs
 //!   to completion; a converting job that finishes while the queue is paused
 //!   still reaches `Converted`, it just won't advance to `Printing`.
@@ -59,7 +66,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot};
 
-use crate::engine::print::SpoolOutcome;
+use crate::engine::print::{PrintError, SpoolOutcome};
 use crate::engine::EngineError;
 use crate::queue::job::{
     now_rfc3339, Job, JobError, JobProgress, JobState, QueueSnapshot, SCHEMA_VERSION,
@@ -91,6 +98,20 @@ impl Default for DispatcherLimits {
             max_concurrent: DEFAULT_MAX_CONCURRENT_CONVERSIONS,
             conversion_timeout: None,
         }
+    }
+}
+
+impl DispatcherLimits {
+    /// Wall-clock ceiling for the print stage.
+    ///
+    /// Both blocking stages are bounded by the one engine timeout the user can
+    /// actually set — [`crate::settings::EngineCfg::conversion_timeout_seconds`]
+    /// (`0` disables both) — rather than the print stage inventing a magic
+    /// constant of its own. Printing is a hand-off to the OS spooler and
+    /// finishes in well under a conversion's budget, so the shared value is a
+    /// ceiling for it, not a target.
+    pub(crate) fn print_timeout(&self) -> Option<Duration> {
+        self.conversion_timeout
     }
 }
 
@@ -160,7 +181,7 @@ pub(crate) enum Cmd {
     },
     PrintDone {
         id: String,
-        result: Result<PrintOk, EngineError>,
+        result: Result<PrintOk, PrintError>,
     },
     RetryDue {
         id: String,
@@ -191,11 +212,17 @@ pub(crate) trait JobRunner: Send + Sync + 'static {
         progress: Box<dyn Fn(f32) + Send + Sync>,
     ) -> Result<Option<PathBuf>, EngineError>;
 
-    /// Spool the job's PDF to `printer`.
-    fn print(&self, job: &Job, printer: &str) -> Result<SpoolOutcome, EngineError>;
+    /// Spool the job's PDF to `printer`, waiting at most `timeout` for the
+    /// spooler child (`None` waits forever).
+    fn print(
+        &self,
+        job: &Job,
+        printer: &str,
+        timeout: Option<Duration>,
+    ) -> Result<SpoolOutcome, PrintError>;
 
     /// Resolve the printer name to use and whether it supports duplex.
-    fn resolve_printer(&self, requested: Option<&str>) -> Result<(String, bool), EngineError>;
+    fn resolve_printer(&self, requested: Option<&str>) -> Result<(String, bool), PrintError>;
 
     /// Best-effort cancellation of an already-spooled OS job.
     fn cancel_os_job(&self, os_job_id: &str);
@@ -241,32 +268,48 @@ impl JobRunner for EngineRunner {
         )
     }
 
-    fn print(&self, job: &Job, printer: &str) -> Result<SpoolOutcome, EngineError> {
+    fn print(
+        &self,
+        job: &Job,
+        printer: &str,
+        timeout: Option<Duration>,
+    ) -> Result<SpoolOutcome, PrintError> {
         // A converted job prints its cache PDF; a passthrough PDF prints in place.
         let pdf = match &job.cache_pdf {
             Some(p) => PathBuf::from(p),
             None => PathBuf::from(&job.input_path),
         };
-        crate::engine::print::spool(&pdf, printer, &job.settings, &job.file_name)
+        // Page ranges are PDF-only; an image is one page, so a range that
+        // excludes page 1 would spool an empty job (see `effective_settings`).
+        let settings = crate::engine::print::effective_settings(&job.settings, &job.input_ext);
+        crate::engine::print::spool(&pdf, printer, &settings, &job.file_name, timeout)
     }
 
-    fn resolve_printer(&self, requested: Option<&str>) -> Result<(String, bool), EngineError> {
+    /// Resolve the target printer and its duplex capability.
+    ///
+    /// A named printer that the OS no longer enumerates is **not** an error we
+    /// let the spooler discover: the spec makes such a job paused, not failed,
+    /// so the user can pick a replacement
+    /// (`docs/03-requirements/print-settings.md` §printer). The check only bites
+    /// when enumeration actually worked and returned something — a failed or
+    /// empty enumeration (the platform backends are best-effort) keeps the old
+    /// behaviour of trusting the name and letting spooling speak, so a flaky
+    /// `lpstat` can never pause the whole queue.
+    fn resolve_printer(&self, requested: Option<&str>) -> Result<(String, bool), PrintError> {
         let name = match requested {
             Some(p) if !p.is_empty() => p.to_string(),
             _ => resolve_default_printer()?,
         };
-        // Fetch the duplex capability from enumeration; if the printer is not
-        // enumerable, don't block (assume supported) and let spooling surface
-        // any real error.
-        let duplex_supported = crate::platform::list_printers()
+        let enumerated = crate::platform::list_printers()
             .ok()
-            .and_then(|list| {
-                list.into_iter()
-                    .find(|p| p.id == name || p.name == name)
-                    .map(|p| p.duplex)
-            })
-            .unwrap_or(true);
-        Ok((name, duplex_supported))
+            .filter(|list| !list.is_empty());
+        let Some(list) = enumerated else {
+            return Ok((name, true));
+        };
+        match list.iter().find(|p| p.id == name || p.name == name) {
+            Some(p) => Ok((name, p.duplex)),
+            None => Err(PrintError::PrinterMissing { printer: name }),
+        }
     }
 
     fn cancel_os_job(&self, os_job_id: &str) {
@@ -284,8 +327,9 @@ impl JobRunner for EngineRunner {
 }
 
 /// Resolve a default printer without an explicit request: MaeclyPrint's app
-/// default, then the OS default.
-fn resolve_default_printer() -> Result<String, EngineError> {
+/// default, then the OS default. Having neither is user-fixable (pick a
+/// printer), so it pauses the job rather than burning retries.
+fn resolve_default_printer() -> Result<String, PrintError> {
     if let Some(name) = crate::settings::Config::load_or_default()
         .printers
         .default_printer
@@ -300,9 +344,7 @@ fn resolve_default_printer() -> Result<String, EngineError> {
     {
         return Ok(name);
     }
-    Err(EngineError::PrintFailed(
-        "no printer is configured; choose a printer first".to_string(),
-    ))
+    Err(PrintError::NoPrinter)
 }
 
 /// Production [`EventSink`] emitting typed `tauri-specta` events to the webview.
@@ -457,7 +499,21 @@ impl Dispatcher {
     fn on_submit(&mut self, jobs: Vec<Job>) {
         let mut st = self.state.write().unwrap();
         for job in jobs {
-            tracing::info!(event = "job_submitted", job_id = %job.id, file = %job.file_name);
+            let f = JobLog::of(&job);
+            // `input_path` appears here and nowhere else: FR-035 wants the file
+            // path recorded once, and NFR-082 keeps absolute paths out of
+            // WARN/ERROR records, which carry `file` (the basename) instead.
+            tracing::info!(
+                event = "job_submitted",
+                job_id = %job.id,
+                file = %f.file,
+                input_path = %job.input_path,
+                profile = %f.profile,
+                printer = %f.printer,
+                pages = f.pages,
+                status = %f.status,
+                submitted_at = %job.submitted_at
+            );
             st.jobs.push(job);
         }
     }
@@ -753,9 +809,18 @@ impl Dispatcher {
                     if let Some(c) = job.cache_pdf.take() {
                         post.delete_cache.push(c);
                     }
+                    let f = JobLog::of(job);
                     tracing::warn!(
                         event = "job_conversion_timeout",
                         job_id = %id,
+                        file = %f.file,
+                        profile = %f.profile,
+                        printer = %f.printer,
+                        pages = f.pages,
+                        status = %f.status,
+                        started_at = %f.started_at,
+                        finished_at = %f.finished_at,
+                        error = %f.error,
                         timeout_s = timeout_secs
                     );
                 }
@@ -764,7 +829,7 @@ impl Dispatcher {
         self.apply_post(post);
     }
 
-    fn on_print_done(&mut self, id: String, result: Result<PrintOk, EngineError>) {
+    fn on_print_done(&mut self, id: String, result: Result<PrintOk, PrintError>) {
         let mut post = Post::default();
         {
             let mut st = self.state.write().unwrap();
@@ -788,9 +853,20 @@ impl Dispatcher {
                             if let Some(c) = job.cache_pdf.take() {
                                 post.delete_cache.push(c);
                             }
-                            tracing::info!(event = "job_done", job_id = %id);
+                            let f = JobLog::of(job);
+                            tracing::info!(
+                                event = "job_done",
+                                job_id = %id,
+                                file = %f.file,
+                                profile = %f.profile,
+                                printer = %f.printer,
+                                pages = f.pages,
+                                status = %f.status,
+                                started_at = %f.started_at,
+                                finished_at = %f.finished_at
+                            );
                         }
-                        Err(e) => record_failure(job, &e, false, &mut post),
+                        Err(e) => record_print_failure(job, e, &mut post),
                     },
                     // Cancelled during the brief spool window: reconcile.
                     JobState::Cancelled => {
@@ -876,12 +952,19 @@ impl Dispatcher {
                         if job.started_at.is_none() {
                             job.started_at = Some(now_rfc3339());
                         }
-                        job.progress = Some(JobProgress {
-                            phase: "converting".to_string(),
-                            percent: 0.0,
-                        });
+                        job.progress = Some(JobProgress::measured("converting", 0.0));
                         job.error = None;
-                        tracing::info!(event = "job_start_convert", job_id = %job.id);
+                        let f = JobLog::of(job);
+                        tracing::info!(
+                            event = "job_start_convert",
+                            job_id = %job.id,
+                            file = %f.file,
+                            profile = %f.profile,
+                            printer = %f.printer,
+                            pages = f.pages,
+                            status = %f.status,
+                            started_at = %f.started_at
+                        );
                     }
                     self.converting
                         .insert(st.jobs[idx].id.clone(), flag.clone());
@@ -899,12 +982,22 @@ impl Dispatcher {
                         if job.started_at.is_none() {
                             job.started_at = Some(now_rfc3339());
                         }
-                        job.progress = Some(JobProgress {
-                            phase: "printing".to_string(),
-                            percent: 0.0,
-                        });
+                        // The spooler reports no completion fraction, so the
+                        // printing phase is explicitly indeterminate rather than
+                        // a bar frozen at 0 %.
+                        job.progress = Some(JobProgress::indeterminate("printing"));
                         job.error = None;
-                        tracing::info!(event = "job_start_print", job_id = %job.id);
+                        let f = JobLog::of(job);
+                        tracing::info!(
+                            event = "job_start_print",
+                            job_id = %job.id,
+                            file = %f.file,
+                            profile = %f.profile,
+                            printer = %f.printer,
+                            pages = f.pages,
+                            status = %f.status,
+                            started_at = %f.started_at
+                        );
                         to_print = Some(st.jobs[idx].clone());
                     }
                 }
@@ -947,8 +1040,12 @@ impl Dispatcher {
         let runner = self.runner.clone();
         let self_tx = self.self_tx.clone();
         let id = job.id.clone();
+        // The whole print stage is bounded, so a wedged spooler cannot hold the
+        // queue's single print slot forever (the conversion stage has had the
+        // equivalent bound since the start — see `Cmd::ConversionTimeout`).
+        let timeout = self.limits.print_timeout();
         self.spawner.spawn_blocking(Box::new(move || {
-            let result = (|| -> Result<PrintOk, EngineError> {
+            let result = (|| -> Result<PrintOk, PrintError> {
                 let (name, duplex_supported) =
                     runner.resolve_printer(job.settings.printer.as_deref())?;
                 // Pure capability gate (honesty policy): a duplex request against
@@ -959,7 +1056,7 @@ impl Dispatcher {
                     duplex_supported,
                     true,
                 )?;
-                let outcome = runner.print(&job, &name)?;
+                let outcome = runner.print(&job, &name, timeout)?;
                 Ok(PrintOk {
                     printer: name,
                     os_job_id: outcome.os_job_id,
@@ -990,10 +1087,7 @@ impl Dispatcher {
                 let mut st = state.write().unwrap();
                 if let Some(job) = st.jobs.iter_mut().find(|j| j.id == job_id) {
                     if job.state == JobState::Converting {
-                        job.progress = Some(JobProgress {
-                            phase: "converting".to_string(),
-                            percent,
-                        });
+                        job.progress = Some(JobProgress::measured("converting", percent));
                     }
                 }
             }
@@ -1082,6 +1176,103 @@ fn cancel_job_in_place(
     job.progress = None;
 }
 
+/// The FR-035 fields of a job, borrowed for one `tracing` record.
+///
+/// FR-035 requires every job to be logged with its start time, end time, file,
+/// profile, printer, page count, status and error. Those all live on [`Job`]
+/// already, so this is purely the rendering: it replaces the `Option`s with the
+/// placeholders the log schema uses, so a query for `printer` never has to cope
+/// with a missing key. The `tracing` macros still name every field at each call
+/// site (they take literals, not a spliced struct); this only guarantees the
+/// *values* are derived identically everywhere.
+struct JobLog<'a> {
+    file: &'a str,
+    profile: &'a str,
+    printer: &'a str,
+    /// Page count, or `-1` when it is not known yet (a numeric field stays
+    /// queryable; `"unknown"` in a number column would not).
+    pages: i64,
+    status: &'a str,
+    started_at: &'a str,
+    finished_at: &'a str,
+    error: &'a str,
+}
+
+impl<'a> JobLog<'a> {
+    fn of(job: &'a Job) -> Self {
+        Self {
+            // The basename, never the absolute path: WARN/ERROR records must
+            // not carry full paths (NFR-082, data-model.md §5.1).
+            file: &job.file_name,
+            profile: job.profile_name.as_deref().unwrap_or("<none>"),
+            printer: job
+                .printer_resolved
+                .as_deref()
+                .or(job.settings.printer.as_deref())
+                .unwrap_or("<default>"),
+            pages: job.pages.map(i64::from).unwrap_or(-1),
+            status: job.state.as_str(),
+            started_at: job.started_at.as_deref().unwrap_or(""),
+            finished_at: job.finished_at.as_deref().unwrap_or(""),
+            error: job.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
+        }
+    }
+}
+
+/// Apply the print-stage failure policy to `job`.
+///
+/// Two print outcomes are not ordinary transient failures:
+///
+/// - a **timeout** is terminal, exactly like `conversion_timeout`: the spooler
+///   child was killed, and re-spooling would most likely wedge again, so the job
+///   is `Failed` with `print_timeout` and no retry; and
+/// - a **missing / unconfigured printer** is user-fixable, so the job is
+///   `Paused` with `printer_unavailable` for the user to choose a replacement
+///   (`docs/03-requirements/print-settings.md` §printer).
+///
+/// Everything else is an [`EngineError`] and follows the ordinary FR-034 retry
+/// policy in [`record_failure`].
+fn record_print_failure(job: &mut Job, e: PrintError, post: &mut Post) {
+    let (code, terminal) = match &e {
+        PrintError::TimedOut { .. } => ("print_timeout", true),
+        PrintError::PrinterMissing { .. } | PrintError::NoPrinter => ("printer_unavailable", false),
+        PrintError::Engine(engine) => return record_failure(job, engine, false, post),
+    };
+
+    job.error = Some(JobError::new(code, e.to_string()));
+    job.progress = None;
+    if terminal {
+        job.state = JobState::Failed;
+        job.finished_at = Some(now_rfc3339());
+        if let Some(c) = job.cache_pdf.take() {
+            post.delete_cache.push(c);
+        }
+    } else {
+        // Keep the cached PDF: resuming onto another printer must not re-convert.
+        job.state = JobState::Paused;
+    }
+
+    let f = JobLog::of(job);
+    tracing::warn!(
+        event = if terminal {
+            "job_print_timeout"
+        } else {
+            "job_paused_needs_fix"
+        },
+        job_id = %job.id,
+        file = %f.file,
+        profile = %f.profile,
+        printer = %f.printer,
+        pages = f.pages,
+        status = %f.status,
+        started_at = %f.started_at,
+        finished_at = %f.finished_at,
+        attempts = job.attempts,
+        error = %f.error,
+        message = %e
+    );
+}
+
 /// Apply the FR-034 failure policy to `job`, recording any follow-up in `post`.
 fn record_failure(job: &mut Job, e: &EngineError, is_conversion: bool, post: &mut Post) {
     match e {
@@ -1090,7 +1281,21 @@ fn record_failure(job: &mut Job, e: &EngineError, is_conversion: bool, post: &mu
             job.state = JobState::Paused;
             job.error = Some(to_job_error(e));
             job.progress = None;
-            tracing::warn!(event = "job_paused_needs_fix", job_id = %job.id, error = %e);
+            let f = JobLog::of(job);
+            tracing::warn!(
+                event = "job_paused_needs_fix",
+                job_id = %job.id,
+                file = %f.file,
+                profile = %f.profile,
+                printer = %f.printer,
+                pages = f.pages,
+                status = %f.status,
+                started_at = %f.started_at,
+                finished_at = %f.finished_at,
+                attempts = job.attempts,
+                error = %f.error,
+                message = %e
+            );
         }
         // Cancellation is handled by the cancel path; defensive here.
         EngineError::Cancelled => {
@@ -1111,7 +1316,21 @@ fn record_failure(job: &mut Job, e: &EngineError, is_conversion: bool, post: &mu
                 if let Some(c) = job.cache_pdf.take() {
                     post.delete_cache.push(c);
                 }
-                tracing::warn!(event = "job_failed", job_id = %job.id, attempts = job.attempts, error = %e);
+                let f = JobLog::of(job);
+                tracing::warn!(
+                    event = "job_failed",
+                    job_id = %job.id,
+                    file = %f.file,
+                    profile = %f.profile,
+                    printer = %f.printer,
+                    pages = f.pages,
+                    status = %f.status,
+                    started_at = %f.started_at,
+                    finished_at = %f.finished_at,
+                    attempts = job.attempts,
+                    error = %f.error,
+                    message = %e
+                );
             } else {
                 job.state = if is_conversion {
                     JobState::Queued
@@ -1120,12 +1339,20 @@ fn record_failure(job: &mut Job, e: &EngineError, is_conversion: bool, post: &mu
                 };
                 let idx = (job.attempts as usize - 1).min(RETRY_BACKOFFS.len() - 1);
                 post.retry = Some((job.id.clone(), RETRY_BACKOFFS[idx]));
+                let f = JobLog::of(job);
                 tracing::warn!(
                     event = "job_retry_scheduled",
                     job_id = %job.id,
+                    file = %f.file,
+                    profile = %f.profile,
+                    printer = %f.printer,
+                    pages = f.pages,
+                    status = %f.status,
+                    started_at = %f.started_at,
                     attempts = job.attempts,
                     backoff_ms = RETRY_BACKOFFS[idx].as_millis() as u64,
-                    error = %e
+                    error = %f.error,
+                    message = %e
                 );
             }
         }
@@ -1173,6 +1400,9 @@ mod tests {
     enum PrintStep {
         Ok(Option<String>),
         Fail,
+        /// The spooler child outlived its budget and was killed — what the real
+        /// engine reports from `wait_with_timeout`.
+        Timeout,
     }
 
     struct FakeRunner {
@@ -1182,9 +1412,17 @@ mod tests {
         printer: String,
         duplex_supported: AtomicBool,
         resolve_ok: AtomicBool,
+        /// When false, `resolve_printer` reports the requested printer as no
+        /// longer installed (the missing-printer path).
+        printer_installed: AtomicBool,
         cancelled_os: Mutex<Vec<String>>,
         convert_calls: AtomicUsize,
         print_calls: AtomicUsize,
+        /// Timeouts the fake was asked to enforce, one per `print` call.
+        print_timeouts: Mutex<Vec<Option<Duration>>>,
+        /// The settings the fake was handed for each `print` call, so a test can
+        /// assert what would have reached the spooler.
+        print_settings: Mutex<Vec<JobSettings>>,
     }
 
     impl FakeRunner {
@@ -1196,9 +1434,12 @@ mod tests {
                 printer: "FakePrinter".to_string(),
                 duplex_supported: AtomicBool::new(true),
                 resolve_ok: AtomicBool::new(true),
+                printer_installed: AtomicBool::new(true),
                 cancelled_os: Mutex::new(Vec::new()),
                 convert_calls: AtomicUsize::new(0),
                 print_calls: AtomicUsize::new(0),
+                print_timeouts: Mutex::new(Vec::new()),
+                print_settings: Mutex::new(Vec::new()),
             }
         }
     }
@@ -1233,8 +1474,20 @@ mod tests {
             }
         }
 
-        fn print(&self, _job: &Job, _printer: &str) -> Result<SpoolOutcome, EngineError> {
+        fn print(
+            &self,
+            job: &Job,
+            _printer: &str,
+            timeout: Option<Duration>,
+        ) -> Result<SpoolOutcome, PrintError> {
             self.print_calls.fetch_add(1, Ordering::Relaxed);
+            self.print_timeouts.lock().unwrap().push(timeout);
+            // Mirror the real runner: the spooler only ever sees the settings
+            // that actually apply to this input.
+            self.print_settings.lock().unwrap().push(
+                crate::engine::print::effective_settings(&job.settings, &job.input_ext)
+                    .into_owned(),
+            );
             let step = self
                 .print_steps
                 .lock()
@@ -1243,18 +1496,24 @@ mod tests {
                 .unwrap_or(PrintStep::Ok(None));
             match step {
                 PrintStep::Ok(os_job_id) => Ok(SpoolOutcome { os_job_id }),
-                PrintStep::Fail => Err(EngineError::PrintFailed("boom".to_string())),
+                PrintStep::Fail => Err(EngineError::PrintFailed("boom".to_string()).into()),
+                PrintStep::Timeout => Err(PrintError::TimedOut {
+                    seconds: timeout.map(|t| t.as_secs()).unwrap_or(0),
+                }),
             }
         }
 
-        fn resolve_printer(&self, requested: Option<&str>) -> Result<(String, bool), EngineError> {
+        fn resolve_printer(&self, requested: Option<&str>) -> Result<(String, bool), PrintError> {
             if !self.resolve_ok.load(Ordering::Relaxed) {
-                return Err(EngineError::PrintFailed("no printer".to_string()));
+                return Err(PrintError::NoPrinter);
             }
             let name = requested
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| self.printer.clone());
+            if !self.printer_installed.load(Ordering::Relaxed) {
+                return Err(PrintError::PrinterMissing { printer: name });
+            }
             Ok((name, self.duplex_supported.load(Ordering::Relaxed)))
         }
 
@@ -2075,5 +2334,316 @@ mod tests {
         );
         assert!(!flag_b.load(Ordering::Relaxed), "live flag untouched");
         assert!(!flag_a.load(Ordering::Relaxed), "stale flag not set");
+    }
+
+    // ---- Print timeout (FR-034 / NFR-012) --------------------------------
+
+    /// Harness whose engine limits carry a print budget (the same knob as the
+    /// conversion budget — see [`DispatcherLimits::print_timeout`]).
+    fn harness_with_print_timeout(secs: u64) -> Harness {
+        harness_with(
+            Arc::new(InlineSpawner),
+            DispatcherLimits {
+                max_concurrent: 2,
+                conversion_timeout: Some(Duration::from_secs(secs)),
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn fr_034_print_timeout_fails_job_terminally_and_queue_keeps_going() {
+        // The regression this pins: a hung spooler used to leave the job in
+        // `printing` forever, and since exactly one job prints at a time, the
+        // whole queue died with it. The assertion that matters is the *second*
+        // job reaching Done.
+        let mut h = harness_with_print_timeout(60);
+        h.runner
+            .print_steps
+            .lock()
+            .unwrap()
+            .push_back(PrintStep::Timeout);
+
+        let a = make_job("a.pdf");
+        let b = make_job("b.pdf");
+        let (ida, idb) = (a.id.clone(), b.id.clone());
+        h.submit(vec![a, b]);
+        h.run_to_idle();
+
+        // The wedged job is terminal with a distinguishable reason and is not
+        // retried — re-spooling would most likely wedge again.
+        assert_eq!(h.job(&ida).state, JobState::Failed);
+        let err = h.job(&ida).error.unwrap();
+        assert_eq!(err.code, "print_timeout");
+        assert!(
+            err.message.contains("60s"),
+            "reason names the budget: {err:?}"
+        );
+        assert_eq!(
+            h.job(&ida).attempts,
+            0,
+            "a timeout is terminal, not a retry"
+        );
+        assert!(h.job(&ida).finished_at.is_some());
+        assert!(h.job(&ida).cache_pdf.is_none(), "cache released");
+
+        // The queue moved on.
+        assert_eq!(h.job(&idb).state, JobState::Done);
+        assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 2);
+
+        // The budget really reached the engine seam.
+        assert_eq!(
+            h.runner.print_timeouts.lock().unwrap()[0],
+            Some(Duration::from_secs(60))
+        );
+    }
+
+    #[tokio::test]
+    async fn print_timeout_disabled_passes_no_budget_to_the_engine() {
+        let mut h = harness(); // default limits: timeout disabled
+        h.submit(vec![make_job("a.pdf")]);
+        h.run_to_idle();
+        assert_eq!(h.runner.print_timeouts.lock().unwrap().as_slice(), &[None]);
+    }
+
+    // ---- Missing printer (print-settings.md §printer) ---------------------
+
+    #[tokio::test]
+    async fn fr_034_missing_printer_pauses_the_job_instead_of_failing_it() {
+        // The spec (and the Printers screen banner) promise "paused, not
+        // failed" so the user can pick a replacement.
+        let mut h = harness();
+        h.runner.printer_installed.store(false, Ordering::Relaxed);
+        let mut j = make_job("a.pdf");
+        j.settings.printer = Some("Old Office".to_string());
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+
+        assert_eq!(h.job(&id).state, JobState::Paused);
+        assert_eq!(
+            h.job(&id).attempts,
+            0,
+            "no retry burn on a user-fixable error"
+        );
+        let err = h.job(&id).error.unwrap();
+        assert_eq!(err.code, "printer_unavailable");
+        assert!(err.message.contains("Old Office"), "names it: {err:?}");
+        assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 0);
+        assert!(
+            h.job(&id).cache_pdf.is_some(),
+            "cache kept so resuming onto another printer does not re-convert"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_configured_printer_pauses_the_job() {
+        let mut h = harness();
+        h.runner.resolve_ok.store(false, Ordering::Relaxed);
+        let j = make_job("a.pdf");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+
+        assert_eq!(h.job(&id).state, JobState::Paused);
+        assert_eq!(h.job(&id).error.unwrap().code, "printer_unavailable");
+    }
+
+    // ---- Page ranges are PDF-only ----------------------------------------
+
+    #[tokio::test]
+    async fn fr_040_image_job_is_spooled_without_page_ranges() {
+        let mut h = harness();
+        let mut img = Job::new(
+            "batch",
+            "/tmp/photo.png",
+            JobSettings {
+                page_ranges: Some("2-3".to_string()),
+                ..JobSettings::default()
+            },
+            None,
+            now_rfc3339(),
+        );
+        let mut pdf = img.clone();
+        img.state = JobState::Queued;
+        pdf.id = uuid::Uuid::now_v7().to_string();
+        pdf.input_path = "/tmp/report.pdf".to_string();
+        pdf.file_name = "report.pdf".to_string();
+        pdf.input_ext = "pdf".to_string();
+        h.submit(vec![img, pdf]);
+        h.run_to_idle();
+
+        let spooled = h.runner.print_settings.lock().unwrap();
+        assert_eq!(spooled.len(), 2);
+        assert!(
+            spooled[0].page_ranges.is_none(),
+            "an image is one page; a 2-3 range would spool nothing"
+        );
+        assert_eq!(spooled[1].page_ranges.as_deref(), Some("2-3"));
+    }
+
+    // ---- Progress honesty -------------------------------------------------
+
+    #[tokio::test]
+    async fn printing_progress_is_indeterminate_not_zero() {
+        // The spooler reports no fraction, so `percent` is null while printing
+        // (the UI must draw an indeterminate bar) — never a bar stuck at 0 %.
+        let spawner = Arc::new(DeferredSpawner::default());
+        let mut h = harness_with(spawner.clone(), DispatcherLimits::default());
+        let j = make_job("a.pdf");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle(); // conversion parked
+        spawner.run_next(); // conversion reports back
+        h.run_to_idle(); // → Printing, spool parked
+
+        assert_eq!(h.job(&id).state, JobState::Printing);
+        let p = h
+            .job(&id)
+            .progress
+            .expect("printing carries a progress phase");
+        assert_eq!(p.phase, "printing");
+        assert!(p.percent.is_none(), "no invented percentage");
+    }
+
+    // ---- FR-035 structured job log ---------------------------------------
+
+    /// Collects the fields of every `tracing` event emitted while it is the
+    /// thread's default subscriber, so the log record itself can be asserted on
+    /// rather than the code that builds it.
+    #[derive(Clone, Default)]
+    struct LogCapture {
+        events: Arc<Mutex<Vec<HashMap<String, String>>>>,
+    }
+
+    impl LogCapture {
+        /// The fields of the first record with this `event` name.
+        fn record(&self, event: &str) -> HashMap<String, String> {
+            self.events
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|e| e.get("event").map(String::as_str) == Some(event))
+                .cloned()
+                .unwrap_or_else(|| panic!("no {event} record was emitted"))
+        }
+    }
+
+    #[derive(Default)]
+    struct FieldGrab(HashMap<String, String>);
+
+    impl tracing::field::Visit for FieldGrab {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            // Debug-quoting is uniform here, so strip it and compare values.
+            self.0.insert(
+                field.name().to_string(),
+                format!("{value:?}").trim_matches('"').to_string(),
+            );
+        }
+    }
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for LogCapture {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _ctx: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            let mut grab = FieldGrab::default();
+            event.record(&mut grab);
+            self.events.lock().unwrap().push(grab.0);
+        }
+    }
+
+    #[tokio::test]
+    async fn fr_035_job_records_carry_start_end_file_profile_printer_pages_status() {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let capture = LogCapture::default();
+        let subscriber = tracing_subscriber::registry().with(capture.clone());
+
+        let mut h = harness();
+        let mut j = make_job("report.pdf");
+        j.profile_name = Some("Photo Color".to_string());
+        j.pages = Some(3);
+        j.settings.printer = Some("Office".to_string());
+        let id = j.id.clone();
+
+        tracing::subscriber::with_default(subscriber, || {
+            h.submit(vec![j]);
+            h.run_to_idle();
+        });
+        assert_eq!(h.job(&id).state, JobState::Done);
+
+        // Submission records the file path once, at INFO.
+        let submitted = capture.record("job_submitted");
+        assert_eq!(submitted["input_path"], "/tmp/report.pdf");
+        assert_eq!(submitted["file"], "report.pdf");
+        assert_eq!(submitted["profile"], "Photo Color");
+        assert_eq!(submitted["pages"], "3");
+
+        // Start time (FR-035) is on the stage-start records.
+        for event in ["job_start_convert", "job_start_print"] {
+            let rec = capture.record(event);
+            assert!(!rec["started_at"].is_empty(), "{event} lacks a start time");
+            assert_eq!(rec["profile"], "Photo Color");
+            assert_eq!(rec["printer"], "Office");
+            assert_eq!(rec["pages"], "3");
+        }
+
+        // Completion carries every FR-035 field, and no absolute path.
+        let done = capture.record("job_done");
+        for key in [
+            "job_id",
+            "file",
+            "profile",
+            "printer",
+            "pages",
+            "status",
+            "started_at",
+            "finished_at",
+        ] {
+            assert!(
+                done.contains_key(key),
+                "job_done is missing {key}: {done:?}"
+            );
+        }
+        assert_eq!(done["status"], "done");
+        assert_eq!(done["printer"], "Office");
+        assert!(!done["finished_at"].is_empty());
+        assert!(
+            !done.contains_key("input_path"),
+            "terminal records must not carry absolute paths"
+        );
+    }
+
+    #[tokio::test]
+    async fn fr_035_failure_record_carries_the_error_and_the_job_context() {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let capture = LogCapture::default();
+        let subscriber = tracing_subscriber::registry().with(capture.clone());
+
+        let mut h = harness_with_print_timeout(60);
+        h.runner
+            .print_steps
+            .lock()
+            .unwrap()
+            .push_back(PrintStep::Timeout);
+        let mut j = make_job("report.pdf");
+        j.profile_name = Some("Quick BW".to_string());
+        j.pages = Some(7);
+
+        tracing::subscriber::with_default(subscriber, || {
+            h.submit(vec![j]);
+            h.run_to_idle();
+        });
+
+        let rec = capture.record("job_print_timeout");
+        assert_eq!(rec["status"], "failed");
+        assert_eq!(rec["error"], "print_timeout");
+        assert_eq!(rec["profile"], "Quick BW");
+        assert_eq!(rec["pages"], "7");
+        assert_eq!(rec["file"], "report.pdf");
+        assert!(!rec["started_at"].is_empty());
+        assert!(!rec["finished_at"].is_empty());
     }
 }

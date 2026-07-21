@@ -177,6 +177,10 @@ async getPrinterPolicy() : Promise<Result<PrinterPolicy, IpcError>> {
  * Submit a print request. Validates and fans the files out into jobs, returning
  * the batch id and per-file job ids. Runs the (blocking) validation/probe off
  * the IPC thread.
+ * 
+ * Every path is resolved through [`canonical_input`] first (NFR-025), so the
+ * queue only ever stores absolute, symlink-resolved paths and a relative one
+ * can never be silently resolved against the process' working directory.
  */
 async printFiles(req: PrintRequest) : Promise<Result<JobBatch, IpcError>> {
     try {
@@ -425,6 +429,18 @@ async checkForUpdates() : Promise<Result<UpdateCheck, IpcError>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Drain the selections handed to this instance (command line or a forwarded
+ * second launch). Returns them oldest first and empties the store.
+ */
+async takePendingSelections() : Promise<Result<Selection[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("take_pending_selections") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -433,10 +449,12 @@ async checkForUpdates() : Promise<Result<UpdateCheck, IpcError>> {
 
 export const events = __makeEvents__<{
 jobProgressEvent: JobProgressEvent,
-queueUpdated: QueueUpdated
+queueUpdated: QueueUpdated,
+selectionForwarded: SelectionForwarded
 }>({
 jobProgressEvent: "job-progress-event",
-queueUpdated: "queue-updated"
+queueUpdated: "queue-updated",
+selectionForwarded: "selection-forwarded"
 })
 
 /** user-defined constants **/
@@ -478,6 +496,22 @@ export type ColorMode =
  * Grayscale / black-and-white.
  */
 "monochrome"
+/**
+ * What a context-menu invocation asks for.
+ */
+export type ContextAction = 
+/**
+ * Open the print dialog pre-loaded with the selection.
+ */
+"configure" | 
+/**
+ * Print immediately with the default (or `--profile`) profile.
+ */
+"print-default" | 
+/**
+ * Add the selection to the queue without starting it.
+ */
+"queue"
 /**
  * UI spacing density.
  */
@@ -676,11 +710,17 @@ export type JobBatch = { batch_id: string; job_ids: string[] }
  */
 export type JobError = { code: string; message: string }
 /**
- * Coarse progress for the currently-running phase of a job. `percent` is in
- * `0.0..=1.0`; `phase` is a short label such as `"converting"` or
- * `"printing"`.
+ * Coarse progress for the currently-running phase of a job. `phase` is a short
+ * label such as `"converting"` or `"printing"`.
+ * 
+ * `percent` is in `0.0..=1.0`, or **`None` when the phase cannot report a
+ * percentage** — render that as an indeterminate bar, never as 0 %. The
+ * printing phase is exactly that case: the job has been handed to the OS
+ * spooler, which reports no completion fraction back (SumatraPDF does not even
+ * return a job id), so inventing a number would be a lie. Reading a v1
+ * `queue.json` still works: a stored number deserializes into `Some`.
  */
-export type JobProgress = { phase: string; percent: number }
+export type JobProgress = { phase: string; percent: number | null }
 /**
  * Fine-grained, in-flight progress for a single converting job. Emitted
  * throttled (≥100 ms per job) and NOT persisted — it is advisory UI sugar on
@@ -894,6 +934,28 @@ export type Scaling =
  * Print at the source's actual size.
  */
 "none"
+/**
+ * A file selection handed to the app by a shell extension, a forwarded second
+ * launch, or a context-menu-style command line.
+ */
+export type Selection = { 
+/**
+ * Absolute paths, exactly as the integration reported them.
+ */
+paths: string[]; 
+/**
+ * What the user asked for (open the dialog, print with the default
+ * profile, just queue it).
+ */
+action: ContextAction; 
+/**
+ * Profile id/name to apply, when the integration specified one.
+ */
+profile_id: string | null }
+/**
+ * A second launch handed us a selection while this window was already open.
+ */
+export type SelectionForwarded = Selection
 /**
  * Toner/ink supply levels in `0.0..=1.0`. Any channel the device does not
  * report stays `None`; an all-`None` value renders no supply section.

@@ -67,6 +67,21 @@ impl JobState {
     pub fn is_active(self) -> bool {
         matches!(self, JobState::Converting | JobState::Printing)
     }
+
+    /// The wire name of the state (same lowercase spelling `serde` emits), for
+    /// the `status` field FR-035 requires on every job log record.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            JobState::Queued => "queued",
+            JobState::Converting => "converting",
+            JobState::Converted => "converted",
+            JobState::Printing => "printing",
+            JobState::Done => "done",
+            JobState::Failed => "failed",
+            JobState::Paused => "paused",
+            JobState::Cancelled => "cancelled",
+        }
+    }
 }
 
 /// Duplex (double-sided) printing mode.
@@ -225,13 +240,38 @@ impl JobError {
     }
 }
 
-/// Coarse progress for the currently-running phase of a job. `percent` is in
-/// `0.0..=1.0`; `phase` is a short label such as `"converting"` or
-/// `"printing"`.
+/// Coarse progress for the currently-running phase of a job. `phase` is a short
+/// label such as `"converting"` or `"printing"`.
+///
+/// `percent` is in `0.0..=1.0`, or **`None` when the phase cannot report a
+/// percentage** — render that as an indeterminate bar, never as 0 %. The
+/// printing phase is exactly that case: the job has been handed to the OS
+/// spooler, which reports no completion fraction back (SumatraPDF does not even
+/// return a job id), so inventing a number would be a lie. Reading a v1
+/// `queue.json` still works: a stored number deserializes into `Some`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 pub struct JobProgress {
     pub phase: String,
-    pub percent: f32,
+    pub percent: Option<f32>,
+}
+
+impl JobProgress {
+    /// Progress for a phase that reports a real fraction (conversion).
+    pub fn measured(phase: impl Into<String>, percent: f32) -> Self {
+        Self {
+            phase: phase.into(),
+            percent: Some(percent),
+        }
+    }
+
+    /// Progress for a phase that runs for an unknown length with no fraction to
+    /// report (printing) — the UI must show an indeterminate bar.
+    pub fn indeterminate(phase: impl Into<String>) -> Self {
+        Self {
+            phase: phase.into(),
+            percent: None,
+        }
+    }
 }
 
 /// One print job: a single input file tracked through the convert → print
@@ -549,6 +589,73 @@ mod tests {
         // Optionals present as JSON null, not omitted.
         assert!(v["error"].is_null());
         assert!(v["cache_pdf"].is_null());
+    }
+
+    #[test]
+    fn fr_103_v1_queue_json_still_loads() {
+        // Forward migration (FR-103): a `queue.json` written by the build that
+        // predates the indeterminate-progress change stores `percent` as a bare
+        // number. It must still deserialize — into `Some(_)` — and keep every
+        // other field, so an upgrade never discards a live queue.
+        const V1: &str = r#"{
+          "schema_version": 1,
+          "queue_paused": false,
+          "jobs": [
+            {
+              "id": "job-1",
+              "batch_id": "batch-1",
+              "state": "converting",
+              "input_path": "/home/x/report.pdf",
+              "file_name": "report.pdf",
+              "input_ext": "pdf",
+              "input_bytes": 1024,
+              "pages": 3,
+              "cache_pdf": null,
+              "settings": {
+                "printer": "Office",
+                "duplex": "long",
+                "color_mode": "color",
+                "copies": 1,
+                "paper_size": "a4",
+                "orientation": "auto",
+                "scaling": "fit",
+                "page_ranges": null
+              },
+              "profile_name": "Photo Color",
+              "printer_resolved": null,
+              "attempts": 0,
+              "error": null,
+              "progress": { "phase": "converting", "percent": 0.5 },
+              "submitted_at": "2026-07-11T10:42:00Z",
+              "started_at": "2026-07-11T10:42:01Z",
+              "finished_at": null
+            }
+          ]
+        }"#;
+
+        let snap: QueueSnapshot = serde_json::from_str(V1).expect("v1 queue.json still parses");
+        assert_eq!(snap.schema_version, SCHEMA_VERSION);
+        let job = &snap.jobs[0];
+        assert_eq!(job.state, JobState::Converting);
+        assert_eq!(job.pages, Some(3));
+        assert_eq!(job.profile_name.as_deref(), Some("Photo Color"));
+        let progress = job.progress.as_ref().expect("progress survives the read");
+        assert_eq!(progress.phase, "converting");
+        assert_eq!(progress.percent, Some(0.5));
+    }
+
+    #[test]
+    fn indeterminate_progress_is_null_not_zero() {
+        // A printing job must not claim 0 %: the spooler reports no fraction, so
+        // the wire value is null and the UI renders an indeterminate bar.
+        let p = JobProgress::indeterminate("printing");
+        assert!(p.percent.is_none());
+        let v = serde_json::to_value(&p).unwrap();
+        assert!(v["percent"].is_null());
+        assert_eq!(
+            serde_json::to_value(JobProgress::measured("converting", 0.25)).unwrap()["percent"],
+            0.25
+        );
     }
 
     #[test]

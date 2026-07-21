@@ -6,11 +6,18 @@
 //! current platform and also exposes:
 //!
 //! - [`preview_command`] — the exact command string shown in the UI's "this is
-//!   what we'll run" panel (honesty policy: no hidden flags), and
+//!   what we'll run" panel (honesty policy: no hidden flags),
 //! - [`check_supported`] — the pure capability gate the dispatcher calls before
-//!   spooling.
+//!   spooling,
+//! - [`effective_settings`] — the per-input narrowing of the batch settings
+//!   (page ranges are a PDF-only concept), and
+//! - [`wait_with_timeout`] — the bounded child wait every backend spools
+//!   through, so a wedged spooler can never hold the queue forever.
 
+use std::borrow::Cow;
 use std::path::Path;
+use std::process::{Child, ExitStatus};
+use std::time::Duration;
 
 use crate::queue::job::{Duplex, JobSettings};
 
@@ -26,31 +33,129 @@ pub struct SpoolOutcome {
     pub os_job_id: Option<String>,
 }
 
+/// How the print stage can fail.
+///
+/// The conversion stage speaks plain [`EngineError`], but printing has two
+/// outcomes the dispatcher must treat differently from any other engine
+/// failure, so they get their own variants rather than being flattened into
+/// [`EngineError::PrintFailed`]:
+///
+/// - [`PrintError::TimedOut`] is **terminal** (no automatic retry), exactly like
+///   the conversion stage's `conversion_timeout` — re-spooling a job that
+///   already wedged the spooler once would just wedge it again.
+/// - [`PrintError::PrinterMissing`] / [`PrintError::NoPrinter`] are
+///   **user-fixable**, so the job is paused for the user to pick a replacement
+///   printer (`docs/03-requirements/print-settings.md` §printer,
+///   `docs/05-features/printers-management.md` §Missing-printer reconciliation).
+///
+/// Everything else is an [`EngineError`] carried through unchanged and handled
+/// by the ordinary retry policy.
+#[derive(Debug, thiserror::Error)]
+pub enum PrintError {
+    /// The spooler child outlived its wall-clock budget and was killed.
+    #[error("printing timed out after {seconds}s")]
+    TimedOut { seconds: u64 },
+
+    /// The requested printer is not among the queues the OS enumerates.
+    #[error("printer '{printer}' is not installed — choose another printer")]
+    PrinterMissing { printer: String },
+
+    /// No printer was requested and neither MaeclyPrint nor the OS has a default.
+    #[error("no printer is configured — choose a printer first")]
+    NoPrinter,
+
+    /// Any other engine failure, handled by the ordinary retry policy.
+    #[error(transparent)]
+    Engine(#[from] EngineError),
+}
+
 /// Spool `pdf` to `printer` with `settings`, tagging the job with `title`.
 ///
 /// Dispatches to CUPS on Unix and SumatraPDF on Windows. On any other platform
 /// there is no print backend, so it reports [`EngineError::DependencyMissing`].
+/// `timeout` bounds the wait on the spooler child; `None` waits forever.
 pub fn spool(
     pdf: &Path,
     printer: &str,
     settings: &JobSettings,
     title: &str,
-) -> Result<SpoolOutcome, EngineError> {
+    timeout: Option<Duration>,
+) -> Result<SpoolOutcome, PrintError> {
     #[cfg(unix)]
     {
-        cups::spool(pdf, printer, settings, title)
+        cups::spool(pdf, printer, settings, title, timeout)
     }
     #[cfg(windows)]
     {
-        sumatra::spool(pdf, printer, settings, title)
+        sumatra::spool(pdf, printer, settings, title, timeout)
     }
     #[cfg(not(any(unix, windows)))]
     {
-        let _ = (pdf, printer, settings, title);
-        Err(EngineError::DependencyMissing(
+        let _ = (pdf, printer, settings, title, timeout);
+        Err(PrintError::Engine(EngineError::DependencyMissing(
             "no print backend is available on this platform".to_string(),
-        ))
+        )))
     }
+}
+
+/// Wait for `child` for at most `timeout`, killing (and reaping) it when the
+/// deadline passes.
+///
+/// This is the print stage's half of NFR-012 — "a timeout MUST NOT leak
+/// processes; orphan children MUST be killed within 5 s" — and the reason the
+/// spool path spawns instead of using `Command::output()`: a hung `lp` or
+/// SumatraPDF is only one job, but the dispatcher prints one job at a time, so
+/// an unbounded wait wedges the whole queue with no way out from the UI.
+///
+/// `None` disables the bound and waits like a plain `Child::wait`. On timeout
+/// the child is killed and waited on (so it cannot linger as a zombie) before
+/// [`PrintError::TimedOut`] is returned; a kill that fails is not reported over
+/// the timeout itself, which is the fact the caller must act on.
+pub fn wait_with_timeout(
+    child: &mut Child,
+    timeout: Option<Duration>,
+) -> Result<ExitStatus, PrintError> {
+    use wait_timeout::ChildExt;
+
+    let spawn_failed = |e: std::io::Error| {
+        PrintError::Engine(EngineError::PrintFailed(format!(
+            "failed to wait for the print process: {e}"
+        )))
+    };
+
+    let Some(timeout) = timeout else {
+        return child.wait().map_err(spawn_failed);
+    };
+
+    match child.wait_timeout(timeout).map_err(spawn_failed)? {
+        Some(status) => Ok(status),
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(PrintError::TimedOut {
+                seconds: timeout.as_secs(),
+            })
+        }
+    }
+}
+
+/// The settings that actually apply to an input with extension `input_ext`.
+///
+/// Page ranges are a PDF-only concept: an image is rasterised into a
+/// single-page PDF, so forwarding a range like `2-3` to the spooler prints
+/// nothing at all — a silent empty job. The UI and the docs already promise
+/// this ("Applies to PDFs only — images ignore the range",
+/// `docs/05-features/print-job.md` §Settings panel), so the engine drops the
+/// range rather than the doc being wrong. The job keeps the range the user
+/// typed; only what reaches the spooler is narrowed.
+pub fn effective_settings<'a>(settings: &'a JobSettings, input_ext: &str) -> Cow<'a, JobSettings> {
+    if input_ext.eq_ignore_ascii_case("pdf") || settings.page_ranges.is_none() {
+        return Cow::Borrowed(settings);
+    }
+    Cow::Owned(JobSettings {
+        page_ranges: None,
+        ..settings.clone()
+    })
 }
 
 /// The exact command MaeclyPrint will run, as a copy-pasteable string for the
@@ -143,6 +248,51 @@ mod tests {
             }
             other => panic!("expected UnsupportedSetting, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn fr_040_page_range_is_dropped_for_image_inputs() {
+        // The UI promises "images ignore the range"; an image becomes a
+        // one-page PDF, so a range that excludes page 1 would spool nothing.
+        let settings = JobSettings {
+            page_ranges: Some("2-3".to_string()),
+            ..JobSettings::default()
+        };
+
+        let pdf = effective_settings(&settings, "pdf");
+        assert_eq!(pdf.page_ranges.as_deref(), Some("2-3"), "PDFs keep it");
+
+        for ext in ["png", "JPG", "tiff", "webp", ""] {
+            let img = effective_settings(&settings, ext);
+            assert!(img.page_ranges.is_none(), "{ext} must drop the range");
+            // Nothing else is narrowed.
+            assert_eq!(img.copies, settings.copies);
+            assert_eq!(img.paper_size, settings.paper_size);
+        }
+
+        // An image job without a range borrows the original — no needless clone.
+        let plain = JobSettings::default();
+        assert!(matches!(
+            effective_settings(&plain, "png"),
+            std::borrow::Cow::Borrowed(_)
+        ));
+    }
+
+    #[test]
+    fn fr_040_image_lp_args_carry_no_page_ranges() {
+        // End-to-end through the flag builder: what reaches `lp` for an image
+        // must not contain `page-ranges`.
+        let settings = JobSettings {
+            page_ranges: Some("2-3".to_string()),
+            ..JobSettings::default()
+        };
+        let opts = cups::lp_opts(&effective_settings(&settings, "png"));
+        assert!(
+            !opts.iter().any(|o| o.starts_with("page-ranges=")),
+            "image job must not be page-ranged: {opts:?}"
+        );
+        let opts = cups::lp_opts(&effective_settings(&settings, "pdf"));
+        assert!(opts.iter().any(|o| o == "page-ranges=2-3"));
     }
 
     #[test]

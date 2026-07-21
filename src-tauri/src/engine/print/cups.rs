@@ -133,38 +133,59 @@ fn strip_ws(s: &str) -> String {
 /// Spool `pdf` via `lp`. On success returns the CUPS job id (when the line
 /// parses); a non-zero exit becomes [`EngineError::PrintFailed`] carrying the
 /// trimmed stderr. Run in the C locale so CUPS's prose stays parseable.
+///
+/// The child is spawned rather than run through `Command::output()` so the wait
+/// can be bounded by `timeout` and the process killed when it expires (see
+/// [`super::wait_with_timeout`]) — a hung `lp` would otherwise hold the queue's
+/// single print slot forever. `lp` writes a single short line to each pipe, so
+/// draining them after the wait cannot deadlock on a full pipe buffer.
 #[cfg(unix)]
 pub fn spool(
     pdf: &Path,
     printer: &str,
     settings: &JobSettings,
     title: &str,
-) -> Result<super::SpoolOutcome, crate::engine::EngineError> {
+    timeout: Option<std::time::Duration>,
+) -> Result<super::SpoolOutcome, super::PrintError> {
     use crate::engine::EngineError;
+    use std::io::Read;
 
     let args = lp_args(printer, pdf, settings, title);
-    let output = Command::new("lp")
+    let mut child = Command::new("lp")
         .args(&args)
         .env("LC_ALL", "C")
         .env("LANG", "C")
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|e| {
             EngineError::DependencyMissing(format!("failed to run `lp` (is CUPS installed?): {e}"))
         })?;
 
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
+    let status = super::wait_with_timeout(&mut child, timeout)?;
+
+    let read = |pipe: Option<&mut dyn Read>| {
+        let mut buf = String::new();
+        if let Some(p) = pipe {
+            let _ = p.read_to_string(&mut buf);
+        }
+        buf
+    };
+    let stdout = read(child.stdout.as_mut().map(|p| p as &mut dyn Read));
+    let stderr = read(child.stderr.as_mut().map(|p| p as &mut dyn Read));
+
+    if status.success() {
         Ok(super::SpoolOutcome {
             os_job_id: parse_request_id(&stdout),
         })
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
         let msg = stderr.trim();
         Err(EngineError::PrintFailed(if msg.is_empty() {
-            format!("lp exited with {}", output.status)
+            format!("lp exited with {status}")
         } else {
             msg.to_string()
-        }))
+        })
+        .into())
     }
 }
 

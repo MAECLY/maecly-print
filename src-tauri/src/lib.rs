@@ -5,7 +5,12 @@
 //! profile and settings persistence (`profiles`, `settings`), OS printer
 //! enumeration and management (`platform`), and the GitHub-release update
 //! check (`update`).
+//!
+//! The same backend also has a second, windowless face: the `cli` module. It
+//! decides from argv whether this process is a GUI launch at all, so a
+//! `maeclyprint print …` never reaches [`run_with`] and never creates a webview.
 
+pub mod cli;
 pub mod engine;
 pub mod ipc;
 pub mod logging;
@@ -18,13 +23,34 @@ pub mod util;
 
 use tauri::Manager;
 
+/// Boot the GUI with nothing pre-loaded. Kept as the zero-argument entry point
+/// the mobile target expects; desktop `main` calls [`run_with`].
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    run_with(None);
+}
+
+/// Boot the GUI, optionally pre-loading a file selection handed to us on the
+/// command line (a shell-extension launch — see [`cli`]).
+///
+/// The single-instance plugin is registered **first**, as its documentation
+/// requires: a second launch must be intercepted before this process starts
+/// recovering `queue.json` or sweeping the conversion cache, which is exactly
+/// the work that would destroy the running instance's in-flight jobs
+/// (NFR-014).
+pub fn run_with(selection: Option<cli::Selection>) {
     // Initialize structured logging as early as possible so any startup error
     // is captured to disk.
     if let Err(e) = logging::init() {
         eprintln!("logging init failed: {e}");
     }
+
+    // Drop handoff files a previous run never consumed (crash between "the
+    // shell extension wrote it" and "we read it").
+    cli::handoff::sweep(
+        &cli::handoff::handoff_dir(),
+        cli::handoff::ORPHAN_HANDOFF_AGE,
+    );
 
     let builder = specta_builder();
 
@@ -35,11 +61,39 @@ pub fn run() {
     export_bindings(&builder);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // A second launch already exited by the time this runs; all we get
+            // is its argv. Interpreting it is a pure function (see
+            // `cli::single_instance`), so the only work here is delivery.
+            if let Some(selection) = cli::single_instance::interpret(&argv) {
+                use tauri_specta::Event;
+                // `try_state`, not `state`: a launch racing our own `setup`
+                // would otherwise panic on the not-yet-managed store.
+                match app.try_state::<cli::pending::PendingSelections>() {
+                    Some(pending) => pending.push(selection.clone()),
+                    None => tracing::warn!(
+                        event = "selection_dropped_before_setup",
+                        "a forwarded selection arrived before the app finished starting"
+                    ),
+                }
+                if let Err(e) = cli::pending::SelectionForwarded(selection).emit(app) {
+                    tracing::warn!(event = "selection_forwarded_emit_failed", error = %e);
+                }
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
+
+            // Anything the command line handed us waits here until the window
+            // has mounted and drains it (`take_pending_selections`).
+            app.manage(cli::pending::PendingSelections::with(selection));
 
             tracing::info!(
                 event = "app_started",
@@ -106,10 +160,12 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::settings::get_app_settings,
             ipc::settings::set_app_settings,
             ipc::update::check_for_updates,
+            cli::pending::take_pending_selections,
         ])
         .events(tauri_specta::collect_events![
             ipc::events::QueueUpdated,
-            ipc::events::JobProgressEvent
+            ipc::events::JobProgressEvent,
+            cli::pending::SelectionForwarded
         ])
 }
 
