@@ -26,6 +26,7 @@ import {
   type PrintRequest,
   type Profile,
   type QueueSnapshot,
+  type Selection,
   type Supplies as IpcSupplies,
   type UpdateCheck,
   type UpdateState,
@@ -55,6 +56,9 @@ export type {
 // Profiles/Settings/About wire types, re-exported for the same single-import
 // convenience. `Profile` is the wire shape; screens render the adapted
 // `UiProfile` (see `toUiProfile`).
+// The context-menu handoff shapes (`cli::Selection`), re-exported so a screen
+// acting on a shell-extension selection imports them from the same place.
+export type { ContextAction, Selection } from '@/ipc/bindings';
 export type {
   AppInfo,
   AppSettings,
@@ -587,6 +591,26 @@ export async function setSkippedUpdateVersion(
 ): Promise<void> {
   if (!isTauri()) throw new Error(NO_HOST);
   await unwrap(commands.setSkippedUpdateVersion(version));
+}
+
+// ---------------------------------------------------------------------------
+// Shell-extension selections (FR-001, NFR-014)
+// ---------------------------------------------------------------------------
+
+/**
+ * Drain the file selections the OS context menu handed this instance, oldest
+ * first.
+ *
+ * Covers both arrival routes: a selection the shell extension put on this
+ * process' command line before the webview existed, and one a *second* launch
+ * (or the macOS Finder service) forwarded into an already-running window. The
+ * backend parks both in the same store, so this call is the single point of
+ * delivery — and it is destructive, so a selection is acted on exactly once no
+ * matter how many times it is called.
+ */
+export async function takePendingSelections(): Promise<Selection[]> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return unwrap(commands.takePendingSelections());
 }
 
 /** Reveal the app's log directory in the OS file browser. */

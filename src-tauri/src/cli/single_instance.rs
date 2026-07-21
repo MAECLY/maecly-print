@@ -18,18 +18,42 @@
 //! forwarded. It also never touches `queue.json` or the shared conversion cache
 //! ([`crate::cli::print`]), so it cannot race a running app either.
 
+use std::path::{Path, PathBuf};
+
 use crate::cli::args::Cli;
-use crate::cli::{selection_from, Selection};
+use crate::cli::{handoff, selection_from_at, Selection};
 
 use clap::Parser;
 
+/// A forwarded launch this instance accepted.
+///
+/// The handoff file travels with the selection because it is still on disk:
+/// [`crate::cli::selection_from_at`] only reads it, so that the launching
+/// process (which read it a moment earlier, before finding out it would be
+/// forwarded) cannot have destroyed it. The caller deletes it with
+/// [`handoff::discard`] once the selection is parked — see
+/// [`crate::run_with`].
+#[derive(Debug)]
+pub struct Forwarded {
+    /// The selection to merge into the running instance.
+    pub selection: Selection,
+    /// The handoff file it came out of.
+    pub handoff: PathBuf,
+}
+
 /// Interpret the argv a second launch forwarded.
+pub fn interpret<S: AsRef<str>>(argv: &[S]) -> Option<Forwarded> {
+    interpret_at(&handoff::handoff_dir(), argv)
+}
+
+/// Interpret the argv a second launch forwarded, resolving its handoff file
+/// against `dir` (injected so the seam is testable against a tempdir).
 ///
 /// Returns the selection to merge into the running instance, or `None` when the
 /// launch carried nothing usable (a plain re-launch, a malformed command line,
 /// a stale or foreign handoff file). `None` is not an error: the running window
 /// is still raised, which is what the user asked for by launching the app.
-pub fn interpret<S: AsRef<str>>(argv: &[S]) -> Option<Selection> {
+pub fn interpret_at<S: AsRef<str>>(dir: &Path, argv: &[S]) -> Option<Forwarded> {
     let argv: Vec<String> = argv.iter().map(|a| a.as_ref().to_string()).collect();
 
     // Only a context-menu invocation carries a selection; anything else is a
@@ -39,20 +63,24 @@ pub fn interpret<S: AsRef<str>>(argv: &[S]) -> Option<Selection> {
         return None;
     }
 
-    match Cli::try_parse_from(&argv).ok().as_ref().map(selection_from) {
-        Some(Ok(selection)) => Some(selection),
-        Some(Err(err)) => {
+    let Some(cli) = Cli::try_parse_from(&argv).ok() else {
+        tracing::warn!(
+            event = "second_instance_argv_unparsed",
+            "a forwarded launch had an unparseable command line"
+        );
+        return None;
+    };
+    match selection_from_at(dir, &cli) {
+        // `selection_from_at` refuses a context-menu invocation without
+        // `--files-from`, so an accepted selection always names its file.
+        Ok(selection) => cli
+            .files_from
+            .map(|handoff| Forwarded { selection, handoff }),
+        Err(err) => {
             tracing::warn!(
                 event = "second_instance_selection_rejected",
                 error = %err.error,
                 "a forwarded launch carried a selection we could not honour"
-            );
-            None
-        }
-        None => {
-            tracing::warn!(
-                event = "second_instance_argv_unparsed",
-                "a forwarded launch had an unparseable command line"
             );
             None
         }
@@ -62,6 +90,85 @@ pub fn interpret<S: AsRef<str>>(argv: &[S]) -> Option<Selection> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A handoff file inside `dir`, written the way a shell extension writes
+    /// it: fresh, schema-versioned, with an action of its own.
+    fn write_handoff(dir: &Path, name: &str) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"schema_version":1,"source":"windows-explorer","action":"print-default",
+                    "profile_id":"builtin-quick","invoked_at":"{}",
+                    "paths":["/tmp/a.pdf","/tmp/b.pdf"]}}"#,
+                crate::queue::job::now_rfc3339()
+            ),
+        )
+        .unwrap();
+        path
+    }
+
+    fn context_menu_argv(handoff: &Path) -> Vec<String> {
+        vec![
+            "maeclyprint".to_string(),
+            "--invoke=context-menu".to_string(),
+            "--files-from".to_string(),
+            handoff.to_string_lossy().into_owned(),
+        ]
+    }
+
+    /// The seam this whole module exists for: a forwarded context-menu argv
+    /// must actually resolve to a selection. Everything else here asserts a
+    /// `None`, which an implementation that never returns anything would also
+    /// satisfy — this is the test that says the feature works at all.
+    #[test]
+    fn nfr_014_a_forwarded_context_menu_argv_resolves_to_its_selection() {
+        let dir = tempfile::tempdir().unwrap();
+        let handoff = write_handoff(dir.path(), "sel.json");
+
+        let forwarded = interpret_at(dir.path(), &context_menu_argv(&handoff))
+            .expect("a fresh, contained, well-formed payload is honoured");
+        assert_eq!(forwarded.selection.paths, vec!["/tmp/a.pdf", "/tmp/b.pdf"]);
+        assert_eq!(
+            forwarded.selection.action,
+            crate::cli::args::ContextAction::PrintDefault,
+            "the payload's own action decides what the app does"
+        );
+        assert_eq!(
+            forwarded.selection.profile_id.as_deref(),
+            Some("builtin-quick")
+        );
+        assert_eq!(
+            forwarded.handoff, handoff,
+            "the caller needs the path to discard it once the selection is parked"
+        );
+    }
+
+    /// The regression the two-process flow used to hit: the launching process
+    /// interprets its own argv, then the plugin forwards that same argv to the
+    /// running instance, which interprets it again. Both readings must succeed
+    /// — which they only do because reading does not delete.
+    #[test]
+    fn nfr_014_the_same_argv_survives_being_interpreted_twice() {
+        let dir = tempfile::tempdir().unwrap();
+        let handoff = write_handoff(dir.path(), "sel.json");
+        let argv = context_menu_argv(&handoff);
+
+        let first = interpret_at(dir.path(), &argv).expect("the launching process reads it");
+        assert!(
+            handoff.exists(),
+            "reading must leave the file for the forward"
+        );
+
+        let second = interpret_at(dir.path(), &argv).expect("the running instance reads it too");
+        assert_eq!(first.selection, second.selection);
+
+        // The instance that parked the selection is the one that deletes it,
+        // and only then does the argv stop resolving.
+        crate::cli::handoff::discard(&second.handoff);
+        assert!(!handoff.exists());
+        assert!(interpret_at(dir.path(), &argv).is_none());
+    }
 
     #[test]
     fn nfr_014_plain_relaunch_carries_no_selection() {

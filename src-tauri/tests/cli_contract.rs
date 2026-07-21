@@ -22,7 +22,7 @@ use maeclyprint_lib::cli::handoff::{
     self, HANDOFF_SCHEMA_VERSION, MAX_HANDOFF_AGE, MAX_HANDOFF_PATHS,
 };
 use maeclyprint_lib::cli::output;
-use maeclyprint_lib::cli::{classify, selection_from_payload, single_instance, Intent};
+use maeclyprint_lib::cli::{classify, pending, selection_from_payload, single_instance, Intent};
 use maeclyprint_lib::queue::job::now_rfc3339;
 use maeclyprint_lib::util::error::IpcError;
 
@@ -615,6 +615,63 @@ fn nfr_014_a_forwarded_launch_without_a_selection_is_just_a_focus_request() {
         "/no/such/sel.json"
     ])
     .is_none());
+}
+
+/// The end-to-end shape of a context-menu launch, asserted across the seam the
+/// two halves used to be tested on separately: the shell extension's argv, the
+/// file it points at, the selection the app derives from it, and the moment
+/// that file is allowed to disappear.
+///
+/// Written against the *forwarded* reading (the running-instance path) because
+/// that is the one that used to fail: the launching process read the payload
+/// first, and if reading deleted it the forward found nothing.
+#[test]
+fn nfr_014_a_forwarded_context_menu_launch_delivers_its_selection() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("sel-1234.json");
+    std::fs::write(
+        &file,
+        payload_json(
+            &[r"C:\Facturas\2026-01.pdf", r"C:\Facturas\2026-02.pdf"],
+            &now_rfc3339(),
+        ),
+    )
+    .unwrap();
+
+    // Exactly what `shell-ext-win` spawns (see its `launch.rs`).
+    let argv = [
+        "maeclyprint".to_string(),
+        "--invoke=context-menu".to_string(),
+        "--files-from".to_string(),
+        file.to_string_lossy().into_owned(),
+    ];
+
+    // 1. The launching process reads it — and leaves it alone, because it does
+    //    not yet know whether it will be the one showing the window.
+    let launching = single_instance::interpret_at(dir.path(), &argv)
+        .expect("a fresh, contained, well-formed payload is a selection");
+    assert_eq!(launching.selection.paths.len(), 2);
+    assert_eq!(launching.selection.action, ContextAction::PrintDefault);
+    assert!(file.exists(), "reading a handoff file must not consume it");
+
+    // 2. The single-instance plugin forwards the same argv to the running
+    //    instance, which reads it again and gets the same selection.
+    let running = single_instance::interpret_at(dir.path(), &argv)
+        .expect("the forwarded argv still resolves");
+    assert_eq!(running.selection, launching.selection);
+    assert_eq!(running.handoff, file);
+
+    // 3. Only once the selection is parked for the window does the file go.
+    let pending = pending::park_launch_selection(Some(running.selection), Some(running.handoff));
+    assert_eq!(pending.drain().len(), 1, "the window will find it waiting");
+    assert!(
+        !file.exists(),
+        "a delivered selection leaves no payload behind"
+    );
+    assert!(
+        single_instance::interpret_at(dir.path(), &argv).is_none(),
+        "and the same launch cannot be replayed"
+    );
 }
 
 #[test]

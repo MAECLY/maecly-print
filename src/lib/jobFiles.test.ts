@@ -185,9 +185,11 @@ describe('jobFiles', () => {
     ipc.inspectFiles.mockRejectedValue(new Error('IPC exploded'));
     const files = collector();
 
-    await expect(
-      addPathsToJob(['/a.pdf'], files.setFiles),
-    ).resolves.toBeUndefined();
+    // Nothing reached the job, and the caller is told so rather than having
+    // to catch: a context-menu "print now" must not spool an empty batch.
+    await expect(addPathsToJob(['/a.pdf'], files.setFiles)).resolves.toEqual(
+      [],
+    );
 
     expect(toasts.error).toHaveBeenCalledWith('IPC exploded');
     expect(files.get()).toEqual([]);

@@ -151,6 +151,10 @@ function mockJob(opts: MockOpts = {}): Call[] {
         return null;
       case 'get_printer_prefs':
         return {};
+      // App drains the context-menu store on mount (FR-001); these tests
+      // start from an empty one.
+      case 'take_pending_selections':
+        return [];
       // The screen probes external dependencies (FR-058) through app_info;
       // answering with the real shape keeps that path exercised rather than
       // failing on a null payload.

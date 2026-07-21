@@ -651,15 +651,22 @@ describe('third-party inventory (docs/09-legal/third-party-licenses.md)', () => 
    */
   const NON_PACKAGE_ROWS = [
     'Chromium / Edge',
+    'Chromium / Microsoft Edge',
+    'CUPS lp',
     'ImageMagick',
     'Inno Setup',
+    'JetBrains Mono',
     'LibreOffice',
+    'NSIS',
     'Pandoc',
     'Rust standard library',
     'SumatraPDF',
+    'SumatraPDF 3.5.2',
     'TypeScript runtime helpers',
+    'WKWebView',
     'WebKit / WKWebView (macOS)',
     'WebView2 (loader stub)',
+    'WebView2 loader',
     'create-dmg',
     'qpdf',
   ];
@@ -675,42 +682,10 @@ describe('third-party inventory (docs/09-legal/third-party-licenses.md)', () => 
    * list can only shrink. Emptying it is the docs task; nothing here may be
    * added to without a matching change to the manifests.
    */
-  const KNOWN_MISSING_FROM_INVENTORY = [
-    '@tauri-apps/api',
-    '@tauri-apps/plugin-dialog',
-    'JetBrainsMono', // SIL OFL 1.1 webfonts we redistribute — see FONT_DIR.
-    'directories',
-    'image',
-    'lopdf',
-    'percent-encoding',
-    'printpdf',
-    'react-dom',
-    'semver',
-    'serde_json',
-    'sonner',
-    'specta',
-    'specta-typescript',
-    'tauri-plugin-dialog',
-    'tauri-plugin-opener',
-    'tauri-plugin-single-instance',
-    'tauri-specta',
-    'tempfile',
-    'time',
-    'toml',
-    'tracing-appender',
-    'tracing-subscriber',
-    'ureq',
-    'uuid',
-    'wait-timeout',
-    'walkdir',
-  ];
+  const KNOWN_MISSING_FROM_INVENTORY: string[] = [];
 
   /** Inventory rows claiming a dependency this project does not have. */
-  const KNOWN_PHANTOM_ROWS = [
-    'react-i18next', // planned (M4) — not installed today.
-    'reqwest', // never used; the update check is `ureq`.
-    'tauri-plugin-updater', // planned (M4) — not a dependency today.
-  ];
+  const KNOWN_PHANTOM_ROWS: string[] = [];
 
   /** Compare names the way a human would: case- and punctuation-insensitive. */
   const norm = (name: string) =>
@@ -742,20 +717,53 @@ describe('third-party inventory (docs/09-legal/third-party-licenses.md)', () => 
       .filter((f) => f.endsWith('.woff2'))
       .map((f) => f.split('-')[0] ?? f);
 
+    // The shell extension ships as its own DLL, so its crates are
+    // redistributed too even though they never enter the Tauri binary.
+    const shellExt = readFileSync(
+      join(REPO_ROOT, 'shell-ext-win/Cargo.toml'),
+      'utf8',
+    );
+
     return [
       ...tomlKeys(tomlSection(cargo, '[dependencies]')),
       ...tomlKeys(tomlSection(cargo, "[target.'cfg(windows)'.dependencies]")),
+      ...tomlKeys(
+        tomlSection(cargo, `[target.'cfg(target_os = "macos")'.dependencies]`),
+      ),
+      ...tomlKeys(tomlSection(shellExt, '[dependencies]')),
       ...Object.keys(pkg.dependencies),
       ...new Set(fonts),
     ];
   }
 
-  /** Every component named in the first column of a markdown table. */
+  /**
+   * Every component named in the first column of a markdown table.
+   *
+   * The inventory is written for humans, so a cell can carry markdown emphasis
+   * (`**3.5.2**`), a parenthetical note (`(macOS only)`) or several packages at
+   * once (`` `serde`, `serde_json` ``). All three are stripped or split here
+   * rather than banned from the document.
+   */
   function inventoryRows(): string[] {
-    const doc = readFileSync(INVENTORY, 'utf8');
-    return [...doc.matchAll(/^\|\s*([^|]+?)\s*\|/gm)]
-      .map((m) => m[1] ?? '')
-      .filter((name) => name !== 'Component' && !/^-+$/.test(name));
+    const lines = readFileSync(INVENTORY, 'utf8').split('\n');
+    const isSeparator = (line: string) => /^\|[\s:|-]+$/.test(line);
+    const out: string[] = [];
+
+    lines.forEach((line, i) => {
+      if (!line.startsWith('|') || isSeparator(line)) return;
+      // The row above a separator is the header, not an entry.
+      if (isSeparator(lines[i + 1] ?? '')) return;
+
+      const cell = (line.split('|')[1] ?? '')
+        .replace(/[`*]/g, '')
+        .replace(/\([^)]*\)/g, '')
+        .trim();
+      for (const name of cell.split(',')) {
+        const trimmed = name.trim();
+        if (trimmed) out.push(trimmed);
+      }
+    });
+    return out;
   }
 
   it('lists every dependency and asset we redistribute', () => {
@@ -781,11 +789,27 @@ describe('third-party inventory (docs/09-legal/third-party-licenses.md)', () => 
     };
     // Dev/build tooling counts here: an inventory row for Vite or Tailwind is
     // legitimate even though neither is redistributed as a package.
+    const shellExt = readFileSync(
+      join(REPO_ROOT, 'shell-ext-win/Cargo.toml'),
+      'utf8',
+    );
     const known = new Set(
       [
         ...tomlKeys(tomlSection(cargo, '[dependencies]')),
         ...tomlKeys(tomlSection(cargo, '[dev-dependencies]')),
         ...tomlKeys(tomlSection(cargo, "[target.'cfg(windows)'.dependencies]")),
+        ...tomlKeys(
+          tomlSection(
+            cargo,
+            `[target.'cfg(target_os = "macos")'.dependencies]`,
+          ),
+        ),
+        ...tomlKeys(tomlSection(cargo, '[build-dependencies]')),
+        ...tomlKeys(tomlSection(shellExt, '[dependencies]')),
+        ...tomlKeys(tomlSection(shellExt, '[build-dependencies]')),
+        ...tomlKeys(
+          tomlSection(shellExt, "[target.'cfg(windows)'.dependencies]"),
+        ),
         ...Object.keys(pkg.dependencies),
         ...Object.keys(pkg.devDependencies),
       ].map(norm),

@@ -195,18 +195,25 @@ export function toastRejected(rejected: RejectedFile[]): void {
  * Folders with subfolders are parked for the FR-004 question; folders without
  * are expanded top-level right away. Unsupported entries surface in one toast
  * listing name + reason; an inspect failure surfaces as an error toast.
+ *
+ * Resolves with the files that actually reached the job — the inspected ones
+ * plus whatever the folders expanded without a question yielded. A caller that
+ * only wants them *shown* ignores it (the list is already in `setFiles`); a
+ * caller that has to act on the whole selection right away — a context-menu
+ * "print now", where nobody is going to press Print — needs the resolved files
+ * rather than the `useState` value it cannot read back synchronously.
  */
 export async function addPathsToJob(
   paths: string[],
   setFiles: Dispatch<SetStateAction<UiFile[]>>,
-): Promise<void> {
-  if (paths.length === 0) return;
+): Promise<UiFile[]> {
+  if (paths.length === 0) return [];
   let result: InspectResult;
   try {
     result = await inspectPaths(paths);
   } catch (e) {
     toast.error(e instanceof Error ? e.message : String(e));
-    return;
+    return [];
   }
   appendFiles(setFiles, result.files);
   toastRejected(result.rejected);
@@ -218,9 +225,11 @@ export async function addPathsToJob(
     const fresh = askable.filter((f) => !known.has(f.path));
     if (fresh.length > 0) setPendingFolders([...pendingFolders, ...fresh]);
   }
+  const added = [...result.files];
   for (const folder of flat) {
-    await expandFolderIntoJob(folder, 'top_level', setFiles);
+    added.push(...(await expandFolderIntoJob(folder, 'top_level', setFiles)));
   }
+  return added;
 }
 
 /**
@@ -232,34 +241,41 @@ export async function addPathsToJob(
  * A truncated walk is called out too: a silently thin batch is exactly what
  * FR-059 exists to prevent, and the ceilings come back with the expansion so
  * the warning never hardcodes them.
+ *
+ * Resolves with the files the walk added, for the same reason
+ * {@link addPathsToJob} does.
  */
 export async function expandFolderIntoJob(
   folder: PendingFolder,
   scan: FolderScan,
   setFiles: Dispatch<SetStateAction<UiFile[]>>,
-): Promise<void> {
+): Promise<UiFile[]> {
   resolvePendingFolder(folder.path);
   let expansions: FolderExpansion[];
   try {
     expansions = await expandFolders([folder.path], scan);
   } catch (e) {
     toast.error(e instanceof Error ? e.message : String(e));
-    return;
+    return [];
   }
+  const added: UiFile[] = [];
   for (const expansion of expansions) {
-    await ingestExpansion(folder.name, expansion, setFiles);
+    added.push(...(await ingestExpansion(folder.name, expansion, setFiles)));
   }
+  return added;
 }
 
 async function ingestExpansion(
   name: string,
   expansion: FolderExpansion,
   setFiles: Dispatch<SetStateAction<UiFile[]>>,
-): Promise<void> {
+): Promise<UiFile[]> {
+  const added: UiFile[] = [];
   if (expansion.files.length > 0) {
     try {
       const inspected = await inspectPaths(expansion.files);
       appendFiles(setFiles, inspected.files);
+      added.push(...inspected.files);
       toastRejected(inspected.rejected);
       if (inspected.files.length > 0) {
         toast.success(
@@ -293,4 +309,5 @@ async function ingestExpansion(
       t('folders.truncatedDepth', { name, max: expansion.limits.max_depth }),
     );
   }
+  return added;
 }

@@ -39,6 +39,7 @@ const eventMock = vi.hoisted(() => {
     updateAvailable: new Set<(e: { payload: unknown }) => void>(),
     queueUpdated: new Set<(e: { payload: unknown }) => void>(),
     jobProgressEvent: new Set<(e: { payload: unknown }) => void>(),
+    selectionForwarded: new Set<(e: { payload: unknown }) => void>(),
   };
   const listener = (set: Set<(e: { payload: unknown }) => void>) => ({
     listen: (cb: (e: { payload: unknown }) => void) => {
@@ -52,6 +53,7 @@ const eventMock = vi.hoisted(() => {
       updateAvailable: listener(registry.updateAvailable),
       queueUpdated: listener(registry.queueUpdated),
       jobProgressEvent: listener(registry.jobProgressEvent),
+      selectionForwarded: listener(registry.selectionForwarded),
     },
   };
 });
@@ -89,6 +91,10 @@ function mockShell(overrides: Record<string, unknown> = {}) {
         return [];
       case 'get_printer_prefs':
         return {};
+      // Every launch drains the context-menu store; the ordinary answer is
+      // "nothing was handed to this window".
+      case 'take_pending_selections':
+        return [];
       default:
         return null;
     }
@@ -150,6 +156,7 @@ describe('App', () => {
       if (cmd === 'list_printers') return fixturePrinters;
       if (cmd === 'default_printer') return 'EPSON_L15160';
       if (cmd === 'discover_printers') return [];
+      if (cmd === 'take_pending_selections') return [];
       return null;
     });
     render(<App />);
@@ -268,6 +275,179 @@ describe('App', () => {
   });
 
   // -------------------------------------------------------------------------
+  // OS context-menu selections (FR-001 / FR-003 / NFR-014)
+  //
+  // The seam these cover is the one the feature used to fall through: the
+  // backend parked the selection and emitted the event, and nothing in the
+  // webview ever asked for it, so "Print with MaeclyPrint" opened an empty
+  // Home screen. Each test drives one of the two arrival routes end to end —
+  // drain on mount, and the doorbell event — through the real ingestion
+  // pipeline.
+  // -------------------------------------------------------------------------
+
+  describe('context-menu selections', () => {
+    /** What `inspect_files` resolves the selection's one path to. */
+    const REPORT = {
+      path: '/tmp/Report.pdf',
+      name: 'Report.pdf',
+      ext: 'pdf',
+      bytes: 2048,
+      pages: 3,
+      supported: true,
+      reason: null,
+      is_dir: false,
+      has_subfolders: false,
+    };
+
+    const CUSTOM_PROFILE_ID = '01890a5e-7b2c-7c3d-8e4f-1a2b3c4d5e6f';
+
+    interface Call {
+      cmd: string;
+      args: Record<string, unknown>;
+    }
+
+    function selection(
+      action: 'configure' | 'print-default' | 'queue',
+      profileId: string | null = null,
+    ) {
+      return { paths: ['/tmp/Report.pdf'], action, profile_id: profileId };
+    }
+
+    /**
+     * Mock the shell with a *destructive* pending store, like the backend's:
+     * whatever has been parked is handed out on the next drain and then gone,
+     * so a selection can never be acted on twice however many drains run.
+     */
+    function mockSelections() {
+      const calls: Call[] = [];
+      let parked: unknown[] = [];
+      mockIPC((cmd, args) => {
+        calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+        switch (cmd) {
+          case 'take_pending_selections': {
+            const drained = parked;
+            parked = [];
+            return drained;
+          }
+          case 'inspect_files':
+            return [REPORT];
+          case 'print_files':
+            return { batch_id: 'b1', job_ids: ['j1'] };
+          case 'list_profiles':
+            return fixtureProfiles;
+          case 'get_app_settings':
+            return fixtureAppSettings;
+          case 'queue_status':
+            return { schema_version: 1, queue_paused: false, jobs: [] };
+          default:
+            return null;
+        }
+      });
+      return {
+        calls,
+        park: (selections: unknown[]) => {
+          parked = selections;
+        },
+      };
+    }
+
+    /** Fire the backend's "a selection is waiting" doorbell. */
+    function ringDoorbell() {
+      act(() => {
+        for (const cb of eventMock.registry.selectionForwarded) {
+          cb({ payload: selection('configure') });
+        }
+      });
+    }
+
+    /** The selection's file, rendered as a row of the print job. */
+    function reportRows() {
+      return screen.findAllByRole('button', { name: /Report\.pdf/ });
+    }
+
+    it('FR-001: a selection parked before the window existed opens the job with its files', async () => {
+      const { calls, park } = mockSelections();
+      park([selection('configure')]);
+
+      render(<App />);
+
+      expect((await reportRows()).length).toBeGreaterThan(0);
+      expect(calls.find((c) => c.cmd === 'inspect_files')?.args).toEqual({
+        paths: ['/tmp/Report.pdf'],
+      });
+      // `configure` opens the dialog and stops there — the user still decides.
+      expect(calls.some((c) => c.cmd === 'print_files')).toBe(false);
+    });
+
+    it('NFR-014: a selection forwarded into an already-open window arrives too', async () => {
+      const { calls, park } = mockSelections();
+      render(<App />);
+      // Nothing was waiting at launch: the app is on Home, untouched.
+      await waitFor(() =>
+        expect(eventMock.registry.selectionForwarded.size).toBe(1),
+      );
+      expect(screen.getByText(/Drop files to print/i)).toBeInTheDocument();
+
+      // A second launch parks a selection and the backend rings the doorbell.
+      park([selection('configure')]);
+      ringDoorbell();
+
+      expect((await reportRows()).length).toBeGreaterThan(0);
+      expect(calls.filter((c) => c.cmd === 'inspect_files')).toHaveLength(1);
+    });
+
+    it('FR-001: “Print with MaeclyPrint” prints the selection with the profile it named', async () => {
+      const { calls, park } = mockSelections();
+      park([selection('print-default', CUSTOM_PROFILE_ID)]);
+
+      render(<App />);
+
+      await waitFor(() =>
+        expect(calls.some((c) => c.cmd === 'print_files')).toBe(true),
+      );
+      const req = calls.find((c) => c.cmd === 'print_files')!.args.req as {
+        files: string[];
+      };
+      expect(req.files).toEqual(['/tmp/Report.pdf']);
+      // The profile the integration asked for, not the app default.
+      expect(await screen.findByText('Contracts duplex')).toBeInTheDocument();
+    });
+
+    it('FR-001: “Add to print queue” enqueues without starting the printer', async () => {
+      const { calls, park } = mockSelections();
+      park([selection('queue')]);
+
+      render(<App />);
+
+      await waitFor(() =>
+        expect(calls.some((c) => c.cmd === 'print_files')).toBe(true),
+      );
+      // The queue is stopped *before* the batch goes in, so nothing can start
+      // printing in between.
+      expect(
+        calls
+          .map((c) => c.cmd)
+          .filter((c) => c === 'pause_queue' || c === 'print_files'),
+      ).toEqual(['pause_queue', 'print_files']);
+    });
+
+    it('does nothing at all when no selection was handed to this window', async () => {
+      const { calls } = mockSelections();
+
+      render(<App />);
+
+      await waitFor(() =>
+        expect(calls.some((c) => c.cmd === 'take_pending_selections')).toBe(
+          true,
+        ),
+      );
+      expect(screen.getByText(/Drop files to print/i)).toBeInTheDocument();
+      expect(calls.some((c) => c.cmd === 'inspect_files')).toBe(false);
+      expect(calls.some((c) => c.cmd === 'print_files')).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Launch-time update check (FR-080 / FR-084)
   // -------------------------------------------------------------------------
 
@@ -325,6 +505,7 @@ describe('App', () => {
         if (cmd === 'list_profiles') return fixtureProfiles;
         if (cmd === 'queue_status')
           return { schema_version: 1, queue_paused: false, jobs: [] };
+        if (cmd === 'take_pending_selections') return [];
         return null;
       });
       await renderSubscribed();
@@ -396,6 +577,8 @@ describe('App', () => {
             ];
           case 'print_files':
             return { batch_id: 'b1', job_ids: ['j1'] };
+          case 'take_pending_selections':
+            return [];
           default:
             return null;
         }

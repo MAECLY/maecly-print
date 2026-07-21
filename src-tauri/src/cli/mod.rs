@@ -68,12 +68,26 @@ pub struct Selection {
 }
 
 /// What `main` should do next.
+///
+/// Internal to the process: unlike [`Selection`] this never crosses the IPC
+/// boundary, which is why it can carry the handoff path the frontend has no
+/// business knowing about.
 #[derive(Debug)]
 pub enum Startup {
     /// The run already happened headlessly; exit with this code.
     Exit(i32),
     /// Boot the GUI, pre-loading `selection` when there is one.
-    Gui { selection: Option<Selection> },
+    Gui {
+        selection: Option<Selection>,
+        /// The handoff file `selection` was read out of, still on disk.
+        ///
+        /// It is deleted by whichever process ends up parking the selection —
+        /// this one once its window is up, or the already-running instance the
+        /// single-instance plugin forwards our argv to. See
+        /// [`handoff::discard`]; `None` whenever there is nothing to delete
+        /// (a plain launch, or a selection we refused).
+        handoff: Option<PathBuf>,
+    },
 }
 
 /// The on-disk files every command reads through. Injected rather than resolved
@@ -167,23 +181,36 @@ where
         .collect();
 
     match classify(&tail) {
-        Intent::Gui => Startup::Gui { selection: None },
+        Intent::Gui => Startup::Gui {
+            selection: None,
+            handoff: None,
+        },
 
         Intent::ContextMenu => {
             // A malformed shell-extension invocation must not leave the user
             // staring at nothing: report it and open the app empty, which is
             // still a usable outcome (they can pick files themselves).
-            let selection = match Cli::try_parse_from(&argv).map_err(context_menu_parse_error) {
-                Ok(cli) => selection_from(&cli).map_err(|e| e.error.to_string()),
-                Err(message) => Err(message),
-            };
-            match selection {
-                Ok(selection) => Startup::Gui {
+            let parsed = Cli::try_parse_from(&argv)
+                .map_err(context_menu_parse_error)
+                .and_then(|cli| {
+                    let handoff = cli.files_from.clone();
+                    selection_from(&cli)
+                        .map(|selection| (selection, handoff))
+                        .map_err(|e| e.error.to_string())
+                });
+            match parsed {
+                Ok((selection, handoff)) => Startup::Gui {
                     selection: Some(selection),
+                    // Only a selection we accepted carries its file along:
+                    // a stale or foreign payload is not ours to delete.
+                    handoff,
                 },
                 Err(message) => {
                     eprintln!("maeclyprint: ignoring the context-menu selection: {message}");
-                    Startup::Gui { selection: None }
+                    Startup::Gui {
+                        selection: None,
+                        handoff: None,
+                    }
                 }
             }
         }
@@ -238,14 +265,31 @@ fn execute(cli: Cli) -> i32 {
     }
 }
 
-/// Build the [`Selection`] a context-menu invocation carries.
+/// Build the [`Selection`] a context-menu invocation carries, reading the
+/// handoff file from the real handoff directory.
+pub fn selection_from(cli: &Cli) -> Result<Selection, CliError> {
+    selection_from_at(&handoff::handoff_dir(), cli)
+}
+
+/// Build the [`Selection`] a context-menu invocation carries, out of a handoff
+/// file that must live inside `dir`.
 ///
 /// The handoff file is the only transport (see [`handoff`]), and it is treated
 /// as untrusted input: it must sit inside the handoff directory and be recent,
 /// or it is refused. The payload is authoritative for `action`/`profile_id`;
 /// the `--action`/`--profile` flags are the fallback for a payload that omits
 /// them (or for a hand-typed invocation).
-pub fn selection_from(cli: &Cli) -> Result<Selection, CliError> {
+///
+/// The file is **read, never deleted**. The same argv is interpreted twice
+/// whenever a launch is forwarded to an already-running instance — once by the
+/// launching process, once by the instance that actually owns the window — so
+/// consuming it here would leave the second reader with a missing file and the
+/// user with nothing (NFR-014). [`handoff::discard`] does the deleting, in the
+/// process that parked the selection.
+///
+/// `dir` is injected so the whole gate can be exercised against a tempdir
+/// instead of the developer's real data directory.
+pub fn selection_from_at(dir: &Path, cli: &Cli) -> Result<Selection, CliError> {
     if cli.invoke != Some(InvokeSource::ContextMenu) {
         return Err(CliError::usage("not a context-menu invocation"));
     }
@@ -254,14 +298,14 @@ pub fn selection_from(cli: &Cli) -> Result<Selection, CliError> {
         .as_ref()
         .ok_or_else(|| CliError::usage("--invoke=context-menu requires --files-from <PATH>"))?;
 
-    if !handoff::is_within_dir(&handoff::handoff_dir(), path) {
+    if !handoff::is_within_dir(dir, path) {
         return Err(CliError::usage(format!(
             "{} is not inside the handoff directory",
             path.display()
         )));
     }
 
-    let payload = handoff::consume(path)?;
+    let payload = handoff::read_file(path)?;
     if !handoff::is_fresh(
         &payload.invoked_at,
         time::OffsetDateTime::now_utc(),
@@ -384,6 +428,69 @@ mod tests {
         // A path-looking argument that does not exist is still a typo, not a
         // launch: opening an empty window would hide the mistake.
         assert_eq!(classify(&["Documents/report.pdf"]), Intent::Headless);
+    }
+
+    /// Reading a handoff file must leave it on disk. The launching process
+    /// reads it here and may then be forwarded to a running instance, which has
+    /// to read the same file; consuming it would hand that instance a missing
+    /// path and lose the user's selection (NFR-014).
+    #[test]
+    fn nfr_014_selection_from_reads_the_handoff_without_consuming_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sel.json");
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"schema_version":1,"source":"windows-explorer","action":"queue",
+                    "invoked_at":"{}","paths":["/tmp/a.pdf"]}}"#,
+                crate::queue::job::now_rfc3339()
+            ),
+        )
+        .expect("write");
+
+        let cli = Cli::try_parse_from([
+            "maeclyprint",
+            "--invoke=context-menu",
+            "--files-from",
+            path.to_string_lossy().as_ref(),
+        ])
+        .expect("a well-formed context-menu argv");
+
+        let selection = selection_from_at(dir.path(), &cli).expect("payload is honoured");
+        assert_eq!(selection.paths, vec!["/tmp/a.pdf"]);
+        assert_eq!(selection.action, ContextAction::Queue);
+        assert!(path.exists(), "the file is the next reader's only copy");
+
+        // And it keeps resolving until someone parks the selection.
+        assert!(selection_from_at(dir.path(), &cli).is_ok());
+        handoff::discard(&path);
+        assert!(selection_from_at(dir.path(), &cli).is_err());
+    }
+
+    /// A payload we refused is not ours to delete, so nothing travels back to
+    /// `main` that would make it delete one.
+    #[test]
+    fn nfr_014_a_refused_context_menu_launch_carries_no_handoff() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sel.json");
+        std::fs::write(&path, "{}").expect("write");
+
+        // Outside the real handoff directory, so the containment gate refuses
+        // it — the same verdict a planted payload gets.
+        let startup = startup([
+            "maeclyprint".to_string(),
+            "--invoke=context-menu".to_string(),
+            "--files-from".to_string(),
+            path.to_string_lossy().into_owned(),
+        ]);
+        match startup {
+            Startup::Gui { selection, handoff } => {
+                assert!(selection.is_none());
+                assert!(handoff.is_none(), "a refused payload is left alone");
+            }
+            other => panic!("a context-menu launch always opens the GUI, got {other:?}"),
+        }
+        assert!(path.exists());
     }
 
     #[test]

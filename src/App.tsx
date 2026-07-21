@@ -11,7 +11,14 @@ import {
   buildPrintRequest,
   findProfileIn,
 } from '@/lib/profiles';
-import { isTauri, openExternal, printFiles } from '@/lib/ipc';
+import {
+  isTauri,
+  openExternal,
+  pauseQueue,
+  printFiles,
+  takePendingSelections,
+  type Selection,
+} from '@/lib/ipc';
 import { addPathsToJob } from '@/lib/jobFiles';
 import { events } from '@/ipc/bindings';
 import { useProfilesStore } from '@/stores/profilesStore';
@@ -232,24 +239,44 @@ function App() {
   // the first print_files round-trip is still in flight.
   const submittingRef = useRef(false);
 
-  const handlePrint = async () => {
+  /**
+   * Spool `list` as one batch and move to the Queue.
+   *
+   * Takes the files explicitly rather than reading the `files` state so a
+   * context-menu selection can print the batch it just ingested, without
+   * waiting for a render to make it readable here (FR-001).
+   *
+   * `hold` covers the context menu's "add to the queue" entry: the files must
+   * land in the queue *without starting*, so the queue is paused first. That is
+   * a deliberate global pause — the user asked for a queue they will start
+   * themselves, and the Queue screen's start button is where they do it. The
+   * pause is awaited inside the try, so a queue we failed to stop means the
+   * batch is not submitted at all: printing something the user only asked to
+   * enqueue is the one outcome worth erroring out over.
+   */
+  const submitFiles = async (
+    list: UiFile[],
+    profileId: string | null,
+    hold: boolean,
+  ) => {
     if (!isTauri()) {
       toast.error(t('errors.desktopOnly'));
       return;
     }
-    if (files.length === 0 || submittingRef.current) return;
+    if (list.length === 0 || submittingRef.current) return;
     submittingRef.current = true;
     const profileObj = findProfileIn(
       useProfilesStore.getState().profiles,
-      profileChoice,
+      profileId,
     );
     const req = buildPrintRequest(
-      files.map((f) => f.path),
+      list.map((f) => f.path),
       profileObj,
       overrides,
     );
-    const id = toast.loading(t('print.sending', { count: files.length }));
+    const id = toast.loading(t('print.sending', { count: list.length }));
     try {
+      if (hold) await pauseQueue();
       const batch = await printFiles(req);
       const n = batch.job_ids.length;
       toast.success(t('print.queued', { count: n }), {
@@ -265,6 +292,108 @@ function App() {
       submittingRef.current = false;
     }
   };
+
+  const handlePrint = () => submitFiles(files, profileChoice, false);
+
+  /**
+   * Act on one selection the OS context menu handed us (FR-001/FR-003).
+   *
+   * The paths go through the same `addPathsToJob` pipeline a drop or the file
+   * picker uses — same inspection, same refusal toasts, same FR-004 folder
+   * question — so a right-click behaves exactly like dragging the selection in.
+   * What the integration additionally says is `action`:
+   *
+   * - `configure` — open the Print Job screen and let the user decide;
+   * - `print-default` — print straight away with the requested (or default)
+   *   profile, which is the whole point of the "Print with MaeclyPrint" entry;
+   * - `queue` — enqueue without starting, for review in the Queue screen.
+   *
+   * Either way the app lands on the job screen first, so a selection whose
+   * folders still need the recurse-or-not answer has somewhere to ask it — and
+   * nothing is printed when the selection resolved to no printable file.
+   */
+  const applySelection = async (selection: Selection) => {
+    if (selection.paths.length === 0) return;
+    setActive('job');
+    // An id the profile list does not know falls back to the app default
+    // inside `findProfileIn`, so an integration naming a deleted profile
+    // still prints.
+    if (selection.profile_id) setProfileChoice(selection.profile_id);
+    const added = await addPathsToJob(selection.paths, setFiles);
+    if (selection.action === 'configure' || added.length === 0) return;
+    await submitFiles(
+      added,
+      selection.profile_id,
+      selection.action === 'queue',
+    );
+  };
+
+  // Kept in a ref so the subscription below can stay mounted for the life of
+  // the window while still calling the current closure (which reads `overrides`
+  // and the profile list).
+  const applySelectionRef = useRef(applySelection);
+  applySelectionRef.current = applySelection;
+
+  // FR-001/NFR-014: pick up the context-menu selections the backend parked.
+  //
+  // Two routes, one delivery point. A selection can be on the command line of
+  // the process that opened this window (the shell extension launched us), or
+  // it can arrive later — a second launch the single-instance plugin forwarded,
+  // or a macOS Finder service message — while the window is already up. The
+  // backend parks *both* in the same store and additionally emits
+  // `selection-forwarded` for the second kind.
+  //
+  // So the event is treated as a doorbell, not as a payload: every route ends
+  // in `take_pending_selections`, whose drain is atomic and destructive. That
+  // is what makes a hot selection impossible to act on twice (once from the
+  // event, once from the next drain) and impossible to miss.
+  //
+  // Subscribing *before* the first drain closes the other side of that race: a
+  // selection parked between the two is picked up by the drain, and one parked
+  // after it rings the doorbell we are already listening to.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    const drain = async () => {
+      let selections: Selection[];
+      try {
+        selections = await takePendingSelections();
+      } catch (e) {
+        console.error('pending selections could not be read', e);
+        return;
+      }
+      // Deliberately not guarded by `cancelled`: the backend has already
+      // handed these over, so dropping them here would lose the user's files
+      // for good. Serial, so two selections cannot interleave their ingestion.
+      for (const selection of selections) {
+        await applySelectionRef.current(selection);
+      }
+    };
+
+    events.selectionForwarded
+      .listen(() => void drain())
+      .then((un) => {
+        if (cancelled) {
+          un();
+          return;
+        }
+        unlisten = un;
+        void drain();
+      })
+      .catch((e: unknown) => {
+        console.error('selection-forwarded listener failed', e);
+        // A launch-time selection is still waiting; a missing subscription
+        // only costs us the hot ones.
+        void drain();
+      });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   /**
    * Open the OS picker and feed the selection into the job pipeline.

@@ -315,7 +315,7 @@ All four events derive `tauri_specta::Event` and are collected in `src-tauri/src
 | `queue-updated`       | `QueueUpdated` = `QueueSnapshot`               | Dispatcher, on every persisted mutation (submit / transition / cancel / clear / pause) | Full snapshot; the frontend replaces state wholesale |
 | `job-progress-event`  | `JobProgressEvent` = `{ id, phase, percent }`  | Dispatcher's conversion progress callback | Throttled ≥ 100 ms, advisory, **not** persisted |
 | `update-available`    | `UpdateAvailable` = `UpdateCheck`              | `lib.rs`'s startup thread, via `update::run_startup_check` | Emitted **only** when the preference is on, the 24 h window elapsed, the release is strictly newer, and it is not the skipped one — receiving it is already the decision to tell the user |
-| `selection-forwarded` | `SelectionForwarded` = `Selection`             | The single-instance plugin callback | A second launch handed this window a file selection |
+| `selection-forwarded` | `SelectionForwarded` = `Selection`             | The single-instance plugin callback, and the macOS Finder service | A second launch handed this window a file selection. The payload is informational: the same selection is also parked in the pending store, and the window acts on it by calling `take_pending_selections` — one destructive drain, so a selection can never be honoured twice |
 
 There is no `update-progress` and no `printer-changed` event.
 
@@ -360,6 +360,8 @@ Tauri 2's capability system gates **core and plugin** permissions (window, webvi
 On Windows the headless path calls `cli::console::attach_parent()` first: the release binary is a GUI-subsystem app, so without `AttachConsole` everything it prints would vanish when launched from `cmd.exe`.
 
 **Second launches.** `tauri-plugin-single-instance` intercepts a second process and forwards its argv to the running instance, which re-interprets it (`cli::single_instance`) and emits `selection-forwarded` (NFR-014). A headless subcommand exits before that ever matters.
+
+**Who deletes the handoff file.** The same argv is therefore interpreted *twice* — once by the process that was launched, once by the instance that actually owns the window — so reading a handoff file never deletes it (`cli::handoff::read_file`). The delete happens in whichever process ends up **parking** the selection: `cli::pending::park_launch_selection` when this process boots the window, or the single-instance callback when the selection was forwarded. It is always best effort, and `cli::handoff::sweep` collects anything left behind. The macOS service is the one exception: it writes and reads the file inside one process, so it can `consume` it outright. None of this weakens the validation gate — schema version, freshness window, directory containment and the size/path caps apply to every read.
 
 ### 3.2 Command reference
 

@@ -27,18 +27,26 @@ use tauri::Manager;
 /// the mobile target expects; desktop `main` calls [`run_with`].
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    run_with(None);
+    run_with(None, None);
 }
 
 /// Boot the GUI, optionally pre-loading a file selection handed to us on the
 /// command line (a shell-extension launch — see [`cli`]).
+///
+/// `handoff` is the file that selection was read out of, when there was one. It
+/// is still on disk: reading it does not delete it, because this process may
+/// yet be intercepted by the single-instance plugin and forwarded to a running
+/// instance that has to read the very same file. Whichever process ends up
+/// parking the selection is the one that deletes it — here, in `setup`
+/// ([`cli::pending::park_launch_selection`]); there, in the plugin callback
+/// below.
 ///
 /// The single-instance plugin is registered **first**, as its documentation
 /// requires: a second launch must be intercepted before this process starts
 /// recovering `queue.json` or sweeping the conversion cache, which is exactly
 /// the work that would destroy the running instance's in-flight jobs
 /// (NFR-014).
-pub fn run_with(selection: Option<cli::Selection>) {
+pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::PathBuf>) {
     // Initialize structured logging as early as possible so any startup error
     // is captured to disk.
     if let Err(e) = logging::init() {
@@ -63,14 +71,23 @@ pub fn run_with(selection: Option<cli::Selection>) {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // A second launch already exited by the time this runs; all we get
-            // is its argv. Interpreting it is a pure function (see
-            // `cli::single_instance`), so the only work here is delivery.
-            if let Some(selection) = cli::single_instance::interpret(&argv) {
+            // is its argv. Interpreting it is a pure function of the argv and
+            // the handoff file it names (see `cli::single_instance`), so the
+            // only work here is delivery.
+            if let Some(forwarded) = cli::single_instance::interpret(&argv) {
                 use tauri_specta::Event;
+                let cli::single_instance::Forwarded { selection, handoff } = forwarded;
                 // `try_state`, not `state`: a launch racing our own `setup`
                 // would otherwise panic on the not-yet-managed store.
                 match app.try_state::<cli::pending::PendingSelections>() {
-                    Some(pending) => pending.push(selection.clone()),
+                    Some(pending) => {
+                        pending.push(selection.clone());
+                        // The selection lives in this process now, so the file
+                        // it travelled in has done its job. Deleting it *here*
+                        // rather than in the launching process is what lets the
+                        // same payload be read twice (NFR-014).
+                        cli::handoff::discard(&handoff);
+                    }
                     None => tracing::warn!(
                         event = "selection_dropped_before_setup",
                         "a forwarded selection arrived before the app finished starting"
@@ -92,8 +109,21 @@ pub fn run_with(selection: Option<cli::Selection>) {
             builder.mount_events(app);
 
             // Anything the command line handed us waits here until the window
-            // has mounted and drains it (`take_pending_selections`).
-            app.manage(cli::pending::PendingSelections::with(selection));
+            // has mounted and drains it (`take_pending_selections`); parking it
+            // is also what retires the handoff file it arrived in.
+            app.manage(cli::pending::park_launch_selection(selection, handoff));
+
+            // FR-001: the Finder's Services menu ("Print with MaeclyPrint")
+            // reaches the app through this provider, and reaches it in-process
+            // — so it must be registered *after* the store above exists, or a
+            // service message arriving immediately would have nowhere to land.
+            // A registration failure is logged and survived: the app itself is
+            // perfectly usable without the menu entry, and refusing to start
+            // would be a far worse answer.
+            #[cfg(target_os = "macos")]
+            if let Err(e) = platform::macos::services::register(app.handle()) {
+                tracing::warn!(event = "macos_services_register_failed", error = %e);
+            }
 
             tracing::info!(
                 event = "app_started",

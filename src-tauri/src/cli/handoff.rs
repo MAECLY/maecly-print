@@ -127,13 +127,42 @@ pub fn read_file(path: &Path) -> Result<Handoff, CliError> {
     parse(&raw)
 }
 
-/// Read a handoff file and delete it (best effort). The file exists only to
-/// carry one selection across one process boundary; leaving it behind would
-/// both leak the user's file names and let the payload be replayed.
+/// Read a handoff file and delete it. Only for the caller that both writes and
+/// reads the file inside one process (the macOS services provider): there is no
+/// second reader, so the payload can go the moment it has been parsed.
+///
+/// A launch that may be *forwarded* to a running instance must use
+/// [`read_file`] and leave the deletion to whoever ends up owning the selection
+/// — see [`discard`].
 pub fn consume(path: &Path) -> Result<Handoff, CliError> {
     let handoff = read_file(path);
-    let _ = std::fs::remove_file(path);
+    discard(path);
     handoff
+}
+
+/// Delete a handoff file that has served its purpose.
+///
+/// Deletion is deliberately *not* part of reading. A context-menu launch reads
+/// the file and then hands its argv to whatever process will actually show the
+/// window — itself, or the already-running instance the single-instance plugin
+/// found. Only that process knows the selection is safely parked, so only it
+/// may delete the file; a reader that deleted eagerly would leave the second
+/// reader with nothing (NFR-014).
+///
+/// Once the selection *is* parked the file is pure leftovers: it names the
+/// user's documents and could be replayed inside the freshness window. Failure
+/// is logged and swallowed — the selection has already been delivered, and
+/// [`sweep`] collects anything left behind.
+pub fn discard(path: &Path) {
+    match std::fs::remove_file(path) {
+        Ok(()) => tracing::debug!(event = "handoff_discarded", path = %path.display()),
+        Err(e) => tracing::warn!(
+            event = "handoff_discard_failed",
+            path = %path.display(),
+            error = %e,
+            "the handoff file will be collected by the orphan sweep instead"
+        ),
+    }
 }
 
 /// How far into the future a timestamp may sit before it is treated as bogus.
@@ -257,6 +286,26 @@ mod tests {
 
         assert_eq!(consume(&path).unwrap().paths, vec!["/tmp/a.pdf"]);
         assert!(!path.exists(), "a consumed handoff file is deleted");
+    }
+
+    /// The other half of the same rule: reading leaves the file alone, so a
+    /// launch that is about to be forwarded does not destroy the only copy of
+    /// the selection before the running instance has read it (NFR-014).
+    #[test]
+    fn nfr_014_reading_leaves_the_file_for_the_next_reader() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sel.json");
+        std::fs::write(&path, payload(r#""/tmp/a.pdf""#)).unwrap();
+
+        assert_eq!(read_file(&path).unwrap().paths, vec!["/tmp/a.pdf"]);
+        assert!(path.exists(), "read_file must not consume the payload");
+        assert_eq!(read_file(&path).unwrap().paths, vec!["/tmp/a.pdf"]);
+
+        discard(&path);
+        assert!(!path.exists(), "discard is what deletes it");
+        // Discarding what is already gone is a no-op, not a panic: two
+        // processes can both believe they own the selection.
+        discard(&path);
     }
 
     #[test]

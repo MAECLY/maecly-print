@@ -9,6 +9,6 @@ fn main() {
     // machinery exists: `maeclyprint print …` must never create a window.
     match cli::startup(std::env::args_os()) {
         Startup::Exit(code) => std::process::exit(code),
-        Startup::Gui { selection } => maeclyprint_lib::run_with(selection),
+        Startup::Gui { selection, handoff } => maeclyprint_lib::run_with(selection, handoff),
     }
 }
