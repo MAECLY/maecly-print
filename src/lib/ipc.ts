@@ -28,6 +28,7 @@ import {
   type QueueSnapshot,
   type Supplies as IpcSupplies,
   type UpdateCheck,
+  type UpdateState,
 } from '@/ipc/bindings';
 
 export type {
@@ -63,6 +64,7 @@ export type {
   TelemetryCfg,
   UpdateChannel,
   UpdateCheck,
+  UpdateState,
   Theme,
   Density,
   Profile,
@@ -563,6 +565,28 @@ export async function setAppSettings(s: AppSettings): Promise<AppSettings> {
 export async function checkForUpdates(): Promise<UpdateCheck> {
   if (!isTauri()) throw new Error(NO_HOST);
   return unwrap(commands.checkForUpdates());
+}
+
+/**
+ * The persisted update bookkeeping: when the last check ran and which release
+ * the user skipped (FR-084).
+ */
+export async function getUpdateState(): Promise<UpdateState> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return unwrap(commands.getUpdateState());
+}
+
+/**
+ * Record the release the user chose to skip, or `null` to clear it.
+ *
+ * Skipping is per version: a newer release prompts again, so this is a "not
+ * this one" rather than an opt-out of updates.
+ */
+export async function setSkippedUpdateVersion(
+  version: string | null,
+): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await unwrap(commands.setSkippedUpdateVersion(version));
 }
 
 /** Reveal the app's log directory in the OS file browser. */

@@ -9,17 +9,23 @@ import { toast } from 'sonner';
 import { MPAppIcon } from '@/components/Brand';
 import { Icon } from '@/components/Icon';
 import { MPButton, MPCard, MPSectionLabel, MPTopBar } from '@/components/ui';
+import { useT } from '@/i18n/I18nProvider';
+import type { TranslationKey } from '@/i18n';
 import {
   checkForUpdates,
   fetchAppInfo,
+  getUpdateState,
   isTauri,
   openExternal,
   openLogsFolder,
   reportIssue,
+  setSkippedUpdateVersion,
   type AppInfo,
+  type UpdateChannel,
   type UpdateCheck,
 } from '@/lib/ipc';
 import {
+  APP_LICENSE,
   DOCS_URL,
   LICENSE_URL,
   RELEASES_URL,
@@ -33,13 +39,53 @@ const TAURI_VERSION = tauriPkg.version;
 /**
  * The update-check flow as an explicit state machine: no status card in `idle`,
  * a spinner while `checking`, and a real result (`done`) or the thrown,
- * user-facing message (`error`) afterwards.
+ * user-facing message (`error`) afterwards. `deferred` is FR-084's "remind me
+ * later": the result is kept but its card is replaced by a one-line note, so
+ * the screen stops nagging without pretending the check never happened.
  */
 type UpdateState =
   | { kind: 'idle' }
   | { kind: 'checking' }
   | { kind: 'done'; check: UpdateCheck }
+  | { kind: 'deferred' }
+  | { kind: 'skipped'; version: string }
   | { kind: 'error'; message: string };
+
+/**
+ * FR-084's "skip this version", which only makes sense once the check named a
+ * version. Its own component so the null check narrows without an assertion.
+ */
+function SkipVersionButton({
+  version,
+  label,
+  onSkip,
+}: {
+  version: string | null;
+  label: string;
+  onSkip: (version: string) => Promise<void>;
+}) {
+  if (version === null) return null;
+  return (
+    <MPButton
+      variant="secondary"
+      size="sm"
+      onClick={() => void onSkip(version)}
+    >
+      {label}
+    </MPButton>
+  );
+}
+
+/**
+ * The update channel's translated name. A lookup table rather than a computed
+ * key so a channel added to the wire type fails to compile until it is
+ * translated.
+ */
+const CHANNEL_KEY = {
+  stable: 'channels.stable',
+  beta: 'channels.beta',
+  nightly: 'channels.nightly',
+} as const satisfies Record<UpdateChannel, TranslationKey<'about'>>;
 
 /** RFC 3339 UTC → a local `HH:MM` clock; unparseable → `—`. */
 function formatClock(rfc3339: string): string {
@@ -56,7 +102,15 @@ function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/**
+ * The command that starts the real Tauri host, quoted verbatim in the
+ * "IPC unavailable" card. Not a translated string: it is a literal the reader
+ * types.
+ */
+const DEV_BRIDGE_COMMAND = 'pnpm tauri dev';
+
 export function AboutScreen() {
+  const t = useT('about');
   const tauri = isTauri();
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [infoError, setInfoError] = useState<string | null>(null);
@@ -84,6 +138,24 @@ export function AboutScreen() {
     };
   }, []);
 
+  // A version the user skipped stays skipped across restarts (FR-084), so the
+  // screen opens showing that rather than an idle card. A failure here is not
+  // worth surfacing: the worst case is being offered the update again.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let alive = true;
+    getUpdateState()
+      .then((s) => {
+        if (alive && s.skipped_version) {
+          setUpdate({ kind: 'skipped', version: s.skipped_version });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   async function runCheck() {
     setUpdate({ kind: 'checking' });
     try {
@@ -91,6 +163,30 @@ export function AboutScreen() {
       setUpdate({ kind: 'done', check });
     } catch (e) {
       setUpdate({ kind: 'error', message: errText(e) });
+    }
+  }
+
+  /**
+   * FR-084 "skip this version": persisted, unlike "remind me later", so the
+   * release stays quiet across restarts. A newer release prompts again — the
+   * backend compares versions rather than strings.
+   */
+  async function skipVersion(version: string) {
+    try {
+      await setSkippedUpdateVersion(version);
+      setUpdate({ kind: 'skipped', version });
+    } catch (e) {
+      toast.error(errText(e));
+    }
+  }
+
+  /** Undo the skip and show the release again, without re-checking. */
+  async function unskipVersion() {
+    try {
+      await setSkippedUpdateVersion(null);
+      await runCheck();
+    } catch (e) {
+      toast.error(errText(e));
     }
   }
 
@@ -122,15 +218,27 @@ export function AboutScreen() {
   const channel = settings?.updater.channel;
   // Without a backend there is no version to show — say so rather than repeat a
   // frontend literal that goes stale on the first release bump.
-  const versionLine = info
-    ? `${info.version} · build ${info.build_date}${channel ? ` · ${channel} channel` : ''}`
-    : `${UNKNOWN_VERSION} · standalone web preview`;
+  let versionLine: string;
+  if (!info) {
+    versionLine = t('version.unavailable', { version: UNKNOWN_VERSION });
+  } else if (channel) {
+    versionLine = t('version.withChannel', {
+      version: info.version,
+      buildDate: info.build_date,
+      channel: t(CHANNEL_KEY[channel]),
+    });
+  } else {
+    versionLine = t('version.line', {
+      version: info.version,
+      buildDate: info.build_date,
+    });
+  }
 
   const components: { name: string; value: string; license: string }[] = [
     {
       name: 'MaeclyPrint',
       value: info?.version ?? UNKNOWN_VERSION,
-      license: 'GPL-3.0',
+      license: APP_LICENSE,
     },
     { name: 'React', value: REACT_VERSION, license: 'MIT' },
     { name: 'Tauri', value: TAURI_VERSION, license: 'MIT/Apache-2.0' },
@@ -138,7 +246,7 @@ export function AboutScreen() {
 
   return (
     <>
-      <MPTopBar title="About" />
+      <MPTopBar title={t('title')} />
       <div
         className="mp-scroll"
         style={{ flex: 1, overflow: 'auto', padding: '24px 28px' }}
@@ -180,8 +288,7 @@ export function AboutScreen() {
                 maxWidth: 420,
               }}
             >
-              Open source batch printing for Windows and Mac. No 15-file limit,
-              no Adobe required, no $149 license fee.
+              {t('tagline')}
             </div>
           </div>
         </div>
@@ -200,7 +307,7 @@ export function AboutScreen() {
                   display: 'inline-block',
                 }}
               />
-              Checking…
+              {t('updates.checking')}
             </MPButton>
           ) : (
             <MPButton
@@ -210,14 +317,48 @@ export function AboutScreen() {
               disabled={!tauri}
               onClick={() => void runCheck()}
             >
-              Check for updates
+              {t('updates.check')}
             </MPButton>
           )}
         </div>
 
+        {update.kind === 'deferred' && (
+          <div
+            style={{
+              fontSize: 11.5,
+              color: 'var(--mp-textMuted)',
+              marginBottom: 24,
+            }}
+          >
+            {t('updates.deferred')}
+          </div>
+        )}
+
+        {update.kind === 'skipped' && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 11.5,
+              color: 'var(--mp-textMuted)',
+              marginBottom: 24,
+            }}
+          >
+            <span>{t('updates.skipped', { version: update.version })}</span>
+            <MPButton
+              variant="ghost"
+              size="sm"
+              onClick={() => void unskipVersion()}
+            >
+              {t('updates.undoSkip')}
+            </MPButton>
+          </div>
+        )}
+
         {update.kind === 'done' && !update.check.available && (
           <>
-            <MPSectionLabel>Updates</MPSectionLabel>
+            <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
             <MPCard padding={14} style={{ marginBottom: 24 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div
@@ -235,7 +376,7 @@ export function AboutScreen() {
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>
-                    You&apos;re up to date
+                    {t('updates.upToDate.title')}
                   </div>
                   <div
                     className="mp-mono"
@@ -245,8 +386,10 @@ export function AboutScreen() {
                       marginTop: 2,
                     }}
                   >
-                    version {update.check.current} · checked{' '}
-                    {formatClock(update.check.checked_at)}
+                    {t('updates.upToDate.detail', {
+                      version: update.check.current,
+                      time: formatClock(update.check.checked_at),
+                    })}
                   </div>
                 </div>
               </div>
@@ -256,7 +399,7 @@ export function AboutScreen() {
 
         {update.kind === 'done' && update.check.available && (
           <>
-            <MPSectionLabel>Updates</MPSectionLabel>
+            <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
             <MPCard
               padding={14}
               style={{
@@ -267,7 +410,7 @@ export function AboutScreen() {
             >
               <div
                 role="group"
-                aria-label="Update available"
+                aria-label={t('updates.available.group')}
                 style={{ display: 'flex', alignItems: 'center', gap: 12 }}
               >
                 <div
@@ -285,7 +428,9 @@ export function AboutScreen() {
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>
-                    Version {update.check.latest} is available
+                    {t('updates.available.title', {
+                      version: update.check.latest ?? UNKNOWN_VERSION,
+                    })}
                   </div>
                   <div
                     style={{
@@ -294,19 +439,43 @@ export function AboutScreen() {
                       marginTop: 2,
                     }}
                   >
-                    You&apos;re on {update.check.current}. In-app install
-                    arrives with the auto-updater (M4); for now, download it
-                    from the release page.
+                    {t('updates.available.detail', {
+                      current: update.check.current,
+                    })}{' '}
+                    {/* FR-082/FR-083 are honest here rather than faked: this
+                        build has no signed installer to verify or run, so the
+                        only truthful action is a link to the release page. */}
+                    {t('updates.available.installNote')}
                   </div>
                 </div>
-                <MPButton
-                  variant="primary"
-                  size="sm"
-                  icon="page"
-                  onClick={() => void open(update.check.url ?? RELEASES_URL)}
-                >
-                  Release notes
-                </MPButton>
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  <MPButton
+                    variant="primary"
+                    size="sm"
+                    icon="page"
+                    onClick={() => void open(update.check.url ?? RELEASES_URL)}
+                  >
+                    {t('updates.available.releaseNotes')}
+                  </MPButton>
+                  {/* FR-084 "defer": session-scoped on purpose — the card comes
+                      back next launch, which is what "remind me later" means. */}
+                  <MPButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setUpdate({ kind: 'deferred' })}
+                  >
+                    {t('updates.available.remindLater')}
+                  </MPButton>
+                  {/* FR-084 "skip this version": persisted, so it survives a
+                      restart. Only this release is silenced. Skipping needs a
+                      version to name, so it is offered only when the check
+                      reported one. */}
+                  <SkipVersionButton
+                    version={update.check.latest}
+                    label={t('updates.available.skipVersion')}
+                    onSkip={skipVersion}
+                  />
+                </div>
               </div>
             </MPCard>
           </>
@@ -314,7 +483,7 @@ export function AboutScreen() {
 
         {update.kind === 'error' && (
           <>
-            <MPSectionLabel>Updates</MPSectionLabel>
+            <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
             <MPCard
               padding={14}
               style={{
@@ -336,14 +505,14 @@ export function AboutScreen() {
                   icon="rotate"
                   onClick={() => void runCheck()}
                 >
-                  Retry
+                  {t('updates.retry')}
                 </MPButton>
               </div>
             </MPCard>
           </>
         )}
 
-        <MPSectionLabel>Components</MPSectionLabel>
+        <MPSectionLabel>{t('sections.components')}</MPSectionLabel>
         <MPCard padding={0} style={{ marginBottom: 12 }}>
           {components.map((c, i) => (
             <div
@@ -380,7 +549,7 @@ export function AboutScreen() {
               color: 'var(--mp-textMuted)',
             }}
           >
-            Platform:{' '}
+            {t('components.platform')}{' '}
             <span className="mp-mono">
               {info ? `${info.os} · ${info.arch}` : '—'}
             </span>
@@ -394,12 +563,12 @@ export function AboutScreen() {
             lineHeight: 1.6,
           }}
         >
-          Converter tooling versions will appear here once bundled (M3+).
+          {t('components.converterNote')}
         </div>
 
         {info && (
           <>
-            <MPSectionLabel>Filesystem paths (live from Rust)</MPSectionLabel>
+            <MPSectionLabel>{t('sections.paths')}</MPSectionLabel>
             <MPCard padding={14} style={{ marginBottom: 10 }}>
               <div
                 className="mp-mono"
@@ -410,15 +579,21 @@ export function AboutScreen() {
                 }}
               >
                 <div>
-                  <strong style={{ color: 'var(--mp-text)' }}>config:</strong>{' '}
+                  <strong style={{ color: 'var(--mp-text)' }}>
+                    {t('paths.config')}
+                  </strong>{' '}
                   {info.config_dir}
                 </div>
                 <div>
-                  <strong style={{ color: 'var(--mp-text)' }}>data:</strong>{' '}
+                  <strong style={{ color: 'var(--mp-text)' }}>
+                    {t('paths.data')}
+                  </strong>{' '}
                   {info.data_dir}
                 </div>
                 <div>
-                  <strong style={{ color: 'var(--mp-text)' }}>logs:</strong>{' '}
+                  <strong style={{ color: 'var(--mp-text)' }}>
+                    {t('paths.logs')}
+                  </strong>{' '}
                   {info.log_dir}
                 </div>
               </div>
@@ -433,7 +608,7 @@ export function AboutScreen() {
             disabled={!tauri}
             onClick={() => void revealLogs()}
           >
-            Open logs folder
+            {t('paths.openLogs')}
           </MPButton>
         </div>
 
@@ -447,15 +622,15 @@ export function AboutScreen() {
             }}
           >
             <div style={{ fontSize: 12, color: 'var(--mp-error)' }}>
-              IPC unavailable: {infoError}. This is expected when running the
-              standalone Vite dev server (no Tauri host). Run{' '}
-              <span className="mp-mono">pnpm tauri dev</span> to test the real
-              bridge.
+              {t('ipcUnavailable', {
+                error: infoError,
+                command: DEV_BRIDGE_COMMAND,
+              })}
             </div>
           </MPCard>
         )}
 
-        <MPSectionLabel>Links</MPSectionLabel>
+        <MPSectionLabel>{t('sections.links')}</MPSectionLabel>
         <div
           style={{
             display: 'flex',
@@ -471,7 +646,7 @@ export function AboutScreen() {
             disabled={!tauri}
             onClick={() => void open(RELEASES_URL)}
           >
-            Release notes
+            {t('links.releaseNotes')}
           </MPButton>
           <MPButton
             variant="ghost"
@@ -480,7 +655,7 @@ export function AboutScreen() {
             disabled={!tauri}
             onClick={() => void open(LICENSE_URL)}
           >
-            License GPL-3.0
+            {t('links.license')}
           </MPButton>
           <MPButton
             variant="ghost"
@@ -489,7 +664,7 @@ export function AboutScreen() {
             disabled={!tauri}
             onClick={() => void open(DOCS_URL)}
           >
-            Documentation
+            {t('links.documentation')}
           </MPButton>
           <MPButton
             variant="ghost"
@@ -498,7 +673,7 @@ export function AboutScreen() {
             disabled={!tauri}
             onClick={() => void fileIssue()}
           >
-            Report an issue
+            {t('links.reportIssue')}
           </MPButton>
         </div>
 
@@ -509,9 +684,7 @@ export function AboutScreen() {
             lineHeight: 1.7,
           }}
         >
-          MaeclyPrint is free software licensed under{' '}
-          <span className="mp-mono">GPL-3.0</span>. No telemetry, no cloud, no
-          account. Source at{' '}
+          {t('footer.license', { license: APP_LICENSE })} {t('footer.source')}{' '}
           <button
             type="button"
             className="mp-mono"

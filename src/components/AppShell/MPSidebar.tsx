@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Icon, type IconName } from '@/components/Icon';
 import { MPWordmark } from '@/components/Brand';
 import { MPBadge, MPKbd } from '@/components/ui';
+import { shortcutLabel } from '@/components/AppShell/MPAppShell';
+import { useT } from '@/i18n/I18nProvider';
 import { fetchAppInfo } from '@/lib/ipc';
 import { UNKNOWN_VERSION } from '@/lib/repo';
 
@@ -25,6 +27,11 @@ interface NavItem {
 interface MPSidebarProps {
   active: ScreenId;
   onChange?: (id: ScreenId) => void;
+  /**
+   * Jobs still to finish (active + pending). Defaults to zero — never to a
+   * plausible-looking number — so a caller that has not wired the queue yet
+   * shows no badge instead of inventing one.
+   */
   queueCount?: number;
 }
 
@@ -60,17 +67,32 @@ function useHostState(): HostState {
 export function MPSidebar({
   active,
   onChange,
-  queueCount = 4,
+  queueCount = 0,
 }: MPSidebarProps) {
+  const t = useT('home');
   const host = useHostState();
+  // Only the two destinations that really have a shortcut carry a key cap, and
+  // the caps are rendered from the shortcut table rather than typed out, so a
+  // remapped key can never leave a stale label behind (NFR-034).
   const items: NavItem[] = [
-    { id: 'home', icon: 'home', label: 'Home' },
-    { id: 'job', icon: 'file', label: 'Print Job', kbd: 'Ctrl+P' },
-    { id: 'queue', icon: 'queue', label: 'Queue', count: queueCount },
-    { id: 'printers', icon: 'printer', label: 'Printers' },
-    { id: 'profiles', icon: 'sliders', label: 'Profiles' },
-    { id: 'settings', icon: 'settings', label: 'Settings' },
-    { id: 'about', icon: 'info', label: 'About' },
+    { id: 'home', icon: 'home', label: t('nav.home') },
+    {
+      id: 'job',
+      icon: 'file',
+      label: t('nav.job'),
+      kbd: shortcutLabel('newJob'),
+    },
+    {
+      id: 'queue',
+      icon: 'queue',
+      label: t('nav.queue'),
+      count: queueCount,
+      kbd: shortcutLabel('openQueue'),
+    },
+    { id: 'printers', icon: 'printer', label: t('nav.printers') },
+    { id: 'profiles', icon: 'sliders', label: t('nav.profiles') },
+    { id: 'settings', icon: 'settings', label: t('nav.settings') },
+    { id: 'about', icon: 'info', label: t('nav.about') },
   ];
   return (
     <div
@@ -87,13 +109,17 @@ export function MPSidebar({
       <div style={{ padding: '6px 8px 12px' }}>
         <MPWordmark size={13} />
       </div>
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <nav
+        aria-label={t('nav.label')}
+        style={{ display: 'flex', flexDirection: 'column', gap: 1 }}
+      >
         {items.map((it) => {
           const a = it.id === active;
           return (
             <button
               key={it.id}
               onClick={() => onChange?.(it.id)}
+              aria-current={a ? 'page' : undefined}
               className="mp-focus"
               style={{
                 display: 'flex',
@@ -117,7 +143,8 @@ export function MPSidebar({
             >
               <Icon name={it.icon} size={15} />
               <span style={{ flex: 1 }}>{it.label}</span>
-              {it.count != null && <MPBadge tone="neutral">{it.count}</MPBadge>}
+              {/* A zero badge is noise, not information: nothing is waiting. */}
+              {it.count ? <MPBadge tone="neutral">{it.count}</MPBadge> : null}
               {it.kbd && <MPKbd>{it.kbd}</MPKbd>}
             </button>
           );

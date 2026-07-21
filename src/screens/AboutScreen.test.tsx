@@ -7,7 +7,7 @@ import {
 } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { version as REACT_VERSION } from 'react';
 import tauriPkg from '@tauri-apps/api/package.json';
@@ -15,7 +15,9 @@ import tauriPkg from '@tauri-apps/api/package.json';
 import { AboutScreen } from './AboutScreen';
 import { MPSidebar } from '@/components/AppShell/MPSidebar';
 import { Toaster } from '@/components/AppShell/Toaster';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import {
+  APP_LICENSE,
   DOCS_URL,
   LICENSE_URL,
   RELEASES_URL,
@@ -42,6 +44,9 @@ const { settingsState } = vi.hoisted(() => ({
   settingsState: {
     settings: null as AppSettings | null,
     init: () => Promise.resolve(),
+    // `I18nProvider` writes the detected locale back through `patch`; the
+    // Spanish tests below mount it, so the mock has to answer that selector.
+    patch: () => Promise.resolve(),
   },
 }));
 
@@ -62,14 +67,26 @@ interface MockOpts {
   update?: unknown;
   /** When set, `check_for_updates` throws with this message. */
   updateError?: string;
+  /** Version already recorded as skipped in the persisted update state. */
+  skippedVersion?: string | null;
 }
 
 /** Install IPC mocks (which also flags the Tauri host) and record the calls. */
 function mockAbout(opts: MockOpts = {}): Call[] {
   const calls: Call[] = [];
+  // Mutable so `set_skipped_update_version` is observable by a later read,
+  // which is what makes the persistence assertions meaningful.
+  let skipped: string | null = opts.skippedVersion ?? null;
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
     if (cmd === 'app_info') return opts.appInfo ?? fixtureAppInfo;
+    if (cmd === 'get_update_state') {
+      return { last_check_at: null, skipped_version: skipped };
+    }
+    if (cmd === 'set_skipped_update_version') {
+      skipped = (args as { version: string | null }).version;
+      return null;
+    }
     if (cmd === 'check_for_updates') {
       if (opts.updateError) throw new Error(opts.updateError);
       return opts.update ?? fixtureUpdateCheckUpToDate;
@@ -90,9 +107,23 @@ function renderAbout() {
   );
 }
 
-/** The version line only shows once `app_info` has resolved. */
+/** Render inside the real i18n provider, which reads the mocked settings. */
+function renderTranslatedAbout() {
+  return render(
+    <I18nProvider>
+      <AboutScreen />
+      <Toaster theme="light" />
+    </I18nProvider>,
+  );
+}
+
+/**
+ * The version line only shows once `app_info` has resolved. Matched on the
+ * build date alone so the helper works in every locale (the surrounding
+ * "build"/"compilación" wording is translated).
+ */
 function waitForAppInfo() {
-  return screen.findByText(/build 2026-07-01/);
+  return screen.findByText(/2026-07-01/);
 }
 
 describe('AboutScreen', () => {
@@ -311,6 +342,175 @@ describe('AboutScreen', () => {
     expect(screen.queryByText(/0\.0\.1/)).toBeNull();
   });
 
+  // -- FR-084 (defer / install / skip) ------------------------------------
+
+  it('FR-084: "Remind me later" defers the update card without losing the check', async () => {
+    mockAbout({ update: fixtureUpdateCheckAvailable });
+    renderAbout();
+    await waitForAppInfo();
+
+    fireEvent.click(screen.getByRole('button', { name: /check for updates/i }));
+    const card = await screen.findByRole('group', {
+      name: /update available/i,
+    });
+
+    fireEvent.click(
+      within(card).getByRole('button', { name: /remind me later/i }),
+    );
+
+    // The nagging card is gone…
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('group', { name: /update available/i }),
+      ).toBeNull(),
+    );
+    // …replaced by an honest note, not by pretending no check ever ran.
+    expect(screen.getByText(/reminder postponed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/up to date/i)).toBeNull();
+  });
+
+  it('FR-084: a fresh check after deferring brings the update card back', async () => {
+    mockAbout({ update: fixtureUpdateCheckAvailable });
+    renderAbout();
+    await waitForAppInfo();
+
+    fireEvent.click(screen.getByRole('button', { name: /check for updates/i }));
+    fireEvent.click(
+      within(
+        await screen.findByRole('group', { name: /update available/i }),
+      ).getByRole('button', { name: /remind me later/i }),
+    );
+    await waitFor(() => expect(screen.getByText(/postponed/i)).toBeVisible());
+
+    // Deferring is not "skip forever": the button is still live and the next
+    // check surfaces the same update again.
+    fireEvent.click(screen.getByRole('button', { name: /check for updates/i }));
+    expect(
+      await screen.findByRole('group', { name: /update available/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('FR-084: skipping a version persists it and silences the card', async () => {
+    const calls = mockAbout({ update: fixtureUpdateCheckAvailable });
+    renderAbout();
+    await waitForAppInfo();
+
+    fireEvent.click(screen.getByRole('button', { name: /check for updates/i }));
+    fireEvent.click(
+      within(
+        await screen.findByRole('group', { name: /update available/i }),
+      ).getByRole('button', { name: /skip this version/i }),
+    );
+
+    // The version travels to the backend, which is what makes it survive a
+    // restart — unlike "remind me later", which is session-scoped by design.
+    await waitFor(() => {
+      const call = calls.find((c) => c.cmd === 'set_skipped_update_version');
+      expect(call?.args.version).toBe('9.9.9');
+    });
+    expect(
+      screen.queryByRole('group', { name: /update available/i }),
+    ).toBeNull();
+    expect(screen.getByText(/skipping 9\.9\.9/i)).toBeInTheDocument();
+  });
+
+  it('FR-084: a version skipped in a previous run is still skipped on open', async () => {
+    mockAbout({ skippedVersion: '9.9.9' });
+    renderAbout();
+    await waitForAppInfo();
+
+    // No check has run in this session; the state comes from disk.
+    expect(await screen.findByText(/skipping 9\.9\.9/i)).toBeInTheDocument();
+  });
+
+  it('FR-084: undoing a skip clears it and offers the release again', async () => {
+    const calls = mockAbout({
+      skippedVersion: '9.9.9',
+      update: fixtureUpdateCheckAvailable,
+    });
+    renderAbout();
+    await waitForAppInfo();
+    await screen.findByText(/skipping 9\.9\.9/i);
+
+    fireEvent.click(screen.getByRole('button', { name: /undo/i }));
+
+    await waitFor(() => {
+      const cleared = calls.filter(
+        (c) =>
+          c.cmd === 'set_skipped_update_version' && c.args.version === null,
+      );
+      expect(cleared).toHaveLength(1);
+    });
+    expect(
+      await screen.findByRole('group', { name: /update available/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('FR-082/FR-083: the update card is honest that it cannot install or verify a download', async () => {
+    mockAbout({ update: fixtureUpdateCheckAvailable });
+    renderAbout();
+    await waitForAppInfo();
+
+    fireEvent.click(screen.getByRole('button', { name: /check for updates/i }));
+    const card = await screen.findByRole('group', {
+      name: /update available/i,
+    });
+
+    // No "Install now" affordance is offered, because there is nothing behind
+    // it: no signed installer, no signature verification (both M4).
+    expect(within(card).queryByRole('button', { name: /install/i })).toBeNull();
+    expect(within(card).getByText(/cannot verify/i)).toBeInTheDocument();
+    expect(within(card).getByText(/download it from the/i)).toBeInTheDocument();
+  });
+
+  // -- i18n (FR-092) ------------------------------------------------------
+
+  it('FR-092: renders the screen in Spanish when the locale is es-ES', async () => {
+    settingsState.settings = {
+      ...fixtureAppSettings,
+      app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+    };
+    mockAbout();
+    renderTranslatedAbout();
+
+    expect(
+      await screen.findByRole('button', { name: /buscar actualizaciones/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/impresión por lotes/i)).toBeInTheDocument();
+    expect(screen.getByText('Componentes')).toBeInTheDocument();
+    expect(screen.getByText('Enlaces')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /informar de un problema/i }),
+    ).toBeInTheDocument();
+    // …and none of the English originals leaked through.
+    expect(screen.queryByText('Check for updates')).toBeNull();
+    expect(screen.queryByText('Report an issue')).toBeNull();
+  });
+
+  it('FR-092: translates the update-available card, including its aria-label', async () => {
+    settingsState.settings = {
+      ...fixtureAppSettings,
+      app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+    };
+    mockAbout({ update: fixtureUpdateCheckAvailable });
+    renderTranslatedAbout();
+    await waitForAppInfo();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /buscar actualizaciones/i }),
+    );
+
+    const card = await screen.findByRole('group', {
+      name: /actualización disponible/i,
+    });
+    expect(
+      within(card).getByText(/la versión 9\.9\.9 está disponible/i),
+    ).toBeInTheDocument();
+    expect(
+      within(card).getByRole('button', { name: /recordármelo más tarde/i }),
+    ).toBeInTheDocument();
+  });
+
   it('shows the unknown-version placeholder, not a version number, without a backend', async () => {
     // No mockIPC → fetchAppInfo rejects; there is no version to report.
     renderAbout();
@@ -380,6 +580,23 @@ describe('MPSidebar version footer', () => {
  * keep the derived links pointing at paths that really exist.
  */
 describe('project identity (src/lib/repo.ts)', () => {
+  it('mirrors the license declared in both manifests', () => {
+    // `APP_LICENSE` is rendered twice on the screen (the Components row and the
+    // footer). The manifests declare the precise SPDX id (`GPL-3.0-only`); the
+    // UI shows the short family name, so this pins the prefix rather than an
+    // exact string, and still fails the day the project relicenses.
+    const cargo = readFileSync(join(REPO_ROOT, 'src-tauri/Cargo.toml'), 'utf8');
+    const cargoLicense = /^license\s*=\s*"([^"]+)"/m.exec(cargo)?.[1];
+    const pkgLicense = (
+      JSON.parse(
+        readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'),
+      ) as Record<string, string>
+    ).license;
+
+    expect(cargoLicense?.startsWith(APP_LICENSE)).toBe(true);
+    expect(pkgLicense?.startsWith(APP_LICENSE)).toBe(true);
+  });
+
   it('mirrors the repository configured in src-tauri/Cargo.toml', () => {
     const cargo = readFileSync(join(REPO_ROOT, 'src-tauri/Cargo.toml'), 'utf8');
     const configured = /^repository\s*=\s*"([^"]+)"/m.exec(cargo)?.[1];
@@ -402,5 +619,200 @@ describe('project identity (src/lib/repo.ts)', () => {
       expect(branch).toBe('main');
       expect(existsSync(join(REPO_ROOT, rest.join('/')))).toBe(true);
     }
+  });
+});
+
+/**
+ * Third-party inventory (`docs/09-legal/third-party-licenses.md`).
+ *
+ * The About screen derives its Components card at runtime, but the *legal*
+ * inventory — the document that calls itself "the source of truth for legal
+ * compliance" — is a hand-written markdown table, and a hand-written list of
+ * dependencies rots silently: it grew a `reqwest` and a `tauri-plugin-updater`
+ * we never depended on, while every crate added since (ureq, semver, walkdir,
+ * clap, wait-timeout, the Tauri plugins) and the webfonts we actually
+ * redistribute never made it in.
+ *
+ * These assertions are the missing feedback loop: the truth is the manifests
+ * (`src-tauri/Cargo.toml`, `package.json`) and the files we ship, and any
+ * divergence has to be listed *here*, explicitly, to pass. They live next to
+ * the About tests because this is the screen that reports what the app is made
+ * of; there is no other frontend test that reads the manifests.
+ */
+describe('third-party inventory (docs/09-legal/third-party-licenses.md)', () => {
+  const INVENTORY = join(REPO_ROOT, 'docs/09-legal/third-party-licenses.md');
+  const FONT_DIR = join(REPO_ROOT, 'src/assets/fonts');
+
+  /**
+   * Inventory rows that are deliberately not a Cargo/npm package: bundled
+   * binaries, system frameworks, subprocess tools and packaging utilities.
+   * Their presence is a legal fact, not a dependency-graph fact, so they are
+   * exempt from the "does this package exist?" direction of the check.
+   */
+  const NON_PACKAGE_ROWS = [
+    'Chromium / Edge',
+    'ImageMagick',
+    'Inno Setup',
+    'LibreOffice',
+    'Pandoc',
+    'Rust standard library',
+    'SumatraPDF',
+    'TypeScript runtime helpers',
+    'WebKit / WKWebView (macOS)',
+    'WebView2 (loader stub)',
+    'create-dmg',
+    'qpdf',
+  ];
+
+  /** Inventory rows named after the project rather than the package. */
+  const ROW_ALIASES: Record<string, string> = { 'windows-rs': 'windows' };
+
+  /**
+   * KNOWN DRIFT — the divergence that already existed when this check was
+   * written (finding `about-third-party-inventory-stale`). It is a ratchet, not
+   * an excuse list: the assertions below fail both when a NEW divergence
+   * appears and when a listed one is fixed without deleting its entry, so the
+   * list can only shrink. Emptying it is the docs task; nothing here may be
+   * added to without a matching change to the manifests.
+   */
+  const KNOWN_MISSING_FROM_INVENTORY = [
+    '@tauri-apps/api',
+    '@tauri-apps/plugin-dialog',
+    'JetBrainsMono', // SIL OFL 1.1 webfonts we redistribute — see FONT_DIR.
+    'directories',
+    'image',
+    'lopdf',
+    'percent-encoding',
+    'printpdf',
+    'react-dom',
+    'semver',
+    'serde_json',
+    'sonner',
+    'specta',
+    'specta-typescript',
+    'tauri-plugin-dialog',
+    'tauri-plugin-opener',
+    'tauri-plugin-single-instance',
+    'tauri-specta',
+    'tempfile',
+    'time',
+    'toml',
+    'tracing-appender',
+    'tracing-subscriber',
+    'ureq',
+    'uuid',
+    'wait-timeout',
+    'walkdir',
+  ];
+
+  /** Inventory rows claiming a dependency this project does not have. */
+  const KNOWN_PHANTOM_ROWS = [
+    'react-i18next', // planned (M4) — not installed today.
+    'reqwest', // never used; the update check is `ureq`.
+    'tauri-plugin-updater', // planned (M4) — not a dependency today.
+  ];
+
+  /** Compare names the way a human would: case- and punctuation-insensitive. */
+  const norm = (name: string) =>
+    (ROW_ALIASES[name] ?? name).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  /** The body of one `[section]` of a TOML file. */
+  function tomlSection(toml: string, header: string): string {
+    const start = toml.indexOf(header);
+    if (start < 0) return '';
+    const rest = toml.slice(start + header.length);
+    const end = rest.search(/^\[/m);
+    return end < 0 ? rest : rest.slice(0, end);
+  }
+
+  const tomlKeys = (body: string) =>
+    [...body.matchAll(/^([A-Za-z0-9_-]+)\s*=/gm)].map((m) => m[1] ?? '');
+
+  /**
+   * Everything compiled into, bundled with, or shipped alongside the binary —
+   * i.e. everything we redistribute and therefore have to account for. Build-
+   * and test-only tooling is excluded on purpose: it never leaves this repo.
+   */
+  function redistributedComponents(): string[] {
+    const cargo = readFileSync(join(REPO_ROOT, 'src-tauri/Cargo.toml'), 'utf8');
+    const pkg = JSON.parse(
+      readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'),
+    ) as { dependencies: Record<string, string> };
+    const fonts = readdirSync(FONT_DIR)
+      .filter((f) => f.endsWith('.woff2'))
+      .map((f) => f.split('-')[0] ?? f);
+
+    return [
+      ...tomlKeys(tomlSection(cargo, '[dependencies]')),
+      ...tomlKeys(tomlSection(cargo, "[target.'cfg(windows)'.dependencies]")),
+      ...Object.keys(pkg.dependencies),
+      ...new Set(fonts),
+    ];
+  }
+
+  /** Every component named in the first column of a markdown table. */
+  function inventoryRows(): string[] {
+    const doc = readFileSync(INVENTORY, 'utf8');
+    return [...doc.matchAll(/^\|\s*([^|]+?)\s*\|/gm)]
+      .map((m) => m[1] ?? '')
+      .filter((name) => name !== 'Component' && !/^-+$/.test(name));
+  }
+
+  it('lists every dependency and asset we redistribute', () => {
+    const listed = new Set(inventoryRows().map(norm));
+    const missing = redistributedComponents()
+      .filter((dep) => !listed.has(norm(dep)))
+      .sort();
+
+    expect(
+      missing,
+      'a component we ship is missing from the legal inventory (or a fixed ' +
+        'entry is still listed in KNOWN_MISSING_FROM_INVENTORY — delete it)',
+    ).toEqual(KNOWN_MISSING_FROM_INVENTORY);
+  });
+
+  it('does not claim dependencies the project does not have', () => {
+    const cargo = readFileSync(join(REPO_ROOT, 'src-tauri/Cargo.toml'), 'utf8');
+    const pkg = JSON.parse(
+      readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'),
+    ) as {
+      dependencies: Record<string, string>;
+      devDependencies: Record<string, string>;
+    };
+    // Dev/build tooling counts here: an inventory row for Vite or Tailwind is
+    // legitimate even though neither is redistributed as a package.
+    const known = new Set(
+      [
+        ...tomlKeys(tomlSection(cargo, '[dependencies]')),
+        ...tomlKeys(tomlSection(cargo, '[dev-dependencies]')),
+        ...tomlKeys(tomlSection(cargo, "[target.'cfg(windows)'.dependencies]")),
+        ...Object.keys(pkg.dependencies),
+        ...Object.keys(pkg.devDependencies),
+      ].map(norm),
+    );
+    const exempt = new Set(NON_PACKAGE_ROWS.map(norm));
+
+    const phantom = inventoryRows()
+      .filter((row) => !exempt.has(norm(row)) && !known.has(norm(row)))
+      .sort();
+
+    expect(
+      phantom,
+      'the legal inventory names a package that is not in any manifest (or a ' +
+        'removed entry is still listed in KNOWN_PHANTOM_ROWS — delete it)',
+    ).toEqual(KNOWN_PHANTOM_ROWS);
+  });
+
+  it('regression: the webfonts we redistribute are real files, so the OFL notice is owed', () => {
+    // The one omission above with a real legal consequence: JetBrains Mono is
+    // SIL OFL 1.1 and we ship the `.woff2` files themselves, which obliges us
+    // to reproduce its notice. This asserts the premise (we do redistribute
+    // them) so the KNOWN_MISSING entry can never be "fixed" by pretending the
+    // fonts are external.
+    const fonts = readdirSync(FONT_DIR).filter((f) => f.endsWith('.woff2'));
+    expect(fonts.length).toBeGreaterThan(0);
+
+    const css = readFileSync(join(REPO_ROOT, 'src/styles/globals.css'), 'utf8');
+    expect(css).toMatch(/@font-face/);
   });
 });

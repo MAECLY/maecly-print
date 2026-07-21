@@ -163,6 +163,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::settings::get_app_settings,
             ipc::settings::set_app_settings,
             ipc::update::check_for_updates,
+            ipc::update::get_update_state,
+            ipc::update::set_skipped_update_version,
             cli::pending::take_pending_selections,
         ])
         .events(tauri_specta::collect_events![

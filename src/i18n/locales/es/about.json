@@ -1,1 +1,62 @@
-{}
+{
+  "title": "Acerca de",
+  "tagline": "Impresión por lotes de código abierto para Windows y Mac. Sin límite de 15 archivos, sin necesidad de Adobe, sin licencia de 149 $.",
+  "version": {
+    "line": "{{version}} · compilación {{buildDate}}",
+    "withChannel": "{{version}} · compilación {{buildDate}} · canal {{channel}}",
+    "unavailable": "{{version}} · vista previa web independiente"
+  },
+  "channels": {
+    "stable": "estable",
+    "beta": "beta",
+    "nightly": "nightly"
+  },
+  "sections": {
+    "updates": "Actualizaciones",
+    "components": "Componentes",
+    "paths": "Rutas del sistema de archivos (en vivo desde Rust)",
+    "links": "Enlaces"
+  },
+  "updates": {
+    "check": "Buscar actualizaciones",
+    "checking": "Comprobando…",
+    "upToDate": {
+      "title": "Todo está actualizado",
+      "detail": "versión {{version}} · comprobado a las {{time}}"
+    },
+    "available": {
+      "group": "Actualización disponible",
+      "title": "La versión {{version}} está disponible",
+      "detail": "Tienes la {{current}}.",
+      "installNote": "La instalación desde la app llega con el actualizador automático firmado (M4): esta versión no puede verificar la firma de una descarga ni instalarla por ti. De momento, descárgala desde la página de la publicación.",
+      "releaseNotes": "Notas de la versión",
+      "remindLater": "Recordármelo más tarde",
+      "skipVersion": "Omitir esta versión"
+    },
+    "deferred": "Aviso pospuesto. Puedes volver a comprobarlo cuando quieras.",
+    "retry": "Reintentar",
+    "skipped": "Omitiendo la {{version}}. Se seguirá avisando de versiones más nuevas.",
+    "undoSkip": "Deshacer"
+  },
+  "components": {
+    "platform": "Plataforma:",
+    "converterNote": "Las versiones de las herramientas de conversión aparecerán aquí cuando se incluyan (M3+)."
+  },
+  "paths": {
+    "config": "configuración:",
+    "data": "datos:",
+    "logs": "registros:",
+    "openLogs": "Abrir la carpeta de registros"
+  },
+  "ipcUnavailable": "IPC no disponible: {{error}}. Es lo esperado al ejecutar el servidor de desarrollo de Vite por separado (sin host de Tauri). Ejecuta {{command}} para probar el puente real.",
+  "links": {
+    "releaseNotes": "Notas de la versión",
+    "license": "Licencia GPL-3.0",
+    "documentation": "Documentación",
+    "reportIssue": "Informar de un problema"
+  },
+  "footer": {
+    "license": "MaeclyPrint es software libre con licencia {{license}}. Sin telemetría, sin nube, sin cuenta.",
+    "source": "Código en"
+  }
+}

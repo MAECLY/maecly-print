@@ -483,10 +483,45 @@ async setAppSettings(settings: AppSettings) : Promise<Result<AppSettings, IpcErr
  * Runs off the IPC thread (a network round-trip). A misconfigured repository or
  * any network/rate-limit failure surfaces as [`IpcError::UpdateCheckFailed`]
  * with a short, user-facing message.
+ * 
+ * A successful check stamps [`UpdateState::last_check_at`], so a manual check
+ * postpones the next automatic one instead of stacking with it (FR-080). A
+ * failure to persist that stamp is logged, never surfaced: the user asked for
+ * a check, and they got one.
  */
 async checkForUpdates() : Promise<Result<UpdateCheck, IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("check_for_updates") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The persisted update bookkeeping: when the last check ran and which version
+ * the user skipped (FR-084), so the About screen can render "you skipped
+ * {version}" with a way back out.
+ */
+async getUpdateState() : Promise<Result<UpdateState, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_update_state") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Record (or clear) the release the user chose to skip — FR-084's third
+ * option, next to "install now" and "remind me later".
+ * 
+ * `None` clears the skip, which is how the UI offers an undo. The value is
+ * stored verbatim (a release tag, `v1.2.0` or `1.2.0`); the comparison that
+ * decides whether to stay silent is version-aware, not textual, so either form
+ * works. Skipping is per-version: a *newer* release prompts again.
+ */
+async setSkippedUpdateVersion(version: string | null) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_skipped_update_version", { version }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1231,6 +1266,23 @@ export type UpdateCheck = { current: string; latest: string | null; available: b
  * RFC 3339 timestamp of when the check ran.
  */
 checked_at: string }
+/**
+ * The little the update flow remembers between runs. Deliberately *not* part of
+ * `config.toml`: none of it is a user preference — it is bookkeeping the app
+ * writes for itself, and a corrupt or deleted file must degrade to "check
+ * again", never to a settings-parse refusal.
+ */
+export type UpdateState = { 
+/**
+ * RFC 3339 timestamp of the last completed check (manual or automatic).
+ */
+last_check_at?: string | null; 
+/**
+ * The release tag the user chose to skip (FR-084). While it matches the
+ * latest release, the launch-time check stays silent about it; a *newer*
+ * release than the skipped one prompts again.
+ */
+skipped_version?: string | null }
 /**
  * Update-check preferences. Only the check itself is wired in this version;
  * `channel` is recorded but every check currently hits the `latest` release

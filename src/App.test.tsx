@@ -6,13 +6,35 @@ import {
   waitFor,
   act,
 } from '@testing-library/react';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
+
+/**
+ * Capture the native drag & drop handler App registers, so a drop can be
+ * simulated without a real webview. Hoisted because `vi.mock` is.
+ */
+const webview = vi.hoisted(() => ({
+  handler: null as
+    | null
+    | ((e: { payload: { type: string; paths?: string[] } }) => void),
+}));
+vi.mock('@tauri-apps/api/webview', () => ({
+  getCurrentWebview: () => ({
+    onDragDropEvent: (cb: (e: { payload: { type: string } }) => void) => {
+      webview.handler = cb as typeof webview.handler;
+      return Promise.resolve(() => {});
+    },
+  }),
+}));
+
 import App from './App';
+import { shortcutLabel } from '@/components/AppShell/MPAppShell';
+import { toUiQueueJob } from '@/lib/ipc';
 import {
   fixtureAppSettings,
   fixturePrinters,
   fixtureProfiles,
+  mkJob,
 } from '@/test/fixtures';
 import { useProfilesStore } from '@/stores/profilesStore';
 import { useQueueStore } from '@/stores/queueStore';
@@ -67,6 +89,7 @@ describe('App', () => {
       queuePaused: false,
       recentDone: [],
     });
+    webview.handler = null;
   });
   afterEach(() => clearMocks());
 
@@ -85,9 +108,7 @@ describe('App', () => {
 
   it('starts on the Home screen with the drop zone visible', () => {
     render(<App />);
-    expect(
-      screen.getByText(/Drop files or folders to print/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Drop files to print/i)).toBeInTheDocument();
   });
 
   it('navigates to the Printers screen and lists real printers from IPC', async () => {
@@ -210,5 +231,179 @@ describe('App', () => {
     );
     // The reconciled value is mirrored back into the localStorage cache.
     expect(window.localStorage.getItem('maeclyprint:theme')).toBe('dark');
+  });
+
+  // -------------------------------------------------------------------------
+  // Keyboard shortcuts (NFR-034)
+  // -------------------------------------------------------------------------
+
+  describe('keyboard shortcuts', () => {
+    interface Call {
+      cmd: string;
+      args: Record<string, unknown>;
+    }
+
+    /** `mockShell` plus a recording of every command that went out. */
+    function recordShell(overrides: Record<string, unknown> = {}): Call[] {
+      const calls: Call[] = [];
+      mockIPC((cmd, args) => {
+        calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+        if (cmd in overrides) return overrides[cmd];
+        switch (cmd) {
+          case 'list_profiles':
+            return fixtureProfiles;
+          case 'get_app_settings':
+            return fixtureAppSettings;
+          case 'queue_status':
+            return { schema_version: 1, queue_paused: false, jobs: [] };
+          case 'list_printers':
+            return [];
+          case 'get_printer_prefs':
+            return {};
+          case 'inspect_files':
+            return [
+              {
+                path: '/tmp/Report.pdf',
+                name: 'Report.pdf',
+                ext: 'pdf',
+                bytes: 2048,
+                pages: 3,
+                supported: true,
+                reason: null,
+                is_dir: false,
+                has_subfolders: false,
+              },
+            ];
+          case 'print_files':
+            return { batch_id: 'b1', job_ids: ['j1'] };
+          default:
+            return null;
+        }
+      });
+      return calls;
+    }
+
+    /** Press a shortcut the way the platform modifier requires. */
+    function press(key: string, target: Element | Window = window) {
+      fireEvent.keyDown(target, {
+        key,
+        ctrlKey: !shortcutLabel('newJob').startsWith('⌘'),
+        metaKey: shortcutLabel('newJob').startsWith('⌘'),
+      });
+    }
+
+    it('NFR-034: opens a new print job and the queue from anywhere', async () => {
+      recordShell();
+      render(<App />);
+      press('n');
+      expect(await screen.findByText('Add files')).toBeInTheDocument();
+      press('j');
+      // The Queue screen's own body, not the sidebar entry.
+      expect(await screen.findByText(/No jobs in the queue/i)).toBeVisible();
+    });
+
+    it('NFR-034: switches the job to the next profile', async () => {
+      recordShell();
+      render(<App />);
+      press('n');
+      const select = await screen.findByDisplayValue('Quick · built-in');
+      expect(select).toBeInTheDocument();
+      press('k');
+      await waitFor(() =>
+        expect(screen.queryByDisplayValue('Quick · built-in')).toBeNull(),
+      );
+    });
+
+    it('NFR-034: prints the current job, after a drop put files in it', async () => {
+      const calls = recordShell();
+      render(<App />);
+      await waitFor(() => expect(webview.handler).not.toBeNull());
+      await act(async () => {
+        webview.handler!({
+          payload: { type: 'drop', paths: ['/tmp/Report.pdf'] },
+        });
+      });
+      // The dropped file is now a row of the job (its per-row controls name it).
+      expect(
+        (await screen.findAllByRole('button', { name: /Report\.pdf/ })).length,
+      ).toBeGreaterThan(0);
+
+      press('p');
+      await waitFor(() =>
+        expect(calls.some((c) => c.cmd === 'print_files')).toBe(true),
+      );
+    });
+
+    it('NFR-034: printing with an empty job opens it instead of spooling nothing', async () => {
+      const calls = recordShell();
+      render(<App />);
+      press('p');
+      expect(await screen.findByText('Add files')).toBeInTheDocument();
+      expect(calls.some((c) => c.cmd === 'print_files')).toBe(false);
+    });
+
+    it('NFR-034: cancel asks first, then cancels the job on the printer', async () => {
+      const calls = recordShell();
+      render(<App />);
+      act(() => {
+        useQueueStore.setState({
+          status: 'ready',
+          uiJobs: [
+            toUiQueueJob(
+              mkJob({
+                id: 'j-printing',
+                state: 'printing',
+                file_name: 'Q3-Report.pdf',
+              }),
+            ),
+          ],
+        });
+      });
+      press('.');
+      // Never `window.confirm`: a real in-app dialog naming the job.
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(/Q3-Report\.pdf/)).toBeInTheDocument();
+      expect(calls.some((c) => c.cmd === 'cancel_job')).toBe(false);
+
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: 'Cancel the job' }),
+      );
+      await waitFor(() =>
+        expect(calls.find((c) => c.cmd === 'cancel_job')?.args).toEqual({
+          id: 'j-printing',
+        }),
+      );
+    });
+
+    it('NFR-034: cancel with an idle queue says so instead of opening a dialog', async () => {
+      recordShell();
+      render(<App />);
+      press('.');
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+      );
+    });
+
+    it('NFR-041: shortcuts stand down while the user is typing in a field', async () => {
+      recordShell();
+      render(<App />);
+      press('n');
+      const input = await screen.findByPlaceholderText(/1-5/i);
+      fireEvent.change(input, { target: { value: '1-3' } });
+      // Ctrl+J inside the field must reach the field, not the shell.
+      press('j', input);
+      expect(screen.queryByText(/No jobs in the queue/i)).toBeNull();
+      expect(input).toBeInTheDocument();
+    });
+
+    it('regression: a bare keypress (no modifier) never triggers a shortcut', async () => {
+      recordShell();
+      render(<App />);
+      fireEvent.keyDown(window, { key: 'j' });
+      fireEvent.keyDown(window, { key: 'n' });
+      await waitFor(() =>
+        expect(screen.getByText(/Drop files to print/i)).toBeInTheDocument(),
+      );
+    });
   });
 });

@@ -20,6 +20,16 @@ export const LICENSE_URL = REPO_URL + '/blob/main/LICENSE';
 export const DOCS_URL = REPO_URL + '/tree/main/docs';
 
 /**
+ * The app's own SPDX license id, as declared in `src-tauri/Cargo.toml` and
+ * `package.json`. Rendered in the About screen twice (the Components row and
+ * the footer), so it lives here rather than being typed out per surface;
+ * `AboutScreen.test.tsx` asserts it still matches both manifests.
+ *
+ * It is an identifier, not prose: it stays untranslated in every locale.
+ */
+export const APP_LICENSE = 'GPL-3.0';
+
+/**
  * The single placeholder shown wherever the app version is rendered but not
  * available: while `app_info` is still in flight, or outside the Tauri host
  * (the standalone Vite preview) where there is no backend to ask. Deliberately

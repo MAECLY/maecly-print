@@ -1,1 +1,105 @@
-{}
+{
+  "title": "Inicio",
+  "subtitle": "Arrastra archivos a la ventana, elígelos aquí o pulsa {{shortcut}} para empezar un trabajo.",
+  "dropzone": {
+    "title": "Suelta archivos para imprimir",
+    "formats": "{{formats}} · sin límite de cantidad",
+    "folders": "Las carpetas también valen: tú decides si se incluyen las subcarpetas.",
+    "action": "Suelta archivos para imprimir, o haz clic para elegirlos"
+  },
+  "quickActions": {
+    "label": "Acciones rápidas",
+    "newJob": {
+      "title": "Nuevo trabajo",
+      "body": "Elige archivos y un perfil"
+    },
+    "folder": {
+      "title": "Imprimir una carpeta",
+      "body": "Con subcarpetas o solo el primer nivel"
+    },
+    "cli": {
+      "title": "Usar la CLI",
+      "body": "Copia el comando sin ventana"
+    }
+  },
+  "cli": {
+    "copied": "Comando copiado al portapapeles",
+    "copyFailed": "No se pudo acceder al portapapeles: selecciona el comando y cópialo a mano."
+  },
+  "recent": {
+    "label": "Actividad reciente",
+    "viewAll": "Ver toda la cola",
+    "empty": "Todavía no hay actividad — los trabajos terminados aparecerán aquí.",
+    "loading": "Cargando la actividad reciente…",
+    "unavailable": "Los trabajos terminados viven en la aplicación de escritorio: abre MaeclyPrint para verlos aquí.",
+    "errorTitle": "No se pudo leer la actividad reciente",
+    "errorHint": "No se ha perdido nada: los trabajos siguen en la aplicación de escritorio.",
+    "expand": "Mostrar los detalles de {{file}}",
+    "collapse": "Ocultar los detalles de {{file}}",
+    "printer": "Impresora",
+    "profile": "Perfil",
+    "pages": "Páginas",
+    "finished": "Terminado",
+    "error": "Error",
+    "openQueue": "Abrir la cola"
+  },
+  "shortcuts": {
+    "label": "Atajos de teclado",
+    "hint": "Funcionan desde cualquier pantalla, salvo mientras escribes en un campo.",
+    "newJob": "Empezar un trabajo de impresión",
+    "printFolder": "Imprimir una carpeta",
+    "print": "Imprimir el trabajo actual",
+    "switchProfile": "Cambiar al siguiente perfil",
+    "openQueue": "Abrir la cola",
+    "cancel": "Cancelar el trabajo en curso",
+    "printNeedsFiles": "Añade archivos al trabajo antes de imprimir.",
+    "nothingToCancel": "Ahora mismo no hay ningún trabajo imprimiéndose ni esperando.",
+    "profileSwitched": "Perfil: {{name}}"
+  },
+  "cancelConfirm": {
+    "title": "¿Cancelar este trabajo?",
+    "message": "{{file}} se detendrá y pasará a Cancelado. Las páginas ya enviadas a la impresora no se pueden recuperar.",
+    "action": "Cancelar el trabajo"
+  },
+  "tip": {
+    "label": "Consejo",
+    "body": "MaeclyPrint ya imprime desde la línea de comandos: {{command}} funciona sin abrir la ventana. La entrada del menú contextual de Explorer y Finder aún no está en esta versión: llegará con el hito de integración con el shell."
+  },
+  "nav": {
+    "home": "Inicio",
+    "job": "Trabajo",
+    "queue": "Cola",
+    "printers": "Impresoras",
+    "profiles": "Perfiles",
+    "settings": "Ajustes",
+    "about": "Acerca de",
+    "label": "Principal"
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "Bienvenido a MaeclyPrint",
+      "body": "Impresión por lotes de código abierto para Windows y Mac. Sin límite de 15 archivos, sin Adobe y sin licencia de 149 $."
+    },
+    "printers": {
+      "title": "Detecta tus impresoras",
+      "body": "Listaremos todas las impresoras instaladas en tu sistema, incluidas «Microsoft Print to PDF» en Windows y «Guardar como PDF» en Mac."
+    },
+    "cli": {
+      "title": "Imprime sin ventana",
+      "body": "El mismo binario es una herramienta de línea de comandos: {{command}} encola un lote sin interfaz, con códigos de salida estables para tus scripts."
+    },
+    "profiles": {
+      "title": "Elige un perfil por defecto",
+      "body": "{{name}} es el perfil por defecto. Edítalo, o crea el tuyo, desde la pantalla Perfiles."
+    },
+    "ready": {
+      "title": "Listo para imprimir",
+      "body": "Arrastra los archivos que quieras a la ventana o pulsa {{shortcut}}, elige un perfil y verás cómo se encolan. La entrada en el menú contextual de Explorer y Finder está planificada para un hito posterior."
+    },
+    "skip": "Omitir",
+    "back": "Atrás",
+    "continue": "Continuar",
+    "start": "Empezar",
+    "progress": "Paso {{step}} de {{total}}"
+  }
+}

@@ -9,9 +9,22 @@
 //! ([`repo_slug`]/[`parse_release`]/[`is_newer`]/[`evaluate`]) with co-located
 //! tests; [`fetch_latest`] is the only part that touches the network and is kept
 //! tiny so it is easy to reason about offline.
+//!
+//! Beyond the check itself this module owns the small amount of state the
+//! update flow has to remember between runs ([`UpdateState`]): when the last
+//! check ran (FR-080's once-per-24h throttle) and which version the user chose
+//! to skip (FR-084). The decisions built on top of it — [`due_for_check`],
+//! [`should_check_on_startup`], [`should_notify`] — are pure and tested; only
+//! [`run_startup_check`] ties them to the real config, the real state file and
+//! the network.
 
-use serde::Serialize;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 use specta::Type;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+
+use crate::util::paths;
 
 /// Parsed subset of a GitHub release we care about.
 #[derive(Debug, Clone, PartialEq)]
@@ -283,6 +296,205 @@ pub fn fetch_latest(owner: &str, repo: &str) -> Result<Option<ReleaseInfo>, Stri
     Ok(release)
 }
 
+// ---------------------------------------------------------------------------
+// Persisted update state (FR-080 throttle, FR-084 "skip this version")
+// ---------------------------------------------------------------------------
+
+/// FR-080: how long after launch the automatic check waits before running, so
+/// a cold start never pays for a network round-trip. The caller owns the sleep
+/// (see [`run_startup_check`]); the constant lives here because it is part of
+/// the requirement, not of whoever schedules it.
+pub const STARTUP_CHECK_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// FR-080: the automatic check runs at most once per this window. Manual checks
+/// from the About screen also stamp [`UpdateState::last_check_at`], so pressing
+/// the button postpones the next automatic check rather than adding to it.
+pub const MIN_CHECK_INTERVAL_HOURS: i64 = 24;
+
+/// The little the update flow remembers between runs. Deliberately *not* part of
+/// `config.toml`: none of it is a user preference — it is bookkeeping the app
+/// writes for itself, and a corrupt or deleted file must degrade to "check
+/// again", never to a settings-parse refusal.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct UpdateState {
+    /// RFC 3339 timestamp of the last completed check (manual or automatic).
+    #[serde(default)]
+    pub last_check_at: Option<String>,
+    /// The release tag the user chose to skip (FR-084). While it matches the
+    /// latest release, the launch-time check stays silent about it; a *newer*
+    /// release than the skipped one prompts again.
+    #[serde(default)]
+    pub skipped_version: Option<String>,
+}
+
+/// `update-state.json` in the per-user data directory, next to `queue.json`
+/// (live state, not configuration).
+pub fn state_path() -> PathBuf {
+    paths::data_dir().join("update-state.json")
+}
+
+impl UpdateState {
+    /// Read the state file, degrading to defaults when it is missing or
+    /// unreadable. A corrupt file is logged and ignored rather than propagated:
+    /// the worst case is one extra update check.
+    pub fn load_from(path: &Path) -> UpdateState {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return UpdateState::default();
+        };
+        match serde_json::from_str(&text) {
+            Ok(state) => state,
+            Err(e) => {
+                tracing::warn!(
+                    event = "update_state_unreadable",
+                    path = %path.display(),
+                    error = %e,
+                    "ignoring an unparseable update-state.json"
+                );
+                UpdateState::default()
+            }
+        }
+    }
+
+    /// Atomically replace the state file (temp file in the same directory, then
+    /// rename), so a crash mid-write can never leave a truncated file behind.
+    pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
+        use std::io::Write;
+
+        let parent = path
+            .parent()
+            .expect("the update state path always has a parent directory");
+        paths::ensure_dir(parent)?;
+
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+        tmp.write_all(json.as_bytes())?;
+        tmp.flush()?;
+        tmp.persist(path)
+            .map_err(|e| std::io::Error::other(format!("persist failed: {e}")))?;
+        Ok(())
+    }
+
+    /// Read the real per-user state file.
+    pub fn load() -> UpdateState {
+        Self::load_from(&state_path())
+    }
+
+    /// Write the real per-user state file.
+    pub fn save(&self) -> std::io::Result<()> {
+        self.save_to(&state_path())
+    }
+}
+
+/// Whether enough time has passed since `last_check_at` for another check
+/// (FR-080). Pure.
+///
+/// Never having checked is due. So is an unparseable timestamp (a hand-edited
+/// or older-build file must not wedge updates forever) and a timestamp in the
+/// future (the clock moved backwards, or the file was copied from another
+/// machine) — in both cases refusing to check would be the worse failure.
+pub fn due_for_check(last_check_at: Option<&str>, now: OffsetDateTime) -> bool {
+    let Some(raw) = last_check_at else {
+        return true;
+    };
+    let Ok(last) = OffsetDateTime::parse(raw.trim(), &Rfc3339) else {
+        tracing::warn!(event = "update_last_check_unparseable", value = %raw);
+        return true;
+    };
+    let elapsed = now - last;
+    elapsed.is_negative() || elapsed >= time::Duration::hours(MIN_CHECK_INTERVAL_HOURS)
+}
+
+/// FR-080: whether the launch-time check should run at all — the user's
+/// `updater.check_on_startup` preference AND the once-per-24h throttle. Pure.
+pub fn should_check_on_startup(
+    check_on_startup: bool,
+    state: &UpdateState,
+    now: OffsetDateTime,
+) -> bool {
+    check_on_startup && due_for_check(state.last_check_at.as_deref(), now)
+}
+
+/// FR-084: whether an available update still deserves an unprompted
+/// notification, i.e. the user has not skipped exactly this version. Pure.
+///
+/// Skipping is version-scoped, not permanent: skipping `1.2.0` silences that
+/// release only — `1.3.0` prompts again. A manual check from the About screen
+/// does not consult this; the user asked, so they get the answer either way.
+pub fn should_notify(check: &UpdateCheck, skipped_version: Option<&str>) -> bool {
+    if !check.available {
+        return false;
+    }
+    let Some(latest) = check.latest.as_deref() else {
+        return false;
+    };
+    match skipped_version {
+        Some(skipped) => !same_version(skipped, latest),
+        None => true,
+    }
+}
+
+/// Whether two version-ish strings name the same release, ignoring a leading
+/// `v` and (per SemVer §10) build metadata. Unparseable versions fall back to a
+/// case-insensitive string compare so a non-semver tag can still be skipped.
+fn same_version(a: &str, b: &str) -> bool {
+    match (
+        semver::Version::parse(strip_v(a)),
+        semver::Version::parse(strip_v(b)),
+    ) {
+        (Ok(x), Ok(y)) => x.cmp_precedence(&y).is_eq(),
+        _ => strip_v(a).eq_ignore_ascii_case(strip_v(b)),
+    }
+}
+
+/// FR-080 launch-time check, ready to be scheduled.
+///
+/// Returns `Some(check)` only when there is something the user should be told
+/// about: the preference is on, the 24h window has elapsed, a newer release
+/// exists, and it is not the one they skipped. Every other outcome — throttled,
+/// disabled, offline, rate-limited, up to date — is `None`, because a silent
+/// background check has no UI to fail into.
+///
+/// **Hook point:** this is *not* wired to anything yet. It is meant to be
+/// spawned off the main thread from `lib.rs`'s `setup`, after
+/// [`STARTUP_CHECK_DELAY`]; see the module docs of `crate::ipc::update` for the
+/// exact snippet.
+pub fn run_startup_check() -> Option<UpdateCheck> {
+    let config = crate::settings::Config::load_or_default();
+    let mut state = UpdateState::load();
+
+    if !should_check_on_startup(
+        config.updater.check_on_startup,
+        &state,
+        OffsetDateTime::now_utc(),
+    ) {
+        return None;
+    }
+
+    let (owner, repo) = repo_slug()?;
+    let release = match fetch_latest(&owner, &repo) {
+        Ok(release) => release,
+        Err(e) => {
+            // Nobody asked for this check, so there is nowhere honest to show
+            // an error: log it and try again after the next interval.
+            tracing::warn!(event = "update_startup_check_failed", error = %e);
+            return None;
+        }
+    };
+
+    let check = evaluate(
+        env!("CARGO_PKG_VERSION"),
+        release,
+        crate::queue::job::now_rfc3339(),
+    );
+    state.last_check_at = Some(check.checked_at.clone());
+    if let Err(e) = state.save() {
+        tracing::warn!(event = "update_state_save_failed", error = %e);
+    }
+
+    should_notify(&check, state.skipped_version.as_deref()).then_some(check)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -470,6 +682,162 @@ mod tests {
         assert!(out.latest.is_none());
         assert!(out.url.is_none());
         assert_eq!(out.current, "0.1.0");
+    }
+
+    // -- persisted state (FR-080 / FR-084) ----------------------------------
+
+    /// A fixed "now" so every throttle assertion is deterministic.
+    fn at(rfc3339: &str) -> OffsetDateTime {
+        OffsetDateTime::parse(rfc3339, &Rfc3339).expect("test timestamp is RFC 3339")
+    }
+
+    fn available_check(latest: &str) -> UpdateCheck {
+        UpdateCheck {
+            current: "1.0.0".to_string(),
+            latest: Some(latest.to_string()),
+            available: true,
+            url: Some("https://x/y".to_string()),
+            notes: None,
+            checked_at: "2026-07-20T10:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn update_state_round_trips_through_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("update-state.json");
+
+        let state = UpdateState {
+            last_check_at: Some("2026-07-20T10:00:00Z".to_string()),
+            skipped_version: Some("v9.9.9".to_string()),
+        };
+        // The parent directory does not exist yet: saving creates it.
+        state.save_to(&path).unwrap();
+        assert_eq!(UpdateState::load_from(&path), state);
+    }
+
+    #[test]
+    fn update_state_degrades_to_defaults_when_missing_or_corrupt() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Missing file — a fresh install.
+        let missing = dir.path().join("update-state.json");
+        assert_eq!(UpdateState::load_from(&missing), UpdateState::default());
+
+        // Corrupt file: ignored, not propagated. The cost of being wrong here
+        // is one extra update check, so it must never surface as an error.
+        let corrupt = dir.path().join("corrupt.json");
+        std::fs::write(&corrupt, "{not json").unwrap();
+        assert_eq!(UpdateState::load_from(&corrupt), UpdateState::default());
+
+        // A file written by an older build that knew fewer fields still loads.
+        let partial = dir.path().join("partial.json");
+        std::fs::write(&partial, r#"{"last_check_at":"2026-07-20T10:00:00Z"}"#).unwrap();
+        let loaded = UpdateState::load_from(&partial);
+        assert_eq!(
+            loaded.last_check_at.as_deref(),
+            Some("2026-07-20T10:00:00Z")
+        );
+        assert!(loaded.skipped_version.is_none());
+    }
+
+    #[test]
+    fn due_for_check_honours_the_24h_window() {
+        let now = at("2026-07-20T12:00:00Z");
+
+        // Never checked.
+        assert!(due_for_check(None, now));
+        // Exactly 24h ago is due; a minute short of it is not.
+        assert!(due_for_check(Some("2026-07-19T12:00:00Z"), now));
+        assert!(!due_for_check(Some("2026-07-19T12:01:00Z"), now));
+        assert!(!due_for_check(Some("2026-07-20T11:59:00Z"), now));
+        // Long ago.
+        assert!(due_for_check(Some("2026-01-01T00:00:00Z"), now));
+        // A different offset is still understood (RFC 3339, not just `Z`).
+        assert!(!due_for_check(Some("2026-07-20T13:30:00+02:00"), now));
+    }
+
+    #[test]
+    fn due_for_check_never_wedges_on_a_bad_timestamp() {
+        let now = at("2026-07-20T12:00:00Z");
+        // Unparseable (hand-edited file, older build) → check anyway.
+        assert!(due_for_check(Some("yesterday"), now));
+        assert!(due_for_check(Some(""), now));
+        // In the future (clock moved back, file copied between machines) →
+        // check anyway, rather than going silent until the date catches up.
+        assert!(due_for_check(Some("2030-01-01T00:00:00Z"), now));
+    }
+
+    #[test]
+    fn should_check_on_startup_respects_the_preference_and_the_throttle() {
+        let now = at("2026-07-20T12:00:00Z");
+        let fresh = UpdateState {
+            last_check_at: Some("2026-07-20T11:00:00Z".to_string()),
+            skipped_version: None,
+        };
+        let stale = UpdateState {
+            last_check_at: Some("2026-07-18T11:00:00Z".to_string()),
+            skipped_version: None,
+        };
+
+        // The preference wins outright: no check, however stale the state is.
+        assert!(!should_check_on_startup(false, &stale, now));
+        assert!(!should_check_on_startup(
+            false,
+            &UpdateState::default(),
+            now
+        ));
+        // Enabled: only when the window has elapsed.
+        assert!(!should_check_on_startup(true, &fresh, now));
+        assert!(should_check_on_startup(true, &stale, now));
+        assert!(should_check_on_startup(true, &UpdateState::default(), now));
+    }
+
+    #[test]
+    fn should_notify_skips_only_the_skipped_version() {
+        let check = available_check("v1.2.0");
+
+        // Nothing skipped → notify.
+        assert!(should_notify(&check, None));
+        // Exactly this version skipped → stay silent, with or without the `v`.
+        assert!(!should_notify(&check, Some("v1.2.0")));
+        assert!(!should_notify(&check, Some("1.2.0")));
+        // Build metadata is not part of precedence (SemVer §10).
+        assert!(!should_notify(&check, Some("1.2.0+ci.7")));
+        // A newer release than the skipped one prompts again — skipping is
+        // per-version, not "never tell me about updates".
+        assert!(should_notify(&available_check("v1.3.0"), Some("v1.2.0")));
+        assert!(should_notify(&check, Some("v1.1.0")));
+        // A non-semver tag can still be skipped, by exact (case-insensitive) name.
+        assert!(!should_notify(&available_check("nightly"), Some("NIGHTLY")));
+    }
+
+    #[test]
+    fn should_notify_stays_silent_when_there_is_nothing_to_offer() {
+        // Up to date: never notify, whatever the skip state says.
+        let up_to_date = UpdateCheck {
+            available: false,
+            ..available_check("v1.2.0")
+        };
+        assert!(!should_notify(&up_to_date, None));
+
+        // `available` without a `latest` is a shape that cannot happen today
+        // (`evaluate` sets them together) — treat it as nothing to say rather
+        // than prompting for an unnamed version.
+        let unnamed = UpdateCheck {
+            latest: None,
+            ..available_check("v1.2.0")
+        };
+        assert!(!should_notify(&unnamed, None));
+    }
+
+    #[test]
+    fn startup_check_constants_match_fr_080() {
+        // FR-080: "on startup (delayed by 30 seconds) and at most once per 24
+        // hours". These two constants are the requirement; the scheduler that
+        // eventually consumes them must not carry its own numbers.
+        assert_eq!(STARTUP_CHECK_DELAY, std::time::Duration::from_secs(30));
+        assert_eq!(MIN_CHECK_INTERVAL_HOURS, 24);
     }
 
     /// Hits the real GitHub API. Ignored by default (network + rate limits);

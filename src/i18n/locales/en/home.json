@@ -1,1 +1,105 @@
-{}
+{
+  "title": "Home",
+  "subtitle": "Drag files onto the window, choose them here, or press {{shortcut}} to start a job.",
+  "dropzone": {
+    "title": "Drop files to print",
+    "formats": "{{formats}} · no count limit",
+    "folders": "Folders work too — you decide whether subfolders are included.",
+    "action": "Drop files to print, or click to choose them"
+  },
+  "quickActions": {
+    "label": "Quick actions",
+    "newJob": {
+      "title": "New print job",
+      "body": "Pick files and a profile"
+    },
+    "folder": {
+      "title": "Print a folder",
+      "body": "Recurse or top-level only"
+    },
+    "cli": {
+      "title": "Run from CLI",
+      "body": "Copy the headless command"
+    }
+  },
+  "cli": {
+    "copied": "Command copied to the clipboard",
+    "copyFailed": "Could not reach the clipboard — select the command and copy it manually."
+  },
+  "recent": {
+    "label": "Recent activity",
+    "viewAll": "View all queue",
+    "empty": "No recent activity yet — finished jobs will appear here.",
+    "loading": "Loading recent activity…",
+    "unavailable": "Finished jobs live in the desktop app — run MaeclyPrint to see them here.",
+    "errorTitle": "Recent activity could not be read",
+    "errorHint": "Nothing was lost — the jobs are still in the desktop app.",
+    "expand": "Show the details of {{file}}",
+    "collapse": "Hide the details of {{file}}",
+    "printer": "Printer",
+    "profile": "Profile",
+    "pages": "Pages",
+    "finished": "Finished",
+    "error": "Error",
+    "openQueue": "Open the queue"
+  },
+  "shortcuts": {
+    "label": "Keyboard shortcuts",
+    "hint": "These work from any screen, except while you are typing in a field.",
+    "newJob": "Start a new print job",
+    "printFolder": "Print a folder",
+    "print": "Print the current job",
+    "switchProfile": "Switch to the next profile",
+    "openQueue": "Open the queue",
+    "cancel": "Cancel the job being printed",
+    "printNeedsFiles": "Add files to the job first, then print.",
+    "nothingToCancel": "No job is printing or waiting right now.",
+    "profileSwitched": "Profile: {{name}}"
+  },
+  "cancelConfirm": {
+    "title": "Cancel this job?",
+    "message": "{{file}} will stop and move to Cancelled. Pages already sent to the printer cannot be pulled back.",
+    "action": "Cancel the job"
+  },
+  "tip": {
+    "label": "Tip",
+    "body": "MaeclyPrint already prints from the command line: {{command}} works without opening the window. The Explorer and Finder right-click entry is not part of this build yet — it arrives with the shell-integration milestone."
+  },
+  "nav": {
+    "home": "Home",
+    "job": "Print Job",
+    "queue": "Queue",
+    "printers": "Printers",
+    "profiles": "Profiles",
+    "settings": "Settings",
+    "about": "About",
+    "label": "Main"
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "Welcome to MaeclyPrint",
+      "body": "Open source batch printing for Windows and Mac. No 15-file limit, no Adobe required, no $149 license fee."
+    },
+    "printers": {
+      "title": "Detect your printers",
+      "body": "We'll list every printer your system has installed — including 'Microsoft Print to PDF' on Windows and 'Save as PDF' on Mac."
+    },
+    "cli": {
+      "title": "Print without the window",
+      "body": "The same binary is a command-line tool: {{command}} queues a batch headlessly, with stable exit codes for your scripts."
+    },
+    "profiles": {
+      "title": "Pick a default profile",
+      "body": "{{name}} is the default profile. Edit it, or add your own, from the Profiles screen."
+    },
+    "ready": {
+      "title": "Ready to print",
+      "body": "Drag any number of files onto the window or press {{shortcut}}, pick a profile, and watch them queue up. A right-click entry in Explorer and Finder is planned for a later milestone."
+    },
+    "skip": "Skip",
+    "back": "Back",
+    "continue": "Continue",
+    "start": "Get started",
+    "progress": "Step {{step}} of {{total}}"
+  }
+}

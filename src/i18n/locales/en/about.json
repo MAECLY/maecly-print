@@ -1,1 +1,62 @@
-{}
+{
+  "title": "About",
+  "tagline": "Open source batch printing for Windows and Mac. No 15-file limit, no Adobe required, no $149 license fee.",
+  "version": {
+    "line": "{{version}} · build {{buildDate}}",
+    "withChannel": "{{version}} · build {{buildDate}} · {{channel}} channel",
+    "unavailable": "{{version}} · standalone web preview"
+  },
+  "channels": {
+    "stable": "stable",
+    "beta": "beta",
+    "nightly": "nightly"
+  },
+  "sections": {
+    "updates": "Updates",
+    "components": "Components",
+    "paths": "Filesystem paths (live from Rust)",
+    "links": "Links"
+  },
+  "updates": {
+    "check": "Check for updates",
+    "checking": "Checking…",
+    "upToDate": {
+      "title": "You're up to date",
+      "detail": "version {{version}} · checked {{time}}"
+    },
+    "available": {
+      "group": "Update available",
+      "title": "Version {{version}} is available",
+      "detail": "You're on {{current}}.",
+      "installNote": "In-app install arrives with the signed auto-updater (M4) — this build cannot verify a download's signature or install it for you. For now, download it from the release page.",
+      "releaseNotes": "Release notes",
+      "remindLater": "Remind me later",
+      "skipVersion": "Skip this version"
+    },
+    "deferred": "Reminder postponed. Check again whenever you like.",
+    "retry": "Retry",
+    "skipped": "Skipping {{version}}. A newer release will still be offered.",
+    "undoSkip": "Undo"
+  },
+  "components": {
+    "platform": "Platform:",
+    "converterNote": "Converter tooling versions will appear here once bundled (M3+)."
+  },
+  "paths": {
+    "config": "config:",
+    "data": "data:",
+    "logs": "logs:",
+    "openLogs": "Open logs folder"
+  },
+  "ipcUnavailable": "IPC unavailable: {{error}}. This is expected when running the standalone Vite dev server (no Tauri host). Run {{command}} to test the real bridge.",
+  "links": {
+    "releaseNotes": "Release notes",
+    "license": "License GPL-3.0",
+    "documentation": "Documentation",
+    "reportIssue": "Report an issue"
+  },
+  "footer": {
+    "license": "MaeclyPrint is free software licensed under {{license}}. No telemetry, no cloud, no account.",
+    "source": "Source at"
+  }
+}

@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { MPSidebar, type ScreenId } from '@/components/AppShell/MPSidebar';
-import { MPAppShell } from '@/components/AppShell/MPAppShell';
+import { MPAppShell, useAppShortcuts } from '@/components/AppShell/MPAppShell';
 import { Toaster } from '@/components/AppShell/Toaster';
+import { ConfirmDialog, type ConfirmState } from '@/components/ConfirmDialog';
 import { useDensity, useTheme, type ResolvedTheme } from '@/lib/theme';
 import {
   BUILT_IN_PROFILES,
@@ -18,7 +19,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useT } from '@/i18n/I18nProvider';
 import type { UiFile } from '@/types/domain';
 
-import { HomeScreen } from '@/screens/HomeScreen';
+import { HomeScreen, PRINTABLE_EXTENSIONS } from '@/screens/HomeScreen';
 import {
   PrintJobScreen,
   type PrintJobOverrides,
@@ -42,6 +43,9 @@ function readOnboardingDone() {
 
 function App() {
   const t = useT('common');
+  // Shortcut feedback and the cancel confirmation are documented on the Home
+  // screen, so they share its namespace.
+  const tHome = useT('home');
   const { mode, resolved, setMode } = useTheme();
   const { density, setDensity } = useDensity();
   const [active, setActive] = useState<ScreenId>('home');
@@ -62,6 +66,12 @@ function App() {
   const [queueView, setQueueView] = useState<QueueView>('list');
   const initQueue = useQueueStore((s) => s.init);
   const queueCount = useQueueStore((s) => s.counts.active + s.counts.pending);
+  const uiJobs = useQueueStore((s) => s.uiJobs);
+  const cancelJob = useQueueStore((s) => s.cancelJob);
+
+  // Destructive shortcuts confirm first (never `window.confirm`, which is a
+  // no-op in WKWebView).
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
 
   // App settings (backend config.toml): loaded once; appearance reconciles below.
   const initSettings = useSettingsStore((s) => s.init);
@@ -197,6 +207,95 @@ function App() {
     }
   };
 
+  /**
+   * Open the OS picker and feed the selection into the job pipeline.
+   *
+   * Files and directories are two mutually exclusive OS dialogs, so the caller
+   * says which one it wants. Either way the paths land in `addPathsToJob`, so a
+   * folder gets exactly the same FR-004 recurse-or-not question a drop would,
+   * and the app moves to the job screen where that question is asked.
+   */
+  const pickPaths = async (directory: boolean) => {
+    if (!isTauri()) {
+      toast.error(t('errors.desktopOnly'));
+      return;
+    }
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const picked = directory
+        ? await open({ multiple: true, directory: true })
+        : await open({
+            multiple: true,
+            filters: [
+              {
+                name: 'Printable files',
+                extensions: [...PRINTABLE_EXTENSIONS],
+              },
+            ],
+          });
+      if (!picked) return;
+      setActive('job');
+      await addPathsToJob(Array.isArray(picked) ? picked : [picked], setFiles);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  /** Move the job to the next profile in the list (NFR-034 "switch profile"). */
+  const switchProfile = () => {
+    if (profiles.length === 0) return;
+    const index = profiles.findIndex((p) => p.id === effectiveProfileId);
+    // `-1` (the current profile vanished) restarts at the first entry.
+    const next = profiles[(index + 1) % profiles.length] ?? profiles[0]!;
+    setProfileChoice(next.id);
+    toast.info(tHome('shortcuts.profileSwitched', { name: next.name }));
+  };
+
+  /**
+   * Cancel the job the user would mean by "cancel": the one on the printer, or
+   * the next one in line when nothing is running yet.
+   */
+  const cancelCurrentJob = () => {
+    const target =
+      uiJobs.find(
+        (j) =>
+          j.status === 'printing' ||
+          j.status === 'converting' ||
+          j.status === 'converted',
+      ) ?? uiJobs.find((j) => j.status === 'queued' || j.status === 'paused');
+    if (!target) {
+      toast.info(tHome('shortcuts.nothingToCancel'));
+      return;
+    }
+    setConfirm({
+      title: tHome('cancelConfirm.title'),
+      message: tHome('cancelConfirm.message', { file: target.file }),
+      confirmLabel: tHome('cancelConfirm.action'),
+      run: () => cancelJob(target.id),
+    });
+  };
+
+  // NFR-034: every primary action has a shortcut, and every shortcut the UI
+  // advertises does something. Suspended while a modal owns the keyboard.
+  useAppShortcuts(
+    {
+      newJob: () => setActive('job'),
+      printFolder: () => void pickPaths(true),
+      print: () => {
+        if (files.length === 0) {
+          setActive('job');
+          toast.info(tHome('shortcuts.printNeedsFiles'));
+          return;
+        }
+        void handlePrint();
+      },
+      switchProfile,
+      openQueue: () => setActive('queue'),
+      cancel: cancelCurrentJob,
+    },
+    onboardingDone && confirm === null,
+  );
+
   return (
     <>
       <MPAppShell>
@@ -219,9 +318,9 @@ function App() {
               <HomeScreen
                 onAction={(a) => {
                   if (a === 'newjob') setActive('job');
-                  if (a === 'queue') setActive('queue');
+                  else if (a === 'queue') setActive('queue');
+                  else void pickPaths(a === 'folder');
                 }}
-                onSelectJob={() => setActive('queue')}
               />
             )}
             {active === 'job' && (
@@ -259,6 +358,9 @@ function App() {
             {active === 'about' && <AboutScreen />}
           </main>
         </div>
+        {confirm && (
+          <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} />
+        )}
       </MPAppShell>
       <Toaster theme={resolved} />
       {!onboardingDone && <OnboardingFlow onComplete={completeOnboarding} />}
