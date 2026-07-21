@@ -151,6 +151,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::jobs::resume_queue,
             ipc::jobs::clear_done,
             ipc::jobs::inspect_files,
+            ipc::jobs::expand_folders,
             ipc::jobs::preview_command,
             ipc::profiles::list_profiles,
             ipc::profiles::get_profile,

@@ -304,6 +304,23 @@ async inspectFiles(paths: string[]) : Promise<Result<FileInfo[], IpcError>> {
 }
 },
 /**
+ * Expand folders into printable files with the user's FR-004 answer
+ * (`top_level` vs `recursive`), one result per folder.
+ * 
+ * Discarded files come back in [`FolderExpansion::skipped`] with a reason
+ * rather than vanishing (FR-005/FR-059); the caller logs them against the job.
+ * Each root is walked under the default [`ExpansionLimits`], so dropping a
+ * disk root truncates instead of hanging.
+ */
+async expandFolders(paths: string[], scan: FolderScan) : Promise<Result<FolderExpansion[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("expand_folders", { paths, scan }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The exact command MaeclyPrint would run for `req` (honesty policy: no hidden
  * flags). Resolves the printer name the same way the dispatcher will —
  * requested, else the app default, else the OS default, else a
@@ -572,6 +589,21 @@ max_file_size_mb: number;
  */
 default_profile?: string | null }
 /**
+ * Safety ceiling on one folder expansion. Dropping a disk root must bound the
+ * walk rather than wedge the app, so both the number of entries considered and
+ * the depth are capped; whichever bites is reported back to the user.
+ */
+export type ExpansionLimits = { 
+/**
+ * Most directory entries a single expansion may look at.
+ */
+max_files: number; 
+/**
+ * Deepest level a recursive walk descends to, relative to the root (`1` =
+ * the files directly inside it).
+ */
+max_depth: number }
+/**
  * Per-file inspection result for the print dialog's file list. Never errors the
  * whole batch: a missing or unsupported file comes back with `supported=false`
  * and a human `reason` rather than failing the call.
@@ -585,6 +617,56 @@ ext: string; bytes: number; pages: number | null; supported: boolean;
  * Why the file is not printable, when `supported` is false.
  */
 reason: string | null }
+/**
+ * The result of walking one folder: what will print, what will not and why,
+ * plus whether a safety ceiling cut the walk short.
+ */
+export type FolderExpansion = { 
+/**
+ * The folder that was walked (already canonical when it came through IPC).
+ */
+root: string; 
+/**
+ * How deep the walk went.
+ */
+scan: FolderScan; 
+/**
+ * Printable files, sorted by full path so the print order is stable.
+ */
+files: string[]; 
+/**
+ * Everything discarded, same ordering rule.
+ */
+skipped: SkippedFile[]; 
+/**
+ * The entry ceiling was reached; the folder holds more than this.
+ */
+files_truncated: boolean; 
+/**
+ * Non-empty folders existed below the depth that was walked — expected in
+ * [`FolderScan::TopLevel`], a truncation warning in
+ * [`FolderScan::Recursive`].
+ */
+depth_truncated: boolean; 
+/**
+ * The ceilings that were applied, so the UI can phrase the warning without
+ * hardcoding them.
+ */
+limits: ExpansionLimits }
+/**
+ * How deep a folder selection is walked (FR-004: the user is asked, the
+ * backend never guesses).
+ */
+export type FolderScan = 
+/**
+ * Only the files directly inside the folder; subfolders are reported but
+ * not entered.
+ */
+"top_level" | 
+/**
+ * The whole subtree, down to [`ExpansionLimits::max_depth`].
+ */
+"recursive"
 export type IpcError = { code: "FileNotFound"; message: string } | 
 /**
  * The caller sent a structurally invalid request (empty file list, bad
@@ -956,6 +1038,37 @@ profile_id: string | null }
  * A second launch handed us a selection while this window was already open.
  */
 export type SelectionForwarded = Selection
+/**
+ * Why a file found inside a folder did not make it into the print selection.
+ * FR-005/FR-059: a discarded file is never dropped silently, it comes back
+ * with the reason so the caller can show it and write it to the job log.
+ */
+export type SkipReason = 
+/**
+ * The extension is not one [`is_supported`] accepts.
+ */
+"unsupported_format" | 
+/**
+ * Bigger than the configured `max_file_size_mb` ceiling.
+ */
+"too_large" | 
+/**
+ * Could not be `stat`ed or walked (permissions, broken or looping
+ * symlink, disappeared mid-walk).
+ */
+"unreadable"
+/**
+ * One discarded entry, with a human explanation ready for the job log.
+ */
+export type SkippedFile = { path: string; 
+/**
+ * File name, or the whole path when it has none.
+ */
+name: string; reason: SkipReason; 
+/**
+ * User-facing detail (`"Unsupported file type (.docx)"`).
+ */
+detail: string }
 /**
  * Toner/ink supply levels in `0.0..=1.0`. Any channel the device does not
  * report stays `None`; an all-`None` value renders no supply section.
