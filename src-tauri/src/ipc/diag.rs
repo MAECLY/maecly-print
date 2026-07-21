@@ -133,14 +133,14 @@ mod tests {
     #[test]
     fn issue_url_encodes_spaces_newlines_and_hash() {
         let url = issue_url(
-            "https://github.com/maecly/maeclyprint",
+            env!("CARGO_PKG_REPOSITORY"),
             "0.0.1",
             "2026-07-12",
             "macos",
             "aarch64",
             "crash on #3 with two files",
         );
-        assert!(url.starts_with("https://github.com/maecly/maeclyprint/issues/new?title=&body="));
+        assert!(url.starts_with("https://github.com/MAECLY/maecly-print/issues/new?title=&body="));
         // Spaces → %20, newlines → %0A, '#' → %23 (NON_ALPHANUMERIC encodes all).
         assert!(url.contains("%20"), "spaces encoded: {url}");
         assert!(url.contains("%0A"), "newlines encoded: {url}");
@@ -152,15 +152,49 @@ mod tests {
 
     #[test]
     fn allowed_external_accepts_project_hosts() {
-        assert!(allowed_external("https://github.com/maecly/maeclyprint"));
+        assert!(allowed_external("https://github.com/MAECLY/maecly-print"));
         assert!(allowed_external("https://github.com"));
         assert!(allowed_external("https://maecly.com/"));
         assert!(allowed_external("https://sub.maecly.com/path?q=1#frag"));
-        assert!(allowed_external("https://GitHub.com/Maecly")); // case-insensitive host
+        assert!(allowed_external("https://GitHub.com/MAECLY")); // case-insensitive host
+    }
+
+    /// Every link the About screen can open is derived from the configured
+    /// repository URL (mirrored frontend-side in `src/lib/repo.ts`), so the
+    /// allow-list has to accept it exactly as configured — capitalized owner
+    /// segment included. The rule is host-only and the host is lowercased before
+    /// comparing, so the path's case never matters.
+    #[test]
+    fn allowed_external_accepts_the_configured_repository_links() {
+        let repo = env!("CARGO_PKG_REPOSITORY");
+        assert!(allowed_external(repo));
+        assert!(allowed_external(&format!("{repo}/releases")));
+        assert!(allowed_external(&format!("{repo}/blob/main/LICENSE")));
+        assert!(allowed_external(&format!("{repo}/tree/main/docs")));
+        assert!(allowed_external(&format!("{repo}/releases/tag/v9.9.9")));
+        assert!(allowed_external(&issue_url(
+            repo,
+            "0.0.1",
+            "2026-07-12",
+            "windows",
+            "x86_64",
+            "hello"
+        )));
     }
 
     #[test]
     fn allowed_external_rejects_everything_else() {
+        let repo = env!("CARGO_PKG_REPOSITORY");
+        // The real repository over plain http, or on a look-alike host, is still
+        // refused: fixing the slug must not widen the rule.
+        assert!(!allowed_external(&repo.replace("https://", "http://")));
+        assert!(!allowed_external(
+            &repo.replace("github.com", "github.com.evil.com")
+        ));
+        assert!(!allowed_external(&repo.replace(
+            "https://github.com",
+            "https://github.com@evil.example"
+        )));
         assert!(!allowed_external("http://github.com")); // not https
         assert!(!allowed_external("https://evil-github.com"));
         assert!(!allowed_external("https://github.com.evil.com"));
@@ -169,5 +203,11 @@ mod tests {
         assert!(!allowed_external("https://notmaecly.com"));
         assert!(!allowed_external("ftp://maecly.com"));
         assert!(!allowed_external("https://"));
+        // Only the two project hosts are allowed — not the API host the update
+        // check talks to, and not raw.githubusercontent.com.
+        assert!(!allowed_external("https://api.github.com/repos/MAECLY"));
+        assert!(!allowed_external(
+            "https://raw.githubusercontent.com/MAECLY"
+        ));
     }
 }

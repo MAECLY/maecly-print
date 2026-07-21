@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react';
 import { Icon, type IconName } from '@/components/Icon';
 import { MPWordmark } from '@/components/Brand';
 import { MPBadge, MPKbd } from '@/components/ui';
+import { fetchAppInfo } from '@/lib/ipc';
+import { UNKNOWN_VERSION } from '@/lib/repo';
 
 export type ScreenId =
   | 'home'
@@ -25,11 +28,41 @@ interface MPSidebarProps {
   queueCount?: number;
 }
 
+/**
+ * What the footer knows about the Rust host: still asking, answered (with the
+ * authoritative running version), or no host at all — the last being the normal
+ * state in the standalone Vite preview, not an error worth surfacing.
+ */
+type HostState =
+  | { kind: 'connecting' }
+  | { kind: 'connected'; version: string }
+  | { kind: 'no-host' };
+
+/** Ask `app_info` once on mount for the running version and host liveness. */
+function useHostState(): HostState {
+  const [state, setState] = useState<HostState>({ kind: 'connecting' });
+  useEffect(() => {
+    let alive = true;
+    fetchAppInfo()
+      .then((info) => {
+        if (alive) setState({ kind: 'connected', version: info.version });
+      })
+      .catch(() => {
+        if (alive) setState({ kind: 'no-host' });
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return state;
+}
+
 export function MPSidebar({
   active,
   onChange,
   queueCount = 4,
 }: MPSidebarProps) {
+  const host = useHostState();
   const items: NavItem[] = [
     { id: 'home', icon: 'home', label: 'Home' },
     { id: 'job', icon: 'file', label: 'Print Job', kbd: 'Ctrl+P' },
@@ -107,8 +140,23 @@ export function MPSidebar({
             justifyContent: 'space-between',
           }}
         >
-          <span>v0.0.1</span>
-          <span style={{ color: 'var(--mp-success)' }}>● online</span>
+          <span>
+            {host.kind === 'connected' ? `v${host.version}` : UNKNOWN_VERSION}
+          </span>
+          <span
+            style={{
+              color:
+                host.kind === 'connected'
+                  ? 'var(--mp-success)'
+                  : 'var(--mp-textDim)',
+            }}
+          >
+            {host.kind === 'connected'
+              ? '● connected'
+              : host.kind === 'connecting'
+                ? '○ connecting…'
+                : '○ no backend'}
+          </span>
         </div>
       </div>
     </div>

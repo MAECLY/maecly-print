@@ -15,7 +15,7 @@ import { addPathsToJob } from '@/lib/jobFiles';
 import { useProfilesStore } from '@/stores/profilesStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { pluralize } from '@/lib/format';
+import { useT } from '@/i18n/I18nProvider';
 import type { UiFile } from '@/types/domain';
 
 import { HomeScreen } from '@/screens/HomeScreen';
@@ -41,6 +41,7 @@ function readOnboardingDone() {
 }
 
 function App() {
+  const t = useT('common');
   const { mode, resolved, setMode } = useTheme();
   const { density, setDensity } = useDensity();
   const [active, setActive] = useState<ScreenId>('home');
@@ -164,7 +165,7 @@ function App() {
 
   const handlePrint = async () => {
     if (!isTauri()) {
-      toast.error('Printing requires the desktop app');
+      toast.error(t('errors.desktopOnly'));
       return;
     }
     if (files.length === 0 || submittingRef.current) return;
@@ -178,13 +179,11 @@ function App() {
       profileObj,
       overrides,
     );
-    const id = toast.loading(
-      `Sending ${files.length} ${pluralize(files.length, 'file')} to printer…`,
-    );
+    const id = toast.loading(t('print.sending', { count: files.length }));
     try {
       const batch = await printFiles(req);
       const n = batch.job_ids.length;
-      toast.success(`${n} ${pluralize(n, 'job')} queued`, {
+      toast.success(t('print.queued', { count: n }), {
         id,
         description: profileObj.name,
       });

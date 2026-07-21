@@ -243,13 +243,13 @@ describe('PrintersScreen', () => {
 
     const dialog = await openAddModal();
     expect(
-      within(dialog).getByRole('button', { name: 'Scan network' }),
+      within(dialog).getByRole('radio', { name: 'Scan network' }),
     ).toBeInTheDocument();
     expect(
-      within(dialog).getByRole('button', { name: 'By IP address' }),
+      within(dialog).getByRole('radio', { name: 'By IP address' }),
     ).toBeInTheDocument();
     expect(
-      within(dialog).getByRole('button', { name: 'From system' }),
+      within(dialog).getByRole('radio', { name: 'From system' }),
     ).toBeInTheDocument();
 
     // Scan network is the default tab (discovery running).
@@ -257,16 +257,14 @@ describe('PrintersScreen', () => {
 
     // By IP address swaps in the manual-entry form.
     fireEvent.click(
-      within(dialog).getByRole('button', { name: 'By IP address' }),
+      within(dialog).getByRole('radio', { name: 'By IP address' }),
     );
     expect(
       within(dialog).getByPlaceholderText(/10\.0\.0\.41/),
     ).toBeInTheDocument();
 
     // From system swaps in the soft-disable explainer + queue checkboxes.
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: 'From system' }),
-    );
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'From system' }));
     expect(within(dialog).getByText(/soft-disable/i)).toBeInTheDocument();
   });
 
@@ -277,7 +275,7 @@ describe('PrintersScreen', () => {
 
     const dialog = await openAddModal();
     fireEvent.click(
-      within(dialog).getByRole('button', { name: 'By IP address' }),
+      within(dialog).getByRole('radio', { name: 'By IP address' }),
     );
 
     fireEvent.change(within(dialog).getByPlaceholderText(/10\.0\.0\.41/), {
@@ -315,7 +313,7 @@ describe('PrintersScreen', () => {
 
     const dialog = await openAddModal();
     fireEvent.click(
-      within(dialog).getByRole('button', { name: 'By IP address' }),
+      within(dialog).getByRole('radio', { name: 'By IP address' }),
     );
 
     fireEvent.change(within(dialog).getByPlaceholderText(/10\.0\.0\.41/), {
@@ -354,9 +352,7 @@ describe('PrintersScreen', () => {
     await screen.findByText(/2 configured/);
 
     const dialog = await openAddModal();
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: 'From system' }),
-    );
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'From system' }));
 
     // Untick Brother — persisted into `disabled`.
     const brother = within(dialog).getByText('Brother HL-L2350DW');

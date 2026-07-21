@@ -7,12 +7,21 @@ import {
 } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { version as REACT_VERSION } from 'react';
 import tauriPkg from '@tauri-apps/api/package.json';
 
 import { AboutScreen } from './AboutScreen';
+import { MPSidebar } from '@/components/AppShell/MPSidebar';
 import { Toaster } from '@/components/AppShell/Toaster';
-import { DOCS_URL, LICENSE_URL, RELEASES_URL, REPO_URL } from '@/lib/repo';
+import {
+  DOCS_URL,
+  LICENSE_URL,
+  RELEASES_URL,
+  REPO_URL,
+  UNKNOWN_VERSION,
+} from '@/lib/repo';
 import {
   fixtureAppInfo,
   fixtureAppSettings,
@@ -20,6 +29,11 @@ import {
   fixtureUpdateCheckUpToDate,
 } from '@/test/fixtures';
 import type { AppSettings, UpdateCheck } from '@/lib/ipc';
+
+// A few assertions read files instead of rendering: they guard the repository
+// slug and the "no hardcoded version" rule at the source level, which no amount
+// of rendering can catch. Vitest runs from the project root.
+const REPO_ROOT = process.cwd();
 
 // Mock the settings store so these tests own only the About screen. The
 // channel suffix reads `settings.updater.channel`, so we drive `settings`
@@ -273,12 +287,120 @@ describe('AboutScreen', () => {
     await waitForAppInfo();
 
     fireEvent.click(
-      screen.getByRole('button', { name: /github\.com\/maecly\/maeclyprint/i }),
+      screen.getByRole('button', {
+        name: /github\.com\/MAECLY\/maecly-print/i,
+      }),
     );
     await waitFor(() =>
       expect(
         calls.some((c) => c.cmd === 'open_external' && c.args.url === REPO_URL),
       ).toBe(true),
     );
+  });
+
+  it('FR-110: renders the version app_info reports, not a frontend literal', async () => {
+    // A version deliberately unlike anything written anywhere in the tree: it
+    // can only reach the screen through the backend payload.
+    mockAbout({ appInfo: { ...fixtureAppInfo, version: '4.5.6' } });
+    renderAbout();
+
+    expect(await screen.findByText(/^4\.5\.6 · build/)).toBeInTheDocument();
+    // …and the components card echoes the same value.
+    expect(screen.getByText('4.5.6')).toBeInTheDocument();
+    // The retired hardcoded fallbacks must not reappear.
+    expect(screen.queryByText(/0\.0\.1/)).toBeNull();
+  });
+
+  it('shows the unknown-version placeholder, not a version number, without a backend', async () => {
+    // No mockIPC → fetchAppInfo rejects; there is no version to report.
+    renderAbout();
+
+    expect(
+      await screen.findByText(`${UNKNOWN_VERSION} · standalone web preview`),
+    ).toBeInTheDocument();
+    // The MaeclyPrint row of the components card falls back to the same
+    // placeholder rather than repeating a stale number.
+    expect(screen.queryByText(/\d+\.\d+\.\d+-dev/)).toBeNull();
+  });
+});
+
+/**
+ * The sidebar footer used to print a hand-written `v0.0.1`, which would have
+ * lied from the first release bump onwards. These live here, next to the About
+ * assertions, because both surfaces read the same authoritative `app_info`.
+ */
+describe('MPSidebar version footer', () => {
+  beforeEach(() => {
+    delete (window as unknown as Record<string, unknown>)[
+      '__TAURI_INTERNALS__'
+    ];
+  });
+  afterEach(() => clearMocks());
+
+  it('renders the version reported by app_info', async () => {
+    mockIPC((cmd) => (cmd === 'app_info' ? fixtureAppInfo : null));
+    render(<MPSidebar active="home" />);
+
+    expect(await screen.findByText(`v${fixtureAppInfo.version}`)).toBeVisible();
+    expect(screen.getByText(/connected/)).toBeInTheDocument();
+  });
+
+  it('shows the placeholder while app_info is still in flight', () => {
+    mockIPC((cmd) => (cmd === 'app_info' ? fixtureAppInfo : null));
+    render(<MPSidebar active="home" />);
+
+    // Synchronously after mount the invoke has not resolved: no version yet,
+    // and the status dot says so instead of claiming a live backend.
+    expect(screen.getByText(UNKNOWN_VERSION)).toBeInTheDocument();
+    expect(screen.getByText(/connecting/)).toBeInTheDocument();
+  });
+
+  it('falls back to the placeholder outside the Tauri host', async () => {
+    render(<MPSidebar active="home" />);
+
+    expect(await screen.findByText(/no backend/)).toBeInTheDocument();
+    expect(screen.getByText(UNKNOWN_VERSION)).toBeInTheDocument();
+  });
+
+  it('regression: no version number is written by hand in the sidebar source', () => {
+    const source = readFileSync(
+      join(REPO_ROOT, 'src/components/AppShell/MPSidebar.tsx'),
+      'utf8',
+    );
+    // Any `x.y.z` literal in this file is a version being duplicated: the only
+    // authoritative source is `app_info().version` (Rust `CARGO_PKG_VERSION`).
+    expect(source).not.toMatch(/\d+\.\d+\.\d+/);
+  });
+});
+
+/**
+ * Repository identity. The slug lives in exactly two places — `repository` in
+ * `src-tauri/Cargo.toml` (what Rust reads for the update check and the issue
+ * URL) and `REPO_URL` here — so these assertions keep them from drifting and
+ * keep the derived links pointing at paths that really exist.
+ */
+describe('project identity (src/lib/repo.ts)', () => {
+  it('mirrors the repository configured in src-tauri/Cargo.toml', () => {
+    const cargo = readFileSync(join(REPO_ROOT, 'src-tauri/Cargo.toml'), 'utf8');
+    const configured = /^repository\s*=\s*"([^"]+)"/m.exec(cargo)?.[1];
+    expect(configured).toBe(REPO_URL);
+    // …and it is the real remote, not a repository that does not exist.
+    expect(REPO_URL).toBe('https://github.com/MAECLY/maecly-print');
+  });
+
+  it('derives every link from the one slug', () => {
+    for (const url of [RELEASES_URL, LICENSE_URL, DOCS_URL]) {
+      expect(url.startsWith(`${REPO_URL}/`)).toBe(true);
+    }
+  });
+
+  it('points the blob/tree links at paths that exist on the default branch', () => {
+    // `git symbolic-ref refs/remotes/origin/HEAD` → refs/remotes/origin/main.
+    for (const url of [LICENSE_URL, DOCS_URL]) {
+      const [, kind, branch, ...rest] = url.slice(REPO_URL.length).split('/');
+      expect(kind).toMatch(/^(blob|tree)$/);
+      expect(branch).toBe('main');
+      expect(existsSync(join(REPO_ROOT, rest.join('/')))).toBe(true);
+    }
   });
 });

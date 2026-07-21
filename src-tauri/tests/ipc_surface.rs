@@ -13,6 +13,9 @@
 //! - FIX 4: read paths skip ghost rows (blank/`builtin-` prefixed ids).
 //! - FIX 5: a corrupt `profiles.toml` never blocks switching the default to a
 //!   built-in id.
+//!
+//! It also owns the drift gate for the generated frontend bindings — see
+//! `bindings_ts_is_committed_in_sync`.
 
 use maeclyprint_lib::ipc::profiles::{
     delete_profile_at, list_profiles_at, save_profile_at, set_default_profile_at,
@@ -237,5 +240,86 @@ fn fr_regression_fix5_set_default_builtin_survives_corrupt_profiles() {
             .default_profile
             .as_deref(),
         Some(BUILTIN_QUICK)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Generated-bindings drift gate.
+// ---------------------------------------------------------------------------
+
+/// `src/ipc/bindings.ts` as **committed**: `include_str!` freezes the file at
+/// compile time, i.e. before a single test has run. Cargo tracks it as an input
+/// of this target, so editing the file forces a rebuild and refreshes this
+/// constant.
+const COMMITTED_BINDINGS: &str = include_str!("../../src/ipc/bindings.ts");
+
+/// Path of the same file on disk, read back *after* the run has regenerated it.
+fn bindings_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/ipc/bindings.ts")
+}
+
+/// First line where the two revisions disagree, rendered for a panic message.
+fn first_difference(committed: &str, regenerated: &str) -> String {
+    for (i, (old, new)) in committed.lines().zip(regenerated.lines()).enumerate() {
+        if old != new {
+            return format!(
+                "first difference at line {}:\n  committed:   {old}\n  regenerated: {new}",
+                i + 1
+            );
+        }
+    }
+    format!(
+        "line counts differ: committed {}, regenerated {}",
+        committed.lines().count(),
+        regenerated.lines().count()
+    )
+}
+
+/// The committed `src/ipc/bindings.ts` must already match the Rust command
+/// surface; a stale one fails the build instead of being silently rewritten.
+///
+/// How it works: `bindings_sync::bindings_are_current` (src/lib.rs) regenerates
+/// the file from the live `specta_builder()` earlier in the same `cargo test`
+/// run — cargo runs the lib's unit tests before the integration targets. So the
+/// bytes now on disk are the *regenerated* ones, while `COMMITTED_BINDINGS`
+/// still holds what was committed. They differ exactly when the checked-in file
+/// was out of date. (Running this target alone — `cargo test --test
+/// ipc_surface` — skips that regeneration, so the check only bites on a full
+/// `cargo test`, which is what CI runs.)
+///
+/// Regenerating on purpose: the refreshed file is already in the working tree
+/// when this fails, so the fix is to review and commit it. To refresh without
+/// failing the run, set `UPDATE_BINDINGS=1` (the only supported way to treat a
+/// rewrite as intentional):
+///
+/// ```text
+/// UPDATE_BINDINGS=1 cargo test --manifest-path src-tauri/Cargo.toml
+/// ```
+#[test]
+fn bindings_ts_is_committed_in_sync() {
+    let path = bindings_path();
+    let regenerated = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+
+    if regenerated == COMMITTED_BINDINGS {
+        return;
+    }
+
+    if std::env::var_os("UPDATE_BINDINGS").is_some() {
+        eprintln!(
+            "UPDATE_BINDINGS set: {} was refreshed from the Rust command surface — commit it.",
+            path.display()
+        );
+        return;
+    }
+
+    panic!(
+        "src/ipc/bindings.ts is out of sync with the Rust command surface.\n\
+         {}\n\n\
+         The regenerated file is already in your working tree — review and commit it.\n\
+         To regenerate without failing the run:\n  \
+         UPDATE_BINDINGS=1 cargo test --manifest-path src-tauri/Cargo.toml\n  \
+         (PowerShell: $env:UPDATE_BINDINGS=1; cargo test --manifest-path src-tauri/Cargo.toml)",
+        first_difference(COMMITTED_BINDINGS, &regenerated)
     );
 }

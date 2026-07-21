@@ -19,7 +19,13 @@ import {
   type AppInfo,
   type UpdateCheck,
 } from '@/lib/ipc';
-import { DOCS_URL, LICENSE_URL, RELEASES_URL, REPO_URL } from '@/lib/repo';
+import {
+  DOCS_URL,
+  LICENSE_URL,
+  RELEASES_URL,
+  REPO_URL,
+  UNKNOWN_VERSION,
+} from '@/lib/repo';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 const TAURI_VERSION = tauriPkg.version;
@@ -114,14 +120,16 @@ export function AboutScreen() {
   }
 
   const channel = settings?.updater.channel;
+  // Without a backend there is no version to show — say so rather than repeat a
+  // frontend literal that goes stale on the first release bump.
   const versionLine = info
     ? `${info.version} · build ${info.build_date}${channel ? ` · ${channel} channel` : ''}`
-    : '0.0.1-dev · standalone web preview';
+    : `${UNKNOWN_VERSION} · standalone web preview`;
 
   const components: { name: string; value: string; license: string }[] = [
     {
       name: 'MaeclyPrint',
-      value: info?.version ?? '0.0.1-dev',
+      value: info?.version ?? UNKNOWN_VERSION,
       license: 'GPL-3.0',
     },
     { name: 'React', value: REACT_VERSION, license: 'MIT' },

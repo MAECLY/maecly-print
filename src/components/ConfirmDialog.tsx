@@ -1,3 +1,4 @@
+import { useEffect, useId, useRef } from 'react';
 import { MPButton } from '@/components/ui';
 
 /** A pending confirmation surfaced by the in-app modal (never window.confirm). */
@@ -8,10 +9,23 @@ export interface ConfirmState {
   run: () => void | Promise<void>;
 }
 
+/** Everything inside the dialog that can hold focus, in document order. */
+function tabbables(root: HTMLElement): HTMLElement[] {
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((el) => !el.hasAttribute('disabled'));
+}
+
 /**
  * In-app confirmation dialog. `window.confirm` is a no-op in WKWebView (the
  * macOS Tauri webview), so we render a real modal. Shared across screens that
  * need a "are you sure?" step before a side-effecting action.
+ *
+ * Keyboard contract (NFR-040 / NFR-041): focus lands on Cancel — the least
+ * destructive action —, Tab cycles inside the dialog, Escape closes it, and
+ * the element that opened it gets the focus back on unmount.
  */
 export function ConfirmDialog({
   state,
@@ -20,6 +34,48 @@ export function ConfirmDialog({
   state: ConfirmState;
   onClose: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const messageId = useId();
+
+  useEffect(() => {
+    const opener = document.activeElement;
+    tabbables(dialogRef.current ?? document.body)[0]?.focus();
+    return () => {
+      if (opener instanceof HTMLElement && document.contains(opener)) {
+        opener.focus();
+      }
+    };
+  }, []);
+
+  // Escape and the Tab cycle live on the document so they work no matter
+  // where focus sits while the modal is open.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab' || !dialogRef.current) return;
+      const items = tabbables(dialogRef.current);
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) return;
+      const active = document.activeElement;
+      const inside = dialogRef.current.contains(active);
+      if (e.shiftKey && (active === first || !inside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !inside)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   return (
     <div
       onClick={onClose}
@@ -35,8 +91,11 @@ export function ConfirmDialog({
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={messageId}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: 360,
@@ -47,10 +106,14 @@ export function ConfirmDialog({
           padding: 18,
         }}
       >
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
+        <div
+          id={titleId}
+          style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}
+        >
           {state.title}
         </div>
         <div
+          id={messageId}
           style={{
             fontSize: 12.5,
             color: 'var(--mp-textMuted)',

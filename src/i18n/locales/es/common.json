@@ -1,0 +1,40 @@
+{
+  "actions": {
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "close": "Cerrar",
+    "done": "Hecho",
+    "retry": "Reintentar",
+    "delete": "Eliminar",
+    "reload": "Recargar la aplicación",
+    "openLogsFolder": "Abrir la carpeta de registros"
+  },
+  "status": {
+    "loading": "Cargando…",
+    "error": "Algo ha salido mal",
+    "unavailable": "No disponible"
+  },
+  "units": {
+    "file_one": "archivo",
+    "file_other": "archivos",
+    "job_one": "trabajo",
+    "job_other": "trabajos",
+    "page_one": "página",
+    "page_other": "páginas"
+  },
+  "errors": {
+    "desktopOnly": "Para imprimir se necesita la aplicación de escritorio",
+    "unknown": "Error desconocido"
+  },
+  "print": {
+    "sending_one": "Enviando {{count}} archivo a la impresora…",
+    "sending_other": "Enviando {{count}} archivos a la impresora…",
+    "queued_one": "{{count}} trabajo en cola",
+    "queued_other": "{{count}} trabajos en cola"
+  },
+  "errorBoundary": {
+    "title": "La aplicación ha encontrado un error inesperado",
+    "hint": "No se ha podido dibujar esta pantalla. Recargar suele resolverlo; los detalles están en la carpeta de registros.",
+    "detailsLabel": "Detalles del error"
+  }
+}

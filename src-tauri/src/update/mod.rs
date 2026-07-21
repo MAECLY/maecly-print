@@ -164,7 +164,9 @@ pub fn evaluate(current: &str, release: Option<ReleaseInfo>, checked_at: String)
 /// - `200` with a parseable release → `Ok(Some(_))`. A `200` whose body does
 ///   **not** parse is an error (`Err`), not `Ok(None)`: reporting "you're up to
 ///   date" off an unreadable payload would be a lie.
-/// - `404` → `Ok(None)`: the repo simply has no releases yet.
+/// - `404` → `Ok(None)`: the repo has no releases yet — or does not exist at
+///   all, which GitHub reports identically. [`fetch_latest`] disambiguates the
+///   two with [`interpret_repo_probe`].
 /// - `403` / `429` → rate-limit error.
 /// - anything else → an "unexpected status" error.
 pub fn interpret_response(status: u16, body: &str) -> Result<Option<ReleaseInfo>, String> {
@@ -180,6 +182,26 @@ pub fn interpret_response(status: u16, body: &str) -> Result<Option<ReleaseInfo>
             "github.com returned an unexpected status ({other})"
         )),
     }
+}
+
+/// Map the status of the `GET /repos/{owner}/{repo}` probe that disambiguates a
+/// `404` from `releases/latest`.
+///
+/// - `404` → the configured repository does not exist: the build's
+///   `repository` slug is wrong, and reporting "you're up to date" off that
+///   would hide a broken configuration behind reassuring copy.
+/// - anything else (including a rate-limited `403`) → inconclusive, treated as
+///   "the repo exists, it just has no releases yet", so a transient hiccup
+///   never turns a normal state into an error.
+pub fn interpret_repo_probe(status: u16) -> Result<(), String> {
+    if status == 404 {
+        return Err(
+            "the configured repository was not found on github.com — this build's \
+             repository URL is wrong"
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 /// Build the blocking HTTP agent, honouring a system proxy from the standard
@@ -202,19 +224,15 @@ fn build_agent() -> ureq::Agent {
     builder.build()
 }
 
-/// Fetch the latest published release for `owner/repo` from the GitHub API.
+/// GET a GitHub API URL and return `(status, body)`.
 ///
-/// A thin transport wrapper: it performs the request (a 10-second timeout keeps
-/// a hung request from blocking the off-thread command) and hands the status +
-/// body to [`interpret_response`], which owns the status→result mapping. Only a
-/// transport-level failure (DNS, connection) short-circuits here.
-pub fn fetch_latest(owner: &str, repo: &str) -> Result<Option<ReleaseInfo>, String> {
-    let agent = build_agent();
-    let url = format!("https://api.github.com/repos/{owner}/{repo}/releases/latest");
+/// A non-2xx status is delivered by ureq as an error carrying the response, so
+/// it is unwrapped here and callers see a single shape; only a transport-level
+/// failure (DNS, connection) is an `Err`.
+fn get_api(agent: &ureq::Agent, url: &str) -> Result<(u16, String), String> {
     let user_agent = format!("MaeclyPrint/{}", env!("CARGO_PKG_VERSION"));
-
     let response = agent
-        .get(&url)
+        .get(url)
         .set("User-Agent", &user_agent)
         .set("Accept", "application/vnd.github+json")
         .set("X-GitHub-Api-Version", "2022-11-28")
@@ -226,18 +244,43 @@ pub fn fetch_latest(owner: &str, repo: &str) -> Result<Option<ReleaseInfo>, Stri
             let body = resp
                 .into_string()
                 .map_err(|_| "could not read the response from github.com".to_string())?;
-            interpret_response(status, &body)
+            Ok((status, body))
         }
-        // A non-2xx status is delivered as an error carrying the response; read
-        // its status/body and route through the same pure mapping.
-        Err(ureq::Error::Status(code, resp)) => {
-            let body = resp.into_string().unwrap_or_default();
-            interpret_response(code, &body)
-        }
+        Err(ureq::Error::Status(code, resp)) => Ok((code, resp.into_string().unwrap_or_default())),
         Err(ureq::Error::Transport(_)) => {
             Err("could not reach github.com — check your connection".to_string())
         }
     }
+}
+
+/// Fetch the latest published release for `owner/repo` from the GitHub API.
+///
+/// A thin transport wrapper: it performs the request (a 10-second timeout keeps
+/// a hung request from blocking the off-thread command) and hands the status +
+/// body to [`interpret_response`], which owns the status→result mapping.
+///
+/// When that yields "no release" — a `404` — a second request probes the
+/// repository itself, because GitHub answers `404` both for "no releases yet"
+/// and for "no such repository". Without it a wrong `repository` slug would
+/// render as a reassuring "You're up to date" forever. The probe only runs on
+/// that one branch, so the happy path is still a single request.
+pub fn fetch_latest(owner: &str, repo: &str) -> Result<Option<ReleaseInfo>, String> {
+    let agent = build_agent();
+    let (status, body) = get_api(
+        &agent,
+        &format!("https://api.github.com/repos/{owner}/{repo}/releases/latest"),
+    )?;
+    let release = interpret_response(status, &body)?;
+
+    if release.is_none() {
+        let (probe_status, _) = get_api(
+            &agent,
+            &format!("https://api.github.com/repos/{owner}/{repo}"),
+        )?;
+        interpret_repo_probe(probe_status)?;
+    }
+
+    Ok(release)
 }
 
 #[cfg(test)]
@@ -246,40 +289,64 @@ mod tests {
 
     #[test]
     fn repo_slug_parses_the_configured_repository() {
-        // The crate's real repository resolves to maecly/maeclyprint.
+        // Pins the *real* repository the app ships against — `git remote -v` is
+        // https://github.com/MAECLY/maecly-print.git. This is the assertion that
+        // catches a `repository` field pointing at a repo that does not exist,
+        // which silently turns every update check into a 404 ("up to date") and
+        // every About/issue link into a dead end. Owner case is significant here
+        // only as documentation: GitHub itself is case-insensitive on slugs.
         assert_eq!(
             repo_slug(),
-            Some(("maecly".to_string(), "maeclyprint".to_string()))
+            Some(("MAECLY".to_string(), "maecly-print".to_string()))
+        );
+        assert_eq!(
+            env!("CARGO_PKG_REPOSITORY"),
+            "https://github.com/MAECLY/maecly-print",
+            "the frontend mirrors this URL in src/lib/repo.ts"
         );
     }
 
     #[test]
     fn parse_repo_slug_variants() {
         assert_eq!(
-            parse_repo_slug("https://github.com/maecly/maeclyprint"),
-            Some(("maecly".into(), "maeclyprint".into()))
+            parse_repo_slug("https://github.com/MAECLY/maecly-print"),
+            Some(("MAECLY".into(), "maecly-print".into()))
         );
         assert_eq!(
-            parse_repo_slug("https://github.com/maecly/maeclyprint.git/"),
-            Some(("maecly".into(), "maeclyprint".into()))
+            parse_repo_slug("https://github.com/MAECLY/maecly-print.git/"),
+            Some(("MAECLY".into(), "maecly-print".into()))
         );
+        // A trailing path (branch/tree links) still yields the bare slug.
+        assert_eq!(
+            parse_repo_slug("https://github.com/MAECLY/maecly-print/tree/main/docs"),
+            Some(("MAECLY".into(), "maecly-print".into()))
+        );
+        // Anything that is not a github.com repo URL is refused, so the caller
+        // reports "repository not configured" instead of building a bogus API
+        // path out of it.
         assert_eq!(parse_repo_slug("https://example.com/x/y"), None);
+        assert_eq!(
+            parse_repo_slug("https://gitlab.com/MAECLY/maecly-print"),
+            None
+        );
         assert_eq!(parse_repo_slug("not a url"), None);
         assert_eq!(parse_repo_slug("https://github.com/only-owner"), None);
+        assert_eq!(parse_repo_slug("https://github.com/"), None);
+        assert_eq!(parse_repo_slug(""), None);
     }
 
     #[test]
     fn parse_release_full_payload() {
         let json = r#"{
             "tag_name": "v0.2.0",
-            "html_url": "https://github.com/maecly/maeclyprint/releases/tag/v0.2.0",
+            "html_url": "https://github.com/MAECLY/maecly-print/releases/tag/v0.2.0",
             "body": "What is new - Faster printing"
         }"#;
         let r = parse_release(json).unwrap();
         assert_eq!(r.tag_name, "v0.2.0");
         assert_eq!(
             r.html_url,
-            "https://github.com/maecly/maeclyprint/releases/tag/v0.2.0"
+            "https://github.com/MAECLY/maecly-print/releases/tag/v0.2.0"
         );
         assert!(r.body.unwrap().contains("Faster printing"));
     }
@@ -352,6 +419,20 @@ mod tests {
         // Any other status is an unexpected-status error naming the code.
         let err = interpret_response(500, "").unwrap_err();
         assert!(err.contains("500"), "message names the status: {err}");
+    }
+
+    #[test]
+    fn interpret_repo_probe_only_fails_on_a_missing_repository() {
+        // A 404 on the repository itself means the configured slug is wrong;
+        // without this the same 404 would render as "You're up to date".
+        let err = interpret_repo_probe(404).unwrap_err();
+        assert!(err.contains("repository"), "message names the cause: {err}");
+
+        // Everything else is inconclusive and must not manufacture an error out
+        // of a repository that simply has no releases yet.
+        assert!(interpret_repo_probe(200).is_ok());
+        assert!(interpret_repo_probe(403).is_ok()); // rate limited
+        assert!(interpret_repo_probe(500).is_ok()); // GitHub hiccup
     }
 
     #[test]

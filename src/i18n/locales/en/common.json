@@ -1,0 +1,40 @@
+{
+  "actions": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close",
+    "done": "Done",
+    "retry": "Retry",
+    "delete": "Delete",
+    "reload": "Reload the app",
+    "openLogsFolder": "Open the logs folder"
+  },
+  "status": {
+    "loading": "Loading…",
+    "error": "Something went wrong",
+    "unavailable": "Unavailable"
+  },
+  "units": {
+    "file_one": "file",
+    "file_other": "files",
+    "job_one": "job",
+    "job_other": "jobs",
+    "page_one": "page",
+    "page_other": "pages"
+  },
+  "errors": {
+    "desktopOnly": "Printing requires the desktop app",
+    "unknown": "Unknown error"
+  },
+  "print": {
+    "sending_one": "Sending {{count}} file to printer…",
+    "sending_other": "Sending {{count}} files to printer…",
+    "queued_one": "{{count}} job queued",
+    "queued_other": "{{count}} jobs queued"
+  },
+  "errorBoundary": {
+    "title": "The app hit an unexpected error",
+    "hint": "This screen could not be rendered. Reloading usually clears it; the logs folder has the details.",
+    "detailsLabel": "Error details"
+  }
+}

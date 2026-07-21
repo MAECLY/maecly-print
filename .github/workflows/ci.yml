@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Both extra triggers exist for the advisory `ignored-tests` lane at the
+  # bottom of this file: it is the only job that runs on a schedule, and the
+  # manual trigger lets a maintainer run it on demand.
+  workflow_dispatch:
+  schedule:
+    # Mondays 05:00 UTC.
+    - cron: '0 5 * * 1'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,6 +20,7 @@ concurrency:
 jobs:
   frontend:
     name: Frontend (lint + typecheck + test)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,8 +44,21 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test (with V8 coverage)
-        run: pnpm test:coverage
+      # Coverage gate. The thresholds sit just under today's measured numbers
+      # (lines/statements 61.4%, functions 71.4%, branches 79.8%) so this is
+      # green on the current tree while still failing on a real regression.
+      # RAISE THEM as the coverage campaign lands tests — the documented target
+      # is 60% lines (docs/08-development/testing-strategy.md) and the untested
+      # screens (QueueViews/*, auxiliary/OnboardingFlow) are the next wins.
+      # They live on the command line, not in vite.config.ts, so the gate stays
+      # CI-owned; fold them into `test.coverage.thresholds` once they settle.
+      - name: Test (with V8 coverage gate)
+        run: >-
+          pnpm test:coverage
+          --coverage.thresholds.lines=55
+          --coverage.thresholds.statements=55
+          --coverage.thresholds.functions=65
+          --coverage.thresholds.branches=75
 
       - name: Upload coverage report
         if: always()
@@ -49,6 +70,7 @@ jobs:
 
   backend:
     name: Backend (Rust)
+    if: github.event_name != 'schedule'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,11 +99,25 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
+      # Also the bindings drift gate: `cargo test` regenerates
+      # src/ipc/bindings.ts and tests/ipc_surface.rs fails the run when the
+      # committed copy was stale.
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+      # Belt-and-braces net for the one case the test cannot see (a filtered
+      # run that never regenerates): the working tree must be unchanged.
+      - name: Verify generated bindings are committed
+        shell: bash
+        run: |
+          if ! git diff --exit-code -- src/ipc/bindings.ts; then
+            echo "::error file=src/ipc/bindings.ts::Generated bindings are stale. Run 'UPDATE_BINDINGS=1 cargo test --manifest-path src-tauri/Cargo.toml' and commit src/ipc/bindings.ts."
+            exit 1
+          fi
+
   macos:
     name: macOS (CUPS enumeration + frontend)
+    if: github.event_name != 'schedule'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -122,6 +158,13 @@ jobs:
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+      - name: Verify generated bindings are committed
+        run: |
+          if ! git diff --exit-code -- src/ipc/bindings.ts; then
+            echo "::error file=src/ipc/bindings.ts::Generated bindings are stale. Run 'UPDATE_BINDINGS=1 cargo test --manifest-path src-tauri/Cargo.toml' and commit src/ipc/bindings.ts."
+            exit 1
+          fi
+
       - name: Frontend test
         run: pnpm test
 
@@ -155,8 +198,93 @@ jobs:
             echo "App did not log app_started within 60s"; exit 1
           fi
 
+  rust-coverage:
+    name: Rust coverage (cargo-llvm-cov)
+    if: github.event_name != 'schedule'
+    # macOS, not Windows: the CUPS backend compiles and runs here, and the
+    # runner needs no extra system libraries (an ubuntu lane would have to
+    # install webkit2gtk for the Tauri crate).
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-llvmcov-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      # Line coverage measured on this lane today: 80.4% (regions 82.4%,
+      # functions 67.8%). The threshold matches the 70% documented target and
+      # keeps headroom so an unrelated PR is not blocked by noise.
+      # RAISE IT as the coverage campaign progresses; queue/mod.rs (66%) and
+      # update/mod.rs (78%) are the thinnest modules.
+      - name: cargo llvm-cov
+        run: >-
+          cargo llvm-cov --manifest-path src-tauri/Cargo.toml
+          --lcov --output-path lcov.info
+          --fail-under-lines 70
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage
+          path: lcov.info
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The two `#[ignore]`d Rust tests are deliberately kept off the critical
+  # path: `update::tests::live_github_release_check` hits api.github.com (rate
+  # limits and third-party downtime must not fail a merge) and
+  # `platform::cups::tests::add_and_remove_real_queue` creates a real CUPS
+  # queue via `lpadmin`. They run weekly and on demand, and never gate.
+  ignored-tests:
+    name: Ignored tests (network + real CUPS, advisory)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-ignored-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # `-- --ignored` runs *only* the ignored tests; the rest already ran in
+      # the blocking backend/macos lanes.
+      - name: cargo test -- --ignored
+        run: cargo test --manifest-path src-tauri/Cargo.toml -- --ignored
+
   build:
     name: Tauri build (unsigned)
+    if: github.event_name != 'schedule'
     needs: [frontend, backend]
     runs-on: windows-latest
     steps:
@@ -241,6 +369,7 @@ jobs:
 
   e2e:
     name: E2E (WebdriverIO + tauri-driver)
+    if: github.event_name != 'schedule'
     needs: [frontend, backend]
     runs-on: windows-latest
     timeout-minutes: 35
