@@ -15,8 +15,10 @@
  *   scanned for batches whose jobs have all reached a terminal state, and the
  *   ones that were not complete a moment ago produce a summary toast ("12 of
  *   12 files printed successfully"), or an actionable failure toast with a way
- *   into the job log. The snapshot loaded at `init()` only SEEDS the
- *   already-complete set, so yesterday's history never re-announces itself.
+ *   into the job log. The FIRST snapshot of a session only SEEDS the
+ *   already-complete set — whether it came from `init()`'s `queue_status` or
+ *   from an event that beat it — so yesterday's history never re-announces
+ *   itself.
  * - **The "Clear done" undo window (NFR-032).** `requestClearDone()` hides the
  *   finished jobs immediately and only calls `clear_done` five seconds later,
  *   so `undoClearDone()` can put them back without needing the backend to
@@ -282,6 +284,17 @@ export const useQueueStore = create<QueueState>()((set, get) => {
   let clearTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
+   * Whether some snapshot — from `queue_status` OR from an event that beat it
+   * — has already been adopted. The FIRST one only SEEDS `notifiedBatches`:
+   * every batch it contains finished before this session was watching, so
+   * announcing it would replay history. Read off the state rather than kept in
+   * a flag so it cannot drift from what the store actually holds.
+   */
+  function seeded(): boolean {
+    return get().snapshot !== null;
+  }
+
+  /**
    * Merge advisory progress into the matching job. Unknown ids are ignored,
    * and so are jobs that are no longer running: a throttled progress event can
    * arrive after the job was paused/cancelled, and re-attaching an active
@@ -363,19 +376,37 @@ export const useQueueStore = create<QueueState>()((set, get) => {
       // Subscribe BEFORE fetching the snapshot so a transition emitted while
       // the fetch is in flight is not lost. Events carry the full
       // authoritative snapshot, so an event that lands first simply makes the
-      // (older) fetch result redundant.
-      let eventSeen = false;
+      // (older) fetch result redundant — and, because it is then the first
+      // snapshot this session sees, it seeds instead of announcing.
       if (!get().subscribed) {
+        // Registered listeners, so a half-done subscription can be undone. A
+        // listener left alive with `subscribed: false` would be re-registered
+        // by the next `init()` and every event would be handled twice.
+        const unlisten: (() => void)[] = [];
         try {
-          await events.queueUpdated.listen((ev) => {
-            eventSeen = true;
-            adopt(ev.payload, true);
-          });
-          await events.jobProgressEvent.listen((ev) => {
-            applyProgress(ev.payload.id, ev.payload.phase, ev.payload.percent);
-          });
+          unlisten.push(
+            await events.queueUpdated.listen((ev) => {
+              adopt(ev.payload, seeded());
+            }),
+          );
+          unlisten.push(
+            await events.jobProgressEvent.listen((ev) => {
+              applyProgress(
+                ev.payload.id,
+                ev.payload.phase,
+                ev.payload.percent,
+              );
+            }),
+          );
           set({ subscribed: true });
         } catch (e) {
+          for (const off of unlisten) {
+            try {
+              off();
+            } catch (offError) {
+              console.error('queue event unsubscribe failed', offError);
+            }
+          }
           // The snapshot below still works; without events the view is a
           // one-shot, so surface it rather than pretending we're live.
           console.error('queue event subscription failed', e);
@@ -387,9 +418,10 @@ export const useQueueStore = create<QueueState>()((set, get) => {
 
       try {
         const snap = await queueStatusCmd();
-        if (eventSeen) {
+        if (seeded()) {
           // A fresher full snapshot already arrived via the event stream;
-          // applying the older fetch result would rewind the UI.
+          // applying the older fetch result would rewind the UI. It also
+          // already did the seeding, so nothing here may announce.
           set({ status: 'ready' });
         } else {
           // `announce: false` — everything terminal in the first snapshot
@@ -397,7 +429,7 @@ export const useQueueStore = create<QueueState>()((set, get) => {
           adopt(snap, false);
         }
       } catch (e) {
-        if (!eventSeen) set({ status: 'error', error: message(e) });
+        if (!seeded()) set({ status: 'error', error: message(e) });
       }
     },
 

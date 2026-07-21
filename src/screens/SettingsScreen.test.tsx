@@ -346,18 +346,20 @@ describe('SettingsScreen', () => {
     expect(sent.updater.check_on_startup).toBe(false);
   });
 
-  it('regression: the updates section does not claim a startup check that does not exist', async () => {
+  it('FR-080: the updates section describes the startup check it actually performs', async () => {
     mockSettings();
     renderSettings();
     await waitReady();
 
-    // The old hint promised a delayed launch-time check; nothing performs one.
+    // This assertion has been inverted once already. It first guarded the
+    // opposite claim, because the toggle was persisted and nothing acted on
+    // it; FR-080 is implemented now, so the honest text is the one that states
+    // the timing. Naming both numbers matters: this is the sentence a
+    // privacy-minded user reads before deciding.
     expect(
-      screen.queryByText(/Delayed a few seconds/i),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByText(/There is no launch-time check yet/),
+      screen.getByText(/30 seconds after launch, at most once every 24 hours/i),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/no launch-time check/i)).not.toBeInTheDocument();
   });
 
   it('persists the crash-reports consent toggle', async () => {

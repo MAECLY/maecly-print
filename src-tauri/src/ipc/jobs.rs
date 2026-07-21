@@ -131,7 +131,12 @@ pub async fn print_files(
 ///
 /// The message names the file: one range covers the whole batch, so "which one?"
 /// is the first thing the user needs to know.
-fn check_ranges_fit_documents(ranges: &str, files: &[String]) -> Result<(), String> {
+///
+/// `pub(crate)` because the headless surface calls exactly this function
+/// (`cli::print::check_ranges`): `maeclyprint print --range 500-600` used to
+/// spool zero pages in silence where the dialog refused the same range, and two
+/// copies of this rule would have drifted apart again.
+pub(crate) fn check_ranges_fit_documents(ranges: &str, files: &[String]) -> Result<(), String> {
     let spans = crate::engine::pagerange::parse(ranges)?;
     for file in files {
         let path = Path::new(file);
@@ -365,21 +370,13 @@ pub async fn inspect_files(paths: Vec<String>) -> Result<Vec<FileInfo>, IpcError
 
 /// The exact command MaeclyPrint would run for `req` (honesty policy: no hidden
 /// flags). Resolves the printer name the same way the dispatcher will —
-/// requested, else the app default, else the OS default, else a
-/// `<default printer>` placeholder — and previews against the first file's name.
+/// requested, else the file-type routing rule, else the app default, else the OS
+/// default, else a `<default printer>` placeholder — and previews against the
+/// first file's name.
 #[tauri::command]
 #[specta::specta]
 pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
     run_blocking(move || {
-        let printer = resolve_preview_printer(
-            req.settings.printer.as_deref(),
-            crate::settings::Config::load_or_default()
-                .printers
-                .default_printer
-                .as_deref(),
-            crate::platform::default_printer().ok().flatten().as_deref(),
-        );
-
         let first = req.files.first();
         let display = first
             .map(|f| {
@@ -389,6 +386,13 @@ pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
                     .unwrap_or_else(|| f.clone())
             })
             .unwrap_or_else(|| "document.pdf".to_string());
+
+        let printer = resolve_preview_printer(
+            &crate::settings::Config::load_or_default().printers,
+            req.settings.printer.as_deref(),
+            &display,
+            crate::platform::default_printer().ok().flatten().as_deref(),
+        );
 
         // Preview what will really run for THIS file: the dispatcher narrows the
         // settings per input (page ranges are PDF-only), so previewing the raw
@@ -406,24 +410,39 @@ pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
     .await
 }
 
-/// The printer name the preview should show, following the dispatcher's own
-/// chain: what the request asked for, else the app default, else the OS default,
-/// else a visible placeholder. Empty strings count as "not set" at every step —
-/// a blank `default_printer` in `config.toml` must not win over the OS.
+/// The printer name the preview should show.
 ///
-/// Pure (all three inputs are arguments) so the precedence can be tested without
-/// a config file or an installed printer.
+/// The app-level part of the chain is **not** re-implemented here: it delegates
+/// to [`crate::ipc::printers::resolve_app_printer`], the same function
+/// `queue::dispatcher::EngineRunner::resolve_printer` and `cli::print` call, so
+/// the panel and the spooler can never disagree. That matters because the chain
+/// has a step that is easy to forget: a file-type routing rule (`.pdf → EPSON`)
+/// sits *between* the explicit request and the app default, and a preview that
+/// skipped it showed `lp -d HL_L2350` for a job that then printed on the EPSON —
+/// precisely the drift this panel exists to prevent. `file_name` is what makes
+/// the rule apply, so the preview is per-file, like the dispatch is.
+///
+/// Only the last two steps are local: the OS default (not this layer's business
+/// to read, hence an argument) and a visible placeholder when even that is
+/// missing. Empty strings count as "not set" throughout.
+///
+/// Pure (prefs and both defaults are arguments) so the precedence can be tested
+/// without a config file or an installed printer.
 fn resolve_preview_printer(
+    prefs: &crate::settings::PrinterPrefs,
     requested: Option<&str>,
-    app_default: Option<&str>,
+    file_name: &str,
     os_default: Option<&str>,
 ) -> String {
-    [requested, app_default, os_default]
-        .into_iter()
-        .flatten()
-        .find(|s| !s.is_empty())
-        .unwrap_or("<default printer>")
-        .to_string()
+    crate::ipc::printers::resolve_app_printer(prefs, requested, file_name)
+        .or_else(|| {
+            os_default
+                .filter(|s| !s.is_empty())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "<default printer>".to_string())
 }
 
 /// Classify one path for [`inspect_files`]. `max_mb` is the current size ceiling
@@ -727,33 +746,81 @@ mod tests {
 
     // -- preview printer resolution ---------------------------------------
 
+    fn prefs(default: Option<&str>, routes: &[(&str, &str)]) -> crate::settings::PrinterPrefs {
+        let mut prefs = crate::settings::PrinterPrefs {
+            default_printer: default.map(str::to_string),
+            ..Default::default()
+        };
+        for (ext, printer) in routes {
+            prefs
+                .routes
+                .insert((*ext).to_string(), (*printer).to_string());
+        }
+        prefs
+    }
+
     #[test]
     fn preview_printer_follows_request_then_app_then_os() {
+        let p = prefs(Some("Office"), &[]);
         assert_eq!(
-            resolve_preview_printer(Some("Front Desk"), Some("Office"), Some("OS")),
+            resolve_preview_printer(&p, Some("Front Desk"), "a.pdf", Some("OS")),
             "Front Desk"
         );
         assert_eq!(
-            resolve_preview_printer(None, Some("Office"), Some("OS")),
+            resolve_preview_printer(&p, None, "a.pdf", Some("OS")),
             "Office"
         );
-        assert_eq!(resolve_preview_printer(None, None, Some("OS")), "OS");
+        let empty = prefs(None, &[]);
         assert_eq!(
-            resolve_preview_printer(None, None, None),
+            resolve_preview_printer(&empty, None, "a.pdf", Some("OS")),
+            "OS"
+        );
+        assert_eq!(
+            resolve_preview_printer(&empty, None, "a.pdf", None),
             "<default printer>"
         );
     }
 
     #[test]
     fn preview_printer_treats_empty_strings_as_unset() {
+        let p = prefs(Some(""), &[]);
         assert_eq!(
-            resolve_preview_printer(Some(""), Some(""), Some("OS")),
+            resolve_preview_printer(&p, Some(""), "a.pdf", Some("OS")),
             "OS",
             "a blank config value must not beat the OS default"
         );
         assert_eq!(
-            resolve_preview_printer(Some(""), Some(""), Some("")),
+            resolve_preview_printer(&p, Some(""), "a.pdf", Some("")),
             "<default printer>"
+        );
+    }
+
+    /// The panel used to skip file-type routing entirely, so a ".pdf → EPSON"
+    /// rule previewed `lp -d HL_L2350` for a job that then printed on the EPSON.
+    /// The preview must follow the *same* chain the dispatcher does, per file.
+    #[test]
+    fn fr_preview_printer_honours_file_type_routing_like_the_dispatcher() {
+        let p = prefs(Some("HL_L2350"), &[(".pdf", "EPSON_L15160")]);
+
+        // The routed type previews (and prints) on the routed printer.
+        assert_eq!(
+            resolve_preview_printer(&p, None, "Q3 Report.pdf", Some("OS")),
+            "EPSON_L15160"
+        );
+        // A type with no rule still falls through to the app default.
+        assert_eq!(
+            resolve_preview_printer(&p, None, "notes.docx", Some("OS")),
+            "HL_L2350"
+        );
+        // An explicit choice still beats the rule, exactly as at dispatch.
+        assert_eq!(
+            resolve_preview_printer(&p, Some("Front Desk"), "Q3 Report.pdf", Some("OS")),
+            "Front Desk"
+        );
+        // And this is the very chain the print path uses — not a copy of it.
+        assert_eq!(
+            crate::ipc::printers::resolve_app_printer(&p, None, "Q3 Report.pdf").as_deref(),
+            Some("EPSON_L15160")
         );
     }
 }

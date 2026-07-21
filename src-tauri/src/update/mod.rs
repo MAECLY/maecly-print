@@ -385,6 +385,33 @@ impl UpdateState {
     pub fn save(&self) -> std::io::Result<()> {
         self.save_to(&state_path())
     }
+
+    /// Apply `mutate` to the state **as it is on disk right now** and persist
+    /// the result, returning it.
+    ///
+    /// This is the only safe way to change one field of the file, because the
+    /// GUI and the CLI are two processes writing it: the caller that loads a
+    /// copy, does something slow (the launch-time check waits on a network
+    /// round-trip that takes seconds) and then saves its stale copy silently
+    /// undoes whatever the other process wrote in between — a "skip this
+    /// version" chosen during that window used to vanish.
+    ///
+    /// Re-reading immediately before the write is deliberately not a lock: the
+    /// two fields are owned by different flows (`last_check_at` by a check,
+    /// `skipped_version` by the user), so a field-wise merge loses nothing a
+    /// lock would have saved, and the file is bookkeeping the app can always
+    /// rebuild — a stale lock file would be a worse failure than one extra
+    /// update check. The remaining window (re-read → rename) is microseconds
+    /// wide and can only lose a write to the *same* field.
+    pub fn update_at<F>(path: &Path, mutate: F) -> std::io::Result<UpdateState>
+    where
+        F: FnOnce(&mut UpdateState),
+    {
+        let mut state = Self::load_from(path);
+        mutate(&mut state);
+        state.save_to(path)?;
+        Ok(state)
+    }
 }
 
 /// Whether enough time has passed since `last_check_at` for another check
@@ -464,7 +491,11 @@ fn same_version(a: &str, b: &str) -> bool {
 ///
 /// The state file is stamped with `now` whenever a check actually completed,
 /// including one that found nothing: the throttle counts *checks*, not
-/// findings, or an up-to-date app would re-check on every launch.
+/// findings, or an up-to-date app would re-check on every launch. The stamp
+/// goes through [`UpdateState::update_at`], so the seconds this function spends
+/// inside `fetch` cannot swallow a "skip this version" the user chose from the
+/// About screen meanwhile — and it is the state as re-read, not the copy loaded
+/// before the network call, that decides whether to notify.
 pub fn run_startup_check_with<F>(
     check_on_startup: bool,
     state_path: &Path,
@@ -475,7 +506,7 @@ pub fn run_startup_check_with<F>(
 where
     F: FnOnce() -> Result<Option<ReleaseInfo>, String>,
 {
-    let mut state = UpdateState::load_from(state_path);
+    let state = UpdateState::load_from(state_path);
 
     if !should_check_on_startup(check_on_startup, &state, now) {
         return None;
@@ -495,12 +526,24 @@ where
         .format(&Rfc3339)
         .unwrap_or_else(|_| crate::queue::job::now_rfc3339());
     let check = evaluate(current, release, checked_at);
-    state.last_check_at = Some(check.checked_at.clone());
-    if let Err(e) = state.save_to(state_path) {
-        tracing::warn!(event = "update_state_save_failed", error = %e);
-    }
 
-    should_notify(&check, state.skipped_version.as_deref()).then_some(check)
+    // Re-read before writing: `state` above was loaded before `fetch`, and the
+    // user may have skipped a version from the About screen while the request
+    // was in flight. Saving the pre-fetch copy would put that choice back to
+    // whatever it was seconds ago.
+    let latest_state = match UpdateState::update_at(state_path, |s| {
+        s.last_check_at = Some(check.checked_at.clone());
+    }) {
+        Ok(saved) => saved,
+        Err(e) => {
+            tracing::warn!(event = "update_state_save_failed", error = %e);
+            // The stamp is lost (the next launch re-checks), but the skip must
+            // still be honoured, so fall back to the freshest copy we can read.
+            UpdateState::load_from(state_path)
+        }
+    };
+
+    should_notify(&check, latest_state.skipped_version.as_deref()).then_some(check)
 }
 
 /// FR-080 launch-time check against the real config, state file and network.
@@ -857,6 +900,71 @@ mod tests {
             ..available_check("v1.2.0")
         };
         assert!(!should_notify(&unnamed, None));
+    }
+
+    #[test]
+    fn update_at_merges_into_what_is_on_disk_now() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("update-state.json");
+
+        // Someone else wrote a skip while we were holding an older copy.
+        UpdateState {
+            last_check_at: None,
+            skipped_version: Some("v1.2.0".to_string()),
+        }
+        .save_to(&path)
+        .unwrap();
+
+        let saved = UpdateState::update_at(&path, |s| {
+            s.last_check_at = Some("2026-07-20T12:00:00Z".into())
+        })
+        .unwrap();
+        assert_eq!(saved.skipped_version.as_deref(), Some("v1.2.0"));
+        assert_eq!(UpdateState::load_from(&path), saved);
+    }
+
+    #[test]
+    fn fr_084_a_skip_chosen_during_the_startup_fetch_is_not_lost() {
+        // The defect: the startup thread loaded the state, spent seconds on a
+        // network call, then saved its stale copy — undoing a "skip this
+        // version" the user chose from the About screen in that window.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("update-state.json");
+        UpdateState::default().save_to(&path).unwrap();
+
+        let notified = run_startup_check_with(
+            true,
+            &path,
+            at("2026-07-20T12:00:00Z"),
+            "1.0.0",
+            // Stands in for the seconds the real fetch takes: the other process
+            // writes the skip while this call is inside `fetch`.
+            || {
+                UpdateState::update_at(&path, |s| s.skipped_version = Some("v1.2.0".into()))
+                    .unwrap();
+                Ok(Some(ReleaseInfo {
+                    tag_name: "v1.2.0".to_string(),
+                    html_url: "https://x/y".to_string(),
+                    body: None,
+                }))
+            },
+        );
+
+        assert!(
+            notified.is_none(),
+            "the version the user just skipped must not be announced"
+        );
+        let stored = UpdateState::load_from(&path);
+        assert_eq!(
+            stored.skipped_version.as_deref(),
+            Some("v1.2.0"),
+            "the skip survived the check that overlapped it"
+        );
+        assert_eq!(
+            stored.last_check_at.as_deref(),
+            Some("2026-07-20T12:00:00Z"),
+            "…and the check still stamped its own field"
+        );
     }
 
     #[test]

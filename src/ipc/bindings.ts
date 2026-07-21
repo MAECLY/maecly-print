@@ -328,8 +328,9 @@ async expandFolders(paths: string[], scan: FolderScan) : Promise<Result<FolderEx
 /**
  * The exact command MaeclyPrint would run for `req` (honesty policy: no hidden
  * flags). Resolves the printer name the same way the dispatcher will —
- * requested, else the app default, else the OS default, else a
- * `<default printer>` placeholder — and previews against the first file's name.
+ * requested, else the file-type routing rule, else the app default, else the OS
+ * default, else a `<default printer>` placeholder — and previews against the
+ * first file's name.
  */
 async previewCommand(req: PrintRequest) : Promise<Result<string, IpcError>> {
     try {
@@ -1055,7 +1056,26 @@ copies: number; paper_size: PaperSize; orientation: Orientation; scaling: Scalin
  * *syntax* is validated by the engine's parser, not here — see
  * [`JobSettings::validate`].
  */
-page_ranges: string | null }
+page_ranges: string | null; 
+/**
+ * Print-quality preset. Reaches the spooler as CUPS's
+ * `print-quality`/`cupsPrintQuality`; SumatraPDF has no equivalent switch,
+ * which [`crate::engine::print::sumatra::quality_note`] states out loud
+ * instead of pretending otherwise.
+ * 
+ * `#[serde(default)]`: a `queue.json` written before this field existed
+ * must still load (FR-103), reading as [`Quality::Normal`].
+ */
+quality?: Quality; 
+/**
+ * Input tray / bin **as the driver names it** (`"Tray 2"`, `"Drawer 1"`),
+ * or `None` for whatever the printer defaults to. Bin names are
+ * model-specific, so this is a free string — it is passed through, never
+ * interpreted.
+ * 
+ * `#[serde(default)]` for the same forward-migration reason as `quality`.
+ */
+tray?: string | null }
 /**
  * Lifecycle state of a single print job.
  * 

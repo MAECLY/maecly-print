@@ -27,7 +27,7 @@
     },
     "launchMinimized": {
       "label": "Iniciar minimizada",
-      "hint": "Abre la ventana minimizada. Se aplica en el próximo inicio."
+      "hint": "Se guarda, pero todavía no se aplica: la ventana sigue abriéndose con normalidad."
     }
   },
   "printing": {
@@ -67,9 +67,9 @@
     "channelNote": "La elección de canal tendrá efecto cuando llegue el actualizador automático (M4).",
     "checkOnStartup": {
       "label": "Comprobar al iniciar",
-      "hint": "Tu elección se guarda para cuando exista la comprobación."
+      "hint": "Pregunta a GitHub por la última versión 30 segundos después de iniciar, como mucho una vez cada 24 horas."
     },
-    "startupNote": "Todavía no hay comprobación al iniciar: llegará con el actualizador automático (M4). Mientras tanto, busca actualizaciones desde la pantalla Acerca de."
+    "startupNote": "La comprobación al iniciar solo lee el número de la última versión publicada; no se envía nada sobre ti ni sobre tus documentos, y MaeclyPrint nunca instala nada por su cuenta: te avisa y te enlaza las notas de la versión. Si la desactivas, al iniciar no se hace ninguna petición; podrás buscar actualizaciones cuando quieras desde la pantalla Acerca de."
   },
   "privacy": {
     "crashReports": {

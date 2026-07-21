@@ -1,5 +1,5 @@
 /** Shared helpers for the E2E specs (not a spec file — no `*.spec.ts` glob). */
-import { $ } from '@wdio/globals';
+import { $, browser } from '@wdio/globals';
 
 /**
  * A fresh app launch shows the onboarding overlay (zIndex above the shell).
@@ -22,4 +22,55 @@ export async function navigateTo(label: string): Promise<void> {
   const item = await $(`button*=${label}`);
   await item.waitForClickable({ timeout: 10_000 });
   await item.click();
+}
+
+/**
+ * Pick a UI language on the Settings screen by its locale code.
+ *
+ * Driven by the option *values*, not by the visible labels, so it works
+ * whichever language the app is currently showing — which is what a cleanup
+ * hook needs after a test that switched to Spanish and then failed.
+ */
+export async function selectLanguage(locale: string): Promise<void> {
+  await browser.execute((wanted: string) => {
+    const selects = Array.from(document.querySelectorAll('select'));
+    const language = selects.find((s) =>
+      Array.from(s.options).some((o) => o.value === wanted),
+    );
+    if (!language) throw new Error('language select not found');
+    language.value = wanted;
+    language.dispatchEvent(new Event('change', { bubbles: true }));
+  }, locale);
+}
+
+/**
+ * Put the settings this suite touches back to the shipped defaults.
+ *
+ * These specs drive the *real built binary*, so they write the real per-user
+ * `config.toml` of whoever runs them — there is no config-path override to
+ * point at a temp directory (see `e2e/README.md`). Restoring is therefore not
+ * politeness but isolation: the next spec, and the next run on the same
+ * machine, start from a known state.
+ *
+ * Call it from an `afterEach`, never from the body of a test: a test that fails
+ * halfway would otherwise leave the config dirty for everything after it. It
+ * follows that this function must survive being called from any screen and in
+ * any language, and must never throw — a cleanup failure would mask the real
+ * failure the hook is running after.
+ */
+export async function restoreDefaultSettings(): Promise<void> {
+  try {
+    await dismissOnboarding();
+    await navigateTo('Settings');
+    // Language first: the appearance controls below are labelled in whatever
+    // language is active, and "System"/"Comfortable" are the English ones.
+    await selectLanguage('en-US');
+    for (const label of ['System', 'Comfortable']) {
+      const control = await $(`button*=${label}`);
+      if (await control.isExisting()) await control.click();
+    }
+  } catch (error) {
+    // Reported, not thrown: the test's own verdict must survive the cleanup.
+    console.warn('could not restore the default settings:', error);
+  }
 }

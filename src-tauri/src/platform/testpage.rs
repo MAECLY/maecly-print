@@ -1,6 +1,7 @@
 //! Branded MaeclyPrint test page — generated as a PDF so it carries the real
 //! logo, brand colors, and typography, and prints with the user's configured
-//! default paper/tray for the printer.
+//! default paper for the printer — plus its tray where the platform's spool path
+//! can actually select one ([`TRAY_IS_APPLIED`]).
 //!
 //! The page is **laid out on a 210×297 mm design grid** and then uniformly
 //! scaled and centered onto the media the user actually configured
@@ -15,8 +16,30 @@ use printpdf::*;
 pub struct TestPageInfo {
     pub printer: String,
     pub paper: Option<String>,
+    /// The configured tray override for this printer, or `None` for "printer
+    /// default". Whether it is *printed* depends on [`TRAY_IS_APPLIED`]: the
+    /// sheet only claims a tray on platforms whose test-page path really sends
+    /// one.
     pub tray: Option<String>,
 }
+
+/// Does this platform's test-page path actually select the configured input
+/// tray on the device?
+///
+/// - **Unix (CUPS):** yes — `platform::cups::print_test_page` passes
+///   `InputSlot=<tray>` to `lp`.
+/// - **Windows (SumatraPDF):** no — `platform::windows::print_test_page` builds
+///   its [`crate::queue::job::JobSettings`] from the paper override alone and
+///   leaves `tray` unset, so nothing reaches `-print-settings bin=`. The backend
+///   itself *can* express a bin now (`engine::print::sumatra::bin_token`); until
+///   the Windows path forwards the override, the page must not say a tray was
+///   used, because none was.
+///
+/// The sheet is a physical artifact: once it is out of the printer, a wrong line
+/// on it can never be corrected. So it states only what the code on this
+/// platform genuinely does — the "PRINTED WITH YOUR MAECLYPRINT DEFAULTS" header
+/// is a claim about this print, not a listing of preferences.
+pub const TRAY_IS_APPLIED: bool = cfg!(unix);
 
 // --- Brand palette (from src/styles/tokens.css) ---
 type Rgb8 = (u8, u8, u8);
@@ -253,6 +276,16 @@ fn footer_line() -> String {
     format!("MaeclyPrint   |   {repo}   |   GPLv3")
 }
 
+/// What the sheet's `Tray` row may honestly say: the configured bin name only
+/// where the spool path really selects it ([`TRAY_IS_APPLIED`]), and otherwise
+/// "printer default" — which is exactly what the device did with the sheet.
+fn tray_row_value(configured: Option<&str>) -> String {
+    match configured.filter(|t| TRAY_IS_APPLIED && !t.trim().is_empty()) {
+        Some(tray) => tray.trim().to_string(),
+        None => "printer default".to_string(),
+    }
+}
+
 /// Render the branded test page to PDF bytes, sized to the configured media.
 pub fn render(info: &TestPageInfo) -> Vec<u8> {
     let (page_w, page_h) = media_size_mm(info.paper.as_deref());
@@ -331,7 +364,7 @@ pub fn render(info: &TestPageInfo) -> Vec<u8> {
     );
     let printer = ascii(&info.printer);
     let paper = ascii(info.paper.as_deref().unwrap_or("printer default"));
-    let tray = ascii(info.tray.as_deref().unwrap_or("printer default"));
+    let tray = ascii(&tray_row_value(info.tray.as_deref()));
     for (i, (label, value)) in [
         ("Printer", printer.as_str()),
         ("Paper", paper.as_str()),
@@ -424,6 +457,29 @@ mod tests {
         });
         assert!(pdf.starts_with(b"%PDF"), "output should be a PDF");
         assert!(pdf.len() > 1500, "page should have content");
+    }
+
+    /// The sheet prints "PRINTED WITH YOUR MAECLYPRINT DEFAULTS" above the
+    /// settings box, so every row under it has to be true of *this* print. The
+    /// Windows path does not send a tray at all, and the page used to claim
+    /// "Tray: Tray 2" anyway — a lie on paper, which nothing can retract.
+    #[test]
+    fn fr_tray_row_only_claims_a_tray_the_platform_really_applies() {
+        assert_eq!(TRAY_IS_APPLIED, cfg!(unix));
+
+        let claimed = tray_row_value(Some("  Tray 2 "));
+        if TRAY_IS_APPLIED {
+            assert_eq!(claimed, "Tray 2", "CUPS sends InputSlot, so it may say so");
+        } else {
+            assert_eq!(
+                claimed, "printer default",
+                "no bin was sent, so the sheet must not name one"
+            );
+        }
+
+        // No override configured, or a blank one: "printer default" everywhere.
+        assert_eq!(tray_row_value(None), "printer default");
+        assert_eq!(tray_row_value(Some("   ")), "printer default");
     }
 
     #[test]

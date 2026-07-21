@@ -14,6 +14,12 @@ use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+/// Print-quality preset. Re-exported from [`crate::profiles`] rather than
+/// redeclared: a profile's `quality` reaches the engine unchanged, so one
+/// vocabulary (`"draft"`, `"normal"`, `"high"`) covers the profile store, the
+/// wire types and the backends.
+pub use crate::profiles::Quality;
+
 /// On-disk schema version for `queue.json`. Bumped only on a
 /// forward-incompatible change; [`crate::queue::persist::load`] refuses to read
 /// a file whose version is greater than this.
@@ -162,6 +168,23 @@ pub struct JobSettings {
     /// *syntax* is validated by the engine's parser, not here — see
     /// [`JobSettings::validate`].
     pub page_ranges: Option<String>,
+    /// Print-quality preset. Reaches the spooler as CUPS's
+    /// `print-quality`/`cupsPrintQuality`; SumatraPDF has no equivalent switch,
+    /// which [`crate::engine::print::sumatra::quality_note`] states out loud
+    /// instead of pretending otherwise.
+    ///
+    /// `#[serde(default)]`: a `queue.json` written before this field existed
+    /// must still load (FR-103), reading as [`Quality::Normal`].
+    #[serde(default)]
+    pub quality: Quality,
+    /// Input tray / bin **as the driver names it** (`"Tray 2"`, `"Drawer 1"`),
+    /// or `None` for whatever the printer defaults to. Bin names are
+    /// model-specific, so this is a free string — it is passed through, never
+    /// interpreted.
+    ///
+    /// `#[serde(default)]` for the same forward-migration reason as `quality`.
+    #[serde(default)]
+    pub tray: Option<String>,
 }
 
 impl Default for JobSettings {
@@ -175,6 +198,8 @@ impl Default for JobSettings {
             orientation: Orientation::Auto,
             scaling: Scaling::Fit,
             page_ranges: None,
+            quality: Quality::Normal,
+            tray: None,
         }
     }
 }
@@ -185,6 +210,8 @@ impl JobSettings {
     /// Checks:
     /// - `copies` is in `1..=999`.
     /// - `page_ranges`, if present, is not the empty string.
+    /// - `tray`, if present, is not blank — a blank bin name would reach the
+    ///   driver as `InputSlot=` and silently select nothing.
     ///
     /// The page-range *grammar* is deliberately not validated here — the engine
     /// owns that parser. This only rejects an obviously empty range so the UI
@@ -201,7 +228,22 @@ impl JobSettings {
                 return Err("page range must not be empty".to_string());
             }
         }
+        if let Some(tray) = &self.tray {
+            if tray.trim().is_empty() {
+                return Err("input tray must not be empty".to_string());
+            }
+        }
         Ok(())
+    }
+
+    /// The tray to ask the driver for: the trimmed bin name, or `None` when the
+    /// job defers to the printer's own default. The backends go through this so
+    /// a stray blank can never become an empty `InputSlot=`/`bin=` token.
+    pub fn selected_tray(&self) -> Option<&str> {
+        self.tray
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
     }
 }
 
@@ -481,7 +523,43 @@ mod tests {
         assert_eq!(s.scaling, Scaling::Fit);
         assert!(s.page_ranges.is_none());
         assert!(s.printer.is_none());
+        assert_eq!(s.quality, Quality::Normal);
+        assert!(s.tray.is_none(), "no tray means the printer's own default");
         s.validate().expect("defaults must validate");
+    }
+
+    #[test]
+    fn fr_041_quality_and_tray_travel_with_the_job() {
+        // The profile editor offers Quality and Tray, so the engine-facing
+        // bundle has to be able to carry them at all — the regression this
+        // guards is them being editable, persisted, and then dropped here.
+        let s = JobSettings {
+            quality: Quality::High,
+            tray: Some("Tray 2".to_string()),
+            ..JobSettings::default()
+        };
+        s.validate().expect("a named tray is valid");
+        assert_eq!(s.selected_tray(), Some("Tray 2"));
+
+        let v = serde_json::to_value(&s).expect("settings serialize");
+        assert_eq!(v["quality"], "high");
+        assert_eq!(v["tray"], "Tray 2");
+    }
+
+    #[test]
+    fn selected_tray_ignores_blank_names() {
+        let with_tray = |t: Option<&str>| JobSettings {
+            tray: t.map(String::from),
+            ..Default::default()
+        };
+        assert_eq!(
+            with_tray(Some("  Drawer 1 ")).selected_tray(),
+            Some("Drawer 1")
+        );
+        assert_eq!(with_tray(None).selected_tray(), None);
+        // A blank name is rejected outright rather than reaching the driver.
+        assert!(with_tray(Some("")).validate().is_err());
+        assert!(with_tray(Some("   ")).validate().is_err());
     }
 
     #[test]
@@ -584,6 +662,8 @@ mod tests {
         assert_eq!(v["settings"]["paper_size"], "a4");
         assert_eq!(v["settings"]["orientation"], "auto");
         assert_eq!(v["settings"]["scaling"], "fit");
+        assert_eq!(v["settings"]["quality"], "normal");
+        assert!(v["settings"]["tray"].is_null());
         assert_eq!(v["input_ext"], "pdf");
         assert_eq!(v["submitted_at"], "2026-07-11T10:00:00Z");
         // Optionals present as JSON null, not omitted.
@@ -595,8 +675,10 @@ mod tests {
     fn fr_103_v1_queue_json_still_loads() {
         // Forward migration (FR-103): a `queue.json` written by the build that
         // predates the indeterminate-progress change stores `percent` as a bare
-        // number. It must still deserialize — into `Some(_)` — and keep every
-        // other field, so an upgrade never discards a live queue.
+        // number, and its `settings` block has no `quality`/`tray` at all. It
+        // must still deserialize — `percent` into `Some(_)`, the new fields into
+        // their defaults — and keep every other field, so an upgrade never
+        // discards a live queue.
         const V1: &str = r#"{
           "schema_version": 1,
           "queue_paused": false,
@@ -639,6 +721,8 @@ mod tests {
         assert_eq!(job.state, JobState::Converting);
         assert_eq!(job.pages, Some(3));
         assert_eq!(job.profile_name.as_deref(), Some("Photo Color"));
+        assert_eq!(job.settings.quality, Quality::Normal);
+        assert_eq!(job.settings.tray, None);
         let progress = job.progress.as_ref().expect("progress survives the read");
         assert_eq!(progress.phase, "converting");
         assert_eq!(progress.percent, Some(0.5));

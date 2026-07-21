@@ -99,9 +99,12 @@ fn fr_034_no_budget_waits_for_the_child() {
         .success());
 }
 
-/// Whether `pid` still names a live process. Unix asks the kernel directly;
-/// elsewhere the reaping assertions above already carry the test, so this
-/// degrades to "not observable" rather than guessing.
+/// Whether `pid` still names a live process.
+///
+/// Implemented on both supported platforms on purpose: a version that answers a
+/// constant `false` off Unix would make the leak assertion above vacuously true
+/// on Windows, which is the *target* platform — the one where a leaked
+/// SumatraPDF is a real support call.
 #[cfg(unix)]
 fn is_alive(pid: u32) -> bool {
     // `kill -0` probes without signalling. A killed-and-reaped child is gone,
@@ -115,7 +118,16 @@ fn is_alive(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(not(unix))]
-fn is_alive(_pid: u32) -> bool {
-    false
+#[cfg(windows)]
+fn is_alive(pid: u32) -> bool {
+    // `tasklist` filtered by pid prints one row per match; `/NH` drops the
+    // header, so the pid can only appear in the output when the process is
+    // really there. With no match it prints the "INFO: No tasks…" banner (on
+    // stdout) and still exits 0, which is why the *text* is what decides.
+    let out = Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+        .stderr(Stdio::null())
+        .output()
+        .expect("tasklist ships with every supported Windows version");
+    String::from_utf8_lossy(&out.stdout).contains(&pid.to_string())
 }

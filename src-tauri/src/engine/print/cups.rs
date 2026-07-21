@@ -14,17 +14,30 @@
 //! | monochrome           | `-o ColorModel=Gray`                                  |
 //! | copies > 1           | `-n <copies>`                                         |
 //! | paper                | `-o media=A4\|Letter\|Legal\|A3`                      |
+//! | tray                 | `-o InputSlot=<bin> -o media-source=<bin>`            |
+//! | quality              | `-o print-quality=3\|4\|5 -o cupsPrintQuality=…`      |
 //! | orientation landscape| `-o landscape` *(portrait/auto omitted)*              |
 //! | scaling fit/shrink   | `-o fit-to-page` *(none omitted)*                     |
 //! | page ranges          | `-o page-ranges=<r>`                                  |
 //!
 //! `sides` and `media` are always emitted so an explicit "none"/paper choice
-//! wins over any driver default. CUPS has a single `fit-to-page` toggle and
-//! cannot distinguish "shrink only" from "fit", so both map to it.
+//! wins over any driver default; `quality` is emitted for the same reason (a
+//! user who picks "normal" must not inherit a driver default of "draft"). CUPS
+//! has a single `fit-to-page` toggle and cannot distinguish "shrink only" from
+//! "fit", so both map to it.
+//!
+//! **Why two spellings for tray and quality.** The same choice has a PPD name
+//! and an IPP name, and which one a queue understands depends on how it was
+//! created: PPD-backed queues take `InputSlot` / `cupsPrintQuality`, while
+//! driverless (IPP Everywhere) queues take the standard job attributes
+//! `media-source` / `print-quality`. Both carry the identical value, and CUPS
+//! ignores a job option a queue does not support, so emitting the pair is what
+//! makes the setting actually apply on both kinds of queue instead of applying
+//! on one and silently vanishing on the other.
 
 use std::path::Path;
 
-use crate::queue::job::{ColorMode, Duplex, JobSettings, Orientation, PaperSize, Scaling};
+use crate::queue::job::{ColorMode, Duplex, JobSettings, Orientation, PaperSize, Quality, Scaling};
 
 #[cfg(unix)]
 use anyhow::Context;
@@ -63,6 +76,24 @@ pub fn lp_opts(settings: &JobSettings) -> Vec<String> {
     // Paper — always explicit.
     opts.push("-o".to_string());
     opts.push(format!("media={}", media(settings.paper_size)));
+
+    // Tray — only when the job names one; no name means the printer's own
+    // default bin, which is not ours to override.
+    if let Some(tray) = settings.selected_tray() {
+        opts.push("-o".to_string());
+        opts.push(format!("InputSlot={tray}"));
+        opts.push("-o".to_string());
+        opts.push(format!("media-source={tray}"));
+    }
+
+    // Quality — always explicit, in both the PPD and the IPP spelling.
+    opts.push("-o".to_string());
+    opts.push(format!("print-quality={}", ipp_quality(settings.quality)));
+    opts.push("-o".to_string());
+    opts.push(format!(
+        "cupsPrintQuality={}",
+        ppd_quality(settings.quality)
+    ));
 
     // Orientation — only landscape needs a flag.
     if matches!(settings.orientation, Orientation::Landscape) {
@@ -113,6 +144,25 @@ pub fn parse_request_id(stdout: &str) -> Option<String> {
         .next()
         .map(str::to_string)
         .filter(|s| !s.is_empty())
+}
+
+/// IPP `print-quality` enum value (RFC 8011: 3 draft, 4 normal, 5 high), as
+/// understood by driverless queues.
+fn ipp_quality(quality: Quality) -> u8 {
+    match quality {
+        Quality::Draft => 3,
+        Quality::Normal => 4,
+        Quality::High => 5,
+    }
+}
+
+/// PPD `cupsPrintQuality` keyword, as understood by PPD-backed queues.
+fn ppd_quality(quality: Quality) -> &'static str {
+    match quality {
+        Quality::Draft => "Draft",
+        Quality::Normal => "Normal",
+        Quality::High => "High",
+    }
 }
 
 fn media(paper: PaperSize) -> &'static str {
@@ -232,6 +282,10 @@ mod tests {
                 "-o",
                 "media=A4",
                 "-o",
+                "print-quality=4",
+                "-o",
+                "cupsPrintQuality=Normal",
+                "-o",
                 "fit-to-page",
                 "/tmp/x.pdf",
             ]
@@ -249,6 +303,8 @@ mod tests {
             orientation: Orientation::Landscape,
             scaling: Scaling::Shrink,
             page_ranges: Some(" 1-5, 8 ".to_string()),
+            quality: Quality::High,
+            tray: Some("Tray 2".to_string()),
         };
         assert_eq!(
             strs(&lp_opts(&settings)),
@@ -261,6 +317,14 @@ mod tests {
                 "3",
                 "-o",
                 "media=Legal",
+                "-o",
+                "InputSlot=Tray 2",
+                "-o",
+                "media-source=Tray 2",
+                "-o",
+                "print-quality=5",
+                "-o",
+                "cupsPrintQuality=High",
                 "-o",
                 "landscape",
                 "-o",
@@ -281,7 +345,68 @@ mod tests {
         };
         assert_eq!(
             strs(&lp_opts(&settings)),
-            vec!["-o", "sides=two-sided-long-edge", "-o", "media=A3"]
+            vec![
+                "-o",
+                "sides=two-sided-long-edge",
+                "-o",
+                "media=A3",
+                "-o",
+                "print-quality=4",
+                "-o",
+                "cupsPrintQuality=Normal",
+            ]
+        );
+    }
+
+    /// FR-041: Quality and Tray are editable in the profile editor, so they have
+    /// to reach `lp` — in both the IPP and the PPD spelling, since which one a
+    /// queue understands depends on how it was created.
+    #[test]
+    fn fr_041_quality_and_tray_reach_lp() {
+        let with = |quality, tray: Option<&str>| {
+            lp_opts(&JobSettings {
+                quality,
+                tray: tray.map(String::from),
+                ..JobSettings::default()
+            })
+        };
+
+        for (quality, ipp, ppd) in [
+            (Quality::Draft, "print-quality=3", "cupsPrintQuality=Draft"),
+            (
+                Quality::Normal,
+                "print-quality=4",
+                "cupsPrintQuality=Normal",
+            ),
+            (Quality::High, "print-quality=5", "cupsPrintQuality=High"),
+        ] {
+            let opts = with(quality, None);
+            assert!(opts.iter().any(|o| o == ipp), "{quality:?}: {opts:?}");
+            assert!(opts.iter().any(|o| o == ppd), "{quality:?}: {opts:?}");
+        }
+
+        let opts = with(Quality::Normal, Some("Drawer 1"));
+        assert!(opts.iter().any(|o| o == "InputSlot=Drawer 1"), "{opts:?}");
+        assert!(
+            opts.iter().any(|o| o == "media-source=Drawer 1"),
+            "{opts:?}"
+        );
+
+        // No tray chosen → nothing is said, so the printer's default bin wins.
+        let opts = with(Quality::Normal, None);
+        assert!(
+            !opts.iter().any(|o| o.starts_with("InputSlot=")),
+            "{opts:?}"
+        );
+        assert!(
+            !opts.iter().any(|o| o.starts_with("media-source=")),
+            "{opts:?}"
+        );
+        // A blank name is not a bin name (`validate` rejects it too).
+        let opts = with(Quality::Normal, Some("   "));
+        assert!(
+            !opts.iter().any(|o| o.starts_with("InputSlot=")),
+            "{opts:?}"
         );
     }
 

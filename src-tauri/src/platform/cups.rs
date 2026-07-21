@@ -836,9 +836,17 @@ mod tests {
     /// Ignored by default — it shells out to the host's CUPS install, so its
     /// result depends on the developer's real queues. `docs/08-development/
     /// testing-strategy.md` § "When to skip subprocess tests" requires exactly
-    /// this gate; CI opts in with `cargo test -- --include-ignored`.
+    /// this gate.
+    ///
+    /// Nothing in the blocking CI lanes runs it: the only job that does is the
+    /// advisory `ignored-tests` lane in `.github/workflows/ci.yml`, which runs
+    /// `cargo test -- --ignored` on a schedule (Mondays) or on demand, on
+    /// macOS, with `continue-on-error: true`. So a failure here never blocks a
+    /// merge — treat it as a weekly signal, and run it locally with
+    /// `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored
+    /// list_printers_smoke`.
     #[test]
-    #[ignore = "requires a real CUPS install; run with --include-ignored"]
+    #[ignore = "requires a real CUPS install; run with -- --ignored"]
     fn list_printers_smoke() {
         let printers = list_printers().expect("list_printers should not error");
         for p in &printers {

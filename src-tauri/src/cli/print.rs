@@ -86,6 +86,7 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
     let settings = resolve_settings(&profile, args.printer.clone(), &args.settings)?;
 
     let files = accept_files(&expanded, engine.max_file_size_mb)?;
+    check_ranges(&settings, &files)?;
 
     // Resolve and validate every file up front. A file-type routing rule can
     // send a `.pdf` and a `.jpg` of the same batch to different printers, and
@@ -130,50 +131,111 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
         })?;
 
     let batch_id = uuid::Uuid::now_v7().to_string();
-    let mut worst = ExitCode::Success;
-    let mut outcomes = Vec::with_capacity(files.len());
+    let mut batch = BatchOutcomes::with_capacity(files.len());
 
     for (index, file) in files.iter().enumerate() {
         let job_id = format!("{batch_id}-{index}");
         let target = targets.get(index).cloned().unwrap_or_default();
-        match print_one(
+        let outcome = print_one(
             Path::new(file),
             cache.path(),
             &job_id,
             &target,
             &settings,
             timeout,
-        ) {
-            Ok(os_job_id) => outcomes.push(FileOutcome {
-                path: file.clone(),
-                printer: target,
-                state: "done".to_string(),
-                os_job_id,
-                error: None,
-            }),
-            Err(err) => {
-                worst = worst.worst(err.exit);
-                outcomes.push(FileOutcome {
-                    path: file.clone(),
-                    printer: target,
-                    state: "failed".to_string(),
-                    os_job_id: None,
-                    error: Some(job_error(&err.error)),
-                });
-            }
-        }
+        );
+        batch.record(file, target, outcome);
     }
 
+    let worst = batch.worst();
     let report = PrintReport {
         batch_id,
         printer,
         profile_name: Some(profile.name.clone()),
         settings,
-        files: outcomes,
+        files: batch.into_files(),
         exit_code: worst.code(),
     };
     emitter.emit(&report, || render(&report));
     Ok(worst)
+}
+
+/// One batch's per-file outcomes plus the code the process will return.
+///
+/// Split out of [`run`] because it is the whole of FR-009's batch rule — every
+/// file is recorded whatever happened to it, and the *worst* code wins, so one
+/// failure in fifty is never reported as success — and inside `run` that rule
+/// could only be exercised by spooling to a real printer.
+#[derive(Debug)]
+pub struct BatchOutcomes {
+    files: Vec<FileOutcome>,
+    worst: ExitCode,
+}
+
+impl BatchOutcomes {
+    /// An empty batch, which reports [`ExitCode::Success`]: nothing failed.
+    pub fn with_capacity(files: usize) -> Self {
+        Self {
+            files: Vec::with_capacity(files),
+            worst: ExitCode::Success,
+        }
+    }
+
+    /// Record what [`print_one`] made of one file: the spooler's job id on
+    /// success, or the failure — which also raises the batch's code.
+    pub fn record(
+        &mut self,
+        path: &str,
+        printer: String,
+        outcome: Result<Option<String>, CliError>,
+    ) {
+        let file = match outcome {
+            Ok(os_job_id) => FileOutcome {
+                path: path.to_string(),
+                printer,
+                state: "done".to_string(),
+                os_job_id,
+                error: None,
+            },
+            Err(err) => {
+                self.worst = self.worst.worst(err.exit);
+                FileOutcome {
+                    path: path.to_string(),
+                    printer,
+                    state: "failed".to_string(),
+                    os_job_id: None,
+                    error: Some(job_error(&err.error)),
+                }
+            }
+        };
+        self.files.push(file);
+    }
+
+    /// The exit code the batch reports so far.
+    pub fn worst(&self) -> ExitCode {
+        self.worst
+    }
+
+    /// The recorded rows, in the order the files were printed.
+    pub fn into_files(self) -> Vec<FileOutcome> {
+        self.files
+    }
+}
+
+/// Bounds-check the resolved page range against the documents it will apply to,
+/// before anything is spooled.
+///
+/// This calls the *same* [`crate::ipc::jobs::check_ranges_fit_documents`] the
+/// print dialog calls, deliberately: `--range 500-600` on an 8-page report used
+/// to be accepted here, spooled, and print nothing at all, while the GUI refused
+/// it with a message naming the file. A second implementation would drift again,
+/// so there is only one.
+fn check_ranges(settings: &JobSettings, files: &[String]) -> Result<(), CliError> {
+    let Some(ranges) = settings.page_ranges.as_deref() else {
+        return Ok(());
+    };
+    crate::ipc::jobs::check_ranges_fit_documents(ranges, files)
+        .map_err(|e| CliError::from(IpcError::InvalidRequest(e)))
 }
 
 /// Convert one file (PDFs print in place) and hand it to the spooler.
@@ -223,10 +285,7 @@ fn collect_inputs(args: &PrintArgs) -> Result<Vec<String>, CliError> {
 /// it the way the queue would.
 ///
 /// `--printer` beats the profile's printer; every other flag overrides its
-/// profile counterpart and leaves the rest alone. The profile's `quality` and
-/// `tray` have no engine counterpart in [`JobSettings`] and are therefore not
-/// carried over — the engine cannot honour them yet, and pretending otherwise
-/// would show the user a setting that does nothing.
+/// profile counterpart and leaves the rest alone.
 pub fn resolve_settings(
     profile: &Profile,
     printer: Option<String>,
@@ -270,9 +329,12 @@ pub fn resolve_settings(
 }
 
 /// A profile's engine-facing settings. The `<default>` printer sentinel becomes
-/// `None`, which the dispatch step resolves against the app/OS default.
+/// `None`, which the dispatch step resolves against the app/OS default, and so
+/// does the `auto` tray: [`JobSettings::tray`] names a bin the driver knows, and
+/// "auto" is the absence of a choice rather than a bin name to pass through.
 pub fn from_profile(profile: &Profile) -> JobSettings {
     let printer = profile.printer.trim();
+    let tray = profile.tray.trim();
     JobSettings {
         printer: (!printer.is_empty() && printer != "<default>").then(|| printer.to_string()),
         duplex: match profile.duplex {
@@ -286,6 +348,8 @@ pub fn from_profile(profile: &Profile) -> JobSettings {
         orientation: profile.orientation,
         scaling: profile.scaling,
         page_ranges: profile.page_range.clone(),
+        quality: profile.quality,
+        tray: (!tray.is_empty() && !tray.eq_ignore_ascii_case("auto")).then(|| tray.to_string()),
     }
 }
 
@@ -474,5 +538,93 @@ mod tests {
         let err = job_error(&IpcError::UnsupportedFormat("a.docx".into()));
         assert_eq!(err.code, "UnsupportedFormat");
         assert!(err.message.contains("a.docx"));
+    }
+
+    /// A real 1-page PDF, written by the engine's own image converter so the
+    /// page count the bounds check reads is the one production reads.
+    fn one_page_pdf(dir: &Path, name: &str) -> std::path::PathBuf {
+        use ::image::{ImageFormat, Rgb, RgbImage};
+        let mut img = RgbImage::new(4, 4);
+        for (x, y, px) in img.enumerate_pixels_mut() {
+            *px = Rgb([(x * 60) as u8, (y * 60) as u8, 10]);
+        }
+        let src = dir.join("src.png");
+        img.save_with_format(&src, ImageFormat::Png).unwrap();
+        let out = dir.join(name);
+        crate::engine::convert::image::to_pdf(&src, &out, &|_p| {}).unwrap();
+        out
+    }
+
+    #[test]
+    fn fr_042_a_range_past_the_document_is_refused_before_spooling() {
+        // The defect: the GUI refused "500-600" on a short PDF while the CLI
+        // accepted it, spooled, and printed nothing. Both now go through
+        // `ipc::jobs::check_ranges_fit_documents`.
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = one_page_pdf(dir.path(), "report.pdf");
+        let files = vec![pdf.to_string_lossy().into_owned()];
+
+        let flags = SettingFlags {
+            range: Some("500-600".to_string()),
+            ..Default::default()
+        };
+        // The grammar is fine, so nothing catches this before the bounds check.
+        let settings = resolve_settings(&quick(), None, &flags).unwrap();
+
+        let err = check_ranges(&settings, &files).unwrap_err();
+        assert_eq!(err.exit, ExitCode::Usage);
+        let message = err.error.to_string();
+        assert!(
+            message.contains("report.pdf"),
+            "the message names the file: {message}"
+        );
+
+        // A range that fits, and no range at all, both pass.
+        let fits = SettingFlags {
+            range: Some("1".to_string()),
+            ..Default::default()
+        };
+        assert!(check_ranges(&resolve_settings(&quick(), None, &fits).unwrap(), &files).is_ok());
+        assert!(check_ranges(
+            &resolve_settings(&quick(), None, &SettingFlags::default()).unwrap(),
+            &files
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn fr_009_a_batch_records_every_file_and_reports_the_worst_code() {
+        let mut batch = BatchOutcomes::with_capacity(3);
+        assert_eq!(batch.worst(), ExitCode::Success, "an empty batch succeeded");
+
+        batch.record(
+            "/tmp/a.pdf",
+            "Front Desk".to_string(),
+            Ok(Some("42".into())),
+        );
+        assert_eq!(batch.worst(), ExitCode::Success);
+
+        batch.record(
+            "/tmp/b.pdf",
+            "Front Desk".to_string(),
+            Err(CliError::from(IpcError::PrintFailed("spooler".into()))),
+        );
+        batch.record(
+            "/tmp/c.pdf",
+            "Front Desk".to_string(),
+            Err(CliError::from(IpcError::FileNotFound("/tmp/c.pdf".into()))),
+        );
+
+        // PrintFailed (9) outranks FileNotFound (6): the worst code wins, not
+        // the last one.
+        assert_eq!(batch.worst(), ExitCode::PrintFailed);
+
+        let files = batch.into_files();
+        assert_eq!(files.len(), 3, "a failure never drops a row");
+        assert_eq!(files[0].state, "done");
+        assert_eq!(files[0].os_job_id.as_deref(), Some("42"));
+        assert_eq!(files[1].state, "failed");
+        assert_eq!(files[1].error.as_ref().unwrap().code, "PrintFailed");
+        assert_eq!(files[2].error.as_ref().unwrap().code, "FileNotFound");
     }
 }

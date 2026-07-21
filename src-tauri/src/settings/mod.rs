@@ -40,6 +40,12 @@ pub(crate) const CONFIG_CORRUPT_MSG: &str =
 /// `spawn_blocking`, never across an `.await`), so it never blocks the async
 /// runtime.
 ///
+/// **This mutex is intra-process only**, and since the CLI shipped there is a
+/// second process writing the same file (`maeclyprint update channel beta` is a
+/// full read-modify-write of `config.toml`). The cross-process half of the
+/// problem is handled at the write itself, by [`Config::save_to`]'s
+/// section-wise reconciliation — see its documentation for the trade-off.
+///
 /// **Lock ordering:** when a command needs both this and
 /// [`crate::profiles::PROFILES_LOCK`], it must acquire `PROFILES_LOCK` **before**
 /// `CONFIG_LOCK` (the only such command is
@@ -50,7 +56,7 @@ pub(crate) static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// The whole `config.toml`. Every section beyond `schema_version` is
 /// `#[serde(default)]` so a file written by an older build (which lacked the
 /// section entirely) still loads, filling the missing sections with defaults.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default = "default_schema_version")]
     pub schema_version: u32,
@@ -64,6 +70,27 @@ pub struct Config {
     pub updater: UpdaterCfg,
     #[serde(default)]
     pub telemetry: TelemetryCfg,
+    /// What [`Config::load_strict`] read off disk, kept so [`Config::save_to`]
+    /// can tell the sections this caller actually changed from the ones it is
+    /// merely carrying. Never serialized, never part of equality — it is
+    /// bookkeeping about *this* value, not configuration. `None` (every other
+    /// constructor) means "write me wholesale", which is the old behaviour.
+    #[serde(skip)]
+    baseline: Option<Box<Config>>,
+}
+
+/// Two configs are equal when their *settings* are, whatever either one
+/// remembers about where it came from. Hand-written rather than derived so the
+/// [`Config::baseline`] field cannot make a round-trip assertion fail.
+impl PartialEq for Config {
+    fn eq(&self, other: &Self) -> bool {
+        self.schema_version == other.schema_version
+            && self.app == other.app
+            && self.printers == other.printers
+            && self.engine == other.engine
+            && self.updater == other.updater
+            && self.telemetry == other.telemetry
+    }
 }
 
 /// How a stored `0` is treated for one knob, on top of the `min..=max` range.
@@ -433,6 +460,7 @@ impl Default for Config {
             engine: EngineCfg::default(),
             updater: UpdaterCfg::default(),
             telemetry: TelemetryCfg::default(),
+            baseline: None,
         }
     }
 }
@@ -498,30 +526,116 @@ impl Config {
     /// otherwise turn a save into "defaults + this one patch", permanently
     /// erasing the sections it did not set (printer prefs, routes, overrides).
     /// Read-only paths keep using [`Config::load_from`]/[`load_or_default`].
+    ///
+    /// The value it returns remembers what was on disk (see
+    /// [`Config::baseline`]), which is what lets [`Config::save_to`] write back
+    /// only the sections this caller changed.
     pub fn load_strict(path: &Path) -> Result<Config, String> {
         if !path.exists() {
             return Ok(Self::default());
         }
         let s = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        toml::from_str::<Self>(&s).map_err(|e| e.to_string())
+        let mut cfg = toml::from_str::<Self>(&s).map_err(|e| e.to_string())?;
+        cfg.baseline = Some(Box::new(cfg.clone()));
+        Ok(cfg)
     }
 
     /// Atomic write to `path`: tempfile in the same directory, then rename.
     /// `tempfile::NamedTempFile::persist` uses MoveFileEx on Windows (atomic on
     /// the same volume) and rename(2) on Unix. Path-injected so tests can write
     /// into a tempdir.
+    ///
+    /// # Two processes, one file
+    ///
+    /// [`CONFIG_LOCK`] serializes writers inside one process, but the GUI and
+    /// the CLI are two processes: `maeclyprint update channel beta` running
+    /// against a Settings save is a load→mutate→save on each side, and the
+    /// slower one used to write back its whole (now stale) copy — no corruption
+    /// (the write is atomic) but a silently lost change.
+    ///
+    /// When this value came from [`Config::load_strict`], the fix is applied
+    /// here: the file is re-read at the last possible moment and only the
+    /// sections that differ from the loaded baseline — the ones this caller
+    /// actually meant to change — are written over it. A CLI channel change and
+    /// a GUI theme change now both survive, in either order.
+    ///
+    /// **The trade-off, stated honestly.** This is a section-granular merge, not
+    /// a lock. It was chosen over an inter-process file lock because a lock adds
+    /// a failure mode that is worse than the bug: a crashed or killed process
+    /// leaves a lock whose recovery has to be guessed at, advisory locks behave
+    /// differently on the network shares roaming Windows profiles live on, and
+    /// it would need a second lock ordering next to
+    /// [`crate::profiles::PROFILES_LOCK`]. What remains uncovered is (a) two
+    /// processes changing the **same** section within the microseconds between
+    /// this re-read and the rename, where the last writer still wins — and two
+    /// people setting the same knob to different values has no better answer
+    /// anyway — and (b) writes from a value that was not loaded through
+    /// `load_strict`, which are wholesale by construction and are only made by
+    /// first-run/seed paths and tests.
+    ///
+    /// One consequence callers should know about: after a save, `self` is not
+    /// necessarily what is on disk any more — a section this caller did not
+    /// change may have been left as another process wrote it. Mutators return
+    /// their own value, which is correct for the sections they set; anything
+    /// that needs the whole file must re-read it.
     pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
         let parent = path.parent().expect("config path has a parent directory");
         paths::ensure_dir(parent)?;
 
+        let merged;
+        let to_write = match &self.baseline {
+            Some(baseline) => {
+                merged = self.reconciled_with_disk(path, baseline);
+                &merged
+            }
+            None => self,
+        };
+
         let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
-        let toml_bytes = toml::to_string_pretty(self)
+        let toml_bytes = toml::to_string_pretty(to_write)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         tmp.write_all(toml_bytes.as_bytes())?;
         tmp.flush()?;
         tmp.persist(path)
             .map_err(|e| std::io::Error::other(format!("persist failed: {e}")))?;
         Ok(())
+    }
+
+    /// This config's changed sections laid over whatever is in `path` **now**.
+    ///
+    /// A section counts as changed when it differs from `baseline`, the copy
+    /// [`Config::load_strict`] read; every other section is taken from the file
+    /// as it stands, which is where another process' concurrent change lives.
+    /// A file that has since become unreadable (or was removed) leaves this
+    /// value untouched — refusing to save because someone else corrupted the
+    /// file would lose the user's change for nothing.
+    fn reconciled_with_disk(&self, path: &Path, baseline: &Config) -> Config {
+        let Ok(current) = Self::load_strict(path) else {
+            return self.clone();
+        };
+        // `load_strict` returns the default for a missing file, which is exactly
+        // the right base: there is nothing of anyone else's to preserve.
+        let mut out = current;
+        if self.schema_version != baseline.schema_version {
+            out.schema_version = self.schema_version;
+        }
+        if self.app != baseline.app {
+            out.app = self.app.clone();
+        }
+        if self.printers != baseline.printers {
+            out.printers = self.printers.clone();
+        }
+        if self.engine != baseline.engine {
+            out.engine = self.engine.clone();
+        }
+        if self.updater != baseline.updater {
+            out.updater = self.updater.clone();
+        }
+        if self.telemetry != baseline.telemetry {
+            out.telemetry = self.telemetry.clone();
+        }
+        out.baseline = None;
+        out
     }
 
     /// Atomically write to the real per-user config path.
@@ -800,6 +914,100 @@ mod tests {
         cfg.app.launch_minimized = true;
         cfg.save_to(&path).unwrap();
         assert!(launch_minimized_at(&path));
+    }
+
+    #[test]
+    fn nfr_014_a_second_process_writing_another_section_is_not_clobbered() {
+        // The defect: `maeclyprint update channel beta` (a whole
+        // load→mutate→save of config.toml) racing a save from the GUI lost one
+        // of the two changes. The mutex that serializes writers is
+        // intra-process; these two are not the same process.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        Config::default().save_to(&path).unwrap();
+
+        // Process A loads, and is about to change the theme…
+        let mut gui = Config::load_strict(&path).unwrap();
+        gui.app.theme = Theme::Dark;
+
+        // …while process B changes the update channel and gets there first.
+        let mut cli = Config::load_strict(&path).unwrap();
+        cli.updater.channel = UpdateChannel::Beta;
+        cli.save_to(&path).unwrap();
+
+        // A now writes its stale copy. Both changes must survive.
+        gui.save_to(&path).unwrap();
+
+        let stored = Config::load_from(&path);
+        assert_eq!(stored.app.theme, Theme::Dark, "A's change was written");
+        assert_eq!(
+            stored.updater.channel,
+            UpdateChannel::Beta,
+            "B's change was not clobbered by A's stale copy"
+        );
+    }
+
+    #[test]
+    fn nfr_014_the_reconciliation_is_section_wise_and_the_writer_wins_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        Config::default().save_to(&path).unwrap();
+
+        // A writer that touches printers keeps its own printers section even
+        // though someone else wrote that same section meanwhile — a same-section
+        // conflict has no better answer than last-writer-wins, and this pins it.
+        let mut mine = Config::load_strict(&path).unwrap();
+        mine.printers.default_printer = Some("Front Desk".into());
+
+        let mut theirs = Config::load_strict(&path).unwrap();
+        theirs.printers.default_printer = Some("Back Office".into());
+        theirs.engine.max_file_size_mb = 512;
+        theirs.save_to(&path).unwrap();
+
+        mine.save_to(&path).unwrap();
+
+        let stored = Config::load_from(&path);
+        assert_eq!(
+            stored.printers.default_printer.as_deref(),
+            Some("Front Desk")
+        );
+        assert_eq!(
+            stored.engine.max_file_size_mb, 512,
+            "a section this writer never touched is kept as the other left it"
+        );
+    }
+
+    #[test]
+    fn a_config_that_was_not_loaded_is_written_wholesale() {
+        // Seed/first-run writes have nothing to reconcile against, so they must
+        // keep the old, unconditional behaviour.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        let mut existing = Config::default();
+        existing.app.theme = Theme::Dark;
+        existing.printers.disabled.push("Old_Fax".into());
+        existing.save_to(&path).unwrap();
+
+        Config::default().save_to(&path).unwrap();
+        assert_eq!(Config::load_from(&path), Config::default());
+    }
+
+    #[test]
+    fn saving_over_a_file_that_became_corrupt_still_writes_this_config() {
+        // Refusing here would lose the user's change to protect a file someone
+        // else already broke; the corrupt-file refusal belongs on the *load*
+        // side, where it can be reported.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        Config::default().save_to(&path).unwrap();
+
+        let mut cfg = Config::load_strict(&path).unwrap();
+        cfg.app.theme = Theme::Dark;
+        std::fs::write(&path, b"not ][ toml").unwrap();
+        cfg.save_to(&path).unwrap();
+
+        assert_eq!(Config::load_from(&path).app.theme, Theme::Dark);
     }
 
     #[test]

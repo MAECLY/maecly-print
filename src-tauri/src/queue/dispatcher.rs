@@ -53,6 +53,15 @@
 //!   still on disk, otherwise to `Queued`. The error is always cleared; a job
 //!   paused by shutdown recovery (`interrupted_by_shutdown`) also has its
 //!   `attempts` reset so it gets a clean run.
+//! - Resume of a job paused with `printer_unavailable` **re-resolves the
+//!   printer first** (`plan_printer_fix`). If the pinned printer is back, the
+//!   job resumes onto it; if it is still gone but preferences now point
+//!   somewhere usable — which is what the Printers screen's "Update references"
+//!   reconciliation edits — the pin is dropped so dispatch follows them; and if
+//!   nothing resolves, the resume is **refused** with what to fix instead of
+//!   silently re-pausing. Without this a job pinned to a printer that
+//!   disappeared was stuck forever: resuming re-ran the same failed lookup and
+//!   nothing could re-point it.
 //! - Cancel of a `Printing` job cannot un-spool synchronously (the OS job id is
 //!   only known once `spool` returns), so the job is marked `Cancelled`
 //!   immediately and the eventual `PrintDone` reconciles by cancelling the OS
@@ -405,6 +414,25 @@ struct Post {
     retry: Option<(String, Duration)>,
 }
 
+/// What resuming a job should do about the printer it is pinned to.
+///
+/// Only produced for a job paused with `printer_unavailable`; see
+/// [`Dispatcher::plan_printer_fix`]. The fourth outcome — nothing usable at all
+/// — is not a variant: it is an [`IpcError::InvalidState`] carrying what the
+/// user has to fix, so resume *refuses* instead of quietly re-pausing.
+enum PrinterFix {
+    /// Not a printer problem; resume as usual.
+    NotNeeded,
+    /// The job's own printer resolves again.
+    Unchanged,
+    /// `missing` is still gone, but the app-level chain now points at
+    /// `replacement`: drop the pin so this run follows the preferences.
+    Unpin {
+        missing: String,
+        replacement: String,
+    },
+}
+
 // ---------------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------------
@@ -610,7 +638,73 @@ impl Dispatcher {
         result
     }
 
+    /// Decide what resuming `id` should do about its printer, *before* the
+    /// state is touched.
+    ///
+    /// Only jobs paused with `printer_unavailable` are re-resolved; everything
+    /// else resumes unchanged. The check runs outside the state lock because
+    /// resolution reads the OS printer list, and the write guard is shared with
+    /// [`QueueHandle::snapshot`](crate::queue::QueueHandle::snapshot).
+    ///
+    /// The resolution asked for is the *same* one dispatch will do
+    /// ([`JobRunner::resolve_printer`]), so a resume can never succeed here and
+    /// then fail there for the same reason.
+    fn plan_printer_fix(&self, id: &str) -> Result<PrinterFix, IpcError> {
+        let (requested, file_name) = {
+            let st = self.state.read().unwrap();
+            let Some(job) = st.jobs.iter().find(|j| j.id == id) else {
+                return Ok(PrinterFix::NotNeeded); // `on_resume` reports it
+            };
+            let stuck_on_printer = job.state == JobState::Paused
+                && job
+                    .error
+                    .as_ref()
+                    .is_some_and(|e| e.code == "printer_unavailable");
+            if !stuck_on_printer {
+                return Ok(PrinterFix::NotNeeded);
+            }
+            (job.settings.printer.clone(), job.file_name.clone())
+        };
+
+        // The printer came back (reinstalled, renamed back, spooler restarted).
+        if self
+            .runner
+            .resolve_printer(requested.as_deref(), &file_name)
+            .is_ok()
+        {
+            return Ok(PrinterFix::Unchanged);
+        }
+
+        let Some(missing) = requested else {
+            // Nothing was pinned, so there is simply no printer to print on.
+            return Err(IpcError::InvalidState(
+                "no printer is configured — add one, or set a default on the Printers screen, then resume this job".to_string(),
+            ));
+        };
+
+        // The job is pinned to a printer the OS no longer has. Ask what the
+        // *preferences* now say for this file (routing rule, then app default,
+        // then the OS default) — which is exactly what the Printers screen's
+        // "Update references" reconciliation edits.
+        match self.runner.resolve_printer(None, &file_name) {
+            Ok((replacement, _)) => Ok(PrinterFix::Unpin {
+                missing,
+                replacement,
+            }),
+            Err(_) => Err(IpcError::InvalidState(format!(
+                "printer '{missing}' is still not installed and nothing else is configured — reinstall it, or reassign it on the Printers screen, then resume this job"
+            ))),
+        }
+    }
+
     fn on_resume(&mut self, id: &str) -> Result<(), IpcError> {
+        // A job paused with `printer_unavailable` used to resume straight back
+        // into the same failure with no way out: its printer was pinned in
+        // `settings.printer`, that queue was gone, and nothing could re-point
+        // it. Resuming now re-runs the real resolution first, so it either
+        // succeeds, follows the reconciled preferences, or says why not.
+        let fix = self.plan_printer_fix(id)?;
+
         let mut post = Post::default();
         let result = {
             let mut st = self.state.write().unwrap();
@@ -633,6 +727,24 @@ impl Dispatcher {
                     job.error = None;
                     if interrupted {
                         job.attempts = 0;
+                    }
+                    if let PrinterFix::Unpin {
+                        missing,
+                        replacement,
+                    } = &fix
+                    {
+                        // Drop the pin rather than writing `replacement` into
+                        // the job: dispatch resolves the printer itself, and a
+                        // name copied in here would go stale all over again.
+                        job.settings.printer = None;
+                        job.printer_resolved = None;
+                        tracing::info!(
+                            event = "job_printer_reassigned",
+                            job_id = %job.id,
+                            file = %job.file_name,
+                            missing_printer = %missing,
+                            printer = %replacement,
+                        );
                     }
                     job.state = if cache_valid {
                         JobState::Converted
@@ -1424,6 +1536,11 @@ mod tests {
         /// When false, `resolve_printer` reports the requested printer as no
         /// longer installed (the missing-printer path).
         printer_installed: AtomicBool,
+        /// Printer names the OS no longer enumerates. Unlike
+        /// `printer_installed`, this leaves the *fallback* printer working, so a
+        /// test can model "the pinned queue is gone but the app default is
+        /// fine" — the situation a paused job has to be able to escape.
+        missing_printers: Mutex<HashSet<String>>,
         cancelled_os: Mutex<Vec<String>>,
         convert_calls: AtomicUsize,
         print_calls: AtomicUsize,
@@ -1448,6 +1565,7 @@ mod tests {
                 duplex_supported: AtomicBool::new(true),
                 resolve_ok: AtomicBool::new(true),
                 printer_installed: AtomicBool::new(true),
+                missing_printers: Mutex::new(HashSet::new()),
                 cancelled_os: Mutex::new(Vec::new()),
                 convert_calls: AtomicUsize::new(0),
                 print_calls: AtomicUsize::new(0),
@@ -1533,7 +1651,9 @@ mod tests {
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| self.printer.clone());
-            if !self.printer_installed.load(Ordering::Relaxed) {
+            if !self.printer_installed.load(Ordering::Relaxed)
+                || self.missing_printers.lock().unwrap().contains(&name)
+            {
                 return Err(PrintError::PrinterMissing { printer: name });
             }
             Ok((name, self.duplex_supported.load(Ordering::Relaxed)))
@@ -2457,6 +2577,101 @@ mod tests {
         );
     }
 
+    /// A job pinned to a printer that disappears used to be a dead end:
+    /// resuming re-ran the same lookup, failed the same way, and there was no
+    /// way to re-point it. Resume now re-resolves, and once preferences point
+    /// somewhere usable the job goes there instead of being stuck.
+    #[tokio::test]
+    async fn fr_paused_job_escapes_a_printer_that_is_gone_for_good() {
+        let mut h = harness();
+        h.runner
+            .missing_printers
+            .lock()
+            .unwrap()
+            .insert("Old Office".to_string());
+
+        let mut j = make_job("a.pdf");
+        j.settings.printer = Some("Old Office".to_string());
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+
+        assert_eq!(h.job(&id).state, JobState::Paused);
+        assert_eq!(h.job(&id).error.unwrap().code, "printer_unavailable");
+
+        // Resuming re-resolves: "Old Office" is still gone, but the app-level
+        // chain answers with the printer that is there, so the pin is dropped
+        // and the job actually prints.
+        h.request(|reply| Cmd::Resume {
+            id: id.clone(),
+            reply,
+        })
+        .await
+        .expect("resume succeeds now that another printer resolves");
+
+        assert_eq!(
+            h.job(&id).settings.printer,
+            None,
+            "the dead pin is dropped so dispatch can resolve normally"
+        );
+        h.run_to_idle();
+        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).printer_resolved.as_deref(), Some("FakePrinter"));
+        assert_eq!(
+            h.runner.convert_calls.load(Ordering::Relaxed),
+            1,
+            "the cached PDF is reused — resuming must not re-convert"
+        );
+    }
+
+    /// The other half of the same rule: when there is still nothing to print
+    /// on, resume must say so instead of silently putting the job back in the
+    /// state it was already stuck in.
+    #[tokio::test]
+    async fn fr_resume_refuses_while_no_printer_resolves_at_all() {
+        let mut h = harness();
+        h.runner.printer_installed.store(false, Ordering::Relaxed);
+
+        let mut j = make_job("a.pdf");
+        j.settings.printer = Some("Old Office".to_string());
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        assert_eq!(h.job(&id).state, JobState::Paused);
+
+        let err = h
+            .request(|reply| Cmd::Resume {
+                id: id.clone(),
+                reply,
+            })
+            .await
+            .expect_err("nothing resolves, so the resume is refused");
+        let msg = err.to_string();
+        assert!(msg.contains("Old Office"), "names the printer: {msg}");
+        assert!(msg.contains("Printers screen"), "says what to do: {msg}");
+
+        // The job is untouched: still paused, still explaining why.
+        assert_eq!(h.job(&id).state, JobState::Paused);
+        assert_eq!(
+            h.job(&id).error.unwrap().code,
+            "printer_unavailable",
+            "the reason survives a refused resume"
+        );
+        assert_eq!(h.job(&id).settings.printer.as_deref(), Some("Old Office"));
+
+        // Once the printer is back, the very same resume works and keeps it.
+        h.runner.printer_installed.store(true, Ordering::Relaxed);
+        h.request(|reply| Cmd::Resume {
+            id: id.clone(),
+            reply,
+        })
+        .await
+        .expect("resume works once the printer is installed again");
+        assert_eq!(h.job(&id).settings.printer.as_deref(), Some("Old Office"));
+        h.run_to_idle();
+        assert_eq!(h.job(&id).state, JobState::Done);
+    }
+
     #[tokio::test]
     async fn no_configured_printer_pauses_the_job() {
         let mut h = harness();
@@ -2568,6 +2783,15 @@ mod tests {
     }
 
     impl LogCapture {
+        /// Whether a record with this `event` name has been seen yet.
+        fn has(&self, event: &str) -> bool {
+            self.events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| e.get("event").map(String::as_str) == Some(event))
+        }
+
         /// The fields of the first record with this `event` name.
         fn record(&self, event: &str) -> HashMap<String, String> {
             self.events
@@ -2687,6 +2911,17 @@ mod tests {
         tracing::subscriber::with_default(subscriber, || {
             h.submit(vec![j]);
             h.run_to_idle();
+            // `with_default` is thread-local, so a record emitted by a task the
+            // first drain left parked would be written with no subscriber
+            // installed and lost. Draining until it lands keeps the whole
+            // sequence inside the closure; this test failed roughly one run in
+            // eight without it.
+            for _ in 0..10 {
+                if capture.has("job_print_timeout") {
+                    break;
+                }
+                h.run_to_idle();
+            }
         });
 
         let rec = capture.record("job_print_timeout");

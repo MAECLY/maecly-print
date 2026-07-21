@@ -682,6 +682,11 @@ describe('App', () => {
       recordShell();
       render(<App />);
       press('.');
+      // The "says so" half: without it this test passes even if the shortcut
+      // does nothing at all, since an absent dialog is also the initial state.
+      expect(
+        await screen.findByText('No job is printing or waiting right now.'),
+      ).toBeInTheDocument();
       await waitFor(() =>
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
       );

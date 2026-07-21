@@ -1,6 +1,11 @@
 import { browser, $, expect } from '@wdio/globals';
 
-import { dismissOnboarding, navigateTo } from './helpers.js';
+import {
+  dismissOnboarding,
+  navigateTo,
+  restoreDefaultSettings,
+  selectLanguage,
+} from './helpers.js';
 
 /** Read the class list on the document root (where the theme is applied). */
 function rootClass(): Promise<string> {
@@ -32,8 +37,18 @@ async function relaunchWithoutCaches(): Promise<void> {
  * Settings, end to end. Two things Vitest cannot reach: that an appearance
  * change really lands on the document of the running webview, and that the
  * dual-write survives a boot with the localStorage cache wiped (FR-100…FR-103).
+ *
+ * Every test here writes the runner's real `config.toml`, so the restore runs
+ * in `afterEach` — a hook Mocha runs whether the test passed, failed or threw
+ * mid-way. Restoring at the end of the test body (as this suite used to) leaves
+ * the config dark-themed, compact or in Spanish for every later spec the moment
+ * one assertion fails.
  */
 describe('Settings', () => {
+  afterEach(async () => {
+    await restoreDefaultSettings();
+  });
+
   it('switches the theme to dark and applies the dark class', async () => {
     await dismissOnboarding();
     await navigateTo('Settings');
@@ -78,26 +93,13 @@ describe('Settings', () => {
         timeoutMsg: 'expected the persisted theme + density to be restored',
       },
     );
-
-    // Restore the defaults so the next spec starts from a known state.
-    await navigateTo('Settings');
-    await (await $('button*=System')).click();
-    await (await $('button*=Comfortable')).click();
   });
 
   it('FR-094: switching the language re-renders the app, and the choice persists', async () => {
     await dismissOnboarding();
     await navigateTo('Settings');
 
-    await browser.execute(() => {
-      const selects = Array.from(document.querySelectorAll('select'));
-      const language = selects.find((s) =>
-        Array.from(s.options).some((o) => o.value === 'es-ES'),
-      );
-      if (!language) throw new Error('language select not found');
-      language.value = 'es-ES';
-      language.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    await selectLanguage('es-ES');
 
     // The whole shell follows the setting, not just this screen.
     await browser.waitUntil(
@@ -117,16 +119,5 @@ describe('Settings', () => {
         timeoutMsg: 'expected the persisted locale to survive the relaunch',
       },
     );
-
-    // Back to English for the rest of the suite.
-    await browser.execute(() => {
-      const selects = Array.from(document.querySelectorAll('select'));
-      const language = selects.find((s) =>
-        Array.from(s.options).some((o) => o.value === 'en-US'),
-      );
-      if (!language) throw new Error('language select not found');
-      language.value = 'en-US';
-      language.dispatchEvent(new Event('change', { bubbles: true }));
-    });
   });
 });

@@ -162,18 +162,49 @@ pub fn effective_settings<'a>(settings: &'a JobSettings, input_ext: &str) -> Cow
 /// UI. It uses the same argument builders as [`spool`], so what the user sees is
 /// what actually runs — on Windows the SumatraPDF command, elsewhere the CUPS
 /// `lp` command.
+///
+/// Two details that keep "copy-pasteable" true rather than nearly true:
+///
+/// - an option value containing spaces (`InputSlot=Tray 2`) is quoted, so the
+///   line pasted into a shell is the same *argument vector* the engine spawns
+///   instead of one that silently splits into two arguments; and
+/// - a setting the backend cannot express is appended as a comment
+///   ([`sumatra::quality_note`]) rather than left unsaid — the panel's job is to
+///   tell the user what will happen, including what will not.
 pub fn preview_command(pdf_display: &str, printer: &str, settings: &JobSettings) -> String {
     #[cfg(windows)]
     {
-        format!(
+        let cmd = format!(
             "SumatraPDF.exe -print-to \"{printer}\" -print-settings \"{}\" -silent -exit-when-done \"{pdf_display}\"",
             sumatra::print_settings_string(settings)
-        )
+        );
+        match sumatra::quality_note(settings) {
+            Some(note) => format!("{cmd}\n{note}"),
+            None => cmd,
+        }
     }
     #[cfg(not(windows))]
     {
-        let opts = cups::lp_opts(settings).join(" ");
+        let opts = cups::lp_opts(settings)
+            .iter()
+            .map(|o| shell_quote(o))
+            .collect::<Vec<_>>()
+            .join(" ");
         format!("lp -d \"{printer}\" {opts} \"{pdf_display}\"")
+    }
+}
+
+/// Wrap `arg` in double quotes when it contains whitespace, so a preview line
+/// with a multi-word bin or media name pastes into a shell as one argument.
+/// Values are driver-supplied names, not user shell input; the quoting is for
+/// legibility and fidelity, not for safety (nothing here is ever run through a
+/// shell).
+#[cfg_attr(windows, allow(dead_code))]
+fn shell_quote(arg: &str) -> Cow<'_, str> {
+    if arg.chars().any(char::is_whitespace) {
+        Cow::Owned(format!("\"{arg}\""))
+    } else {
+        Cow::Borrowed(arg)
     }
 }
 
@@ -304,5 +335,39 @@ mod tests {
             "preview names the file: {cmd}"
         );
         assert!(cmd.contains("Office"), "preview names the printer: {cmd}");
+    }
+
+    #[test]
+    fn shell_quote_only_wraps_multi_word_values() {
+        assert_eq!(shell_quote("media=A4"), "media=A4");
+        assert_eq!(shell_quote("InputSlot=Tray 2"), "\"InputSlot=Tray 2\"");
+        assert!(matches!(shell_quote("-o"), Cow::Borrowed(_)));
+    }
+
+    /// FR-041: whatever the user set for quality and tray has to be visible in
+    /// the honesty panel — either as a real flag (CUPS) or as an explicit
+    /// statement that it will not be applied (SumatraPDF).
+    #[test]
+    fn fr_041_preview_accounts_for_quality_and_tray() {
+        use crate::queue::job::Quality;
+
+        let settings = JobSettings {
+            quality: Quality::High,
+            tray: Some("Tray 2".to_string()),
+            ..JobSettings::default()
+        };
+        let cmd = preview_command("job.pdf", "Office", &settings);
+
+        if cfg!(windows) {
+            assert!(cmd.contains("bin=Tray 2"), "{cmd}");
+            // Quality is not expressible: the panel says so instead of hiding it.
+            assert!(cmd.contains("NOT applied"), "{cmd}");
+        } else {
+            // Multi-word values stay one argument when pasted into a shell.
+            assert!(cmd.contains("\"InputSlot=Tray 2\""), "{cmd}");
+            assert!(cmd.contains("\"media-source=Tray 2\""), "{cmd}");
+            assert!(cmd.contains("print-quality=5"), "{cmd}");
+            assert!(cmd.contains("cupsPrintQuality=High"), "{cmd}");
+        }
     }
 }

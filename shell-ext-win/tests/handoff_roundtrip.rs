@@ -228,30 +228,79 @@ fn fr_001_the_timestamp_is_rfc3339_utc() {
     .expect("the app parses this with the same description");
 }
 
-/// The app refuses any handoff file that does not canonicalize inside *its*
-/// handoff directory, so the producer has to resolve the same path. Both sides
-/// call `ProjectDirs::from("com", "Maecly", "MaeclyPrint")`; this asserts the
-/// arguments have not drifted.
-#[test]
-fn fr_001_the_handoff_directory_matches_the_apps_rule() {
-    let expected = directories::ProjectDirs::from("com", "Maecly", "MaeclyPrint")
-        .unwrap()
-        .data_local_dir()
-        .join("handoff");
-    assert_eq!(handoff::handoff_dir().unwrap(), expected);
+/// Read one of the app's source files. This crate cannot depend on the app
+/// crate (it is a separate, standalone package outside the workspace), so
+/// reading its source is the only automated link between the two.
+fn app_source(relative: &str) -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(relative)
+        .canonicalize()
+        .unwrap_or_else(|e| panic!("{relative} is the app's source of truth, but: {e}"));
+    std::fs::read_to_string(path).unwrap()
 }
 
-/// A drift detector, not a style check: this crate cannot depend on the app
-/// crate (it is a separate, standalone package), so the only automated link
-/// between the two schemas is reading the consumer's source and confirming the
-/// names and limits it declares are still the ones written here.
+/// The literal of `const <name>: &str = "…";` in `source`.
+fn const_str(source: &str, name: &str) -> String {
+    let needle = format!("const {name}: &str = \"");
+    let start = source
+        .find(&needle)
+        .unwrap_or_else(|| panic!("the app no longer declares `{name}`"))
+        + needle.len();
+    let rest = &source[start..];
+    let end = rest.find('"').expect("unterminated string literal");
+    rest[..end].to_owned()
+}
+
+/// The literal of the first `<prefix>"…"` occurrence in `source`.
+fn literal_after(source: &str, prefix: &str) -> String {
+    let start = source
+        .find(prefix)
+        .unwrap_or_else(|| panic!("the app no longer spells `{prefix}`"))
+        + prefix.len();
+    let rest = &source[start..];
+    let end = rest.find('"').expect("unterminated string literal");
+    rest[..end].to_owned()
+}
+
+/// The app refuses any handoff file that does not canonicalize inside *its*
+/// handoff directory, so the producer has to resolve the same path.
+///
+/// The rule is derived from the app's own source rather than re-typed here: a
+/// second copy of `("com", "Maecly", "MaeclyPrint")` would agree with itself
+/// forever, and renaming `ORG` in `src-tauri/src/util/paths.rs` would ship a
+/// DLL writing into a directory the app never reads — with no test failing.
+#[test]
+fn fr_001_the_handoff_directory_matches_the_apps_rule() {
+    let paths_rs = app_source("../src-tauri/src/util/paths.rs");
+    let handoff_rs = app_source("../src-tauri/src/cli/handoff.rs");
+
+    // `paths::data_dir()` — the base the app's handoff directory hangs off.
+    assert!(
+        paths_rs.contains("dirs().data_local_dir().to_path_buf()"),
+        "the app's data_dir no longer resolves to ProjectDirs::data_local_dir"
+    );
+    let expected = directories::ProjectDirs::from(
+        &const_str(&paths_rs, "QUALIFIER"),
+        &const_str(&paths_rs, "ORG"),
+        &const_str(&paths_rs, "APP"),
+    )
+    .expect("no home directory to resolve the app's directories in")
+    .data_local_dir()
+    .join(literal_after(&handoff_rs, "paths::data_dir().join(\""));
+
+    assert_eq!(
+        handoff::handoff_dir().unwrap(),
+        expected,
+        "the app's handoff directory moved; handoff::handoff_dir must follow"
+    );
+}
+
+/// A drift detector, not a style check: the only automated link between the two
+/// schemas is reading the consumer's source and confirming the names and limits
+/// it declares are still the ones written here.
 #[test]
 fn fr_001_the_consumer_still_declares_this_schema() {
-    let consumer = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../src-tauri/src/cli/handoff.rs")
-        .canonicalize()
-        .expect("the app's handoff module is the source of truth for this schema");
-    let source = std::fs::read_to_string(consumer).unwrap();
+    let source = app_source("../src-tauri/src/cli/handoff.rs");
 
     for field in [
         "pub schema_version:",

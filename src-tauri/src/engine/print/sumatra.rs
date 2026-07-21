@@ -13,17 +13,34 @@
 //! | colour / monochrome   | `color` / `monochrome`                     |
 //! | scaling fit/shrink/none| `fit` / `shrink` / `noscale`              |
 //! | paper                 | `paper=A4\|Letter\|Legal\|A3`              |
+//! | tray                  | `bin=<bin name or number>`                 |
 //! | copies > 1            | `copies=<n>`                               |
 //! | orientation land/port | `landscape` / `portrait` *(auto omitted)*  |
+//! | **quality**           | **not expressible — see below**            |
 //!
 //! The doc table lists only `duplex`/`duplexshort`; SumatraPDF also accepts
 //! `simplex` and `noscale`, which we use for the "none" cases so every setting
 //! is stated explicitly. Copies use the doc's `copies=N` (not the older `Nx`).
+//!
+//! ## The quality gap
+//!
+//! SumatraPDF's `-print-settings` has no print-quality switch: its vocabulary
+//! covers pages, orientation, scaling, colour, duplex, copies, `paper=` and
+//! `bin=`, and nothing else. A draft/normal/high choice therefore **cannot** be
+//! carried to the Windows spooler by this backend, and the printer prints at
+//! whatever quality its own driver defaults to.
+//!
+//! We do not paper over that. There is no plausible fake for it either —
+//! `resolution=NxM` exists, but MaeclyPrint does not know the device's DPI
+//! ladder, so mapping "high" to an invented number would be a guess dressed up
+//! as a setting. Instead [`quality_note`] states the limitation in the honesty
+//! preview the user reads before printing, and [`spool`] logs it against the
+//! job, so nobody is left believing a quality preset was applied.
 
 use std::path::{Path, PathBuf};
 
 use crate::engine::{deps, EngineError};
-use crate::queue::job::{ColorMode, Duplex, JobSettings, Orientation, PaperSize, Scaling};
+use crate::queue::job::{ColorMode, Duplex, JobSettings, Orientation, PaperSize, Quality, Scaling};
 
 #[cfg(windows)]
 use std::process::Command;
@@ -69,6 +86,12 @@ pub fn print_settings_string(settings: &JobSettings) -> String {
 
     parts.push(format!("paper={}", paper(settings.paper_size)));
 
+    // Tray: SumatraPDF takes the driver's own bin name or number. Only emitted
+    // when the job names one — otherwise the printer's default bin wins.
+    if let Some(tray) = bin_token(settings) {
+        parts.push(format!("bin={tray}"));
+    }
+
     if settings.copies > 1 {
         parts.push(format!("copies={}", settings.copies));
     }
@@ -94,6 +117,40 @@ pub fn sumatra_args(printer: &str, settings: &JobSettings, pdf: &Path) -> Vec<St
         "-exit-when-done".to_string(),
         pdf.to_string_lossy().into_owned(),
     ]
+}
+
+/// The bin name to put in `bin=`, or `None` when there is nothing safe to say.
+///
+/// `-print-settings` is a **comma-separated** list, so a bin name containing a
+/// comma cannot be expressed in it at all: emitting it would split into two
+/// garbage tokens and SumatraPDF would print from some other tray. Such a name
+/// is dropped (the printer's default bin is used) rather than mangled, and
+/// [`spool`] logs the drop — the same rule as the quality gap: never claim a
+/// setting we did not send.
+fn bin_token(settings: &JobSettings) -> Option<&str> {
+    settings.selected_tray().filter(|t| !t.contains(','))
+}
+
+/// The sentence to show the user when their quality preset cannot be honoured
+/// on this backend, or `None` when there is nothing to warn about.
+///
+/// [`Quality::Normal`] returns `None` deliberately: "normal" is what an
+/// unconfigured driver does anyway, so warning about it would be noise the user
+/// learns to ignore. Anything else is a deliberate choice that will not happen,
+/// and saying so is the whole point.
+///
+/// Written as a `::` batch comment so the honesty preview stays a single
+/// copy-pasteable command line.
+pub fn quality_note(settings: &JobSettings) -> Option<&'static str> {
+    match settings.quality {
+        Quality::Normal => None,
+        Quality::Draft => Some(
+            ":: note: SumatraPDF has no print-quality switch, so \"draft\" is NOT applied — the printer's own default quality is used.",
+        ),
+        Quality::High => Some(
+            ":: note: SumatraPDF has no print-quality switch, so \"high\" is NOT applied — the printer's own default quality is used.",
+        ),
+    }
 }
 
 fn paper(paper: PaperSize) -> &'static str {
@@ -146,6 +203,11 @@ pub fn locate() -> Result<PathBuf, EngineError> {
 /// [`super::wait_with_timeout`]): SumatraPDF blocks until the spooler accepts
 /// the job, so a driver dialog or a stalled spooler would otherwise hold the
 /// queue's single print slot forever.
+///
+/// Anything the command line cannot express — a quality preset ([`quality_note`])
+/// or a bin name with a comma in it ([`bin_token`]) — is logged against the job
+/// before spooling, so the job log records what was *not* sent as well as what
+/// was.
 #[cfg(windows)]
 pub fn spool(
     pdf: &Path,
@@ -159,6 +221,25 @@ pub fn spool(
     // Suppress the transient console window when spawning the child.
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let _ = title;
+
+    if let Some(note) = quality_note(settings) {
+        tracing::warn!(
+            event = "print_setting_not_applied",
+            setting = "quality",
+            backend = "sumatra",
+            printer = %printer,
+            message = %note,
+        );
+    }
+    if settings.selected_tray().is_some() && bin_token(settings).is_none() {
+        tracing::warn!(
+            event = "print_setting_not_applied",
+            setting = "tray",
+            backend = "sumatra",
+            printer = %printer,
+            message = "the bin name contains a comma, which -print-settings cannot express",
+        );
+    }
 
     let exe = locate()?;
     let args = sumatra_args(printer, settings, pdf);
@@ -205,11 +286,54 @@ mod tests {
             orientation: Orientation::Landscape,
             scaling: Scaling::None,
             page_ranges: Some("1-5, 10".to_string()),
+            quality: Quality::High,
+            tray: Some("Drawer 1".to_string()),
         };
         assert_eq!(
             print_settings_string(&settings),
-            "1-5,10,duplex,monochrome,noscale,paper=A3,copies=2,landscape"
+            "1-5,10,duplex,monochrome,noscale,paper=A3,bin=Drawer 1,copies=2,landscape"
         );
+    }
+
+    /// FR-041: the tray the profile editor offers must reach SumatraPDF's
+    /// `bin=`, and the quality it offers must not be silently swallowed.
+    #[test]
+    fn fr_041_tray_reaches_bin_and_quality_is_declared_unsupported() {
+        let with = |quality, tray: Option<&str>| JobSettings {
+            quality,
+            tray: tray.map(String::from),
+            ..JobSettings::default()
+        };
+
+        assert_eq!(
+            print_settings_string(&with(Quality::Normal, Some("Tray 2"))),
+            "simplex,color,fit,paper=A4,bin=Tray 2"
+        );
+        // No tray → no token at all, so the printer's default bin is used.
+        assert!(!print_settings_string(&with(Quality::Normal, None)).contains("bin="));
+        // A blank name is not a bin name.
+        assert!(!print_settings_string(&with(Quality::Normal, Some(" "))).contains("bin="));
+        // A comma cannot survive the comma-separated list, so it is dropped
+        // rather than mangled into a token that selects the wrong tray.
+        assert!(
+            !print_settings_string(&with(Quality::Normal, Some("Tray 2, Legal"))).contains("bin=")
+        );
+
+        // Quality has no token to emit — and is never faked as one.
+        for quality in [Quality::Draft, Quality::Normal, Quality::High] {
+            let s = print_settings_string(&with(quality, None));
+            assert!(!s.contains("quality"), "{quality:?}: {s}");
+            assert!(!s.contains("resolution"), "{quality:?}: {s}");
+        }
+
+        // …instead it is stated out loud, for every choice that is not the
+        // driver's own default behaviour.
+        assert!(quality_note(&with(Quality::Normal, None)).is_none());
+        for quality in [Quality::Draft, Quality::High] {
+            let note = quality_note(&with(quality, None)).expect("non-default quality is declared");
+            assert!(note.starts_with("::"), "stays copy-pasteable: {note}");
+            assert!(note.contains("NOT applied"), "{note}");
+        }
     }
 
     #[test]

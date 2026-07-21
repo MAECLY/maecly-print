@@ -9,6 +9,7 @@ import {
   parsePageRange,
   nextUniqueName,
   toJobSettings,
+  toWireTray,
   validateProfileName,
 } from './profiles';
 import type { UiProfile } from '@/types/domain';
@@ -103,12 +104,48 @@ describe('toJobSettings', () => {
     expect(toJobSettings(mk({}), {}).page_ranges).toBeNull();
   });
 
+  it('FR-041: carries the profile quality and tray to the engine', () => {
+    // The profile editor lets you set these and profiles.toml stores them, so
+    // dropping them here would make both controls decorative.
+    expect(
+      toJobSettings(mk({ quality: 'high', tray: 'Tray 2' }), {}),
+    ).toMatchObject({ quality: 'high', tray: 'Tray 2' });
+    expect(toJobSettings(mk({ quality: 'draft' }), {}).quality).toBe('draft');
+    // 'auto' is the UI's "no choice", which the wire spells as null.
+    expect(toJobSettings(mk({ tray: 'auto' }), {}).tray).toBeNull();
+  });
+
   it('applies scalar overrides on top of the profile baseline', () => {
     const p = mk({ copies: 1, color: 'color' });
     expect(toJobSettings(p, { copies: 3, color: 'monochrome' })).toMatchObject({
       copies: 3,
       color_mode: 'monochrome',
     });
+  });
+});
+
+describe('toWireTray', () => {
+  it('FR-041: keeps a driver bin name verbatim', () => {
+    // Bin names are model-specific; normalizing them would select the wrong
+    // tray on some device we have never seen.
+    expect(toWireTray('Tray 2')).toBe('Tray 2');
+    expect(toWireTray('Kassette 1')).toBe('Kassette 1');
+    expect(toWireTray('  Drawer 1  ')).toBe('Drawer 1');
+  });
+
+  it('FR-041: maps every "no choice" spelling to null', () => {
+    // A blank would otherwise reach the driver as an empty `InputSlot=`.
+    for (const empty of [
+      'auto',
+      'AUTO',
+      ' Auto ',
+      '',
+      '   ',
+      null,
+      undefined,
+    ]) {
+      expect(toWireTray(empty), String(empty)).toBeNull();
+    }
   });
 });
 

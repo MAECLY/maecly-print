@@ -14,22 +14,31 @@ type Listener = (e: { payload: unknown }) => void;
 const eventMock = vi.hoisted(() => {
   const queueUpdated = new Set<(e: { payload: unknown }) => void>();
   const jobProgressEvent = new Set<(e: { payload: unknown }) => void>();
+  /**
+   * Event names whose `listen` must reject. The interesting failure is a
+   * *partial* one — the first listener registers, the second rejects — because
+   * that is what can leave a live listener behind with `subscribed: false`.
+   */
+  const failListen = new Set<string>();
+  const listener = (
+    name: string,
+    set: Set<(e: { payload: unknown }) => void>,
+  ) =>
+    ({
+      listen: (cb: (e: { payload: unknown }) => void) => {
+        if (failListen.has(name))
+          return Promise.reject(new Error(`cannot listen to ${name}`));
+        set.add(cb);
+        return Promise.resolve(() => set.delete(cb));
+      },
+    }) as const;
   return {
     queueUpdated,
     jobProgressEvent,
+    failListen,
     events: {
-      queueUpdated: {
-        listen: (cb: (e: { payload: unknown }) => void) => {
-          queueUpdated.add(cb);
-          return Promise.resolve(() => queueUpdated.delete(cb));
-        },
-      },
-      jobProgressEvent: {
-        listen: (cb: (e: { payload: unknown }) => void) => {
-          jobProgressEvent.add(cb);
-          return Promise.resolve(() => jobProgressEvent.delete(cb));
-        },
-      },
+      queueUpdated: listener('queueUpdated', queueUpdated),
+      jobProgressEvent: listener('jobProgressEvent', jobProgressEvent),
     },
   };
 });
@@ -79,6 +88,7 @@ function snapshotOf(jobs: Job[]): QueueSnapshot {
 function resetStore() {
   eventMock.queueUpdated.clear();
   eventMock.jobProgressEvent.clear();
+  eventMock.failListen.clear();
   useQueueStore.setState({
     status: 'idle',
     snapshot: null,
@@ -237,6 +247,43 @@ describe('queueStore', () => {
     expect(spy).toHaveBeenCalledWith('boom');
   });
 
+  it('NFR-033: a half-failed subscription takes its live listener down with it', async () => {
+    // `queueUpdated` registers, `jobProgressEvent` rejects. Leaving the first
+    // one alive while reporting `subscribed: false` is what lets a later
+    // `init()` register a SECOND one and handle every event twice.
+    mockQueue();
+    eventMock.failListen.add('jobProgressEvent');
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const error = vi.spyOn(toast, 'error').mockReturnValue('id');
+
+    await useQueueStore.getState().init();
+
+    expect(useQueueStore.getState().subscribed).toBe(false);
+    expect(eventMock.queueUpdated.size).toBe(0);
+    expect(eventMock.jobProgressEvent.size).toBe(0);
+    // The user is told the view is no longer live, not left guessing.
+    expect(error).toHaveBeenCalledTimes(1);
+    // The one-shot snapshot still loaded.
+    expect(useQueueStore.getState().status).toBe('ready');
+  });
+
+  it('NFR-033: a retry after a half-failed subscription registers exactly one of each listener', async () => {
+    mockQueue({ fail: 'queue_status' });
+    eventMock.failListen.add('jobProgressEvent');
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(toast, 'error').mockReturnValue('id');
+    await useQueueStore.getState().init();
+    expect(useQueueStore.getState().status).toBe('error');
+
+    eventMock.failListen.clear();
+    mockQueue();
+    await useQueueStore.getState().init();
+
+    expect(useQueueStore.getState().status).toBe('ready');
+    expect(eventMock.queueUpdated.size).toBe(1);
+    expect(eventMock.jobProgressEvent.size).toBe(1);
+  });
+
   it('FR-030: reports unavailable outside the Tauri host', async () => {
     // clearMocks() only strips sub-properties of __TAURI_INTERNALS__, so a prior
     // mockIPC leaves the object (and isTauri() true). Drop it for a true no-host.
@@ -381,6 +428,46 @@ describe('queueStore — batch completion notifications', () => {
     mockQueue();
     await useQueueStore.getState().init();
     expect(success).not.toHaveBeenCalled();
+  });
+
+  it('FR-070: an event that beats the initial snapshot seeds too, it never replays history', async () => {
+    // The listeners are registered before `queue_status` is awaited, so the
+    // backend can push a snapshot first. That snapshot is still the first this
+    // session sees — everything terminal in it belongs to a past session.
+    const finished = snapshotOf([
+      mkJob({ id: 'a', state: 'done', file_name: 'a.pdf' }),
+      mkJob({ id: 'b', state: 'done', file_name: 'b.pdf' }),
+    ]);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mockIPC(async (cmd) => {
+      if (cmd === 'queue_status') {
+        await held;
+        return finished;
+      }
+      return null;
+    });
+    const success = vi.spyOn(toast, 'success').mockReturnValue('id');
+
+    const initDone = useQueueStore.getState().init();
+    await vi.waitFor(() => expect(eventMock.queueUpdated.size).toBe(1));
+    emitQueueUpdated(finished);
+    release();
+    await initDone;
+
+    expect(success).not.toHaveBeenCalled();
+    expect(useQueueStore.getState().status).toBe('ready');
+
+    // Seeding is not muting: a batch that goes back to work and finishes
+    // *during* this session is still announced.
+    emitQueueUpdated(running);
+    emitQueueUpdated(finished);
+    expect(success).toHaveBeenCalledTimes(1);
+    expect(success.mock.calls[0]?.[0]).toBe(
+      '2 of 2 files printed successfully',
+    );
   });
 
   it('FR-071: a failed batch reports the error and offers the job log', async () => {

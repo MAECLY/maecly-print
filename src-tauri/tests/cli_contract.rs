@@ -406,12 +406,53 @@ fn fr_009_every_ipc_error_maps_to_a_stable_code() {
     }
 }
 
+/// Drives the real accumulator `cli::print::run` feeds every file into, rather
+/// than re-folding `ExitCode::worst` (which is already pinned as a unit test in
+/// `cli::exit`). Spooling is what needs a printer; *recording* what the spooler
+/// said does not, so the batch rule is exercised here for real: every file keeps
+/// a row, and the worst code — not the last, and not the first — is what the
+/// process returns.
 #[test]
 fn fr_009_a_batch_returns_its_worst_code() {
-    let worst = [ExitCode::Success, ExitCode::PrintFailed, ExitCode::Usage]
-        .into_iter()
-        .fold(ExitCode::Success, ExitCode::worst);
-    assert_eq!(worst, ExitCode::PrintFailed);
+    use maeclyprint_lib::cli::print::BatchOutcomes;
+
+    let mut batch = BatchOutcomes::with_capacity(4);
+    assert_eq!(
+        batch.worst(),
+        ExitCode::Success,
+        "a batch with nothing wrong exits 0"
+    );
+
+    // A batch of four: two files print, one is unsupported, one fails to spool.
+    batch.record("/tmp/a.pdf", "Front Desk".into(), Ok(Some("fd-1".into())));
+    batch.record(
+        "/tmp/b.docx",
+        "Front Desk".into(),
+        Err(CliError::from(IpcError::UnsupportedFormat(
+            "/tmp/b.docx".into(),
+        ))),
+    );
+    batch.record(
+        "/tmp/c.pdf",
+        "Front Desk".into(),
+        Err(CliError::from(IpcError::PrintFailed(
+            "spooler said no".into(),
+        ))),
+    );
+    batch.record("/tmp/d.pdf", "Front Desk".into(), Ok(None));
+
+    // UnsupportedFile is 7, PrintFailed is 9: the worst wins even though the
+    // batch ended on a success.
+    assert_eq!(batch.worst(), ExitCode::PrintFailed);
+
+    let files = batch.into_files();
+    assert_eq!(files.len(), 4, "no file is dropped from the report");
+    assert_eq!(files[0].state, "done");
+    assert_eq!(files[1].state, "failed");
+    assert_eq!(files[1].error.as_ref().unwrap().code, "UnsupportedFormat");
+    assert_eq!(files[2].error.as_ref().unwrap().code, "PrintFailed");
+    assert_eq!(files[3].state, "done");
+    assert!(files[3].os_job_id.is_none(), "a backend may report no id");
 }
 
 // ---------------------------------------------------------------------------

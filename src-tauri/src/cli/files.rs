@@ -17,6 +17,7 @@
 //! GUI's paths arrive from a picker or a drop and are refused if relative, see
 //! [`crate::util::paths::canonical_input`]).
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::cli::exit::CliError;
@@ -28,6 +29,11 @@ use crate::engine::{expand_folder, ExpansionLimits, FolderScan};
 /// expansion filters by it. Patterns and folders that match nothing are an
 /// error naming the entry — silently printing zero files would look like
 /// success.
+///
+/// A path that turns up more than once — typed twice, or matched by both a
+/// pattern and a folder — is printed once, and in the position of its **first**
+/// appearance: the order of `--files` is the order the pages come out, so the
+/// list is never sorted to make duplicates adjacent.
 pub fn expand_inputs(entries: &[String], max_file_size_mb: u32) -> Result<Vec<String>, CliError> {
     let mut out: Vec<String> = Vec::new();
 
@@ -71,7 +77,10 @@ pub fn expand_inputs(entries: &[String], max_file_size_mb: u32) -> Result<Vec<St
     if out.is_empty() {
         return Err(CliError::usage("no files were provided to print"));
     }
-    out.dedup();
+    // Order-preserving: `Vec::dedup` only collapses *adjacent* equals, so on an
+    // unsorted list `a.pdf,b.pdf,a.pdf` printed a.pdf twice.
+    let mut seen: HashSet<String> = HashSet::with_capacity(out.len());
+    out.retain(|path| seen.insert(path.clone()));
     Ok(out)
 }
 
@@ -240,6 +249,27 @@ mod tests {
             "a relative entry is made absolute: {files:?}"
         );
         assert!(files[0].ends_with("report.pdf"));
+    }
+
+    #[test]
+    fn fr_008_a_repeated_entry_prints_once_in_first_appearance_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = touch(dir.path(), "a.pdf");
+        let b = touch(dir.path(), "b.pdf");
+
+        // Non-adjacent duplicate: this is what `Vec::dedup` let through.
+        let files = expand_inputs(&[a.clone(), b.clone(), a.clone()], NO_SIZE_LIMIT).unwrap();
+        assert_eq!(files, vec![a.clone(), b.clone()], "a.pdf printed twice");
+
+        // Adjacent duplicates still collapse, and the order is the order typed —
+        // not sorted, because that is the order the pages come out.
+        let files = expand_inputs(&[b.clone(), b.clone(), a.clone()], NO_SIZE_LIMIT).unwrap();
+        assert_eq!(files, vec![b.clone(), a.clone()]);
+
+        // A pattern that re-matches an explicitly named file does not double it.
+        let pattern = dir.path().join("*.pdf").to_string_lossy().into_owned();
+        let files = expand_inputs(&[a.clone(), pattern], NO_SIZE_LIMIT).unwrap();
+        assert_eq!(files, vec![a, b]);
     }
 
     #[test]

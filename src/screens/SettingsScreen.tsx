@@ -421,6 +421,10 @@ export function SettingsScreen({
             }))}
           />
         </Row>
+        {/* The flag is persisted and `settings::launch_minimized()` reads it
+            back, but nothing in `lib.rs` minimizes the window yet — so the hint
+            says so rather than promising a minimized launch. Keep both in step:
+            the day the window honours it, the hint goes back to describing it. */}
         <Row
           label={t('appearance.launchMinimized.label')}
           hint={t('appearance.launchMinimized.hint')}
@@ -528,8 +532,10 @@ export function SettingsScreen({
           />
         </Row>
         <Note>{t('updates.channelNote')}</Note>
-        {/* The switch is honest about being inert: the launch-time check is
-            part of the auto-updater (M4). Today the flag is only recorded. */}
+        {/* FR-080: this switch is live. `lib.rs` runs `update::run_startup_check`
+            on a detached thread 30 s after launch, and the preference plus the
+            24 h throttle are enforced in Rust — so the hint below states the
+            frequency instead of promising a future milestone. */}
         <Row
           label={t('updates.checkOnStartup.label')}
           hint={t('updates.checkOnStartup.hint')}

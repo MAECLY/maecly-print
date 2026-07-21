@@ -252,12 +252,39 @@ const DUPLEX_TO_WIRE: Record<UiProfile['duplex'], Duplex> = {
 };
 
 /**
+ * The UI sentinel for "let the printer pick the tray". Everything else is a
+ * driver-supplied bin name and is passed through verbatim, because bin names
+ * are model-specific ("Tray 2", "Drawer 1", "Kassette 1") and we are in no
+ * position to normalize them.
+ */
+export const AUTO_TRAY = 'auto';
+
+/**
+ * A profile's tray as the wire wants it: the bin name, or `null` for the
+ * printer's own default. `auto` and blanks both mean "no choice", and a blank
+ * would otherwise reach the driver as an empty `InputSlot=` that selects
+ * nothing (the backend rejects it — see `JobSettings::validate`).
+ */
+export function toWireTray(tray: string | null | undefined): string | null {
+  const trimmed = (tray ?? '').trim();
+  if (trimmed === '' || trimmed.toLowerCase() === AUTO_TRAY) return null;
+  return trimmed;
+}
+
+/**
  * Collapse a profile baseline plus its overrides into a wire [`JobSettings`].
  * The mapping is intentionally faithful — no hidden flags — so the backend's
  * `preview_command` and the actual dispatch agree with what the UI shows.
  *
  * The page range comes from `overrides.range` when set, otherwise the
  * profile's saved `pageRange`, otherwise "all pages".
+ *
+ * `quality` and `tray` come straight from the profile: the overrides panel does
+ * not expose them, but the profile editor does, so they have to travel with the
+ * request or they would be settings the user can edit and save that never reach
+ * a printer. What each backend can do with them (CUPS applies both; SumatraPDF
+ * applies the tray and says so when it cannot apply the quality) is the engine's
+ * business, and the honesty preview reports it.
  */
 export function toJobSettings(
   profile: UiProfile,
@@ -278,6 +305,8 @@ export function toJobSettings(
     orientation: merged.orientation,
     scaling: merged.scaling,
     page_ranges: range ? range : null,
+    quality: merged.quality,
+    tray: toWireTray(merged.tray),
   };
 }
 
