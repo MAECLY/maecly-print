@@ -3964,7 +3964,7 @@ mod tests {
         h.runner.overrides.lock().unwrap().insert(
             "FakePrinter".into(),
             crate::settings::PrinterOverride {
-                tray: Some("Tray 2".into()),
+                tray: Some("Tray2".into()),
                 paper: Some("Letter".into()),
             },
         );
@@ -3979,7 +3979,7 @@ mod tests {
 
         let sent = h.runner.print_settings.lock().unwrap().clone();
         assert_eq!(sent.len(), 2);
-        assert_eq!(sent[0].tray.as_deref(), Some("Tray 2"));
+        assert_eq!(sent[0].tray.as_deref(), Some("Tray2"));
         assert_eq!(sent[0].paper_size, PaperSize::LETTER);
         assert_eq!(sent[1].tray.as_deref(), Some("Manual"));
         assert_eq!(sent[1].paper_size, PaperSize::A3);
