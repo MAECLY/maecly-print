@@ -376,6 +376,42 @@ impl UpdateState {
         Ok(())
     }
 
+    /// Drop a skipped version that is not newer than `current` (FR-084).
+    ///
+    /// A skip only ever silences a release *ahead* of the running build. Once
+    /// the user is on that version or past it (installed by hand, or by a
+    /// later update), the skip describes nothing and must stop showing up as
+    /// "Skipping vX" in About. An unparseable tag is kept: guessing would be
+    /// worse than one stale line. Returns whether anything changed.
+    pub fn prune_stale_skip(&mut self, current: &str) -> bool {
+        let Some(skipped) = self.skipped_version.as_deref() else {
+            return false;
+        };
+        let parses = semver::Version::parse(strip_v(skipped)).is_ok()
+            && semver::Version::parse(strip_v(current)).is_ok();
+        if parses && !is_newer(current, skipped) {
+            self.skipped_version = None;
+            return true;
+        }
+        false
+    }
+
+    /// Read the state for display, removing a stale skip from the file too
+    /// (see [`UpdateState::prune_stale_skip`]). A failed rewrite is logged:
+    /// the returned value is already correct either way.
+    pub fn load_current_from(path: &Path, current: &str) -> UpdateState {
+        let mut state = Self::load_from(path);
+        if state.prune_stale_skip(current) {
+            match Self::update_at(path, |s| {
+                s.prune_stale_skip(current);
+            }) {
+                Ok(saved) => return saved,
+                Err(e) => tracing::warn!(event = "update_state_save_failed", error = %e),
+            }
+        }
+        state
+    }
+
     /// Read the real per-user state file.
     pub fn load() -> UpdateState {
         Self::load_from(&state_path())
@@ -986,5 +1022,63 @@ mod tests {
         // Either a release, no releases (404 → None), or a friendly error — but
         // never a panic.
         assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn fr_084_a_skip_at_or_below_the_running_version_is_stale() {
+        // Skipped v0.2.0, then installed v0.3.0 by hand: the skip is history.
+        let mut state = UpdateState {
+            last_check_at: None,
+            skipped_version: Some("v0.2.0".into()),
+        };
+        assert!(state.prune_stale_skip("0.3.0"));
+        assert_eq!(state.skipped_version, None);
+
+        // Skipping the very version now running is stale too.
+        let mut state = UpdateState {
+            last_check_at: None,
+            skipped_version: Some("0.3.0".into()),
+        };
+        assert!(state.prune_stale_skip("0.3.0"));
+        assert_eq!(state.skipped_version, None);
+    }
+
+    #[test]
+    fn fr_084_a_skip_newer_than_the_running_version_is_kept() {
+        let mut state = UpdateState {
+            last_check_at: Some("2026-07-01T00:00:00Z".into()),
+            skipped_version: Some("v0.4.0".into()),
+        };
+        assert!(!state.prune_stale_skip("0.3.0"));
+        assert_eq!(state.skipped_version.as_deref(), Some("v0.4.0"));
+
+        // A tag we cannot parse is left alone rather than guessed at.
+        let mut state = UpdateState {
+            last_check_at: None,
+            skipped_version: Some("nightly-42".into()),
+        };
+        assert!(!state.prune_stale_skip("0.3.0"));
+        assert!(!UpdateState::default().prune_stale_skip("0.3.0"));
+    }
+
+    #[test]
+    fn fr_084_loading_for_the_ui_clears_a_stale_skip_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("update-state.json");
+        UpdateState {
+            last_check_at: Some("2026-07-01T00:00:00Z".into()),
+            skipped_version: Some("v0.0.0".into()),
+        }
+        .save_to(&path)
+        .unwrap();
+
+        let state = UpdateState::load_current_from(&path, "0.0.1");
+        assert_eq!(state.skipped_version, None);
+        assert_eq!(state.last_check_at.as_deref(), Some("2026-07-01T00:00:00Z"));
+        assert_eq!(
+            UpdateState::load_from(&path).skipped_version,
+            None,
+            "the stale skip is removed from the file, not just hidden"
+        );
     }
 }

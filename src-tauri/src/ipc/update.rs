@@ -78,11 +78,17 @@ pub async fn check_for_updates() -> Result<UpdateCheck, IpcError> {
 
 /// The persisted update bookkeeping: when the last check ran and which version
 /// the user skipped (FR-084), so the About screen can render "you skipped
-/// {version}" with a way back out.
+/// {version}" with a way back out. A skip that is no longer ahead of the
+/// running build is cleared on the way out.
 #[tauri::command]
 #[specta::specta]
 pub fn get_update_state() -> Result<UpdateState, IpcError> {
-    Ok(UpdateState::load())
+    // A skip at or below the running version is history (the user upgraded
+    // past it), so it is dropped here rather than shown forever.
+    Ok(UpdateState::load_current_from(
+        &update::state_path(),
+        env!("CARGO_PKG_VERSION"),
+    ))
 }
 
 /// Record (or clear) the release the user chose to skip — FR-084's third
