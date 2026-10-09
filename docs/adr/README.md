@@ -11,8 +11,9 @@
 | 0003 | [Hybrid print-engine strategy](./0003-hybrid-print-engine-strategy.md)          | Accepted | 2026-05-03 |
 | 0004 | [Auto-updater: Tauri Updater plugin](./0004-auto-updater-tauri-builtin.md)      | Accepted | 2026-05-03 |
 | 0005 | [Shell extension: Sparse MSIX + IExplorerCommand](./0005-shell-extension-sparse-msix.md) | Accepted | 2026-05-03 |
-| 0006 | [Installer: Inno Setup (+ Sparse MSIX for shell ext)](./0006-installer-inno-setup.md) | Accepted | 2026-05-03 |
+| 0006 | [Installer: Inno Setup (+ Sparse MSIX for shell ext)](./0006-installer-inno-setup.md) | Superseded by ADR-0008 | 2026-05-03 |
 | 0007 | [Windows-first, macOS-second roadmap](./0007-windows-first-mac-second.md)       | Accepted | 2026-05-03 |
+| 0008 | [Installer: per-user NSIS with signed updater artifacts](./0008-installer-nsis-per-user.md) | Accepted | 2026-10-09 |
 
 ## Format
 

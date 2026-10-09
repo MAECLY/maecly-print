@@ -12,7 +12,7 @@
 | ADR-0005 / ADR-0006 assume a C++ COM DLL named `shell-ext-win.dll` / `MaeclyPrintShellExt.dll` | The extension is a Rust `cdylib` and the built artifact is **`shell_ext_win.dll`** (underscores — `[lib] name = "shell_ext_win"`). |
 | ADR-0006 fixes the app CLSID as `{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}` in draft snippets | The real CLSID, in `shell-ext-win/src/clsid.rs`, is **`{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}`**. |
 
-**This needs a human decision, and it is not one this document can make.** Either:
+**Decided (2026-10-09): option 2.** [ADR-0008](../adr/0008-installer-nsis-per-user.md) supersedes ADR-0006. The Windows installer is Tauri's per-user NSIS bundle, with signed updater artifacts (`createUpdaterArtifacts`), because `tauri-plugin-updater` installs updates by running that same setup. The sparse-MSIX identity remains open and is tracked in ADR-0008. The two options as they were weighed:
 
 1. **Implement ADR-0006** — write the `.iss`, the sparse MSIX and `build.ps1`, and stop using Tauri's NSIS bundler for release artifacts; or
 2. **Supersede ADR-0006** with a new ADR that accepts NSIS (Tauri's bundler already produces a per-user NSIS installer, which satisfies the no-admin constraint) and specifies how the sparse-MSIX identity requirement from ADR-0005 is met alongside it — that requirement does not go away, because `shell-ext-win/res/shellext.manifest` already embeds an `<msix>` element that is meaningless without a matching package.

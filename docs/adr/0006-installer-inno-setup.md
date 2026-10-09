@@ -1,8 +1,10 @@
 # ADR-0006: Installer — Inno Setup (+ Sparse MSIX for shell extension)
 
+> Superseded by [ADR-0008](./0008-installer-nsis-per-user.md): the Windows installer is Tauri's per-user NSIS bundle, because the updater has to run it.
+
 ## Status
 
-Accepted
+Superseded by ADR-0008
 
 ## Date
 
