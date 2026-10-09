@@ -677,9 +677,63 @@ impl Dispatcher {
 
     /// Kick the pipeline for jobs recovered from disk, then persist/emit the
     /// starting snapshot.
+    ///
+    /// A print that was already in the OS queue when the app closed comes back
+    /// as `Printing` ([`crate::queue::persist::recover`]): it takes the print
+    /// slot again and is tracked to its end, instead of being paused and
+    /// spooled a second time on resume.
     pub(crate) fn bootstrap(&mut self) {
+        self.adopt_handed_off_print();
         self.schedule();
         self.commit();
+    }
+
+    /// Re-attach the print slot to a recovered, already spooled job.
+    fn adopt_handed_off_print(&mut self) {
+        let mut adopt: Option<(String, String, String)> = None;
+        {
+            let mut st = self.state.write().unwrap();
+            for job in st.jobs.iter_mut() {
+                if job.state != JobState::Printing {
+                    continue;
+                }
+                let handed_off = (
+                    job.printer_resolved.clone(),
+                    job.os_job_id.clone(),
+                    crate::queue::persist::is_handed_off(job),
+                );
+                match handed_off {
+                    (Some(printer), Some(oid), true) if adopt.is_none() => {
+                        tracing::info!(
+                            event = "job_tracking_resumed",
+                            job_id = %job.id,
+                            file = %job.file_name,
+                            printer = %printer,
+                            os_job_id = %oid,
+                        );
+                        adopt = Some((job.id.clone(), printer, oid));
+                    }
+                    // `recover` leaves at most one; anything else cannot be
+                    // followed, so it waits for the user like any interrupted
+                    // job.
+                    _ => {
+                        job.state = JobState::Paused;
+                        job.progress = None;
+                        job.error = Some(JobError::new(
+                            "interrupted_by_shutdown",
+                            "MaeclyPrint was closed while this job was in progress.",
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some((id, printer, oid)) = adopt {
+            let mut slot = PrintSlot::new(id.clone());
+            slot.printer = Some(printer);
+            slot.os_job_id = Some(oid);
+            self.print_slot = Some(slot);
+            self.arm_track_timer(id, track_delay(0));
+        }
     }
 
     fn handle(&mut self, cmd: Cmd) {
@@ -2822,6 +2876,46 @@ mod tests {
             0,
             "never spooled"
         );
+    }
+
+    /// NFR-010 / FR-032: a job whose OS job was still in the printer queue
+    /// when the app closed is followed to its end after the restart, not
+    /// paused and printed a second time on resume.
+    #[tokio::test(start_paused = true)]
+    async fn nfr_010_a_print_in_the_os_queue_at_shutdown_is_tracked_not_reprinted() {
+        let mut h = harness();
+        let mut j = make_job("a.pdf");
+        j.state = JobState::Printing;
+        j.os_job_id = Some("P-7".to_string());
+        j.printer_resolved = Some("FakePrinter".to_string());
+        let id = j.id.clone();
+        let recovered = crate::queue::persist::recover(QueueSnapshot {
+            jobs: vec![j, make_job("b.pdf")],
+            ..QueueSnapshot::default()
+        });
+        h.state.write().unwrap().jobs = recovered.jobs;
+        h.tracker
+            .script([Ok(OsJobState::Processing), Ok(OsJobState::Completed)]);
+
+        h.d.bootstrap();
+        h.run_to_idle();
+        assert_eq!(h.job(&id).state, JobState::Printing);
+        assert_eq!(
+            h.runner.print_calls.load(Ordering::Relaxed),
+            0,
+            "the next job waits: the slot belongs to the recovered print"
+        );
+
+        h.advance_and_settle(Duration::from_secs(1)).await;
+        h.advance_and_settle(Duration::from_secs(2)).await;
+        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(
+            h.tracker.polls.lock().unwrap()[0],
+            ("FakePrinter".to_string(), "P-7".to_string())
+        );
+        h.run_to_idle();
+        // Only the *other* job was spooled; the recovered one never again.
+        assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test]

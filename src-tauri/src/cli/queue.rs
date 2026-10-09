@@ -55,6 +55,7 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
                 ))
                 .into());
             }
+            let os_job = os_job_of(job);
             job.state = JobState::Cancelled;
             job.progress = None;
             job.finished_at = Some(now_rfc3339());
@@ -63,6 +64,7 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
             // reading now owns the file, and our snapshot is already stale.
             refuse_while_app_runs(&paths.queue)?;
             save(&paths.queue, &snapshot)?;
+            cancel_os_jobs(os_job);
             emitter.emit(&serde_json::json!({ "cancelled": [id.clone()] }), || {
                 format!("Cancelled job {id}")
             });
@@ -73,8 +75,10 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
             let mut snapshot = persist::load(&paths.queue);
             let finished_at = now_rfc3339();
             let mut cancelled = Vec::new();
+            let mut os_jobs = Vec::new();
             for job in &mut snapshot.jobs {
                 if can_transition(job.state, JobState::Cancelled) {
+                    os_jobs.extend(os_job_of(job));
                     job.state = JobState::Cancelled;
                     job.progress = None;
                     job.finished_at = Some(finished_at.clone());
@@ -83,11 +87,32 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
             }
             refuse_while_app_runs(&paths.queue)?;
             save(&paths.queue, &snapshot)?;
+            cancel_os_jobs(os_jobs);
             let count = cancelled.len();
             emitter.emit(&serde_json::json!({ "cancelled": cancelled }), || {
                 format!("Cancelled {count} job(s)")
             });
             Ok(())
+        }
+    }
+}
+
+/// The `(printer, OS job id)` a job left in the system print queue, if any. A
+/// job the app had already spooled when it closed stays `Printing` with its OS
+/// job id ([`persist::recover`]), so cancelling it here has to reach the
+/// spooler too, or the paper keeps coming out of a job reported cancelled.
+fn os_job_of(job: &crate::queue::job::Job) -> Option<(String, String)> {
+    persist::is_handed_off(job)
+        .then(|| job.printer_resolved.clone().zip(job.os_job_id.clone()))
+        .flatten()
+}
+
+/// Best-effort cancellation at the spooler. A job that already left the OS
+/// queue cannot be cancelled there, which is not a failure of this command.
+fn cancel_os_jobs(jobs: impl IntoIterator<Item = (String, String)>) {
+    for (printer, oid) in jobs {
+        if let Err(e) = crate::engine::print::cancel_os_job(&printer, &oid) {
+            tracing::warn!(event = "os_job_cancel_failed", os_job_id = %oid, error = %e);
         }
     }
 }
@@ -273,6 +298,18 @@ mod tests {
             JobState::Queued,
             "nothing may be written behind the running app's back"
         );
+    }
+
+    #[test]
+    fn fr_032_only_a_spooled_job_has_an_os_job_to_cancel() {
+        let mut snapshot = snapshot_with(&[JobState::Printing, JobState::Printing]);
+        snapshot.jobs[0].os_job_id = Some("Office-42".to_string());
+        snapshot.jobs[0].printer_resolved = Some("Office".to_string());
+        assert_eq!(
+            os_job_of(&snapshot.jobs[0]),
+            Some(("Office".to_string(), "Office-42".to_string()))
+        );
+        assert_eq!(os_job_of(&snapshot.jobs[1]), None, "never spooled");
     }
 
     #[test]
