@@ -115,7 +115,7 @@ pub fn canonical_input(raw: &str) -> Result<PathBuf, IpcError> {
 fn simplified(p: PathBuf) -> PathBuf {
     match p.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
         Some(rest)
-            if rest.as_bytes().len() >= 2
+            if rest.len() >= 2
                 && rest.as_bytes()[0].is_ascii_alphabetic()
                 && rest.as_bytes()[1] == b':' =>
         {
