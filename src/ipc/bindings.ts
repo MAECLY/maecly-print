@@ -54,6 +54,21 @@ async openExternal(url: string) : Promise<Result<null, IpcError>> {
 }
 },
 /**
+ * Write a webview error into the structured log.
+ * 
+ * Before this existed the error screen said "the logs folder has the details"
+ * while the details only ever reached the devtools console. Infallible by
+ * design: the caller is already handling a failure.
+ */
+async logFrontendError(report: FrontendErrorReport) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("log_frontend_error", { report }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * List every printer the OS spooler knows about, with capabilities.
  */
 async listPrinters() : Promise<Result<Printer[], IpcError>> {
@@ -916,6 +931,24 @@ export type FoundIn =
  * A well-known install directory for this OS.
  */
 "installed"
+/**
+ * An error raised in the webview, forwarded so it lands in the log file the
+ * error screens point the user at (NFR-033, FR-113).
+ */
+export type FrontendErrorReport = { 
+/**
+ * Where it was caught: `"error-boundary"`, `"window.error"`,
+ * `"unhandledrejection"`, or a short call-site label.
+ */
+source: string; 
+/**
+ * The error's message.
+ */
+message: string; 
+/**
+ * The JS stack and/or React component stack, when there is one.
+ */
+stack: string | null }
 export type IpcError = { code: "FileNotFound"; message: string } | 
 /**
  * The caller sent a structurally invalid request (empty file list, bad

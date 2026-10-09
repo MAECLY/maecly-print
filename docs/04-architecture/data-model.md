@@ -443,6 +443,12 @@ pub fn init() -> io::Result<()> {
 
 Two consequences worth knowing: the default filter is **`info,maeclyprint=debug`** (overridable with `RUST_LOG`), so our own crate logs at debug — including paths — out of the box; and a second `compact` layer writes to stdout for `pnpm tauri dev`, which is also what makes `attach_parent()` matter for the headless CLI on Windows.
 
+### 5.4 Panics and frontend errors
+
+Release builds use `panic = "abort"`, and the Windows GUI binary has no console, so a panic would otherwise end the process without a trace. `logging::install_panic_hook` (installed in `run_with` right after `logging::init`) writes each panic **synchronously** as one record in the same JSON shape — `level: "ERROR"`, `target: "maeclyprint::panic"`, `fields.event: "panic"`, plus `location`, `payload` and `thread` — to the newest file for the day. It bypasses the non-blocking writer on purpose: the abort that follows would discard that writer's buffer.
+
+Errors raised in the webview reach the same file through the `log_frontend_error` command (`event: "frontend_error"`): the React error boundary, `window` `error`/`unhandledrejection`, and the listener failures that used to go only to the devtools console.
+
 ## 6. Schema migration policy
 
 Every persisted file carries a `schema_version: u32` at the top.

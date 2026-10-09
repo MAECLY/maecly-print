@@ -9,7 +9,7 @@
 //! allow-listed external link. All three shell out via the `opener` plugin
 //! Rust-side only, so no JS `opener` capability is needed.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri_plugin_opener::OpenerExt;
 
@@ -107,6 +107,73 @@ pub fn open_external(app: tauri::AppHandle, url: String) -> Result<(), IpcError>
         .map_err(|e| IpcError::Internal(format!("could not open the link: {e}")))
 }
 
+/// An error raised in the webview, forwarded so it lands in the log file the
+/// error screens point the user at (NFR-033, FR-113).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Type)]
+pub struct FrontendErrorReport {
+    /// Where it was caught: `"error-boundary"`, `"window.error"`,
+    /// `"unhandledrejection"`, or a short call-site label.
+    pub source: String,
+    /// The error's message.
+    pub message: String,
+    /// The JS stack and/or React component stack, when there is one.
+    pub stack: Option<String>,
+}
+
+/// Upper bounds on what one report may write, so a runaway error loop (or a
+/// megabyte-long stack) cannot fill the log on its own.
+const FRONTEND_SOURCE_MAX: usize = 64;
+const FRONTEND_MESSAGE_MAX: usize = 2_000;
+const FRONTEND_STACK_MAX: usize = 8_000;
+
+/// Truncate `s` to at most `max` bytes on a char boundary, marking the cut.
+fn clip(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}… [truncated]", &s[..end])
+}
+
+/// Bound every field of a report. Pure, for testing.
+fn sanitize_frontend_error(report: FrontendErrorReport) -> FrontendErrorReport {
+    let source = clip(report.source.trim(), FRONTEND_SOURCE_MAX);
+    FrontendErrorReport {
+        source: if source.is_empty() {
+            "unknown".to_string()
+        } else {
+            source
+        },
+        message: clip(&report.message, FRONTEND_MESSAGE_MAX),
+        stack: report
+            .stack
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| clip(&s, FRONTEND_STACK_MAX)),
+    }
+}
+
+/// Write a webview error into the structured log.
+///
+/// Before this existed the error screen said "the logs folder has the details"
+/// while the details only ever reached the devtools console. Infallible by
+/// design: the caller is already handling a failure.
+#[tauri::command]
+#[specta::specta]
+pub fn log_frontend_error(report: FrontendErrorReport) -> Result<(), IpcError> {
+    let r = sanitize_frontend_error(report);
+    tracing::error!(
+        event = "frontend_error",
+        source = %r.source,
+        stack = r.stack.as_deref().unwrap_or(""),
+        "{}",
+        r.message
+    );
+    Ok(())
+}
+
 /// Build the prefilled GitHub issue URL. `repo` is the `https://github.com/o/r`
 /// base; the body is percent-encoded (`NON_ALPHANUMERIC`) so newlines, spaces
 /// and `#` survive intact in the query string. Pure, for testing.
@@ -170,6 +237,41 @@ mod tests {
         // The environment block is present (percent-encoded).
         assert!(url.contains("MaeclyPrint"));
         assert!(!url.contains(' '), "no raw spaces in the URL");
+    }
+
+    fn report(source: &str, message: &str, stack: Option<&str>) -> FrontendErrorReport {
+        FrontendErrorReport {
+            source: source.into(),
+            message: message.into(),
+            stack: stack.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn nfr_033_frontend_error_report_is_bounded() {
+        let huge = "é".repeat(10_000); // multi-byte: the cut must respect chars
+        let r = sanitize_frontend_error(report("error-boundary", &huge, Some(&huge)));
+        assert!(
+            r.message.len() <= FRONTEND_MESSAGE_MAX + 20,
+            "{}",
+            r.message.len()
+        );
+        assert!(r.message.ends_with("[truncated]"));
+        assert!(r.stack.unwrap().len() <= FRONTEND_STACK_MAX + 20);
+    }
+
+    #[test]
+    fn nfr_033_frontend_error_report_keeps_small_reports_verbatim() {
+        let r = sanitize_frontend_error(report(" window.error ", "boom", Some("at x")));
+        assert_eq!(r, report("window.error", "boom", Some("at x")));
+        // An empty source or a blank stack is normalised, not logged as noise.
+        let r = sanitize_frontend_error(report("", "boom", Some("   ")));
+        assert_eq!(r, report("unknown", "boom", None));
+    }
+
+    #[test]
+    fn nfr_033_log_frontend_error_never_fails() {
+        assert!(log_frontend_error(report("test", "boom", None)).is_ok());
     }
 
     #[test]

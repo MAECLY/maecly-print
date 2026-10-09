@@ -114,4 +114,28 @@ describe('ErrorBoundary', () => {
     // Still the recovery panel, not a blank window.
     expect(screen.getByRole('alert')).toBeInTheDocument();
   });
+
+  it('NFR-033: a render crash is written to the log file, stack included', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const reports: unknown[] = [];
+    mockIPC((cmd, args) => {
+      if (cmd === 'log_frontend_error') reports.push(args);
+      return null;
+    });
+
+    render(
+      <ErrorBoundary>
+        <Boom />
+      </ErrorBoundary>,
+    );
+
+    await waitFor(() => expect(reports).toHaveLength(1));
+    const { report } = reports[0] as {
+      report: { source: string; message: string; stack: string | null };
+    };
+    expect(report.source).toBe('error-boundary');
+    expect(report.message).toBe('render exploded');
+    // The JS stack and React's component stack both reach the log.
+    expect(report.stack).toContain('Boom');
+  });
 });

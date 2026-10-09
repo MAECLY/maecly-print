@@ -192,6 +192,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::diag::open_logs_folder,
             ipc::diag::report_issue,
             ipc::diag::open_external,
+            ipc::diag::log_frontend_error,
             ipc::printers::list_printers,
             ipc::printers::default_printer,
             ipc::printers::discover_printers,

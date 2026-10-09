@@ -19,6 +19,7 @@ import {
   takePendingSelections,
   type Selection,
 } from '@/lib/ipc';
+import { logError } from '@/lib/errorLog';
 import { addPathsToJob } from '@/lib/jobFiles';
 import { events } from '@/ipc/bindings';
 import { useProfilesStore } from '@/stores/profilesStore';
@@ -172,7 +173,7 @@ function App() {
         else unlisten = un;
       })
       .catch((e) => {
-        console.error('app drag-drop listener failed', e);
+        logError('app.drag-drop-listener', e);
       });
     return () => {
       cancelled = true;
@@ -218,7 +219,7 @@ function App() {
         else unlisten = un;
       })
       .catch((e: unknown) => {
-        console.error('update-available listener failed', e);
+        logError('app.update-available-listener', e);
       });
     return () => {
       cancelled = true;
@@ -361,7 +362,7 @@ function App() {
       try {
         selections = await takePendingSelections();
       } catch (e) {
-        console.error('pending selections could not be read', e);
+        logError('app.take-pending-selections', e);
         return;
       }
       // Deliberately not guarded by `cancelled`: the backend has already
@@ -383,7 +384,7 @@ function App() {
         void drain();
       })
       .catch((e: unknown) => {
-        console.error('selection-forwarded listener failed', e);
+        logError('app.selection-forwarded-listener', e);
         // A launch-time selection is still waiting; a missing subscription
         // only costs us the hot ones.
         void drain();

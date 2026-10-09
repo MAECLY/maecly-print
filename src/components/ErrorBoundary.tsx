@@ -3,7 +3,7 @@
  * unmounts the whole tree and leaves the desktop window blank with no way out
  * — the user can't even reach Settings to file a report. This catches it and
  * offers the two recoveries that always work: reload the webview, and open the
- * logs folder where the stack was written.
+ * logs folder where the stack was written (via `log_frontend_error`).
  *
  * The class holds the boundary (React only supports them as classes); the
  * exported wrapper is a function component so the copy can come from `useT`.
@@ -14,6 +14,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { MPButton } from '@/components/ui';
 import { Icon } from '@/components/Icon';
 import { useT, type TFunction } from '@/i18n/I18nProvider';
+import { logError } from '@/lib/errorLog';
 import { isTauri, openLogsFolder } from '@/lib/ipc';
 
 interface BoundaryProps {
@@ -35,9 +36,9 @@ class ErrorBoundaryInner extends Component<BoundaryProps, BoundaryState> {
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo) {
-    // The Rust side tees console output into the log file, so this is what the
-    // "open the logs folder" button leads the user to.
-    console.error('render error', error, info.componentStack);
+    // Forwarded to the backend log (`log_frontend_error`), so the "open the
+    // logs folder" button below leads the user to the actual stack.
+    logError('error-boundary', error, info.componentStack);
   }
 
   private reload = () => {

@@ -41,6 +41,7 @@ import {
   type TranslationKey,
 } from '@/i18n';
 import { detectSystemLocale } from '@/i18n/I18nProvider';
+import { logError } from '@/lib/errorLog';
 import {
   cancelAll as cancelAllCmd,
   cancelJob as cancelJobCmd,
@@ -404,12 +405,12 @@ export const useQueueStore = create<QueueState>()((set, get) => {
             try {
               off();
             } catch (offError) {
-              console.error('queue event unsubscribe failed', offError);
+              logError('queue.unsubscribe', offError);
             }
           }
           // The snapshot below still works; without events the view is a
           // one-shot, so surface it rather than pretending we're live.
-          console.error('queue event subscription failed', e);
+          logError('queue.subscribe', e);
           toast.error(
             'Live queue updates unavailable — reopen the app to retry.',
           );

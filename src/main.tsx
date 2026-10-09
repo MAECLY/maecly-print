@@ -3,7 +3,11 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { I18nProvider } from './i18n/I18nProvider';
+import { installGlobalErrorLogging } from './lib/errorLog';
 import './styles/globals.css';
+
+// Errors no boundary or handler catches still reach the log file (NFR-033).
+installGlobalErrorLogging();
 
 // The i18n provider sits OUTSIDE the boundary so the fallback panel is itself
 // translated; the boundary then catches everything the app renders.
