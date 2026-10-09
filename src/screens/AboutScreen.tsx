@@ -413,8 +413,9 @@ export function AboutScreen() {
                 style={{
                   width: 12,
                   height: 12,
-                  border: '2px solid rgba(255,255,255,0.4)',
-                  borderTopColor: '#fff',
+                  border: '2px solid currentColor',
+                  borderTopColor: 'transparent',
+                  opacity: 0.8,
                   borderRadius: '50%',
                   animation: 'mp-spin 0.9s linear infinite',
                   display: 'inline-block',

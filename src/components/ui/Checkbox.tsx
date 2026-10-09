@@ -111,13 +111,20 @@ export function MPCheckbox({
           outlineOffset: 2,
         }}
       >
-        {checked && <Icon name="check" size={11} color="#FFF" stroke={2.5} />}
+        {checked && (
+          <Icon
+            name="check"
+            size={11}
+            color="var(--mp-onAccent)"
+            stroke={2.5}
+          />
+        )}
         {indeterminate && !checked && (
           <span
             style={{
               width: 7,
               height: 1.5,
-              background: '#FFF',
+              background: 'var(--mp-onAccent)',
               borderRadius: 1,
             }}
           />

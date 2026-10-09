@@ -75,7 +75,7 @@ export function MPSelect({
           fontSize: sizes.fs,
           color: 'var(--mp-text)',
           background: 'var(--mp-surface)',
-          border: '1px solid var(--mp-border)',
+          border: '1px solid var(--mp-borderStrong)',
           borderRadius: 6,
           cursor: disabled ? 'default' : 'pointer',
           opacity: disabled ? 0.55 : 1,

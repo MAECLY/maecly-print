@@ -76,7 +76,7 @@ export function MPInput({
             ? 'var(--mp-error)'
             : focus
               ? 'var(--mp-focus)'
-              : 'var(--mp-border)'
+              : 'var(--mp-borderStrong)'
         }`,
         borderRadius: 6,
         width: fullWidth ? '100%' : 'auto',

@@ -109,7 +109,8 @@ export function MPSwitch({
             left: checked ? 14 : 1.5,
             width: 13,
             height: 13,
-            background: '#FFF',
+            // The knob sits on the accent when on: same contrast rule as text.
+            background: checked ? 'var(--mp-onAccent)' : '#FFF',
             borderRadius: '50%',
             transition: 'left .15s',
             boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
