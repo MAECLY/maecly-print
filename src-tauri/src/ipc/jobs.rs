@@ -153,7 +153,8 @@ pub(crate) fn check_ranges_fit_documents(ranges: &str, files: &[String]) -> Resu
                 .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_else(|| file.clone());
-            tracing::warn!(event = "page_range_out_of_bounds", path = %file, ranges = %ranges, reason = %e);
+            // The name only: NFR-082 keeps absolute paths out of the log.
+            tracing::warn!(event = "page_range_out_of_bounds", file = %name, ranges = %ranges, reason = %e);
             return Err(format!("{name}: {e}"));
         }
     }
@@ -460,9 +461,11 @@ fn inspect_one(path_str: &str, max_mb: u32) -> FileInfo {
     // a thin batch tomorrow. Folders are not "skipped", they are a pending
     // question, so they stay out of the rejection log.
     if !info.supported && !info.is_dir {
+        // `name`, not `path`: the canonical path carries the user name and
+        // folder names, which NFR-082 keeps out of the default-level log.
         tracing::warn!(
             event = "file_rejected",
-            path = %info.path,
+            file = %info.name,
             ext = %info.ext,
             bytes = info.bytes,
             reason = %info.reason.as_deref().unwrap_or("unknown"),

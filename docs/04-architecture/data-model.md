@@ -395,7 +395,7 @@ Mandatory fields:
 - `module` — `tracing` target.
 - `event` — short identifier for the event type (snake_case).
 
-Other fields are event-specific. We do not log file *contents*. File **paths** do appear at `debug`, which the default filter enables for our own crate (see §5.3); there is no `logging.include_paths_in_errors` switch — `config.toml` has no `[logging]` section at all.
+Other fields are event-specific. We do not log file *contents*, and absolute file **paths** stay out of every level the default filter enables (`info`, and `debug` for our own crate — see §5.3), per NFR-082: records name a file by its basename (`file`) and the job by `job_id`. The one record that carries the absolute input path, `job_input_path`, is emitted at `trace`, so it only appears for a user who raises the filter through `RUST_LOG`. There is no `logging.include_paths_in_errors` switch — `config.toml` has no `[logging]` section at all.
 
 ### 5.2 Rotation and retention
 

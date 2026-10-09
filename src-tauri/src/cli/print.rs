@@ -268,7 +268,8 @@ fn print_one(
     let settings =
         crate::engine::print::effective_settings(settings, &crate::engine::extension_of(input));
     let outcome = crate::engine::print::spool(&pdf, printer, &settings, &title, timeout)?;
-    tracing::info!(event = "cli_job_printed", file = %input.display(), printer = %printer);
+    // The basename (`title`), never the absolute path (NFR-082).
+    tracing::info!(event = "cli_job_printed", file = %title, printer = %printer);
     Ok(outcome.os_job_id)
 }
 

@@ -154,11 +154,17 @@ pub fn consume(path: &Path) -> Result<Handoff, CliError> {
 /// is logged and swallowed — the selection has already been delivered, and
 /// [`sweep`] collects anything left behind.
 pub fn discard(path: &Path) {
+    // Only the file name: the full path sits under the user's profile, and
+    // NFR-082 keeps absolute paths out of the default-level log.
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     match std::fs::remove_file(path) {
-        Ok(()) => tracing::debug!(event = "handoff_discarded", path = %path.display()),
+        Ok(()) => tracing::debug!(event = "handoff_discarded", file = %name),
         Err(e) => tracing::warn!(
             event = "handoff_discard_failed",
-            path = %path.display(),
+            file = %name,
             error = %e,
             "the handoff file will be collected by the orphan sweep instead"
         ),

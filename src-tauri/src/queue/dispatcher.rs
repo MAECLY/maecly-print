@@ -537,14 +537,20 @@ impl Dispatcher {
         let mut st = self.state.write().unwrap();
         for job in jobs {
             let f = JobLog::of(&job);
-            // `input_path` appears here and nowhere else: FR-035 wants the file
-            // path recorded once, and NFR-082 keeps absolute paths out of
-            // WARN/ERROR records, which carry `file` (the basename) instead.
+            // NFR-082: the absolute path never reaches the default-level log —
+            // it names the user and their folders. Records carry `file` (the
+            // basename) plus `job_id`, which FR-035's "file path" clause is
+            // satisfied by; the full path is only available at TRACE, for a
+            // user who opts in through `RUST_LOG`.
+            tracing::trace!(
+                event = "job_input_path",
+                job_id = %job.id,
+                input_path = %job.input_path
+            );
             tracing::info!(
                 event = "job_submitted",
                 job_id = %job.id,
                 file = %f.file,
-                input_path = %job.input_path,
                 profile = %f.profile,
                 printer = %f.printer,
                 pages = f.pages,
@@ -1503,7 +1509,13 @@ fn to_job_error(e: &EngineError) -> JobError {
 fn delete_cache_file(path: &str) {
     if let Err(e) = std::fs::remove_file(path) {
         if e.kind() != std::io::ErrorKind::NotFound {
-            tracing::warn!(event = "cache_delete_failed", path = %path, error = %e);
+            // The cache file's name (`<job id>.pdf`) identifies it; the full path
+            // would put the user's profile directory in the log (NFR-082).
+            let name = Path::new(path)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            tracing::warn!(event = "cache_delete_failed", file = %name, error = %e);
         }
     }
 }
@@ -2939,9 +2951,12 @@ mod tests {
         });
         assert_eq!(h.job(&id).state, JobState::Done);
 
-        // Submission records the file path once, at INFO.
+        // NFR-082: the absolute path stays out of the default-level record.
         let submitted = capture.record("job_submitted");
-        assert_eq!(submitted["input_path"], "/tmp/report.pdf");
+        assert!(
+            !submitted.contains_key("input_path"),
+            "job_submitted must not carry the absolute path: {submitted:?}"
+        );
         assert_eq!(submitted["file"], "report.pdf");
         assert_eq!(submitted["profile"], "Photo Color");
         assert_eq!(submitted["pages"], "3");
