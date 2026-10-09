@@ -22,8 +22,7 @@ A single scrolling column: an identity header, the update-check action and its r
 │  │ MaeclyPrint   0.1.0     GPL-3.0          │                                  │
 │  │ React         18.x      MIT              │                                  │
 │  │ Tauri         2.x       MIT/Apache-2.0   │  Platform: macos · aarch64       │
-│  Converter tooling versions will appear here once bundled (M3+).               │
-│  FILESYSTEM PATHS (live from Rust)                                             │
+│  FILE LOCATIONS                                                                 │
 │  │ config: …  data: …  logs: … │            [ 🗀 Open logs folder ]            │
 │  LINKS   [Release notes] [License GPL-3.0] [Documentation] [Report an issue]   │
 └───────────────────────────────────────────────────────────────────────────────┘
@@ -31,7 +30,7 @@ A single scrolling column: an identity header, the update-check action and its r
 
 - **Identity header** — the app icon, `MaeclyPrint`, and a version line `{version} · build {build_date} · {channel} channel` (channel from the settings store). Outside the Tauri host it degrades to `0.0.1-dev · standalone web preview`.
 - **Update check** — the primary **Check for updates** button (a spinner while checking), followed by a result card once a check runs.
-- **Components / Filesystem paths / Links** — described below.
+- **Components / File locations / Links** — described below. User-facing copy names no implementation language or milestone: the paths section is titled *File locations*.
 
 ## App info (live from Rust)
 
@@ -78,7 +77,7 @@ Rate-limit (`403`/`429`) and transport failures map to friendly strings (`GitHub
 
 ## Components
 
-A static-plus-live card. MaeclyPrint's version comes from `app_info`; React from its runtime `version` export; Tauri from `@tauri-apps/api/package.json` (the resolved dependency, so it stays honest as the lockfile bumps). A footer row shows `Platform: {os} · {arch}` from `app_info`. Below the card, a muted line notes that **converter tooling versions will appear here once bundled (M3+)** — the format converters aren't shipped yet.
+A static-plus-live card. MaeclyPrint's version comes from `app_info`; React from its runtime `version` export; Tauri from `@tauri-apps/api/package.json` (the resolved dependency, so it stays honest as the lockfile bumps). A footer row shows `Platform: {os} · {arch}` from `app_info`.
 
 | Component     | Value source                     | License         |
 | ------------- | -------------------------------- | --------------- |
@@ -135,7 +134,7 @@ See [ipc-and-cli.md § diagnostics/update](../04-architecture/ipc-and-cli.md) fo
 - **Follow-ups**
   - **Release pipeline** — install works end to end against a signed `latest.json`, but no workflow publishes one yet.
   - **Channel feeds (beta/nightly)** — the configured channel is read but every check hits `releases/latest`; per-channel feeds land with the updater.
-  - **Converter tooling versions (M3+)** — surfaced in the Components card once the format converters are bundled.
+  - **Converter tooling versions** — not listed in the Components card; add them there if the converters are ever bundled.
 
 ## Open questions for v1+
 

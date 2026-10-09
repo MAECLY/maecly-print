@@ -39,8 +39,8 @@
     "affected_other": "{{count}} files in this job need it."
   },
   "folders": {
-    "title_one": "{{count}} folder dropped",
-    "title_other": "{{count}} folders dropped",
+    "title_one": "{{count}} folder added",
+    "title_other": "{{count}} folders added",
     "question": "Print everything inside “{{name}}”, including subfolders?",
     "recursive": "Include subfolders",
     "topLevel": "Top level only",

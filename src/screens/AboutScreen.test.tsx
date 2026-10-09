@@ -551,6 +551,17 @@ describe('AboutScreen', () => {
     expect(calls.some((c) => c.cmd === 'install_update')).toBe(false);
   });
 
+  it('speaks to users, not developers: no implementation language or milestones', async () => {
+    mockAbout({ update: MINOR_UPDATE });
+    renderAbout();
+    await waitForAppInfo();
+
+    expect(screen.getByText('File locations')).toBeInTheDocument();
+    const text = document.body.textContent ?? '';
+    expect(text).not.toMatch(/\bRust\b/);
+    expect(text).not.toMatch(/\bM\d\+?/);
+  });
+
   it('FR-092: an install failure states its prefix once', async () => {
     mockAbout({
       update: MINOR_UPDATE,

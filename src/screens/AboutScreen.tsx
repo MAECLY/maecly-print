@@ -806,16 +806,7 @@ export function AboutScreen() {
             </span>
           </div>
         </MPCard>
-        <div
-          style={{
-            fontSize: 11.5,
-            color: 'var(--mp-textDim)',
-            marginBottom: 24,
-            lineHeight: 1.6,
-          }}
-        >
-          {t('components.converterNote')}
-        </div>
+        <div style={{ marginBottom: 24 }} />
 
         {info && (
           <>

@@ -14,7 +14,7 @@
   "sections": {
     "updates": "Updates",
     "components": "Components",
-    "paths": "Filesystem paths (live from Rust)",
+    "paths": "File locations",
     "links": "Links"
   },
   "updates": {
@@ -53,8 +53,7 @@
     }
   },
   "components": {
-    "platform": "Platform:",
-    "converterNote": "Converter tooling versions will appear here once bundled (M3+)."
+    "platform": "Platform:"
   },
   "paths": {
     "config": "config:",

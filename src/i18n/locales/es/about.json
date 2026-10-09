@@ -14,7 +14,7 @@
   "sections": {
     "updates": "Actualizaciones",
     "components": "Componentes",
-    "paths": "Rutas del sistema de archivos (en vivo desde Rust)",
+    "paths": "Ubicación de los archivos",
     "links": "Enlaces"
   },
   "updates": {
@@ -53,8 +53,7 @@
     }
   },
   "components": {
-    "platform": "Plataforma:",
-    "converterNote": "Las versiones de las herramientas de conversión aparecerán aquí cuando se incluyan (M3+)."
+    "platform": "Plataforma:"
   },
   "paths": {
     "config": "configuración:",

@@ -39,8 +39,8 @@
     "affected_other": "{{count}} archivos de este trabajo la necesitan."
   },
   "folders": {
-    "title_one": "{{count}} carpeta soltada",
-    "title_other": "{{count}} carpetas soltadas",
+    "title_one": "{{count}} carpeta añadida",
+    "title_other": "{{count}} carpetas añadidas",
     "question": "¿Imprimir todo lo que hay en «{{name}}», incluidas las subcarpetas?",
     "recursive": "Incluir subcarpetas",
     "topLevel": "Solo el primer nivel",

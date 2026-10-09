@@ -41,7 +41,10 @@
   },
   "header": {
     "defaultBadge": "default",
-    "meta": "{{type}} · {{conn}} · queue {{queue}}",
+    "meta": "{{type}} · {{conn}} · {{queue}}",
+    "metaNoConn": "{{type}} · {{queue}}",
+    "queued_one": "{{count}} job in its queue",
+    "queued_other": "{{count}} jobs in its queue",
     "listEntry": "{{status}} · {{type}}"
   },
   "tooltip": {
@@ -130,7 +133,7 @@
     "papers_other": "{{count}} paper sizes",
     "trays_one": "{{count}} tray",
     "trays_other": "{{count}} trays",
-    "duplexWarning": "Profiles requesting duplex will pause with {{code}} on this device."
+    "duplexWarning": "Jobs that ask for two-sided printing will pause on this printer until you switch them to one-sided or choose another printer."
   },
   "supplies": {
     "label": "Supply levels",

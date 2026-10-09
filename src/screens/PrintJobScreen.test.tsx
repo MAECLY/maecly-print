@@ -720,6 +720,8 @@ describe('PrintJobScreen', () => {
     expect(
       await screen.findByText(/Print everything inside .reports./),
     ).toBeInTheDocument();
+    // Neutral wording: the same banner follows the Add folder button.
+    expect(screen.getByText('1 folder added')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Include subfolders' }));
 

@@ -917,6 +917,23 @@ describe('PrintersScreen', () => {
     );
   });
 
+  it('FR-041: a virtual printer reads in user language, not codes or repeats', async () => {
+    mockPrinters({ printers: fixturePrintersWithVirtual });
+    renderScreen();
+    await screen.findByText(/3 configured/);
+
+    fireEvent.click(screen.getByText('Save as PDF'));
+
+    expect(
+      await screen.findByText('Virtual · 0 jobs in its queue'),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/Virtual · Virtual/);
+    expect(document.body.textContent).not.toMatch(/DuplexNotSupported/);
+    expect(
+      screen.getByText(/two-sided printing will pause on this printer/),
+    ).toBeInTheDocument();
+  });
+
   // -- i18n (FR-092) ------------------------------------------------------
 
   it('FR-092: renders the screen in Spanish when the locale is es-ES', async () => {

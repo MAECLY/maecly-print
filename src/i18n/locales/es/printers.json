@@ -41,7 +41,10 @@
   },
   "header": {
     "defaultBadge": "predeterminada",
-    "meta": "{{type}} · {{conn}} · cola {{queue}}",
+    "meta": "{{type}} · {{conn}} · {{queue}}",
+    "metaNoConn": "{{type}} · {{queue}}",
+    "queued_one": "{{count}} trabajo en su cola",
+    "queued_other": "{{count}} trabajos en su cola",
     "listEntry": "{{status}} · {{type}}"
   },
   "tooltip": {
@@ -130,7 +133,7 @@
     "papers_other": "{{count}} tamaños de papel",
     "trays_one": "{{count}} bandeja",
     "trays_other": "{{count}} bandejas",
-    "duplexWarning": "Los perfiles que pidan dúplex quedarán en pausa con {{code}} en este dispositivo."
+    "duplexWarning": "Los trabajos que pidan impresión a doble cara quedarán en pausa en esta impresora hasta que los pases a una cara o elijas otra impresora."
   },
   "supplies": {
     "label": "Niveles de consumibles",

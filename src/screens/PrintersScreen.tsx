@@ -907,11 +907,7 @@ export function PrintersScreen() {
                     marginTop: 3,
                   }}
                 >
-                  {t('header.meta', {
-                    type: t(`type.${sel.type}`),
-                    conn: sel.conn,
-                    queue: sel.queue,
-                  })}
+                  {printerMeta(t, sel)}
                 </div>
               </div>
             </div>
@@ -1340,10 +1336,7 @@ export function PrintersScreen() {
                         lineHeight: 1.45,
                       }}
                     >
-                      <RichText
-                        template={t('capabilities.duplexWarning')}
-                        slots={{ code: <Mono>DuplexNotSupported</Mono> }}
-                      />
+                      {t('capabilities.duplexWarning')}
                     </span>
                   </div>
                 )}
@@ -1849,6 +1842,20 @@ function InlineError({ children, id }: { children: ReactNode; id?: string }) {
       <span style={{ flex: 1 }}>{children}</span>
     </div>
   );
+}
+
+/**
+ * "Type · connection · N jobs in its queue" for the detail header. The
+ * connection is left out when it only repeats the type (a virtual printer
+ * reports "Virtual" for both).
+ */
+function printerMeta(t: T, p: UiPrinter): string {
+  const type = t(`type.${p.type}`);
+  const queue = t('header.queued', { count: p.queue });
+  const conn = p.conn.trim();
+  return conn === '' || conn.toLowerCase() === type.toLowerCase()
+    ? t('header.metaNoConn', { type, queue })
+    : t('header.meta', { type, conn, queue });
 }
 
 /** Emphasised reference to another control, used inside translated prose. */
