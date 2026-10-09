@@ -551,6 +551,26 @@ describe('AboutScreen', () => {
     expect(calls.some((c) => c.cmd === 'install_update')).toBe(false);
   });
 
+  it('FR-092: an install failure states its prefix once', async () => {
+    mockAbout({
+      update: MINOR_UPDATE,
+      installError: {
+        code: 'UpdateInstallFailed',
+        message: 'disk full',
+      },
+    });
+    renderAbout();
+    await waitForAppInfo();
+
+    const card = await openUpdateCard();
+    fireEvent.click(within(card).getByRole('button', { name: 'Install now' }));
+
+    const msg = await screen.findByText(/could not be installed/i);
+    expect(msg.textContent).toBe(
+      'The update could not be installed: disk full',
+    );
+  });
+
   it('FR-082: a tampered download is rejected with a clear message and a way to the logs', async () => {
     const calls = mockAbout({
       update: MINOR_UPDATE,

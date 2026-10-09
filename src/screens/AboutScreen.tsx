@@ -286,13 +286,19 @@ export function AboutScreen() {
       }
     } catch (e) {
       // A rejected signature is the one failure the user must not misread as
-      // "try again and it will work": say exactly what happened.
+      // "try again and it will work": say exactly what happened. An
+      // UpdateInstallFailed is already localized as "could not be installed: …"
+      // by the IPC layer, so it is shown as is — wrapping it again would print
+      // the prefix twice.
+      const code = ipcErrorCode(e);
       setUpdate({
         kind: 'installError',
         message:
-          ipcErrorCode(e) === 'UpdateSignatureInvalid'
+          code === 'UpdateSignatureInvalid'
             ? t('updates.install.signatureInvalid')
-            : t('updates.install.failed', { error: errText(e) }),
+            : code === 'UpdateInstallFailed'
+              ? errText(e)
+              : t('updates.install.failed', { error: errText(e) }),
       });
     }
   }
