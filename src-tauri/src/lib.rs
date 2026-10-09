@@ -52,6 +52,10 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
     if let Err(e) = logging::init() {
         eprintln!("logging init failed: {e}");
     }
+    // Release builds abort on panic and the Windows GUI has no console: the
+    // hook is the only way a crash leaves a trace (NFR-033). Installed right
+    // after the log directory exists, before anything that can panic.
+    logging::install_panic_hook();
 
     // Drop handoff files a previous run never consumed (crash between "the
     // shell extension wrote it" and "we read it").

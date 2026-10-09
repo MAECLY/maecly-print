@@ -76,10 +76,13 @@ define_class!(
             user_data: Option<&NSString>,
             _error: *mut *mut NSString,
         ) {
-            // A panic must not unwind into an Objective-C frame: that is UB,
-            // and in a release build (`panic = "abort"`) it takes the whole app
-            // down while the user is only trying to print. Nothing here is
-            // expected to panic; this is the seatbelt.
+            // A panic must not unwind into an Objective-C frame: that is UB.
+            // This seatbelt only matters where panics *unwind* — dev and test
+            // builds. Release builds use `panic = "abort"`, so there a panic
+            // never returns here: the process aborts right after
+            // `logging::install_panic_hook` has written the panic to the log
+            // file, which is the trace a release crash leaves. Nothing here is
+            // expected to panic either way.
             let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| {
                 let action = action_from_user_data(user_data.map(|s| s.to_string()).as_deref());
                 let paths = selection_from_pasteboard(pasteboard);

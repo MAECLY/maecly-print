@@ -105,6 +105,83 @@ pub fn init() -> io::Result<()> {
     Ok(())
 }
 
+/// Record every panic in the log file (NFR-033, FR-113).
+///
+/// Release builds use `panic = "abort"`, and the Windows GUI binary has no
+/// console, so without this a panic anywhere — a command, `setup`, the
+/// dispatcher — killed the process and left nothing behind for the user or a
+/// bug report. The hook runs *before* the abort, and writes **synchronously**
+/// to the newest log file: the non-blocking tracing writer lives on another
+/// thread whose buffer an abort would discard, so routing the record through
+/// `tracing` would lose exactly the line that matters. The previous hook
+/// (stderr in dev) still runs afterwards.
+pub fn install_panic_hook() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "non-string panic payload".to_string());
+        let thread = std::thread::current().name().map(str::to_string);
+        let line = panic_record(
+            &crate::queue::job::now_rfc3339(),
+            location.as_deref(),
+            &payload,
+            thread.as_deref(),
+        );
+        // Nothing useful can be done with a failure here: we are already
+        // panicking, and stderr below is the last resort.
+        let _ = append_panic_record(&paths::log_dir(), today_utc(), &line);
+        previous(info);
+    }));
+}
+
+/// One panic as a JSONL record shaped like the `tracing` JSON layer's own
+/// (`timestamp`/`level`/`fields`/`target`), so log tooling reads it the same
+/// way. Pure, for testing.
+fn panic_record(
+    timestamp: &str,
+    location: Option<&str>,
+    payload: &str,
+    thread: Option<&str>,
+) -> String {
+    let record = serde_json::json!({
+        "timestamp": timestamp,
+        "level": "ERROR",
+        "fields": {
+            "event": "panic",
+            "message": "MaeclyPrint panicked",
+            "location": location,
+            "payload": payload,
+            "thread": thread,
+        },
+        "target": "maeclyprint::panic",
+    });
+    format!("{record}\n")
+}
+
+/// Append `line` to the newest log file for `today` (creating part 1 when the
+/// day has none yet), bypassing the non-blocking writer.
+fn append_panic_record(dir: &Path, today: Date, line: &str) -> io::Result<()> {
+    paths::ensure_dir(dir)?;
+    let date = date_string(today);
+    let mut part = 1;
+    while part < u32::MAX && log_path(dir, &date, part + 1).exists() {
+        part += 1;
+    }
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path(dir, &date, part))?;
+    file.write_all(line.as_bytes())?;
+    file.flush()
+}
+
 /// Today's date in UTC — every log file name and the retention cutoff use UTC so
 /// a machine crossing a timezone (or DST) never re-opens yesterday's file.
 fn today_utc() -> Date {
@@ -535,6 +612,51 @@ mod tests {
             "nothing older than retain_days survives a date roll: {left:?}"
         );
         assert!(left.contains(&"maeclyprint-2026-07-22.jsonl".to_string()));
+    }
+
+    #[test]
+    fn nfr_033_panic_record_is_a_jsonl_error_with_location_and_payload() {
+        let line = panic_record(
+            "2026-07-20T10:00:00Z",
+            Some("src/queue/dispatcher.rs:42:7"),
+            "index out of bounds",
+            Some("queue-dispatcher"),
+        );
+        assert!(line.ends_with('\n'), "one record per line");
+        assert_eq!(line.matches('\n').count(), 1, "a single line: {line}");
+        let v: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(v["level"], "ERROR");
+        assert_eq!(v["timestamp"], "2026-07-20T10:00:00Z");
+        assert_eq!(v["target"], "maeclyprint::panic");
+        assert_eq!(v["fields"]["event"], "panic");
+        assert_eq!(v["fields"]["location"], "src/queue/dispatcher.rs:42:7");
+        assert_eq!(v["fields"]["payload"], "index out of bounds");
+        assert_eq!(v["fields"]["thread"], "queue-dispatcher");
+    }
+
+    #[test]
+    fn nfr_033_panic_record_survives_hostile_payloads() {
+        // Quotes and newlines in a panic message must not break the JSONL line.
+        let line = panic_record("t", None, "bad \"value\"\nsecond line", None);
+        assert_eq!(line.matches('\n').count(), 1);
+        let v: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(v["fields"]["payload"], "bad \"value\"\nsecond line");
+        assert!(v["fields"]["location"].is_null());
+    }
+
+    #[test]
+    fn nfr_033_panic_record_lands_in_the_newest_part_of_today() {
+        let tmp = tempfile::tempdir().unwrap();
+        touch(tmp.path(), "maeclyprint-2026-07-20.jsonl");
+        touch(tmp.path(), "maeclyprint-2026-07-20.2.jsonl");
+        append_panic_record(tmp.path(), date("2026-07-20"), "{\"x\":1}\n").unwrap();
+        let newest = std::fs::read_to_string(log_path(tmp.path(), "2026-07-20", 2)).unwrap();
+        assert_eq!(newest, "{}\n{\"x\":1}\n");
+
+        // No file yet today (a panic before the first record): part 1 is created.
+        append_panic_record(tmp.path(), date("2026-07-21"), "{\"y\":2}\n").unwrap();
+        let fresh = std::fs::read_to_string(log_path(tmp.path(), "2026-07-21", 1)).unwrap();
+        assert_eq!(fresh, "{\"y\":2}\n");
     }
 
     #[test]
