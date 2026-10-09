@@ -129,7 +129,9 @@ export interface UiQueueJob {
    */
   pages: number | null;
   profile: string;
-  printer: string;
+  /** The printer the job used or will use; absent means the system default
+   *  (the views render the translated "Default printer" label). */
+  printer?: string;
   startedAt: string;
   finishedAt?: string;
   sizeKb: number;

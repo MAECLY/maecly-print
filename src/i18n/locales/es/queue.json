@@ -70,7 +70,9 @@
     "meta": "{{profile}} · {{printer}}",
     "pages": "{{count}} pág.",
     "times": "{{from}} → {{to}}",
-    "took": "duró {{duration}}"
+    "took": "duró {{duration}}",
+    "defaultPrinter": "Impresora predeterminada",
+    "statusLabel": "Estado: {{status}}"
   },
   "duration": {
     "seconds": "{{seconds}} s",
@@ -110,6 +112,13 @@
     "jobNeedsAction": "La impresión se detuvo: {{file}} necesita tu atención",
     "jobNeedsActionHint": "{{error}}. Corrígelo y reanuda el trabajo desde la cola.",
     "openQueue": "Abrir la cola",
-    "alreadyFinished": "«{{file}}» ya había terminado: no había nada que cancelar."
+    "alreadyFinished": "«{{file}}» ya había terminado: no había nada que cancelar.",
+    "liveUnavailable": "Las actualizaciones de la cola en tiempo real no están disponibles; vuelve a abrir la aplicación para reintentarlo."
+  },
+  "rowActions": {
+    "pause": "Pausar {{file}}",
+    "resume": "Reanudar {{file}}",
+    "retry": "Reintentar {{file}}",
+    "cancel": "Cancelar {{file}}"
   }
 }

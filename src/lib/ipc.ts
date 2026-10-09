@@ -476,10 +476,11 @@ export function toUiQueueJob(job: Job): UiQueueJobView {
     progress: percent ?? (job.state === 'done' ? 1 : 0),
     pages: job.pages ?? null,
     profile: job.profile_name ?? '—',
-    printer: job.printer_resolved ?? job.settings.printer ?? 'Default printer',
     startedAt: toClock(job.started_at),
     sizeKb: Math.round(job.input_bytes / 1024),
   };
+  const printer = job.printer_resolved ?? job.settings.printer;
+  if (printer) ui.printer = printer;
   if (job.progress != null && percent === null) ui.indeterminate = true;
   const duration = elapsedMs(job.started_at, job.finished_at);
   if (duration !== null) ui.durationMs = duration;

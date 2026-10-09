@@ -296,7 +296,7 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
                   marginTop: 1,
                 }}
               >
-                {j.printer} · {j.profile}
+                {j.printer ?? tQueue('job.defaultPrinter')} · {j.profile}
               </div>
             </div>
             <StatusDot status={j.status} />
@@ -326,7 +326,8 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
               }}
             >
               <div>
-                {t('recent.printer')}: {j.printer}
+                {t('recent.printer')}:{' '}
+                {j.printer ?? tQueue('job.defaultPrinter')}
               </div>
               <div>
                 {t('recent.profile')}: {j.profile}

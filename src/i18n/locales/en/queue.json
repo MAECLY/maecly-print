@@ -70,7 +70,9 @@
     "meta": "{{profile}} · {{printer}}",
     "pages": "{{count}}p",
     "times": "{{from}} → {{to}}",
-    "took": "took {{duration}}"
+    "took": "took {{duration}}",
+    "defaultPrinter": "Default printer",
+    "statusLabel": "Status: {{status}}"
   },
   "duration": {
     "seconds": "{{seconds}}s",
@@ -110,6 +112,13 @@
     "jobNeedsAction": "Printing stopped: {{file}} needs your attention",
     "jobNeedsActionHint": "{{error}} — fix it, then resume the job from the queue.",
     "openQueue": "Open queue",
-    "alreadyFinished": "“{{file}}” had already finished — there was nothing to cancel."
+    "alreadyFinished": "“{{file}}” had already finished — there was nothing to cancel.",
+    "liveUnavailable": "Live queue updates are unavailable — reopen the app to retry."
+  },
+  "rowActions": {
+    "pause": "Pause {{file}}",
+    "resume": "Resume {{file}}",
+    "retry": "Retry {{file}}",
+    "cancel": "Cancel {{file}}"
   }
 }

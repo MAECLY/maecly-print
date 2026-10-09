@@ -585,9 +585,7 @@ export const useQueueStore = create<QueueState>()((set, get) => {
           // The snapshot below still works; without events the view is a
           // one-shot, so surface it rather than pretending we're live.
           logError('queue.subscribe', e);
-          toast.error(
-            'Live queue updates unavailable — reopen the app to retry.',
-          );
+          toast.error(t('notify.liveUnavailable'));
         }
       }
 

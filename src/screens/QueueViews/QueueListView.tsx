@@ -136,7 +136,10 @@ function Row({ j, t, onPause, onResume, onRetry, onCancel, busy }: RowProps) {
             whiteSpace: 'nowrap',
           }}
         >
-          {t('job.meta', { profile: j.profile, printer: j.printer })}
+          {t('job.meta', {
+            profile: j.profile,
+            printer: j.printer ?? t('job.defaultPrinter'),
+          })}
           {j.noteKey ? ` · ${t(`note.${j.noteKey}`)}` : ''}
           {j.error ? ` · ${j.error}` : ''}
         </div>
