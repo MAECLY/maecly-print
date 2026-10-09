@@ -46,6 +46,7 @@ import {
   fixtureQueueSnapshot,
   fixtureUpdateCheckUpToDate,
 } from '@/test/fixtures';
+import { PRINTABLE_EXTENSIONS } from '@/lib/formats';
 
 /** Emits a backend event to every frontend listener of `event`. */
 export type Emit = (event: string, payload: unknown) => void;
@@ -81,17 +82,8 @@ const DEFAULT_OPEN_PATHS = [
   '/Users/e2e/Pictures/site-photo.jpg',
 ];
 
-const SUPPORTED = new Set([
-  'pdf',
-  'png',
-  'jpg',
-  'jpeg',
-  'tif',
-  'tiff',
-  'bmp',
-  'gif',
-  'webp',
-]);
+// The engine's own list, so the fake accepts exactly what the app offers.
+const SUPPORTED = new Set<string>(PRINTABLE_EXTENSIONS);
 const IMAGE = new Set([
   'png',
   'jpg',
@@ -144,6 +136,12 @@ function settingsMeta(): SettingsMeta {
         zero: 'disables',
       },
       max_file_size_mb: { min: 1, max: 4096, default: 200, zero: 'default' },
+      print_timeout_seconds: {
+        min: 10,
+        max: 3600,
+        default: 300,
+        zero: 'disables',
+      },
     },
   };
 }
@@ -362,7 +360,9 @@ export class FakeBackend {
         const limits = settingsMeta().limits;
         for (const key of Object.keys(limits) as (keyof typeof limits)[]) {
           const b = limits[key];
-          const v = engine[key];
+          // `print_timeout_seconds` is optional on the wire (an older
+          // config.toml omits it); the backend reads it as its default.
+          const v = engine[key] ?? b.default;
           const ok =
             (v === 0 && b.zero === 'disables') || (v >= b.min && v <= b.max);
           if (!ok)
@@ -374,6 +374,19 @@ export class FakeBackend {
         this.settings = { ...next, meta: settingsMeta() };
         return clone(this.settings);
       }
+
+      // --- app services the specs never assert on ---
+      case 'notify_native':
+        // The browser window is the foreground: no OS notification.
+        return false;
+      case 'log_frontend_error':
+      case 'restart_app':
+        return null;
+      case 'install_update':
+        throw err(
+          'UpdateInstallFailed',
+          'installing is not available in the E2E fake backend',
+        );
 
       default:
         throw err('Internal', `not stubbed in the E2E fake backend: ${cmd}`);
@@ -439,12 +452,14 @@ export class FakeBackend {
       bytes: 0,
       pages: null,
       reason: null,
+      reason_code: null,
     };
     if (folder) {
       return {
         ...base,
         ext: '',
         supported: false,
+        reason_code: 'folder',
         is_dir: true,
         has_subfolders: folder.nested.length > 0,
       };
@@ -454,6 +469,7 @@ export class FakeBackend {
         ...base,
         supported: false,
         reason: 'File not found',
+        reason_code: 'not_found',
         is_dir: false,
         has_subfolders: false,
       };
@@ -464,6 +480,7 @@ export class FakeBackend {
         ...base,
         supported: false,
         reason: 'Unsupported file type',
+        reason_code: 'unsupported_type',
         is_dir: false,
         has_subfolders: false,
       };
@@ -534,7 +551,9 @@ export class FakeBackend {
       `-o sides=${s.duplex === 'none' ? 'one-sided' : s.duplex === 'long' ? 'two-sided-long-edge' : 'two-sided-short-edge'}`,
       s.color_mode === 'monochrome' ? '-o ColorModel=Gray' : '',
       s.copies > 1 ? `-n ${s.copies}` : '',
-      `-o media=${MEDIA[s.paper_size]}`,
+      s.paper_size === 'auto'
+        ? ''
+        : `-o media=${MEDIA[s.paper_size as keyof typeof MEDIA] ?? s.paper_size}`,
       s.page_ranges
         ? `-o page-ranges=${s.page_ranges.replace(/\s+/g, '')}`
         : '',

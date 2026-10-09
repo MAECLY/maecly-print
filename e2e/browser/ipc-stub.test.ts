@@ -114,7 +114,8 @@ describe('installIpcStub', () => {
 
   it('FR-042: print_files validates copies and files like the backend', async () => {
     const r = await commands.printFiles({
-      files: ['/Users/e2e/x.docx'],
+      // .docx prints since B's converters; an executable never does.
+      files: ['/Users/e2e/x.exe'],
       settings: {
         printer: null,
         duplex: 'none',
