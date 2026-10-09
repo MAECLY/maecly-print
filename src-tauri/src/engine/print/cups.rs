@@ -363,12 +363,54 @@ pub fn lpstat_lists(out: &str, os_job_id: &str) -> bool {
         .any(|id| id == os_job_id)
 }
 
+/// What one `lpstat` run said: its stdout, or a [`super::TrackError`] when it
+/// did not run cleanly. Pure.
+///
+/// `lpstat` prints "Unable to connect to server" on stderr, with an empty
+/// stdout, when cupsd is restarting or unreachable. Reading that empty stdout
+/// as "not listed" made a job look finished and it was marked done although
+/// nothing confirmed it; a non-zero exit is a transient failure instead, so
+/// the dispatcher's retry-then-unconfirmed policy applies.
+pub fn lpstat_output(
+    success: bool,
+    stdout: &str,
+    stderr: &str,
+) -> Result<String, super::TrackError> {
+    if success {
+        Ok(stdout.to_string())
+    } else {
+        let why = stderr.trim();
+        Err(super::TrackError::Transient(if why.is_empty() {
+            "lpstat failed".to_string()
+        } else {
+            format!("lpstat failed: {why}")
+        }))
+    }
+}
+
+/// The verdict of the `lpstat -W not-completed` fallback for `os_job_id`.
+/// Pure.
+///
+/// A job still listed is processing. One that is not has finished, but
+/// `lpstat` cannot say how: CUPS' "completed" list holds printed, cancelled
+/// and aborted jobs alike. So it is [`super::OsJobState::Gone`] (finished,
+/// outcome unknown), never `Completed`: on a host without `ipptool`, a job
+/// cancelled in the CUPS web UI must not be reported as printed.
+pub fn lpstat_verdict(not_completed: &str, os_job_id: &str) -> super::OsJobState {
+    if lpstat_lists(not_completed, os_job_id) {
+        super::OsJobState::Processing
+    } else {
+        super::OsJobState::Gone
+    }
+}
+
 /// Where the CUPS job `os_job_id` stands.
 ///
 /// `ipptool get-job-attributes` is asked first because it is the only source
 /// that tells a printed job from a cancelled or aborted one. Where `ipptool`
 /// is missing (a minimal Linux install), `lpstat -W` still tells a waiting job
-/// from a finished one, which is what keeps the print slot honest.
+/// from a finished one, which is what keeps the print slot honest — but not
+/// *how* it finished ([`lpstat_verdict`]).
 #[cfg(unix)]
 pub fn job_state(os_job_id: &str) -> Result<super::OsJobState, super::TrackError> {
     use super::{OsJobState, TrackError};
@@ -417,15 +459,13 @@ pub fn job_state(os_job_id: &str) -> Result<super::OsJobState, super::TrackError
                     TrackError::Transient(format!("failed to run lpstat: {e}"))
                 }
             })?;
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+        lpstat_output(
+            out.status.success(),
+            &String::from_utf8_lossy(&out.stdout),
+            &String::from_utf8_lossy(&out.stderr),
+        )
     };
-    if lpstat_lists(&lpstat("not-completed")?, os_job_id) {
-        return Ok(OsJobState::Processing);
-    }
-    if lpstat_lists(&lpstat("completed")?, os_job_id) {
-        return Ok(OsJobState::Completed);
-    }
-    Ok(OsJobState::Gone)
+    Ok(lpstat_verdict(&lpstat("not-completed")?, os_job_id))
 }
 
 /// Best-effort cancellation of a CUPS job by its id (`cancel <id>`).
@@ -786,6 +826,37 @@ mod tests {
         assert_eq!(job_state(&id), Ok(OsJobState::Held));
         cancel(&id).unwrap();
         assert_eq!(job_state(&id), Ok(OsJobState::Canceled));
+    }
+
+    #[test]
+    /// A scheduler that does not answer is not a finished job. `lpstat`
+    /// exits non-zero with an empty stdout when cupsd is unreachable, which
+    /// used to read as "no longer listed" and marked the job done.
+    #[test]
+    fn fr_032_a_failed_lpstat_is_transient_not_a_finished_job() {
+        use crate::engine::print::TrackError;
+        let err = lpstat_output(false, "", "lpstat: Unable to connect to server\n").unwrap_err();
+        assert!(
+            matches!(&err, TrackError::Transient(m) if m.contains("Unable to connect")),
+            "{err:?}"
+        );
+        assert_eq!(
+            lpstat_output(true, "Q-1 user 1024 Mon\n", "").unwrap(),
+            "Q-1 user 1024 Mon\n"
+        );
+    }
+
+    /// Without `ipptool`, a job that left the queue may have printed or been
+    /// cancelled or aborted: it is `Gone`, never reported as `Completed`.
+    #[test]
+    fn fr_032_lpstat_never_claims_a_finished_job_printed() {
+        use crate::engine::print::OsJobState;
+        let waiting = "Maecly_Hold-7 me 1024 Mon 10:00\n";
+        assert_eq!(
+            lpstat_verdict(waiting, "Maecly_Hold-7"),
+            OsJobState::Processing
+        );
+        assert_eq!(lpstat_verdict("", "Maecly_Hold-7"), OsJobState::Gone);
     }
 
     #[test]
