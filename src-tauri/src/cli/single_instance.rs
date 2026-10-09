@@ -37,8 +37,9 @@ use clap::Parser;
 pub struct Forwarded {
     /// The selection to merge into the running instance.
     pub selection: Selection,
-    /// The handoff file it came out of.
-    pub handoff: PathBuf,
+    /// The handoff file it came out of — `None` for an "open with" launch,
+    /// whose paths travel on the command line itself.
+    pub handoff: Option<PathBuf>,
 }
 
 /// Interpret the argv a second launch forwarded.
@@ -56,11 +57,22 @@ pub fn interpret<S: AsRef<str>>(argv: &[S]) -> Option<Forwarded> {
 pub fn interpret_at<S: AsRef<str>>(dir: &Path, argv: &[S]) -> Option<Forwarded> {
     let argv: Vec<String> = argv.iter().map(|a| a.as_ref().to_string()).collect();
 
-    // Only a context-menu invocation carries a selection; anything else is a
-    // plain re-launch. Classifying first keeps a stray `--help` in a forwarded
-    // argv from being answered by a running GUI.
-    if super::classify(argv.get(1..).unwrap_or_default()) != super::Intent::ContextMenu {
-        return None;
+    // A context-menu invocation carries a selection in its handoff file; an
+    // "open with" launch carries absolute paths on the command line (the same
+    // rule `startup` applies to a first launch, so a file opened while the app
+    // is already running is not silently dropped); anything else is a plain
+    // re-launch. Classifying first keeps a stray `--help` in a forwarded argv
+    // from being answered by a running GUI.
+    let tail = argv.get(1..).unwrap_or_default();
+    match super::classify(tail) {
+        super::Intent::ContextMenu => {}
+        super::Intent::Gui => {
+            return super::open_with_selection(tail).map(|selection| Forwarded {
+                selection,
+                handoff: None,
+            });
+        }
+        super::Intent::Headless => return None,
     }
 
     let Some(cli) = Cli::try_parse_from(&argv).ok() else {
@@ -73,9 +85,10 @@ pub fn interpret_at<S: AsRef<str>>(dir: &Path, argv: &[S]) -> Option<Forwarded> 
     match selection_from_at(dir, &cli) {
         // `selection_from_at` refuses a context-menu invocation without
         // `--files-from`, so an accepted selection always names its file.
-        Ok(selection) => cli
-            .files_from
-            .map(|handoff| Forwarded { selection, handoff }),
+        Ok(selection) => cli.files_from.map(|handoff| Forwarded {
+            selection,
+            handoff: Some(handoff),
+        }),
         Err(err) => {
             tracing::warn!(
                 event = "second_instance_selection_rejected",
@@ -139,7 +152,8 @@ mod tests {
             Some("builtin-quick")
         );
         assert_eq!(
-            forwarded.handoff, handoff,
+            forwarded.handoff,
+            Some(handoff),
             "the caller needs the path to discard it once the selection is parked"
         );
     }
@@ -165,7 +179,7 @@ mod tests {
 
         // The instance that parked the selection is the one that deletes it,
         // and only then does the argv stop resolving.
-        crate::cli::handoff::discard(&second.handoff);
+        crate::cli::handoff::discard(second.handoff.as_ref().unwrap());
         assert!(!handoff.exists());
         assert!(interpret_at(dir.path(), &argv).is_none());
     }
@@ -177,6 +191,33 @@ mod tests {
         // A subcommand can never reach this path (headless never builds an
         // app), and if one somehow did we must not act on it.
         assert!(interpret(&["maeclyprint", "print", "--files", "a.pdf"]).is_none());
+    }
+
+    /// A file opened "with" MaeclyPrint while it is already running reaches
+    /// the running window as a `configure` selection instead of vanishing.
+    #[test]
+    fn fr_008_a_forwarded_open_with_launch_carries_its_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("report.pdf");
+        std::fs::write(&file, b"%PDF-1.4\n").unwrap();
+
+        let forwarded = interpret_at(
+            dir.path(),
+            &[
+                "maeclyprint".to_string(),
+                file.to_string_lossy().into_owned(),
+            ],
+        )
+        .expect("an absolute, existing path is honoured");
+        assert_eq!(
+            forwarded.selection.paths,
+            vec![file.canonicalize().unwrap().to_string_lossy().into_owned()]
+        );
+        assert_eq!(
+            forwarded.selection.action,
+            crate::cli::args::ContextAction::Configure
+        );
+        assert!(forwarded.handoff.is_none());
     }
 
     #[test]

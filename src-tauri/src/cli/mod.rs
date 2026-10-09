@@ -182,10 +182,24 @@ where
         .collect();
 
     match classify(&tail) {
-        Intent::Gui => Startup::Gui {
-            selection: None,
-            handoff: None,
-        },
+        Intent::Gui => {
+            // At launch the working directory *is* the caller's, so a relative
+            // path typed in a terminal can be anchored here (and only here).
+            let cwd = std::env::current_dir().ok();
+            let anchored: Vec<String> = tail
+                .iter()
+                .map(|a| match &cwd {
+                    Some(cwd) if !a.starts_with('-') && Path::new(a).is_relative() => {
+                        cwd.join(a).to_string_lossy().into_owned()
+                    }
+                    _ => a.clone(),
+                })
+                .collect();
+            Startup::Gui {
+                selection: open_with_selection(&anchored),
+                handoff: None,
+            }
+        }
 
         Intent::ContextMenu => {
             // A malformed shell-extension invocation must not leave the user
@@ -229,6 +243,32 @@ where
             }
         }
     }
+}
+
+/// The selection an "open with" launch carries (`maeclyprint C:\docs\a.pdf`,
+/// or a file dropped on the executable): every non-flag argument that resolves
+/// to an existing absolute path, as a `configure` selection — the app opens on
+/// the Print Job screen with the files loaded, and nothing prints by itself.
+///
+/// Paths go through [`crate::util::paths::canonical_input`] (NFR-025), which
+/// refuses relative ones: a forwarded argv is interpreted by a *different*
+/// process with a different working directory, so a relative path could only
+/// ever be resolved against the wrong folder. The shells that perform an
+/// "open with" always pass absolute paths. `None` when nothing qualifies (a
+/// plain launch, macOS' `-psn_…` noise).
+pub fn open_with_selection<S: AsRef<str>>(args: &[S]) -> Option<Selection> {
+    let paths: Vec<String> = args
+        .iter()
+        .map(AsRef::as_ref)
+        .filter(|a| !a.starts_with('-'))
+        .filter_map(|a| crate::util::paths::canonical_input(a).ok())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    (!paths.is_empty()).then_some(Selection {
+        paths,
+        action: ContextAction::Configure,
+        profile_id: None,
+    })
 }
 
 /// Run a parsed headless command line and return its exit code. Every failure
@@ -448,6 +488,39 @@ mod tests {
         assert_eq!(classify(&empty), Intent::Gui);
         // macOS hands a bundled app its process serial number.
         assert_eq!(classify(&["-psn_0_1234"]), Intent::Gui);
+    }
+
+    /// An "open with" launch must open the app *on the file*, not empty: the
+    /// path becomes a `configure` selection, exactly like the context menu's
+    /// "Configure print job…".
+    #[test]
+    fn fr_008_an_open_with_launch_preloads_the_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("report.pdf");
+        std::fs::write(&file, b"%PDF-1.4\n").expect("write");
+        let canonical = file.canonicalize().unwrap().to_string_lossy().into_owned();
+
+        match startup([
+            "maeclyprint".to_string(),
+            file.to_string_lossy().into_owned(),
+        ]) {
+            Startup::Gui { selection, handoff } => {
+                let selection = selection.expect("the file is pre-loaded");
+                assert_eq!(selection.paths, vec![canonical]);
+                assert_eq!(selection.action, ContextAction::Configure);
+                assert_eq!(selection.profile_id, None);
+                assert!(handoff.is_none(), "no handoff file is involved");
+            }
+            other => panic!("an open-with launch opens the GUI, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fr_008_a_plain_launch_preloads_nothing() {
+        match startup(["maeclyprint".to_string(), "-psn_0_1234".to_string()]) {
+            Startup::Gui { selection, .. } => assert!(selection.is_none()),
+            other => panic!("a plain launch opens the GUI, got {other:?}"),
+        }
     }
 
     #[test]

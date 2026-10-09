@@ -708,10 +708,10 @@ fn nfr_014_a_forwarded_context_menu_launch_delivers_its_selection() {
     let running = single_instance::interpret_at(dir.path(), &argv)
         .expect("the forwarded argv still resolves");
     assert_eq!(running.selection, launching.selection);
-    assert_eq!(running.handoff, file);
+    assert_eq!(running.handoff.as_deref(), Some(file.as_path()));
 
     // 3. Only once the selection is parked for the window does the file go.
-    let pending = pending::park_launch_selection(Some(running.selection), Some(running.handoff));
+    let pending = pending::park_launch_selection(Some(running.selection), running.handoff);
     assert_eq!(pending.drain().len(), 1, "the window will find it waiting");
     assert!(
         !file.exists(),
