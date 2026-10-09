@@ -381,6 +381,42 @@ fn shell_quote(arg: &str) -> Cow<'_, str> {
     }
 }
 
+/// Fill in what the job leaves to the printer from the per-printer defaults the
+/// user set on the Printers screen (`PrinterPrefs::overrides`).
+///
+/// Precedence is explicit value → printer override → printer default: a job
+/// (or profile) that names a tray or a paper size keeps it; one that defers
+/// (`tray: None`, paper [`PaperSize::AUTO`]) gets the override; and with no
+/// override either, nothing is sent and the printer's own default applies. A
+/// blank or unparseable override is ignored rather than sent.
+pub fn apply_printer_overrides<'a>(
+    settings: &'a JobSettings,
+    over: &crate::settings::PrinterOverride,
+) -> Cow<'a, JobSettings> {
+    let tray = over
+        .tray
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty() && settings.selected_tray().is_none());
+    let paper = over
+        .paper
+        .as_deref()
+        .filter(|_| settings.paper_size.is_auto())
+        .and_then(|p| PaperSize::parse(p).ok())
+        .filter(|p| !p.is_auto());
+    if tray.is_none() && paper.is_none() {
+        return Cow::Borrowed(settings);
+    }
+    let mut out = settings.clone();
+    if let Some(t) = tray {
+        out.tray = Some(t.to_string());
+    }
+    if let Some(p) = paper {
+        out.paper_size = p;
+    }
+    Cow::Owned(out)
+}
+
 /// Pure capability gate: reject settings that would *silently* degrade output.
 ///
 /// Paper is the second such case: a size the printer does not list is
@@ -476,6 +512,51 @@ mod tests {
         }
         // Nothing reported → nothing refused.
         assert!(check_supported(&with("Tabloid"), "P", &PrinterCaps::unknown()).is_ok());
+    }
+
+    /// Job/profile values win over the printer's overrides, which win over the
+    /// printer's own defaults (nothing sent).
+    #[test]
+    fn printer_overrides_fill_only_what_the_job_leaves_open() {
+        use crate::settings::PrinterOverride;
+        let over = PrinterOverride {
+            tray: Some("Tray 2".into()),
+            paper: Some("Letter".into()),
+        };
+
+        // The job defers on both: the overrides apply.
+        let open = JobSettings {
+            paper_size: PaperSize::AUTO,
+            tray: None,
+            ..JobSettings::default()
+        };
+        let got = apply_printer_overrides(&open, &over);
+        assert_eq!(got.tray.as_deref(), Some("Tray 2"));
+        assert_eq!(got.paper_size, PaperSize::LETTER);
+
+        // Explicit values win.
+        let explicit = JobSettings {
+            paper_size: PaperSize::A3,
+            tray: Some("Manual".into()),
+            ..JobSettings::default()
+        };
+        let got = apply_printer_overrides(&explicit, &over);
+        assert_eq!(got.tray.as_deref(), Some("Manual"));
+        assert_eq!(got.paper_size, PaperSize::A3);
+        assert!(matches!(got, Cow::Borrowed(_)), "nothing to fill in");
+
+        // No override: still deferring, so nothing is sent at all.
+        let got = apply_printer_overrides(&open, &PrinterOverride::default());
+        assert!(got.paper_size.is_auto());
+        assert!(got.tray.is_none());
+
+        // A blank override is not an override.
+        let blank = PrinterOverride {
+            tray: Some("  ".into()),
+            paper: Some(String::new()),
+        };
+        let got = apply_printer_overrides(&open, &blank);
+        assert!(got.tray.is_none() && got.paper_size.is_auto());
     }
 
     #[test]

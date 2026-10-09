@@ -94,7 +94,7 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
     // the capability gate are per file. Doing the whole pass before printing
     // anything preserves the all-or-nothing acceptance described above: one
     // unusable target means nothing is spooled.
-    let targets: Vec<(String, crate::engine::print::PrinterCaps)> = files
+    let targets: Vec<(String, crate::engine::print::PrinterCaps, JobSettings)> = files
         .iter()
         .map(|file| {
             let name = Path::new(file)
@@ -102,15 +102,24 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| file.clone());
             let (printer, caps) = resolve_printer(paths, settings.printer.as_deref(), &name)?;
-            crate::engine::print::check_supported(&settings, &printer, &caps)?;
-            Ok((printer, caps))
+            // The printer's own tray/paper defaults fill what the job leaves
+            // open, as in the queue; the check is against what will be sent.
+            let over = crate::settings::Config::load_from(&paths.config)
+                .printers
+                .overrides
+                .get(&printer)
+                .cloned()
+                .unwrap_or_default();
+            let effective = crate::engine::print::apply_printer_overrides(&settings, &over);
+            crate::engine::print::check_supported(&effective, &printer, &caps)?;
+            Ok((printer, caps, effective.into_owned()))
         })
         .collect::<Result<_, CliError>>()?;
     // What the batch reports as its target: the common printer when routing did
     // not split it, otherwise a marker rather than one file's printer standing
     // in for the rest.
     let printer = match targets.first() {
-        Some((first, _)) if targets.iter().all(|(p, _)| p == first) => first.clone(),
+        Some((first, _, _)) if targets.iter().all(|(p, _, _)| p == first) => first.clone(),
         Some(_) => "<per file type>".to_string(),
         None => String::new(),
     };
@@ -134,14 +143,17 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
 
     for (index, file) in files.iter().enumerate() {
         let job_id = format!("{batch_id}-{index}");
-        let (target, caps) = targets.get(index).cloned().unwrap_or_default();
+        let (target, caps, effective) = targets
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| (String::new(), Default::default(), settings.clone()));
         let outcome = print_one(
             Path::new(file),
             cache.path(),
             &job_id,
             &target,
             &caps,
-            &settings,
+            &effective,
             timeout,
         );
         batch.record(file, target, outcome);

@@ -388,8 +388,9 @@ pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
             })
             .unwrap_or_else(|| "document.pdf".to_string());
 
+        let prefs = crate::settings::Config::load_or_default().printers;
         let printer = resolve_preview_printer(
-            &crate::settings::Config::load_or_default().printers,
+            &prefs,
             req.settings.printer.as_deref(),
             &display,
             crate::platform::default_printer().ok().flatten().as_deref(),
@@ -403,6 +404,12 @@ pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
             .map(|f| crate::engine::extension_of(Path::new(f)))
             .unwrap_or_else(|| "pdf".to_string());
         let settings = crate::engine::print::effective_settings(&req.settings, &ext);
+        // …and with the printer's own tray/paper defaults filled in where the
+        // job leaves them open, exactly as dispatch does.
+        let settings = crate::engine::print::apply_printer_overrides(
+            &settings,
+            &prefs.overrides.get(&printer).cloned().unwrap_or_default(),
+        );
 
         let caps = crate::platform::caps_of(&printer);
         Ok(crate::engine::print::preview_command(

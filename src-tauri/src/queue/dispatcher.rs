@@ -191,11 +191,13 @@ const PROGRESS_THROTTLE: Duration = Duration::from_millis(100);
 // Commands & wire types
 // ---------------------------------------------------------------------------
 
-/// The printer a job will go to, with what is known about it.
+/// The printer a job will go to, with what is known about it and the
+/// per-printer defaults the user set for it on the Printers screen.
 #[derive(Debug, Clone)]
 pub(crate) struct ResolvedPrinter {
     pub name: String,
     pub caps: PrinterCaps,
+    pub overrides: crate::settings::PrinterOverride,
 }
 
 /// Successful print outcome flowing back from a blocking print task. Carries
@@ -414,10 +416,12 @@ impl JobRunner for EngineRunner {
         requested: Option<&str>,
         file_name: &str,
     ) -> Result<ResolvedPrinter, PrintError> {
-        let name = match resolve_app_printer_for(requested, file_name) {
+        let prefs = crate::settings::Config::load_or_default().printers;
+        let name = match crate::ipc::printers::resolve_app_printer(&prefs, requested, file_name) {
             Some(p) => p,
             None => resolve_os_default_printer()?,
         };
+        let overrides = prefs.overrides.get(&name).cloned().unwrap_or_default();
         let enumerated = crate::platform::list_printers()
             .ok()
             .filter(|list| !list.is_empty());
@@ -425,12 +429,14 @@ impl JobRunner for EngineRunner {
             return Ok(ResolvedPrinter {
                 name,
                 caps: PrinterCaps::unknown(),
+                overrides,
             });
         };
         match list.iter().find(|p| p.id == name || p.name == name) {
             Some(p) => Ok(ResolvedPrinter {
                 caps: crate::platform::printer_caps(p),
                 name,
+                overrides,
             }),
             None => Err(PrintError::PrinterMissing { printer: name }),
         }
@@ -441,14 +447,6 @@ impl JobRunner for EngineRunner {
             tracing::warn!(event = "os_job_cancel_failed", os_job_id = %os_job_id, error = %e);
         }
     }
-}
-
-/// The MaeclyPrint-level choice for this input: an explicit request, then the
-/// file-type routing rule, then the app default. Delegates to the single
-/// definition of that order so the queue, the CLI and the GUI agree.
-fn resolve_app_printer_for(requested: Option<&str>, file_name: &str) -> Option<String> {
-    let prefs = crate::settings::Config::load_or_default().printers;
-    crate::ipc::printers::resolve_app_printer(&prefs, requested, file_name)
 }
 
 /// The OS default, used only once nothing at the app level applies. Having no
@@ -1422,6 +1420,15 @@ impl Dispatcher {
             let result = (|| -> Result<PrintOk, PrintError> {
                 let printer =
                     runner.resolve_printer(job.settings.printer.as_deref(), &job.file_name)?;
+                // What the job leaves open (no tray, paper "auto") comes from
+                // the printer's overrides on the Printers screen; explicit
+                // values win. The job record keeps what the user chose.
+                let mut job = job;
+                job.settings = crate::engine::print::apply_printer_overrides(
+                    &job.settings,
+                    &printer.overrides,
+                )
+                .into_owned();
                 // Pure capability gate (honesty policy): a duplex request against
                 // a non-duplex driver, or a paper size the printer does not
                 // list, is an error rather than a silent substitution.
@@ -2016,6 +2023,8 @@ mod tests {
         resolve_file_names: Mutex<Vec<String>>,
         /// Paper sizes the fake printer reports (empty: not reported).
         papers: Mutex<Vec<String>>,
+        /// Per-printer tray/paper overrides, as the Printers screen stores them.
+        overrides: Mutex<HashMap<String, crate::settings::PrinterOverride>>,
     }
 
     impl FakeRunner {
@@ -2036,6 +2045,7 @@ mod tests {
                 print_settings: Mutex::new(Vec::new()),
                 resolve_file_names: Mutex::new(Vec::new()),
                 papers: Mutex::new(Vec::new()),
+                overrides: Mutex::new(HashMap::new()),
             }
         }
     }
@@ -2121,6 +2131,13 @@ mod tests {
                 return Err(PrintError::PrinterMissing { printer: name });
             }
             Ok(ResolvedPrinter {
+                overrides: self
+                    .overrides
+                    .lock()
+                    .unwrap()
+                    .get(&name)
+                    .cloned()
+                    .unwrap_or_default(),
                 name,
                 caps: PrinterCaps {
                     duplex: self.duplex_supported.load(Ordering::Relaxed),
@@ -3456,6 +3473,38 @@ mod tests {
         assert_eq!(err.code, "unsupported_setting");
         assert!(err.message.contains("Tabloid"), "{err:?}");
         assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 0);
+    }
+
+    /// The Printers screen's per-printer tray/paper defaults reach real jobs:
+    /// they fill what the job leaves open and never beat an explicit choice.
+    #[tokio::test]
+    async fn fr_printer_overrides_reach_real_jobs_without_beating_explicit_values() {
+        use crate::queue::job::PaperSize;
+        let mut h = harness();
+        h.runner.overrides.lock().unwrap().insert(
+            "FakePrinter".into(),
+            crate::settings::PrinterOverride {
+                tray: Some("Tray 2".into()),
+                paper: Some("Letter".into()),
+            },
+        );
+        let mut open = make_job("open.pdf");
+        open.settings.paper_size = PaperSize::AUTO;
+        let mut explicit = make_job("explicit.pdf");
+        explicit.settings.paper_size = PaperSize::A3;
+        explicit.settings.tray = Some("Manual".into());
+        let open_id = open.id.clone();
+        h.submit(vec![open, explicit]);
+        h.run_to_idle();
+
+        let sent = h.runner.print_settings.lock().unwrap().clone();
+        assert_eq!(sent.len(), 2);
+        assert_eq!(sent[0].tray.as_deref(), Some("Tray 2"));
+        assert_eq!(sent[0].paper_size, PaperSize::LETTER);
+        assert_eq!(sent[1].tray.as_deref(), Some("Manual"));
+        assert_eq!(sent[1].paper_size, PaperSize::A3);
+        // The job keeps what the user asked for; only the spool is filled in.
+        assert!(h.job(&open_id).settings.paper_size.is_auto());
     }
 
     // ---- OS job tracking (the print slot) --------------------------------

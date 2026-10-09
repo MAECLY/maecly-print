@@ -80,7 +80,7 @@ The IPC `PrinterInfo` ([data-model](../04-architecture/data-model.md)) is the **
 ## Detail sections
 
 - **Connection** — driver, port/address, location, shared state, max resolution.
-- **Defaults for this printer** — default tray and default paper selects (options from `trays`/`papers`). These seed any profile that targets this printer without an explicit override.
+- **Defaults for this printer** — default tray and default paper selects (options from `trays`/`papers`). Real jobs use them wherever the job leaves the value open (no tray chosen, paper **Printer default**); a tray or paper the job or its profile names explicitly always wins. Applied identically by the queue, the CLI and the honesty preview.
 - **Route file types here** — extension pills (e.g. `.pdf`, `.jpg`) that default to this printer when no profile overrides. An **add rule** affordance appends a new extension. Cross-references the [context-menu routing](./context-menu-actions.md).
 - **Capabilities** — pills for Duplex, Color/Monochrome, paper-size count, tray count, labelled *queried from driver*. When `duplex` is false, a warning notes that **profiles requesting duplex will pause with `DuplexNotSupported`** on this device rather than fail — consistent with the queue's paused-not-failed policy.
 - **Supply levels** — per-supply bars (CMYK or just black), turning red below 20 %. Hidden when the device reports no supplies.
@@ -156,7 +156,7 @@ How the data is sourced per OS — and why fields may be absent — is documente
   - Preferences persistence (`get_printer_prefs` / `set_printer_prefs`): file-type routes, per-printer tray/paper overrides, soft-disabled set, app default.
   - **Add printer** by network discovery and by IP (`add_printer`: `lpadmin` IPP Everywhere/raw on macOS/Linux; Microsoft IPP Class Driver, IPP/IPPS-only on Windows), and **From system** spooler management.
   - **Missing-printer reconciliation** (reassign / forget / keep-paused) and **org-policy default lock** (`get_printer_policy` reading `policy.json`).
-- **Follow-up** — Windows network discovery (WSD/mDNS), Windows supply levels (SNMP/WMI/IPP), consumption of routes/tray-paper overrides by the print engine (queue work in flight), and profile-level reconciliation once profiles are wired.
+- **Follow-up** — Windows network discovery (WSD/mDNS), Windows supply levels (SNMP/WMI/IPP), and profile-level reconciliation once profiles are wired.
 
 ## Open questions for v1+
 
