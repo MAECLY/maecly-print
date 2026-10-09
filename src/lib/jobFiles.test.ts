@@ -434,7 +434,10 @@ describe('jobFiles', () => {
     );
 
     expect(added.map((f) => f.path)).toEqual(['/docs/r/b.pdf']);
-    expect(toasts.success).toHaveBeenCalledWith('Added 1 file from “r”');
+    expect(toasts.success).toHaveBeenCalledWith(
+      'Added 1 file from “r”',
+      expect.anything(),
+    );
   });
 
   it('says so when every file of a folder was already in the job', async () => {
@@ -465,6 +468,7 @@ describe('jobFiles', () => {
     expect(toasts.success).not.toHaveBeenCalled();
     expect(toasts.info).toHaveBeenCalledWith(
       'Every file in “r” is already in the job.',
+      expect.anything(),
     );
   });
 
@@ -488,7 +492,33 @@ describe('jobFiles', () => {
     release([expansion({ root: '/docs/big', scan: 'recursive' })]);
     await walk;
     expect(getExpandingCount()).toBe(0);
+    // Deferred past sonner's own add timer, so it can never miss the toast.
+    expect(toasts.dismiss).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 0));
     expect(toasts.dismiss).toHaveBeenCalledWith('loading-id');
+  });
+
+  it('FR-004: the progress toast turns into the result toast (same id)', async () => {
+    ipc.inspectFiles.mockImplementation(async (paths) =>
+      paths.map((p) => fileInfo(p)),
+    );
+    ipc.expandFolders.mockResolvedValue([
+      expansion({ root: '/docs/r', files: ['/docs/r/a.pdf'] }),
+    ]);
+    toasts.loading.mockReturnValue('loading-id');
+    const files = collector();
+
+    await expandFolderIntoJob(
+      { path: '/docs/r', name: 'r', hasSubfolders: false },
+      'top_level',
+      files.setFiles,
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(toasts.success).toHaveBeenCalledWith('Added 1 file from “r”', {
+      id: 'loading-id',
+    });
+    expect(toasts.dismiss).not.toHaveBeenCalled();
   });
 
   it('FR-001: a print-now selection walks every folder top-level, without asking', async () => {
