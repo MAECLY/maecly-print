@@ -912,6 +912,7 @@ export function PrintJobScreen({
 
           <MPSectionLabel>{t('settings.sides')}</MPSectionLabel>
           <MPSegmented
+            fullWidth
             aria-label={t('settings.sides')}
             value={merged.duplex}
             onChange={(v) => setOverrides({ ...overrides, duplex: v })}
@@ -930,6 +931,7 @@ export function PrintJobScreen({
 
           <MPSectionLabel>{t('settings.color')}</MPSectionLabel>
           <MPSegmented
+            fullWidth
             aria-label={t('settings.color')}
             value={merged.color}
             onChange={(v) => setOverrides({ ...overrides, color: v })}
@@ -1045,6 +1047,7 @@ export function PrintJobScreen({
 
           <MPSectionLabel>{t('settings.scaling')}</MPSectionLabel>
           <MPSegmented
+            fullWidth
             aria-label={t('settings.scaling')}
             value={merged.scaling}
             onChange={(v) => setOverrides({ ...overrides, scaling: v })}

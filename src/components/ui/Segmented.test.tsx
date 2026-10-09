@@ -87,4 +87,28 @@ describe('MPSegmented', () => {
     await user.click(screen.getByRole('radio', { name: 'System' }));
     expect(screen.getByRole('radio', { name: 'System' })).toBeChecked();
   });
+
+  it('NFR-053: fullWidth shares the width and lets long labels shrink', () => {
+    render(
+      <MPSegmented
+        fullWidth
+        aria-label="Caras"
+        value="off"
+        onChange={() => {}}
+        options={[
+          { value: 'off', label: 'Una cara' },
+          { value: 'long', label: 'Borde largo' },
+          { value: 'short', label: 'Borde corto' },
+        ]}
+      />,
+    );
+    const group = screen.getByRole('radiogroup', { name: 'Caras' });
+    expect(group.style.width).toBe('100%');
+    expect(group.style.maxWidth).toBe('100%');
+    const option = screen.getByRole('radio', { name: 'Borde corto' });
+    expect(option.style.minWidth).toBe('0');
+    expect(option.style.textOverflow).toBe('ellipsis');
+    // An ellipsized label stays readable on hover.
+    expect(option).toHaveAttribute('title', 'Borde corto');
+  });
 });

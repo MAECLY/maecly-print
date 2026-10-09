@@ -20,6 +20,12 @@ interface MPSegmentedProps<T extends string = string> {
   'aria-labelledby'?: string;
   /** Native disabled on every option: no focus, no change, announced. */
   disabled?: boolean | undefined;
+  /**
+   * Fill the container and share its width between the options, which may
+   * then shrink (tighter padding, ellipsis as a last resort) instead of
+   * overflowing a narrow panel — longer Spanish labels need it.
+   */
+  fullWidth?: boolean | undefined;
 }
 
 /**
@@ -36,6 +42,7 @@ export function MPSegmented<T extends string = string>({
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
   disabled = false,
+  fullWidth = false,
 }: MPSegmentedProps<T>) {
   const h = size === 'sm' ? 24 : size === 'lg' ? 36 : 28;
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -89,7 +96,9 @@ export function MPSegmented<T extends string = string>({
         ? { 'aria-labelledby': ariaLabelledBy }
         : {})}
       style={{
-        display: 'inline-flex',
+        display: fullWidth ? 'flex' : 'inline-flex',
+        width: fullWidth ? '100%' : undefined,
+        maxWidth: '100%',
         padding: 2,
         height: h + 4,
         background: 'var(--mp-surface2)',
@@ -116,9 +125,19 @@ export function MPSegmented<T extends string = string>({
             }}
             onKeyDown={(e) => onKeyDown(e, i)}
             className="mp-focus"
+            {...(fullWidth ? { title: o.label } : {})}
             style={{
               height: h,
-              padding: `0 ${size === 'sm' ? 8 : 12}px`,
+              padding: `0 ${size === 'sm' || fullWidth ? 8 : 12}px`,
+              ...(fullWidth
+                ? {
+                    flex: '1 1 auto',
+                    minWidth: 0,
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }
+                : {}),
               fontSize: size === 'sm' ? 11.5 : 12.5,
               fontWeight: active ? 500 : 400,
               background: active ? 'var(--mp-surface)' : 'transparent',
