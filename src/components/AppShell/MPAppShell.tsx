@@ -1,5 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 
+import { useAnyModalOpen } from '@/components/Modal';
+
 /**
  * Root application shell, and the home of the app-wide keyboard layer.
  *
@@ -119,9 +121,10 @@ export function matchShortcut(e: KeyboardEvent): ShortcutId | undefined {
  * always `preventDefault`ed: Ctrl/⌘+P would otherwise open the webview's own
  * print dialog on top of ours.
  *
- * `enabled` exists for the modal states that must own the keyboard — the
- * onboarding overlay and the confirmation dialog — where a global Ctrl+P
- * printing behind the modal would be a genuine surprise.
+ * The layer also stands down on its own while ANY modal is open (a screen's
+ * confirmation, the add-printer dialog, the first-run tour — see `Modal.tsx`):
+ * a global Ctrl+P printing, or Ctrl+N navigating away, behind a modal would be
+ * a genuine surprise. `enabled` remains for callers with extra conditions.
  */
 export function useAppShortcuts(
   handlers: Partial<Record<ShortcutId, () => void>>,
@@ -129,8 +132,12 @@ export function useAppShortcuts(
 ): void {
   const latest = useRef(handlers);
   latest.current = handlers;
-  const enabledRef = useRef(enabled);
-  enabledRef.current = enabled;
+  // Shortcuts stand down while any modal owns the keyboard (a11y), but the
+  // listener itself stays installed so the webview's print chord is still
+  // swallowed below.
+  const modalOpen = useAnyModalOpen();
+  const enabledRef = useRef(enabled && !modalOpen);
+  enabledRef.current = enabled && !modalOpen;
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       // The webview's own Ctrl/⌘+P (WebView2 keeps browser accelerators on)
