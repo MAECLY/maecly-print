@@ -316,6 +316,13 @@ pub enum EngineError {
     #[error("conversion failed: {0}")]
     ConversionFailed(String),
 
+    /// A converter ran past the conversion timeout and was killed. Separate
+    /// from [`EngineError::ConversionFailed`] because it is terminal: the queue
+    /// fails the job with `conversion_timeout` instead of retrying a run that
+    /// already used its whole budget (FR-034).
+    #[error("conversion timed out: {0}")]
+    ConversionTimedOut(String),
+
     /// The OS spooler/printer backend rejected the job.
     #[error("printing failed: {0}")]
     PrintFailed(String),

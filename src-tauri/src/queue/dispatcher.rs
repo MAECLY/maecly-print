@@ -294,11 +294,17 @@ pub(crate) enum Cmd {
 pub(crate) trait JobRunner: Send + Sync + 'static {
     /// Convert `job`'s input to a printable PDF (or `Ok(None)` for a PDF that
     /// prints in place). `cancel` is polled by the engine at stage boundaries.
+    ///
+    /// `timeout` bounds each external converter process. It is the limit in
+    /// force when *this* attempt started, handed over per call rather than
+    /// fixed when the queue booted, so a conversion timeout changed in
+    /// Settings reaches the very next conversion.
     fn convert(
         &self,
         job: &Job,
         cancel: Arc<AtomicBool>,
         progress: Box<dyn Fn(f32) + Send + Sync>,
+        timeout: Option<Duration>,
     ) -> Result<Option<PathBuf>, EngineError>;
 
     /// Spool the job's PDF to `printer`, waiting at most `timeout` for the
@@ -363,11 +369,6 @@ pub(crate) trait BlockingSpawner: Send + Sync + 'static {
 pub(crate) struct EngineRunner {
     /// Directory converted PDFs are written to (`<cache_dir>/conversions`).
     pub cache_dir: PathBuf,
-    /// Bound for each external converter process. The dispatcher's own
-    /// conversion timer raises the cancel flag at the same limit, which also
-    /// kills the converter; passing it here keeps the bound even if the timer
-    /// message is delayed.
-    pub conversion_timeout: Option<Duration>,
 }
 
 impl JobRunner for EngineRunner {
@@ -376,14 +377,18 @@ impl JobRunner for EngineRunner {
         job: &Job,
         cancel: Arc<AtomicBool>,
         progress: Box<dyn Fn(f32) + Send + Sync>,
+        timeout: Option<Duration>,
     ) -> Result<Option<PathBuf>, EngineError> {
+        // The dispatcher's own conversion timer raises the cancel flag at the
+        // same limit, which also kills the converter; passing the limit here
+        // keeps the bound even if the timer message is delayed.
         crate::engine::convert::convert_to_pdf(
             Path::new(&job.input_path),
             &self.cache_dir,
             &job.id,
             &cancel,
             &*progress,
-            self.conversion_timeout,
+            timeout,
         )
     }
 
@@ -1428,9 +1433,13 @@ impl Dispatcher {
         let self_tx = self.self_tx.clone();
         let progress = self.make_progress(job.id.clone());
         let id = job.id.clone();
+        // The limit in force now applies to this attempt, both to the timer
+        // below and to the converter process itself (`set_limits` may have
+        // changed it since the queue started).
+        let timeout = self.limits.conversion_timeout;
         // Arm a timeout for THIS attempt, capturing its exact cancel-flag Arc so
         // the handler can tell it apart from a later attempt's flag by identity.
-        if let Some(timeout) = self.limits.conversion_timeout {
+        if let Some(timeout) = timeout {
             let tx = self.self_tx.clone();
             let timer_id = id.clone();
             let timer_flag = flag.clone();
@@ -1443,7 +1452,7 @@ impl Dispatcher {
             });
         }
         self.spawner.spawn_blocking(Box::new(move || {
-            let result = runner.convert(&job, flag, progress);
+            let result = runner.convert(&job, flag, progress, timeout);
             let pages = match &result {
                 Ok(Some(pdf)) => converted_page_count(pdf),
                 _ => None,
@@ -1932,6 +1941,34 @@ fn record_failure(job: &mut Job, e: &EngineError, is_conversion: bool, post: &mu
                 message = %e
             );
         }
+        // The converter itself ran out of time (its own bound, which can fire
+        // a moment before the dispatcher's timer does). Terminal, exactly like
+        // the dispatcher's `conversion_timeout`: a retry would only burn the
+        // same budget again.
+        EngineError::ConversionTimedOut(_) => {
+            job.state = JobState::Failed;
+            job.error = Some(to_job_error(e));
+            job.finished_at = Some(now_rfc3339());
+            job.progress = None;
+            if let Some(c) = job.cache_pdf.take() {
+                post.delete_cache.push(c);
+            }
+            let f = JobLog::of(job);
+            tracing::warn!(
+                event = "job_conversion_timeout",
+                job_id = %job.id,
+                file = %f.file,
+                profile = %f.profile,
+                printer = %f.printer,
+                pages = f.pages,
+                status = %f.status,
+                started_at = %f.started_at,
+                finished_at = %f.finished_at,
+                attempts = job.attempts,
+                error = %f.error,
+                message = %e
+            );
+        }
         // Cancellation is handled by the cancel path; defensive here.
         EngineError::Cancelled => {
             job.state = JobState::Cancelled;
@@ -2005,6 +2042,7 @@ fn converted_page_count(pdf: &Path) -> Option<u32> {
 fn to_job_error(e: &EngineError) -> JobError {
     let code = match e {
         EngineError::ConversionFailed(_) => "conversion_failed",
+        EngineError::ConversionTimedOut(_) => "conversion_timeout",
         EngineError::PrintFailed(_) => "print_failed",
         EngineError::UnsupportedSetting { .. } => "unsupported_setting",
         EngineError::DependencyMissing(_) => "dependency_missing",
@@ -2045,6 +2083,8 @@ mod tests {
         ProducePages(u32),
         Passthrough,
         Fail,
+        /// The converter process outlived its own bound and was killed.
+        TimedOut,
     }
 
     /// Write a minimal valid PDF with `n` empty pages.
@@ -2101,6 +2141,8 @@ mod tests {
         print_calls: AtomicUsize,
         /// Timeouts the fake was asked to enforce, one per `print` call.
         print_timeouts: Mutex<Vec<Option<Duration>>>,
+        /// Timeouts handed to each `convert` call.
+        convert_timeouts: Mutex<Vec<Option<Duration>>>,
         /// The settings the fake was handed for each `print` call, so a test can
         /// assert what would have reached the spooler.
         print_settings: Mutex<Vec<JobSettings>>,
@@ -2131,6 +2173,7 @@ mod tests {
                 convert_calls: AtomicUsize::new(0),
                 print_calls: AtomicUsize::new(0),
                 print_timeouts: Mutex::new(Vec::new()),
+                convert_timeouts: Mutex::new(Vec::new()),
                 print_settings: Mutex::new(Vec::new()),
                 resolve_file_names: Mutex::new(Vec::new()),
                 papers: Mutex::new(Vec::new()),
@@ -2146,8 +2189,10 @@ mod tests {
             job: &Job,
             cancel: Arc<AtomicBool>,
             progress: Box<dyn Fn(f32) + Send + Sync>,
+            timeout: Option<Duration>,
         ) -> Result<Option<PathBuf>, EngineError> {
             self.convert_calls.fetch_add(1, Ordering::Relaxed);
+            self.convert_timeouts.lock().unwrap().push(timeout);
             if cancel.load(Ordering::Relaxed) {
                 return Err(EngineError::Cancelled);
             }
@@ -2173,6 +2218,9 @@ mod tests {
                 }
                 ConvertStep::Passthrough => Ok(None),
                 ConvertStep::Fail => Err(EngineError::ConversionFailed("boom".to_string())),
+                ConvertStep::TimedOut => Err(EngineError::ConversionTimedOut(
+                    "LibreOffice did not finish within 60s and was stopped".to_string(),
+                )),
             }
         }
 
@@ -3139,6 +3187,69 @@ mod tests {
     }
 
     // ---- Conversion timeout ----------------------------------------------
+
+    /// FR-034 / settings.md: a conversion timeout saved in Settings governs the
+    /// next conversion. The limit used to be copied into the runner when the
+    /// queue booted, so the converter process kept being killed at the old
+    /// value however the setting changed.
+    #[tokio::test(start_paused = true)]
+    async fn fr_034_a_changed_conversion_timeout_reaches_the_converter_process() {
+        let mut h = harness_with(
+            Arc::new(InlineSpawner),
+            DispatcherLimits {
+                conversion_timeout: Some(Duration::from_secs(60)),
+                ..DispatcherLimits::default()
+            },
+        );
+        h.submit(vec![make_job("first.docx")]);
+        h.run_to_idle();
+
+        for limit in [Some(Duration::from_secs(600)), None] {
+            h.tx.send(Cmd::SetLimits {
+                limits: DispatcherLimits {
+                    conversion_timeout: limit,
+                    ..DispatcherLimits::default()
+                },
+            })
+            .unwrap();
+            h.submit(vec![make_job("next.docx")]);
+            h.run_to_idle();
+        }
+
+        assert_eq!(
+            *h.runner.convert_timeouts.lock().unwrap(),
+            vec![
+                Some(Duration::from_secs(60)),
+                Some(Duration::from_secs(600)),
+                None
+            ],
+            "each conversion runs under the limit in force when it starts"
+        );
+    }
+
+    /// FR-034: a converter killed by its own deadline is a conversion timeout,
+    /// which is terminal. It used to come back as a retryable
+    /// `conversion_failed`, so the job was run three more times, each killed at
+    /// the same limit.
+    #[tokio::test]
+    async fn fr_034_a_converter_timeout_fails_the_job_without_retrying() {
+        let mut h = harness();
+        h.runner
+            .convert_steps
+            .lock()
+            .unwrap()
+            .push_back(ConvertStep::TimedOut);
+        let j = make_job("big.docx");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+
+        let job = h.job(&id);
+        assert_eq!(job.state, JobState::Failed);
+        assert_eq!(job.error.unwrap().code, "conversion_timeout");
+        assert_eq!(h.runner.convert_calls.load(Ordering::Relaxed), 1);
+        assert!(!h.d.delayed.contains(&id), "no retry is scheduled");
+    }
 
     #[tokio::test(start_paused = true)]
     async fn conversion_timeout_fails_job_and_sets_flag() {

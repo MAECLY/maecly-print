@@ -152,7 +152,7 @@ printf '%%PDF-1.4\n%%fake\n' > "$out/$stem.pdf""#,
         .unwrap_err();
         assert!(started.elapsed() < Duration::from_secs(5));
         assert!(
-            matches!(&err, EngineError::ConversionFailed(m) if m.contains("did not finish")),
+            matches!(&err, EngineError::ConversionTimedOut(m) if m.contains("did not finish")),
             "{err:?}"
         );
         drop(work);

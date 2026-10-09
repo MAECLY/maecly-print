@@ -256,10 +256,7 @@ pub fn spawn(app: tauri::AppHandle) -> anyhow::Result<QueueHandle> {
         .sanitized();
     let limits = dispatcher::DispatcherLimits::from_engine(&engine);
 
-    let runner: Arc<dyn dispatcher::JobRunner> = Arc::new(dispatcher::EngineRunner {
-        cache_dir,
-        conversion_timeout: limits.conversion_timeout,
-    });
+    let runner: Arc<dyn dispatcher::JobRunner> = Arc::new(dispatcher::EngineRunner { cache_dir });
     let d = dispatcher::Dispatcher::new(
         state.clone(),
         tx.clone(),

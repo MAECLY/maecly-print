@@ -340,7 +340,7 @@ impl From<crate::engine::EngineError> for IpcError {
     fn from(err: crate::engine::EngineError) -> Self {
         use crate::engine::EngineError as E;
         match err {
-            E::ConversionFailed(m) => IpcError::ConversionFailed(m),
+            E::ConversionFailed(m) | E::ConversionTimedOut(m) => IpcError::ConversionFailed(m),
             E::PrintFailed(m) => IpcError::PrintFailed(m),
             E::UnsupportedSetting { setting, printer } => IpcError::UnsupportedSetting(format!(
                 "the driver for '{printer}' does not support {setting}"

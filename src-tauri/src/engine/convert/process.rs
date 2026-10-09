@@ -35,13 +35,17 @@ const POLL: Duration = Duration::from_millis(100);
 const STDERR_TAIL: usize = 600;
 
 /// Why [`run_bounded`] stopped a child early.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stopped {
     /// The job's cancel flag was raised (user cancel, pause, or the
     /// dispatcher's conversion timeout).
     Cancelled,
     /// The converter's own deadline passed.
     TimedOut,
+    /// The OS could not tell us whether the child was still running, so it
+    /// was killed rather than waited on blindly. Carries the OS error text:
+    /// this is not a timeout and must not be reported as one.
+    WaitFailed(String),
 }
 
 /// Run `cmd` to completion, killing it when `cancel` is raised or `timeout`
@@ -55,7 +59,9 @@ pub enum Stopped {
 /// [`EngineError::ConversionFailed`] carrying the tail of stderr; a spawn
 /// failure of a program we already located is the same (a broken install, not
 /// a missing one); a cancel is [`EngineError::Cancelled`]; a timeout is
-/// `ConversionFailed` naming the limit.
+/// [`EngineError::ConversionTimedOut`] naming the limit (terminal: the queue
+/// does not retry a converter that already ran out of time); a failed wait is
+/// `ConversionFailed` carrying the OS error.
 pub fn run_bounded(
     cmd: Command,
     label: &str,
@@ -106,9 +112,12 @@ pub fn run_until(
             stderr_suffix(stderr_log)
         ))),
         Err(Stopped::Cancelled) => Err(EngineError::Cancelled),
-        Err(Stopped::TimedOut) => Err(EngineError::ConversionFailed(format!(
+        Err(Stopped::TimedOut) => Err(EngineError::ConversionTimedOut(format!(
             "{label} did not finish within {}s and was stopped",
             timeout.map(|t| t.as_secs()).unwrap_or(0)
+        ))),
+        Err(Stopped::WaitFailed(e)) => Err(EngineError::ConversionFailed(format!(
+            "could not wait for {label} to finish ({e}); it was stopped"
         ))),
     }
 }
@@ -150,10 +159,11 @@ pub fn wait_bounded(
         match child.wait_timeout(POLL) {
             Ok(Some(status)) => return Ok(Exit::Status(status)),
             Ok(None) => continue,
-            // The OS refused to tell us; treat it like a hang we must end.
-            Err(_) => {
+            // The OS refused to tell us; end the child rather than wait
+            // blindly, and say why — this is not a timeout.
+            Err(e) => {
                 kill_tree(child);
-                return Err(Stopped::TimedOut);
+                return Err(Stopped::WaitFailed(e.to_string()));
             }
         }
     }
@@ -291,8 +301,10 @@ mod tests {
             started.elapsed() < Duration::from_secs(5),
             "must not wait 30 s"
         );
+        // A timeout is its own (terminal) error, so the queue does not retry
+        // a converter that already ran out of time (FR-034).
         assert!(
-            matches!(&err, EngineError::ConversionFailed(m) if m.contains("did not finish")),
+            matches!(&err, EngineError::ConversionTimedOut(m) if m.contains("did not finish")),
             "{err:?}"
         );
         std::thread::sleep(Duration::from_millis(2500));
