@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::{extension_of, EngineError};
 
 pub mod image;
+pub mod process;
 
 /// Raster image extensions we route to the image→PDF converter. Kept in sync
 /// with [`super::SUPPORTED_EXTS`] minus `pdf`.
