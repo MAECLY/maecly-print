@@ -165,6 +165,89 @@ pub fn lp_opts_for(settings: &JobSettings, caps: &PrinterCaps) -> Vec<String> {
     opts
 }
 
+/// A job-option value `lp` would not carry as the single value it looks like.
+///
+/// `lp -o` hands its argument to `cupsParseOptions`, which splits on whitespace
+/// and honours quotes and backslashes, so `-o "InputSlot=Tray1 copies=999"` is
+/// *two* options. Paper and tray names reach us from profiles (which can be
+/// imported from a file someone else wrote) and per-printer overrides, so a
+/// value like that would silently add job options the UI never shows. CUPS
+/// keywords never contain these characters, so such a value is refused rather
+/// than quoted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsafeOptionValue {
+    /// The CUPS option name (`media`, `InputSlot`, ...).
+    pub option: String,
+    /// The offending value, verbatim.
+    pub value: String,
+}
+
+impl UnsafeOptionValue {
+    /// What the user knows the option as, for the error message.
+    fn label(&self) -> &str {
+        match self.option.as_str() {
+            "media" => "paper size",
+            "InputSlot" | "media-source" => "tray",
+            "ColorModel" => "colour model",
+            "page-ranges" => "page ranges",
+            other => other,
+        }
+    }
+}
+
+impl std::fmt::Display for UnsafeOptionValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} {:?} (a CUPS option value cannot contain spaces, quotes, '=', '\\' or \
+             control characters)",
+            self.label(),
+            self.value
+        )
+    }
+}
+
+/// `true` when `value` is one non-empty CUPS option token: no whitespace, no
+/// control characters, no quotes, no backslash and no `=`.
+fn is_safe_option_value(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|c| !c.is_whitespace() && !c.is_control() && !matches!(c, '"' | '\'' | '\\' | '='))
+}
+
+/// Check one `name=value` option value; see [`UnsafeOptionValue`].
+pub fn check_option_value(option: &str, value: &str) -> Result<(), UnsafeOptionValue> {
+    if is_safe_option_value(value) {
+        Ok(())
+    } else {
+        Err(UnsafeOptionValue {
+            option: option.to_string(),
+            value: value.to_string(),
+        })
+    }
+}
+
+/// Check every `-o name=value` the job would send ([`lp_opts_for`]), so a value
+/// that `lp` would split into several options is refused before spooling.
+pub fn check_option_values(
+    settings: &JobSettings,
+    caps: &PrinterCaps,
+) -> Result<(), UnsafeOptionValue> {
+    let opts = lp_opts_for(settings, caps);
+    let mut it = opts.iter();
+    while let Some(flag) = it.next() {
+        if flag != "-o" {
+            continue;
+        }
+        let Some(pair) = it.next() else { break };
+        if let Some((name, value)) = pair.split_once('=') {
+            check_option_value(name, value)?;
+        }
+    }
+    Ok(())
+}
+
 /// Full `lp` argument vector for a printer whose capabilities are not known.
 pub fn lp_args(printer: &str, pdf: &Path, settings: &JobSettings, title: &str) -> Vec<String> {
     lp_args_for(printer, pdf, settings, &PrinterCaps::unknown(), title)
@@ -277,6 +360,12 @@ pub fn spool(
     use crate::engine::EngineError;
     use std::io::Read;
 
+    // Defence in depth: the dispatcher's capability gate already refuses
+    // these, but nothing that would smuggle extra options may reach `lp`.
+    check_option_values(settings, caps).map_err(|e| EngineError::UnsupportedSetting {
+        setting: e.to_string(),
+        printer: printer.to_string(),
+    })?;
     // `lp` names the IPP document after the file it is given. A converted
     // job's file is the cache's `<uuid>.pdf`, which printers and the CUPS web
     // UI then show; a link named after the user's file fixes that. It only
@@ -785,6 +874,81 @@ mod tests {
         assert!(with("letter").iter().any(|o| o == "media=Letter"));
         let auto = with("auto");
         assert!(!auto.iter().any(|o| o.starts_with("media=")), "{auto:?}");
+    }
+
+    /// `lp -o` splits a value on whitespace (and honours quotes), so a tray or
+    /// paper name like `Tray1 copies=999` would add options the UI never
+    /// shows. Such values are refused, and `spool` refuses before running `lp`.
+    #[test]
+    fn fr_041_option_values_that_lp_would_split_are_refused() {
+        let with = |paper: &str, tray: Option<&str>| JobSettings {
+            paper_size: PaperSize::parse(paper).unwrap(),
+            tray: tray.map(String::from),
+            ..JobSettings::default()
+        };
+        let caps = PrinterCaps::unknown();
+        assert_eq!(
+            check_option_values(&with("A4", Some("Tray1")), &caps),
+            Ok(())
+        );
+        assert_eq!(check_option_values(&with("w288h432", None), &caps), Ok(()));
+        assert_eq!(
+            check_option_values(&with("na_letter_8.5x11in", Some("auto")), &caps),
+            Ok(())
+        );
+
+        let err = check_option_values(
+            &with("A4", Some("Tray1 copies=999 job-hold-until=indefinite")),
+            &caps,
+        )
+        .unwrap_err();
+        assert_eq!(err.option, "InputSlot");
+        let msg = err.to_string();
+        assert!(msg.starts_with("tray \"Tray1 copies=999"), "{msg}");
+        assert!(msg.contains("cannot contain spaces"), "{msg}");
+
+        let err = check_option_values(&with("A4 number-up=16", None), &caps).unwrap_err();
+        assert_eq!(err.option, "media");
+        assert!(err.to_string().starts_with("paper size"), "{err}");
+
+        for bad in ["A4\tx", "A4'", "A4\"", "A4\\ x", "A4=x", "A4\u{a0}x"] {
+            assert!(
+                check_option_values(&with("A4", Some(bad)), &caps).is_err(),
+                "{bad:?} must be refused"
+            );
+        }
+        assert!(check_option_value("InputSlot", "").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fr_041_spool_refuses_an_unsafe_tray_before_running_lp() {
+        let settings = JobSettings {
+            tray: Some("Tray1 copies=999".into()),
+            ..JobSettings::default()
+        };
+        // The printer does not even exist: the refusal must come first.
+        let err = spool(
+            Path::new("/nonexistent/x.pdf"),
+            "No_Such_Queue_For_Tests",
+            &settings,
+            &PrinterCaps::unknown(),
+            "t",
+            Some(std::time::Duration::from_secs(5)),
+        );
+        let Err(err) = err else {
+            panic!("an unsafe tray must not be spooled")
+        };
+        match err {
+            super::super::PrintError::Engine(crate::engine::EngineError::UnsupportedSetting {
+                setting,
+                printer,
+            }) => {
+                assert!(setting.contains("Tray1 copies=999"), "{setting}");
+                assert_eq!(printer, "No_Such_Queue_For_Tests");
+            }
+            other => panic!("expected UnsupportedSetting, got {other:?}"),
+        }
     }
 
     #[test]

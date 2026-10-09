@@ -118,11 +118,16 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
         "-t".to_string(),
         "MaeclyPrint Test Page".to_string(),
     ];
+    // The saved names go to `lp -o`, which splits a value on whitespace into
+    // extra options; refuse anything that is not a single CUPS keyword.
+    use crate::engine::print::cups::check_option_value;
     if let Some(paper) = &over.paper {
+        check_option_value("media", paper).map_err(|e| anyhow::anyhow!("invalid {e}"))?;
         args.push("-o".into());
         args.push(format!("media={paper}"));
     }
     if let Some(tray) = &over.tray {
+        check_option_value("InputSlot", tray).map_err(|e| anyhow::anyhow!("invalid {e}"))?;
         args.push("-o".into());
         args.push(format!("InputSlot={tray}"));
     }

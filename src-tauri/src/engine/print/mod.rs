@@ -499,6 +499,14 @@ pub fn check_supported(
             printer: printer.to_string(),
         });
     }
+    // On CUPS a paper or tray name with spaces, quotes or `=` would be split by
+    // `lp` into extra job options (`Tray1 copies=999`), so it pauses here as a
+    // setting the printer cannot take instead of silently changing the job.
+    #[cfg(not(windows))]
+    cups::check_option_values(settings, caps).map_err(|e| EngineError::UnsupportedSetting {
+        setting: e.to_string(),
+        printer: printer.to_string(),
+    })?;
     Ok(())
 }
 
@@ -529,6 +537,24 @@ mod tests {
     fn no_duplex_request_never_fails() {
         let settings = JobSettings::default(); // Duplex::None
         assert!(check_supported(&settings, "P", &caps(false, &[])).is_ok());
+    }
+
+    /// On CUPS a tray or paper name that `lp` would split into several options
+    /// pauses the job as an unsupported setting instead of reaching the spooler.
+    #[cfg(not(windows))]
+    #[test]
+    fn fr_041_check_supported_refuses_values_lp_would_split() {
+        let settings = JobSettings {
+            tray: Some("Tray1 copies=999".into()),
+            ..JobSettings::default()
+        };
+        match check_supported(&settings, "Office", &PrinterCaps::unknown()) {
+            Err(EngineError::UnsupportedSetting { setting, printer }) => {
+                assert!(setting.starts_with("tray "), "{setting}");
+                assert_eq!(printer, "Office");
+            }
+            other => panic!("expected UnsupportedSetting, got {other:?}"),
+        }
     }
 
     #[test]

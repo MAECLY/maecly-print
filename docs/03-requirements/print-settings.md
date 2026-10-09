@@ -255,6 +255,8 @@ The command is **`lp`**, not `lpr`. Vector: `lp -d <printer> -t <title> <opts…
 
 `sides` and `media` are always emitted so an explicit user choice wins over any driver default.
 
+Every `-o name=value` value must be a single CUPS keyword. `lp` passes `-o` through `cupsParseOptions`, which splits on whitespace and honours quotes and backslashes, so a tray named `Tray1 copies=999` would quietly add a `copies=999` option. A value containing whitespace, a control character, a quote, a backslash or `=` is therefore refused, never quoted. The capability gate (`check_supported`) pauses the job as `unsupported_setting` and names the value, and `spool` repeats the check before it runs `lp`. The test page applies the same rule to the printer's saved paper and tray. Windows is unaffected: SumatraPDF bin and paper names may contain spaces.
+
 ## Settings that we deliberately do not expose
 
 | Setting | Why omitted |
