@@ -434,7 +434,7 @@ maeclyprint --help
 - With no `--printer`, the target is the file-type route, then the org-policy default (`policy.json`), then the app default, then the OS default — the same chain the GUI queue uses.
 - `--color` and `--mono` are mutually exclusive; omitting both leaves the profile's value. The same holds for `--collate` / `--no-collate`.
 - `--no-dialog` and `--wait` are accepted for compatibility and are **no-ops**: a headless `print` never opens a window and always runs each file to completion before exiting.
-- `--json` switches every command to JSON on stdout; errors become JSON on stderr.
+- `--json` switches every command to JSON on stdout; errors become JSON on stderr. That includes command lines the parser refuses (an unknown flag, a bad value, a missing `--files`): they come back as `{"error":{"code":"InvalidRequest","message":…}}` with exit 2. `--help` and `--version` print as text.
 
 **What `print` does *not* do.** A headless print is a foreground operation, so it deliberately differs from the GUI queue in three ways: it never touches `queue.json` (so it cannot race a running app for it), it converts into a private temp directory deleted on exit (so neither process can delete the other's work), and it has **no retry/backoff** — a script wants an exit code, not a job that quietly retries.
 

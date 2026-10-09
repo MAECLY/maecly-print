@@ -252,9 +252,16 @@ where
             match Cli::try_parse_from(&argv) {
                 Ok(cli) => Startup::Exit(execute(cli)),
                 Err(err) => {
-                    // clap prints help/version to stdout and errors to stderr
-                    // itself; we only own the exit code.
-                    let _ = err.print();
+                    // `--json` promises JSON errors on stderr (§3.3), so a
+                    // usage error is enveloped like any other failure. Help
+                    // and version are not errors and print as clap renders
+                    // them; so does everything without `--json`.
+                    match parse_error_json(&err).filter(|_| wants_json(&tail)) {
+                        Some(json) => eprintln!("{json}"),
+                        None => {
+                            let _ = err.print();
+                        }
+                    }
                     Startup::Exit(clap_exit_code(err.kind()).code())
                 }
             }
@@ -455,6 +462,42 @@ fn context_menu_parse_error(err: clap::Error) -> String {
 
 /// Exit code for a clap outcome: printing `--help`/`--version` succeeded;
 /// everything else is invalid usage (FR-009's code 2).
+/// Whether the command line asked for JSON output: `--json` anywhere before
+/// a `--` end-of-options marker. Read from the raw arguments because a
+/// command line clap refused never becomes a parsed [`Cli`].
+fn wants_json<S: AsRef<str>>(args: &[S]) -> bool {
+    args.iter()
+        .map(AsRef::as_ref)
+        .take_while(|a| *a != "--")
+        .any(|a| a == "--json")
+}
+
+/// A refused command line as the `{"error":{"code":"InvalidRequest",…}}`
+/// envelope `--json` errors use, or `None` for help and version output, which
+/// are not errors. The message is clap's own first line, without its
+/// `error: ` prefix and the usage block that follows it.
+fn parse_error_json(err: &clap::Error) -> Option<String> {
+    use clap::error::ErrorKind;
+    if matches!(
+        err.kind(),
+        ErrorKind::DisplayHelp
+            | ErrorKind::DisplayVersion
+            | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+    ) {
+        return None;
+    }
+    let rendered = err.render().to_string();
+    let message = rendered
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("invalid command line");
+    let message = message.strip_prefix("error:").unwrap_or(message).trim();
+    Some(output::error_json(
+        &crate::util::error::IpcError::InvalidRequest(message.to_string()),
+    ))
+}
+
 fn clap_exit_code(kind: clap::error::ErrorKind) -> ExitCode {
     use clap::error::ErrorKind;
     match kind {
@@ -466,6 +509,51 @@ fn clap_exit_code(kind: clap::error::ErrorKind) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ipc-and-cli.md §3.3: `--json` turns errors into JSON on stderr — usage
+    /// errors included. An unknown flag or a bad value used to come back as
+    /// clap's plain text.
+    #[test]
+    fn fr_008_json_usage_errors_are_json() {
+        for argv in [
+            vec![
+                "maeclyprint",
+                "print",
+                "--files",
+                "a.pdf",
+                "--bogus",
+                "--json",
+            ],
+            vec![
+                "maeclyprint",
+                "--json",
+                "print",
+                "--copies",
+                "many",
+                "--files",
+                "a.pdf",
+            ],
+            vec!["maeclyprint", "print", "--json"],
+        ] {
+            let err = Cli::try_parse_from(&argv).unwrap_err();
+            assert!(wants_json(&argv), "{argv:?}");
+            let json = parse_error_json(&err).expect("an error, not help");
+            let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+            assert_eq!(value["error"]["code"], "InvalidRequest", "{json}");
+            let message = value["error"]["message"].as_str().unwrap();
+            assert!(
+                !message.is_empty() && !message.starts_with("error:"),
+                "{message}"
+            );
+            assert!(!message.contains("Usage:"), "{message}");
+            assert_eq!(clap_exit_code(err.kind()), ExitCode::Usage);
+        }
+
+        // Help stays help, and a `--json` after `--` is a value, not the flag.
+        let help = Cli::try_parse_from(["maeclyprint", "print", "--help"]).unwrap_err();
+        assert!(parse_error_json(&help).is_none());
+        assert!(!wants_json(&["print", "--files", "--", "--json"]));
+    }
 
     #[test]
     fn fr_008_subcommands_switch_to_headless() {
