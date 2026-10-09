@@ -381,8 +381,8 @@ pub fn resolve_settings(
     if let Some(copies) = flags.copies {
         settings.copies = copies;
     }
-    if let Some(paper) = flags.paper {
-        settings.paper_size = paper.to_engine();
+    if let Some(paper) = &flags.paper {
+        settings.paper_size = paper.clone();
     }
     if let Some(scale) = flags.scale {
         settings.scaling = scale.to_engine();
@@ -569,7 +569,7 @@ fn render(report: &PrintReport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::args::{CliDuplex, CliPaper, CliScale};
+    use crate::cli::args::{CliDuplex, CliScale};
     use crate::queue::job::{ColorMode, PaperSize, Scaling};
 
     fn quick() -> Profile {
@@ -592,7 +592,7 @@ mod tests {
             mono: true,
             duplex: Some(CliDuplex::ShortEdge),
             copies: Some(3),
-            paper: Some(CliPaper::Letter),
+            paper: Some(PaperSize::LETTER),
             scale: Some(CliScale::Actual),
             range: Some("1-5,8".to_string()),
             ..Default::default()
@@ -653,6 +653,49 @@ mod tests {
             ])
             .is_err(),
             "the two flags conflict"
+        );
+    }
+
+    /// FR-008 / FR-041: `--paper` takes the same names as the GUI — the
+    /// classic four, `auto`, and any size a printer reports — not only
+    /// `a4|letter|legal|a3`.
+    #[test]
+    fn fr_041_paper_accepts_printer_sizes_and_auto() {
+        use crate::cli::args::{Cli, Command};
+        use clap::Parser;
+
+        let paper_of = |value: &str| {
+            let cli =
+                Cli::try_parse_from(["maeclyprint", "print", "--files", "a.pdf", "--paper", value])
+                    .unwrap_or_else(|e| panic!("--paper {value}: {e}"));
+            let Some(Command::Print(args)) = cli.command else {
+                panic!("expected print");
+            };
+            resolve_settings(&quick(), None, &args.settings)
+                .unwrap()
+                .paper_size
+        };
+        assert_eq!(paper_of("LETTER"), PaperSize::LETTER);
+        assert_eq!(paper_of("auto"), PaperSize::AUTO);
+        assert_eq!(paper_of("4x6").as_str(), "4x6");
+        assert_eq!(paper_of("A6").as_str(), "A6");
+
+        // A printer that does not list the size refuses it before spooling.
+        let caps = crate::engine::print::PrinterCaps {
+            papers: vec!["A4".into(), "Letter".into()],
+            ..crate::engine::print::PrinterCaps::unknown()
+        };
+        let settings = JobSettings {
+            paper_size: paper_of("4x6"),
+            ..JobSettings::default()
+        };
+        let err = crate::engine::print::check_supported(&settings, "Office", &caps).unwrap_err();
+        assert_eq!(CliError::from(err).exit, ExitCode::Printer);
+
+        // Blank is still refused by the parser.
+        assert!(
+            Cli::try_parse_from(["maeclyprint", "print", "--files", "a.pdf", "--paper", " "])
+                .is_err()
         );
     }
 

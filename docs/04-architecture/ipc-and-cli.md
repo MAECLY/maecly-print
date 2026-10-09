@@ -392,7 +392,7 @@ maeclyprint [--json] [--cli]
 maeclyprint print (--files <FILES> | --files-from <PATH>)
                   [--profile <NAME-OR-ID>] [--printer <NAME>]
                   [--color | --mono] [--duplex <off|long-edge|short-edge>]
-                  [--copies <N>] [--paper <a4|letter|legal|a3>] [--range <SPEC>]
+                  [--copies <N>] [--paper <SIZE>] [--range <SPEC>]
                   [--scale <fit|shrink|actual>]
                   [--orientation <auto|portrait|landscape>]
                   [--collate | --no-collate]
@@ -430,6 +430,7 @@ maeclyprint --help
 - Relative paths are resolved against the working directory **only here**; every other surface refuses them (`util::paths::canonical_input`, NFR-025).
 - `--files-from <PATH>` reads a JSON handoff file instead of argv — how the shell extensions pass a large selection past Windows' 32,767-character argv cap. A handoff file is untrusted input: it must resolve **inside** the per-user handoff directory (`<data dir>/handoff`) and be fresh, or it is refused.
 - `--duplex`, `--paper`, `--scale`, `--orientation`, `--quality` are case-insensitive. `--scale actual` is the engine's `none` — the one deliberate rename.
+- `--paper` takes the same names as the Print Job screen and the profile editor: `a4`, `letter`, `legal`, `a3` (case-insensitive), `auto` (the printer's own default, no media sent), or any size a printer reports (`A6`, `4x6`, `Tabloid`, `w288h432`…; see `printers list`). For `print`, a size the target printer does not list is refused before anything is spooled (exit 5, `Printer`), as in the GUI. `profiles create --paper` stores the name as given, since a profile is not tied to one printer.
 - `--printer` accepts the spooler **queue id** (`HP_LaserJet_Pro_M404`) or the **display name** `printers list` shows (`HP LaserJet Pro M404`, CUPS `printer-info`), the id ignoring case as CUPS does. Either way the job is spooled to the matched queue id, never to the text typed. A display name shared by several queues is refused with exit code `Printer` and the candidate ids; pass the id instead. The queue applies the same rule to a profile's printer (an unmatched or ambiguous name pauses the job as `PrinterMissing`).
 - With no `--printer`, the target is the file-type route, then the org-policy default (`policy.json`), then the app default, then the OS default — the same chain the GUI queue uses.
 - `--color` and `--mono` are mutually exclusive; omitting both leaves the profile's value. The same holds for `--collate` / `--no-collate`.

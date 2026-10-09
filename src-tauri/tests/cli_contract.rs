@@ -14,8 +14,8 @@
 use clap::Parser;
 
 use maeclyprint_lib::cli::args::{
-    Cli, CliChannel, CliDuplex, CliPaper, CliScale, Command, ContextAction, InvokeSource,
-    PrintersCmd, ProfilesCmd, QueueCmd, UpdateCmd, SUBCOMMANDS,
+    Cli, CliChannel, CliDuplex, CliScale, Command, ContextAction, InvokeSource, PrintersCmd,
+    ProfilesCmd, QueueCmd, UpdateCmd, SUBCOMMANDS,
 };
 use maeclyprint_lib::cli::exit::{exit_code_for, CliError, ExitCode};
 use maeclyprint_lib::cli::handoff::{
@@ -23,7 +23,7 @@ use maeclyprint_lib::cli::handoff::{
 };
 use maeclyprint_lib::cli::output;
 use maeclyprint_lib::cli::{classify, pending, selection_from_payload, single_instance, Intent};
-use maeclyprint_lib::queue::job::now_rfc3339;
+use maeclyprint_lib::queue::job::{now_rfc3339, PaperSize};
 use maeclyprint_lib::util::error::IpcError;
 
 /// Parse an argv the way `main` does (program name included).
@@ -75,7 +75,7 @@ fn fr_008_print_accepts_the_documented_flags() {
     assert!(args.settings.mono && !args.settings.color);
     assert_eq!(args.settings.duplex, Some(CliDuplex::LongEdge));
     assert_eq!(args.settings.copies, Some(3));
-    assert_eq!(args.settings.paper, Some(CliPaper::Letter));
+    assert_eq!(args.settings.paper, Some(PaperSize::LETTER));
     assert_eq!(args.settings.range.as_deref(), Some("1-5,8"));
     assert_eq!(args.settings.scale, Some(CliScale::Actual));
     assert!(args.no_dialog && args.wait);
@@ -98,10 +98,14 @@ fn fr_008_color_and_mono_are_mutually_exclusive() {
 }
 
 #[test]
-fn fr_008_value_vocabularies_are_closed_and_case_insensitive() {
+fn fr_008_value_vocabularies_are_checked_and_case_insensitive() {
     assert!(parse(&["print", "--files", "a.pdf", "--paper", "A4"]).is_ok());
     assert!(parse(&["print", "--files", "a.pdf", "--paper", "a4"]).is_ok());
-    assert!(parse(&["print", "--files", "a.pdf", "--paper", "foolscap"]).is_err());
+    // Paper is open: any size a printer reports is a valid name, checked
+    // against the target printer before spooling (FR-041). Blank is not.
+    assert!(parse(&["print", "--files", "a.pdf", "--paper", "A6"]).is_ok());
+    assert!(parse(&["print", "--files", "a.pdf", "--paper", "auto"]).is_ok());
+    assert!(parse(&["print", "--files", "a.pdf", "--paper", ""]).is_err());
     assert!(parse(&["print", "--files", "a.pdf", "--duplex", "sideways"]).is_err());
     assert!(parse(&["print", "--files", "a.pdf", "--scale", "none"]).is_err());
 }

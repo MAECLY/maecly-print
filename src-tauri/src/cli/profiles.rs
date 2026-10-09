@@ -73,8 +73,8 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: ProfilesCmd) -> Result<(), CliE
             if let Some(c) = settings.copies {
                 profile.copies = c;
             }
-            if let Some(p) = settings.paper {
-                profile.paper_size = p.to_engine();
+            if let Some(p) = &settings.paper {
+                profile.paper_size = p.clone();
             }
             if let Some(s) = settings.scale {
                 profile.scaling = s.to_engine();

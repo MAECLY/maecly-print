@@ -178,9 +178,13 @@ pub struct SettingFlags {
     #[arg(long, value_name = "N")]
     pub copies: Option<u16>,
 
-    /// Paper size.
-    #[arg(long, value_name = "SIZE", ignore_case = true)]
-    pub paper: Option<CliPaper>,
+    /// Paper size: `a4`, `letter`, `legal`, `a3`, `auto` (the printer's own
+    /// default), or any size the printer reports (`A6`, `4x6`, `Tabloid`…,
+    /// see `printers list`). The four classic names and `auto` are
+    /// case-insensitive; a printer size is checked against the target
+    /// printer before anything is spooled.
+    #[arg(long, value_name = "SIZE", value_parser = parse_paper)]
+    pub paper: Option<PaperSize>,
 
     /// Page range, e.g. `1-5,8`.
     #[arg(long, value_name = "SPEC")]
@@ -320,23 +324,12 @@ impl CliDuplex {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum CliPaper {
-    A4,
-    Letter,
-    Legal,
-    A3,
-}
-
-impl CliPaper {
-    pub fn to_engine(self) -> PaperSize {
-        match self {
-            CliPaper::A4 => PaperSize::A4,
-            CliPaper::Letter => PaperSize::LETTER,
-            CliPaper::Legal => PaperSize::LEGAL,
-            CliPaper::A3 => PaperSize::A3,
-        }
-    }
+/// `--paper`'s parser: the engine's own [`PaperSize::parse`], so the CLI
+/// accepts exactly the names the Print Job screen and the profile editor do.
+/// It used to be a closed `a4|letter|legal|a3` list, so `--paper A6` or
+/// `--paper auto` failed even for a printer that lists the size.
+pub fn parse_paper(name: &str) -> Result<PaperSize, String> {
+    PaperSize::parse(name)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -451,7 +444,7 @@ mod tests {
         assert_eq!(CliDuplex::ShortEdge.to_engine(), Duplex::Short);
         // `actual` is the engine's `none` — the one deliberate rename.
         assert_eq!(CliScale::Actual.to_engine(), Scaling::None);
-        assert_eq!(CliPaper::A4.to_engine(), PaperSize::A4);
+        assert_eq!(parse_paper("a4"), Ok(PaperSize::A4));
         assert_eq!(CliOrientation::Auto.to_engine(), Orientation::Auto);
     }
 
