@@ -421,10 +421,9 @@ export function SettingsScreen({
             }))}
           />
         </Row>
-        {/* The flag is persisted and `settings::launch_minimized()` reads it
-            back, but nothing in `lib.rs` minimizes the window yet — so the hint
-            says so rather than promising a minimized launch. Keep both in step:
-            the day the window honours it, the hint goes back to describing it. */}
+        {/* Honoured at startup: `lib.rs` reads `settings::launch_minimized()`
+            in `setup` and minimizes the main window (there is no tray), except
+            on a launch that carries a context-menu selection. */}
         <Row
           label={t('appearance.launchMinimized.label')}
           hint={t('appearance.launchMinimized.hint')}

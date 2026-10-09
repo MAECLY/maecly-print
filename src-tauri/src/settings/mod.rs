@@ -488,6 +488,16 @@ pub fn launch_minimized() -> bool {
     launch_minimized_at(&Config::config_path())
 }
 
+/// Whether this launch should actually minimize the main window.
+///
+/// The preference only applies to a plain launch. A launch that carries a file
+/// selection (Explorer/Finder context menu, "open with") exists to show the
+/// user that selection — minimizing it would make the right-click appear to do
+/// nothing — so the window opens normally then.
+pub fn should_start_minimized(launch_minimized: bool, has_selection: bool) -> bool {
+    launch_minimized && !has_selection
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -1002,6 +1012,15 @@ mod tests {
         cfg.app.launch_minimized = true;
         cfg.save_to(&path).unwrap();
         assert!(launch_minimized_at(&path));
+    }
+
+    #[test]
+    fn start_minimized_applies_only_to_a_plain_launch() {
+        assert!(should_start_minimized(true, false));
+        // A context-menu launch must show its selection, preference or not.
+        assert!(!should_start_minimized(true, true));
+        assert!(!should_start_minimized(false, false));
+        assert!(!should_start_minimized(false, true));
     }
 
     #[test]

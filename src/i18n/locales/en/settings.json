@@ -27,7 +27,7 @@
     },
     "launchMinimized": {
       "label": "Start minimized",
-      "hint": "Saved, but not applied yet: the window still opens normally at launch."
+      "hint": "Opens the window minimized to the taskbar or Dock, from the next launch. Opening files from the right-click menu still shows it."
     },
     "nativeNotifications": {
       "label": "Native notifications",

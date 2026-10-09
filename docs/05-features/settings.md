@@ -15,6 +15,8 @@ A single scrolling column (max 760 px) of labelled sections, each a stack of lab
 │ APPEARANCE                                                                     │
 │   Theme        Follows your OS by default.        [ Light | Dark | System ]    │
 │   Density      Comfortable for reading…           [ Comfortable | Compact ]    │
+│   Language     Applies at once.                   [ English          ▾ ]    │
+│   Start minimized  Opens minimized from the next launch.     [ ———⬤  ]        │
 │ PRINTING                                                                       │
 │   Default profile   Applied when no profile is chosen.   [ Quick        ▾ ]    │
 │   ⓘ Right-click printing arrives with the shell integration milestone (M2).    │
@@ -58,6 +60,10 @@ Theme is a **3-way** control (Light / Dark / System) driven by `App`'s `useTheme
 On divergence the **backend wins**: once `get_app_settings` resolves, a reconcile effect (in both `SettingsScreen` and `App`) overrides the cache with the persisted value. The reconcile is idempotent, so it settles without fighting a fresh user change. In the standalone preview (backend `unavailable`) appearance stays local-only — no backend write.
 
 The section also carries the **Native notifications** switch (`app.native_notifications`, on by default; FR-072). It is read by the backend before every OS notification (`notify_native`), so turning it off takes effect immediately. With it on, a finished batch, a failed batch and a job stopped for the user are announced through the OS notification centre while the MaeclyPrint window is unfocused, hidden or minimized; the in-app toasts are unaffected either way.
+
+### Appearance — start minimized
+
+**Start minimized** persists `[app].launch_minimized`. It is honoured at startup: `lib.rs` reads the flag straight from `config.toml` in `setup` (before any IPC round-trip) and minimizes the main window to the taskbar / Dock. MaeclyPrint has no tray icon, so minimizing is the whole behaviour. A launch that carries a file selection (Explorer/Finder context menu) is never minimized, because it exists to show that selection (`settings::should_start_minimized`). A second launch un-minimizes and focuses the window through the single-instance callback. The change applies from the next launch.
 
 ### Printing — default profile
 

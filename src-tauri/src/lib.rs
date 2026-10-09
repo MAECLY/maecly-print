@@ -119,6 +119,25 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
         .setup(move |app| {
             builder.mount_events(app);
 
+            // `[app].launch_minimized`: the config window already exists by the
+            // time `setup` runs, so minimize it before the first frame settles.
+            // There is no tray icon to hide into, so minimizing is the whole
+            // feature: the app stays one click away in the taskbar / Dock, and a
+            // second launch un-minimizes it (the single-instance callback
+            // above). A launch carrying a selection is never minimized.
+            if settings::should_start_minimized(settings::launch_minimized(), selection.is_some()) {
+                match app.get_webview_window("main") {
+                    Some(window) => {
+                        if let Err(e) = window.minimize() {
+                            tracing::warn!(event = "start_minimized_failed", error = %e);
+                        } else {
+                            tracing::info!(event = "started_minimized");
+                        }
+                    }
+                    None => tracing::warn!(event = "start_minimized_no_window"),
+                }
+            }
+
             // Anything the command line handed us waits here until the window
             // has mounted and drains it (`take_pending_selections`); parking it
             // is also what retires the handoff file it arrived in.

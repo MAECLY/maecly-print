@@ -27,7 +27,7 @@
     },
     "launchMinimized": {
       "label": "Iniciar minimizada",
-      "hint": "Se guarda, pero todavía no se aplica: la ventana sigue abriéndose con normalidad."
+      "hint": "Abre la ventana minimizada en la barra de tareas o el Dock a partir del próximo inicio. Si abres archivos desde el menú contextual, se muestra igualmente."
     },
     "nativeNotifications": {
       "label": "Notificaciones del sistema",
