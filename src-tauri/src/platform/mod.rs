@@ -158,11 +158,22 @@ pub fn open_printer_settings() -> anyhow::Result<()> {
 /// shows, so the sizes a user can pick there are exactly the ones a job is
 /// validated against. Colour models are read separately on CUPS (they are
 /// not part of the wire `Printer`); see [`printer_color_models`].
+///
+/// On CUPS the duplex and colour answers come from a fresh, status-checked
+/// probe ([`cups::engine_caps`]): a failed probe is "unknown", so it cannot
+/// pause a duplex job as unsupported.
 pub fn printer_caps(p: &crate::ipc::printers::Printer) -> crate::engine::print::PrinterCaps {
-    crate::engine::print::PrinterCaps {
-        duplex: p.duplex,
-        papers: p.papers.clone(),
-        color_models: printer_color_models(&p.id),
+    #[cfg(unix)]
+    {
+        cups::engine_caps(p)
+    }
+    #[cfg(not(unix))]
+    {
+        crate::engine::print::PrinterCaps {
+            duplex: p.duplex,
+            papers: p.papers.clone(),
+            color_models: printer_color_models(&p.id),
+        }
     }
 }
 

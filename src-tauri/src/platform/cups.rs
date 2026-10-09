@@ -630,6 +630,50 @@ pub fn color_models(id: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// What the print engine may assume about queue `p` when it spools to it.
+///
+/// Read with its own `lpoptions -p <id> -l`, whose exit status is checked:
+/// the listing's `duplex: false` cannot tell "this driver has no Duplex
+/// option" from "the probe failed" (a driverless queue whose device is
+/// briefly unreachable, a busy cupsd), and the capability gate would pause a
+/// duplex job as unsupported on the strength of a failed probe.
+pub fn engine_caps(p: &Printer) -> crate::engine::print::PrinterCaps {
+    let probe = Command::new("lpoptions")
+        .args(["-p", &p.id, "-l"])
+        .env("LC_ALL", "C")
+        .env("LANG", "C")
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned());
+    caps_from_probe(probe.as_deref(), &p.papers)
+}
+
+/// [`engine_caps`]' decision, pure: a probe that failed or listed nothing is
+/// [`crate::engine::print::PrinterCaps::unknown`] (duplex trusted, colour not
+/// checked), never "supports nothing". `listed_papers` are the sizes the
+/// Printers screen shows, which the job is checked against either way.
+pub fn caps_from_probe(
+    probe: Option<&str>,
+    listed_papers: &[String],
+) -> crate::engine::print::PrinterCaps {
+    let caps = probe.map(parse_caps).unwrap_or_default();
+    if caps.is_empty() {
+        return crate::engine::print::PrinterCaps {
+            papers: listed_papers.to_vec(),
+            ..crate::engine::print::PrinterCaps::unknown()
+        };
+    }
+    crate::engine::print::PrinterCaps {
+        duplex: duplex_capable(&caps),
+        papers: listed_papers.to_vec(),
+        color_models: caps
+            .get("ColorModel")
+            .map(|c| c.values.clone())
+            .unwrap_or_default(),
+    }
+}
+
 fn is_grayscale(v: &str) -> bool {
     matches!(
         v.to_ascii_lowercase().as_str(),
@@ -812,6 +856,30 @@ fn pretty_conn(uri: Option<&str>) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// A failed or empty capability probe is "unknown", not "cannot duplex":
+    /// a duplex job used to pause as unsupported whenever `lpoptions -l` came
+    /// back empty for a moment.
+    #[test]
+    fn fr_040_a_failed_caps_probe_does_not_refuse_duplex() {
+        let papers = vec!["A4".to_string()];
+        for probe in [None, Some("")] {
+            let caps = caps_from_probe(probe, &papers);
+            assert!(caps.duplex, "{probe:?}");
+            assert_eq!(caps.papers, papers);
+            assert!(caps.color_models.is_empty());
+        }
+
+        let simplex = caps_from_probe(Some("ColorModel/Color Model: Gray *RGB\n"), &papers);
+        assert!(!simplex.duplex, "a real probe without Duplex is believed");
+        assert_eq!(simplex.color_models, vec!["Gray", "RGB"]);
+
+        let duplex = caps_from_probe(
+            Some("Duplex/2-Sided Printing: *None DuplexNoTumble DuplexTumble\n"),
+            &papers,
+        );
+        assert!(duplex.duplex);
+    }
     use super::*;
     use crate::ipc::printers::PrinterKind;
 

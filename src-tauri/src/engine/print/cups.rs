@@ -413,7 +413,7 @@ pub fn lpstat_verdict(not_completed: &str, os_job_id: &str) -> super::OsJobState
 /// *how* it finished ([`lpstat_verdict`]).
 #[cfg(unix)]
 pub fn job_state(os_job_id: &str) -> Result<super::OsJobState, super::TrackError> {
-    use super::{OsJobState, TrackError};
+    use super::TrackError;
 
     let Some(number) = job_number(os_job_id) else {
         return Err(TrackError::Unavailable(format!(
@@ -828,7 +828,6 @@ mod tests {
         assert_eq!(job_state(&id), Ok(OsJobState::Canceled));
     }
 
-    #[test]
     /// A scheduler that does not answer is not a finished job. `lpstat`
     /// exits non-zero with an empty stdout when cupsd is unreachable, which
     /// used to read as "no longer listed" and marked the job done.
