@@ -1,4 +1,5 @@
 import {
+  cleanup,
   render,
   screen,
   fireEvent,
@@ -81,31 +82,37 @@ function mockAbout(opts: MockOpts = {}): Call[] {
   // Mutable so `set_skipped_update_version` is observable by a later read,
   // which is what makes the persistence assertions meaningful.
   let skipped: string | null = opts.skippedVersion ?? null;
-  mockIPC((cmd, args) => {
-    calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
-    if (cmd === 'app_info') return opts.appInfo ?? fixtureAppInfo;
-    if (cmd === 'get_update_state') {
-      return { last_check_at: null, skipped_version: skipped };
-    }
-    if (cmd === 'set_skipped_update_version') {
-      skipped = (args as { version: string | null }).version;
+  mockIPC(
+    (cmd, args) => {
+      calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+      if (cmd === 'app_info') return opts.appInfo ?? fixtureAppInfo;
+      if (cmd === 'get_update_state') {
+        return { last_check_at: null, skipped_version: skipped };
+      }
+      if (cmd === 'set_skipped_update_version') {
+        skipped = (args as { version: string | null }).version;
+        return null;
+      }
+      if (cmd === 'check_for_updates') {
+        if (opts.updateError) throw new Error(opts.updateError);
+        return opts.update ?? fixtureUpdateCheckUpToDate;
+      }
+      if (cmd === 'install_update') {
+        // A plain object, not an Error: that is how a command-returned IpcError
+        // reaches the bindings, which turn it into `{ status: 'error' }`.
+        if (opts.installError) throw opts.installError;
+        return (
+          opts.installResult ?? { installed: '1.1.0', restart_required: true }
+        );
+      }
+      // open_external / open_logs_folder / report_issue resolve with null.
       return null;
-    }
-    if (cmd === 'check_for_updates') {
-      if (opts.updateError) throw new Error(opts.updateError);
-      return opts.update ?? fixtureUpdateCheckUpToDate;
-    }
-    if (cmd === 'install_update') {
-      // A plain object, not an Error: that is how a command-returned IpcError
-      // reaches the bindings, which turn it into `{ status: 'error' }`.
-      if (opts.installError) throw opts.installError;
-      return (
-        opts.installResult ?? { installed: '1.1.0', restart_required: true }
-      );
-    }
-    // open_external / open_logs_folder / report_issue resolve with null.
-    return null;
-  });
+      // The screen listens for update-download progress; mocking the event
+      // plugin gives `listen` a real unlisten instead of an unhandled rejection
+      // on unmount.
+    },
+    { shouldMockEvents: true },
+  );
   return calls;
 }
 
@@ -148,7 +155,12 @@ describe('AboutScreen', () => {
       '__TAURI_INTERNALS__'
     ];
   });
-  afterEach(() => clearMocks());
+  afterEach(() => {
+    // Unmount before the mocks go: the screen's update-progress listener
+    // unregisters itself on unmount, which needs the mocked event plugin.
+    cleanup();
+    clearMocks();
+  });
 
   it('FR-110: shows the version and opens the license and docs links', async () => {
     const calls = mockAbout();
