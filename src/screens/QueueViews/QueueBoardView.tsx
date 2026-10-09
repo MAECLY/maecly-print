@@ -2,6 +2,7 @@ import { FileGlyph, MPCard, StatusDot } from '@/components/ui';
 import { useT } from '@/i18n/I18nProvider';
 import type { UiQueueJobView } from '@/lib/ipc';
 import { JobProgressBar } from './QueueListView';
+import { useJobLabels } from './useJobLabels';
 
 interface QueueBoardViewProps {
   jobs: UiQueueJobView[];
@@ -9,6 +10,7 @@ interface QueueBoardViewProps {
 
 export function QueueBoardView({ jobs }: QueueBoardViewProps) {
   const t = useT('queue');
+  const labels = useJobLabels(jobs);
   const cols = [
     {
       key: 'queued',
@@ -139,7 +141,7 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
                   <JobProgressBar job={j} height={3} t={t} />
                 </div>
               </div>
-              {j.error && (
+              {labels.error(j) && (
                 <div
                   style={{
                     fontSize: 10.5,
@@ -148,7 +150,7 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
                     overflowWrap: 'anywhere',
                   }}
                 >
-                  {j.error}
+                  {labels.error(j)}
                 </div>
               )}
             </MPCard>

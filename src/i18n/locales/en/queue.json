@@ -119,5 +119,34 @@
     "resume": "Resume {{file}}",
     "retry": "Retry {{file}}",
     "cancel": "Cancel {{file}}"
+  },
+  "jobErrors": {
+    "codes": {
+      "conversion_timeout": "The conversion took longer than {{secs}} s and was stopped.",
+      "conversion_failed": "The file could not be converted for printing: {{detail}}",
+      "print_failed": "Printing failed: {{detail}}",
+      "unsupported_setting": "The driver for “{{printer}}” does not support this setting: {{detail}}",
+      "dependency_missing": "A required program is missing: {{detail}}",
+      "unsupported_format": "Unsupported file format: {{detail}}",
+      "cancelled": "The job was cancelled.",
+      "print_timeout": "The printer did not finish within {{secs}} s. The job is still in the system print queue: check the printer before retrying.",
+      "printer_unavailable": "Printer “{{printer}}” is not installed. Choose another printer.",
+      "printer_disabled": "Printer “{{printer}}” was removed from MaeclyPrint. Restore it on the Printers screen, or choose another printer.",
+      "os_cancelled": "The job was cancelled in the system print queue.",
+      "print_aborted": "The printer aborted the job. Check the printer, then retry.",
+      "interrupted_by_shutdown": "MaeclyPrint was closed while this job was in progress."
+    },
+    "reasons": {
+      "print_timeout": {
+        "spooler": "Sending the job to the printer took longer than {{secs}} s and was stopped."
+      },
+      "printer_unavailable": {
+        "no_printer": "No printer is configured. Choose a printer first."
+      },
+      "unsupported_setting": {
+        "duplex": "The driver for “{{printer}}” cannot print two-sided.",
+        "paper": "The driver for “{{printer}}” does not offer the paper size {{paper}}."
+      }
+    }
   }
 }

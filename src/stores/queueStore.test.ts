@@ -3,7 +3,16 @@ import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 import { toast } from 'sonner';
 
 import type { Job, JobProgressEvent, QueueSnapshot } from '@/ipc/bindings';
-import { fixtureQueueSnapshot, mkJob } from '@/test/fixtures';
+import {
+  fixtureAppSettings,
+  fixtureQueueSnapshot,
+  mkJob,
+} from '@/test/fixtures';
+import {
+  resetPrinterNames,
+  usePrinterNamesStore,
+} from '@/stores/printerNamesStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 // The tauri-specta `events` object drives the event plugin over IPC, which
 // mockIPC would also intercept. Swapping just `events` for a controllable fake
@@ -809,6 +818,49 @@ describe('queueStore — jobs that stop and need the user (FR-071)', () => {
     expect(options.action.label).toBe('Open queue');
     options.action.onClick();
     expect(openQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('FR-092: the stop is announced in the UI language, printer by display name', async () => {
+    useSettingsStore.setState({
+      status: 'ready',
+      settings: {
+        ...fixtureAppSettings,
+        app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+      },
+      error: undefined,
+    });
+    usePrinterNamesStore.setState({
+      names: { EPSON_L15160: 'EPSON L15160 Series' },
+    });
+    try {
+      mockQueue({ snapshot: running });
+      const error = vi.spyOn(toast, 'error').mockReturnValue('id');
+      await useQueueStore.getState().init();
+
+      emitQueueUpdated(
+        snapshotOf([
+          mkJob({
+            id: 'a',
+            state: 'paused',
+            file_name: 'a.pdf',
+            error: {
+              code: 'printer_disabled',
+              message: "printer 'EPSON_L15160' is disabled in MaeclyPrint",
+              params: { printer: 'EPSON_L15160' },
+            },
+          }),
+        ]),
+      );
+
+      const [text, opts] = error.mock.calls[0] ?? [];
+      expect(text).toBe('La impresión se detuvo: a.pdf necesita tu atención');
+      expect((opts as { description: string }).description).toBe(
+        'La impresora «EPSON L15160 Series» ya no se gestiona en MaeclyPrint. Restáurala en la pantalla Impresoras o elige otra impresora — corrígelo y reanuda el trabajo desde la cola.',
+      );
+    } finally {
+      useSettingsStore.setState({ status: 'idle', settings: null });
+      resetPrinterNames();
+    }
   });
 
   it('FR-071: the same stop is announced once, and again only after a resume', async () => {

@@ -67,6 +67,8 @@ import {
   toUiQueueJob,
   type UiQueueJobView,
 } from '@/lib/ipc';
+import { localizeJobError } from '@/lib/jobError';
+import { usePrinterNamesStore } from '@/stores/printerNamesStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 /** Lifecycle of the store's connection to the backend queue. */
@@ -296,13 +298,27 @@ function notifyOs(title: string, body: string): void {
   notifyNative(title, body).catch(() => {});
 }
 
+/**
+ * A job's error in the UI language (FR-092), naming printers as the Printers
+ * screen does when their display name is known. The closing full stop is
+ * dropped: the toast templates continue the sentence (`{{error}} — fix it…`).
+ */
+function jobErrorText(job: Job | undefined): string {
+  if (!job?.error) return '';
+  const names = usePrinterNamesStore.getState().names;
+  return localizeJobError(job.error, {
+    locale: activeLocale(),
+    printerName: (id) => names[id],
+  }).replace(/\.$/, '');
+}
+
 /** Announce a job that stopped and is waiting for the user (FR-071). */
 function notifyJobNeedsAction(snapshot: QueueSnapshot, jobId: string): void {
   const job = snapshot.jobs.find((j) => j.id === jobId);
   if (!job) return;
   const title = t('notify.jobNeedsAction', { file: job.file_name });
   const description = t('notify.jobNeedsActionHint', {
-    error: job.error?.message ?? '',
+    error: jobErrorText(job),
   });
   toast.error(title, {
     description,
@@ -348,7 +364,7 @@ function notifyBatchComplete(jobs: readonly Job[]): void {
     });
     const description = t('notify.batchFailedHint', {
       file: first?.file_name ?? '',
-      error: first?.error?.message ?? '',
+      error: jobErrorText(first),
     });
     notifyOs(title, description);
     toast.error(title, {

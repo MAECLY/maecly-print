@@ -56,6 +56,7 @@ import {
   type PrinterProtocol,
 } from '@/lib/printerAddress';
 import { resolvePrinterId } from '@/lib/printerIdentity';
+import { primePrinterNames } from '@/stores/printerNamesStore';
 import type {
   UiDiscoveredPrinter,
   UiPrinter,
@@ -338,6 +339,7 @@ export function PrintersScreen() {
         fetchAppInfo().catch(() => null),
       ]);
       setPrinters(list);
+      primePrinterNames(list);
       setPrefs(p ?? {});
       setPolicy(pol);
       setOs(toOsId(info?.os));

@@ -2,6 +2,8 @@ import { FileGlyph, MPBadge, StatusDot, type BadgeTone } from '@/components/ui';
 import { useT, type TFunction } from '@/i18n/I18nProvider';
 import type { UiQueueJobView } from '@/lib/ipc';
 
+import { useJobLabels } from './useJobLabels';
+
 interface QueueTimelineViewProps {
   jobs: UiQueueJobView[];
 }
@@ -34,6 +36,7 @@ function formatDuration(ms: number, t: TFunction<'queue'>): string {
 
 export function QueueTimelineView({ jobs }: QueueTimelineViewProps) {
   const t = useT('queue');
+  const labels = useJobLabels(jobs);
   return (
     // The snapshot keeps jobs in submission order, which is the chronological
     // order this view shows.
@@ -104,10 +107,13 @@ export function QueueTimelineView({ jobs }: QueueTimelineViewProps) {
                 marginTop: 4,
               }}
             >
-              {j.printer ?? t('job.defaultPrinter')} · {j.profile}
+              {t('job.meta', {
+                profile: j.profile,
+                printer: labels.printer(j),
+              })}
               {j.pages != null && ` · ${t('job.pages', { count: j.pages })}`}
               {j.noteKey ? ` · ${t(`note.${j.noteKey}`)}` : ''}
-              {j.error ? ` · ${j.error}` : ''}
+              {labels.error(j) ? ` · ${labels.error(j)}` : ''}
             </div>
           </div>
         </div>

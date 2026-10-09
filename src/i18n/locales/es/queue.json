@@ -109,7 +109,7 @@
     "batchCancelled_one": "{{count}} trabajo cancelado",
     "batchCancelled_other": "{{count}} trabajos cancelados",
     "jobNeedsAction": "La impresión se detuvo: {{file}} necesita tu atención",
-    "jobNeedsActionHint": "{{error}}. Corrígelo y reanuda el trabajo desde la cola.",
+    "jobNeedsActionHint": "{{error}} — corrígelo y reanuda el trabajo desde la cola.",
     "openQueue": "Abrir la cola",
     "alreadyFinished": "«{{file}}» ya había terminado: no había nada que cancelar.",
     "liveUnavailable": "Las actualizaciones de la cola en tiempo real no están disponibles; vuelve a abrir la aplicación para reintentarlo."
@@ -119,5 +119,34 @@
     "resume": "Reanudar {{file}}",
     "retry": "Reintentar {{file}}",
     "cancel": "Cancelar {{file}}"
+  },
+  "jobErrors": {
+    "codes": {
+      "conversion_timeout": "La conversión tardó más de {{secs}} s y se detuvo.",
+      "conversion_failed": "No se pudo convertir el archivo para imprimirlo: {{detail}}",
+      "print_failed": "La impresión falló: {{detail}}",
+      "unsupported_setting": "El controlador de «{{printer}}» no admite este ajuste: {{detail}}",
+      "dependency_missing": "Falta un programa necesario: {{detail}}",
+      "unsupported_format": "Formato de archivo no compatible: {{detail}}",
+      "cancelled": "Se canceló el trabajo.",
+      "print_timeout": "La impresora no terminó en {{secs}} s. El trabajo sigue en la cola de impresión del sistema: revisa la impresora antes de reintentarlo.",
+      "printer_unavailable": "La impresora «{{printer}}» no está instalada. Elige otra impresora.",
+      "printer_disabled": "La impresora «{{printer}}» ya no se gestiona en MaeclyPrint. Restáurala en la pantalla Impresoras o elige otra impresora.",
+      "os_cancelled": "El trabajo se canceló en la cola de impresión del sistema.",
+      "print_aborted": "La impresora interrumpió el trabajo. Revisa la impresora y vuelve a intentarlo.",
+      "interrupted_by_shutdown": "MaeclyPrint se cerró mientras este trabajo estaba en curso."
+    },
+    "reasons": {
+      "print_timeout": {
+        "spooler": "El envío del trabajo a la impresora tardó más de {{secs}} s y se detuvo."
+      },
+      "printer_unavailable": {
+        "no_printer": "No hay ninguna impresora configurada. Elige una impresora primero."
+      },
+      "unsupported_setting": {
+        "duplex": "El controlador de «{{printer}}» no puede imprimir a doble cara.",
+        "paper": "El controlador de «{{printer}}» no ofrece el tamaño de papel {{paper}}."
+      }
+    }
   }
 }

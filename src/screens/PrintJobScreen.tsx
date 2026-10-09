@@ -50,6 +50,7 @@ import type { DependencyReport } from '@/ipc/bindings';
 import { isMacPlatform } from '@/components/AppShell/MPAppShell';
 import { useT } from '@/i18n/I18nProvider';
 import { useProfilesStore } from '@/stores/profilesStore';
+import { primePrinterNames } from '@/stores/printerNamesStore';
 import {
   addPathsToJob,
   expandFolderIntoJob,
@@ -155,6 +156,7 @@ export function PrintJobScreen({
       getPrinterPrefs().catch(() => ({ disabled: [] as string[] })),
     ])
       .then(([ps, prefs]) => {
+        primePrinterNames(ps);
         if (!alive) return;
         const disabled = new Set(prefs.disabled ?? []);
         setPrinters(

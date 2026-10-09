@@ -23,6 +23,7 @@ import { fetchAppInfo, isTauri, openLogsFolder } from '@/lib/ipc';
 import { findProfileIn } from '@/lib/profiles';
 import { useProfilesStore } from '@/stores/profilesStore';
 import { useQueueStore } from '@/stores/queueStore';
+import { useJobLabels } from '@/screens/QueueViews/useJobLabels';
 
 /**
  * Re-exported for `App`'s OS file-picker filter; the list itself lives in
@@ -124,6 +125,7 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
   const tCommon = useT('common');
   const locale = useLocale();
   const recent = useQueueStore((s) => s.recentDone);
+  const labels = useJobLabels(recent);
   const queueStatus = useQueueStore((s) => s.status);
   const queueError = useQueueStore((s) => s.error);
   const initQueue = useQueueStore((s) => s.init);
@@ -304,7 +306,10 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
                   marginTop: 1,
                 }}
               >
-                {j.printer ?? tQueue('job.defaultPrinter')} · {j.profile}
+                {tQueue('job.meta', {
+                  profile: j.profile,
+                  printer: labels.printer(j),
+                })}
               </div>
             </div>
             <StatusDot status={j.status} />
@@ -335,8 +340,7 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
               }}
             >
               <div>
-                {t('recent.printer')}:{' '}
-                {j.printer ?? tQueue('job.defaultPrinter')}
+                {t('recent.printer')}: {labels.printer(j)}
               </div>
               <div>
                 {t('recent.profile')}: {j.profile}
@@ -352,9 +356,9 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
                     j.finishedAt}
                 </div>
               )}
-              {j.error && (
+              {labels.error(j) && (
                 <div style={{ color: 'var(--mp-error)' }}>
-                  {t('recent.error')}: {j.error}
+                  {t('recent.error')}: {labels.error(j)}
                 </div>
               )}
               <div style={{ marginTop: 4 }}>

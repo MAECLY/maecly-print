@@ -4,6 +4,8 @@ import { useQueueStore } from '@/stores/queueStore';
 import type { UiQueueJobView } from '@/lib/ipc';
 import type { ConfirmState } from '@/components/ConfirmDialog';
 
+import { useJobLabels } from './useJobLabels';
+
 interface QueueListViewProps {
   jobs: UiQueueJobView[];
   /** Request an in-app confirmation (used for cancelling an in-flight job). */
@@ -87,6 +89,7 @@ export function JobProgressBar({
 interface RowProps {
   j: UiQueueJobView;
   t: TFunction<'queue'>;
+  labels: ReturnType<typeof useJobLabels>;
   onPause: () => void;
   onResume: () => void;
   onRetry: () => void;
@@ -95,8 +98,25 @@ interface RowProps {
   busy: boolean;
 }
 
-function Row({ j, t, onPause, onResume, onRetry, onCancel, busy }: RowProps) {
+function Row({
+  j,
+  t,
+  labels,
+  onPause,
+  onResume,
+  onRetry,
+  onCancel,
+  busy,
+}: RowProps) {
   const terminal = TERMINAL.has(j.status);
+  const error = labels.error(j);
+  const meta = [
+    t('job.meta', { profile: j.profile, printer: labels.printer(j) }),
+    j.noteKey ? t(`note.${j.noteKey}`) : null,
+    error ?? null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const canPause =
     j.status === 'queued' ||
     j.status === 'converting' ||
@@ -127,6 +147,7 @@ function Row({ j, t, onPause, onResume, onRetry, onCancel, busy }: RowProps) {
         </div>
         <div
           className="mp-mono"
+          title={meta}
           style={{
             fontSize: 10.5,
             color: 'var(--mp-textDim)',
@@ -136,12 +157,7 @@ function Row({ j, t, onPause, onResume, onRetry, onCancel, busy }: RowProps) {
             whiteSpace: 'nowrap',
           }}
         >
-          {t('job.meta', {
-            profile: j.profile,
-            printer: j.printer ?? t('job.defaultPrinter'),
-          })}
-          {j.noteKey ? ` · ${t(`note.${j.noteKey}`)}` : ''}
-          {j.error ? ` · ${j.error}` : ''}
+          {meta}
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -221,6 +237,7 @@ export function QueueListView({ jobs, onConfirm }: QueueListViewProps) {
   const retryJob = useQueueStore((s) => s.retryJob);
   const cancelJob = useQueueStore((s) => s.cancelJob);
   const pendingIds = useQueueStore((s) => s.pendingIds);
+  const labels = useJobLabels(jobs);
 
   const groups = {
     active: jobs.filter((j) =>
@@ -292,6 +309,7 @@ export function QueueListView({ jobs, onConfirm }: QueueListViewProps) {
                   key={j.id}
                   j={j}
                   t={t}
+                  labels={labels}
                   onPause={() => void pauseJob(j.id)}
                   onResume={() => void resumeJob(j.id)}
                   onRetry={() => void retryJob(j.id)}

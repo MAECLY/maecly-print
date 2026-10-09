@@ -9,7 +9,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 
 import type { Job, QueueSnapshot } from '@/ipc/bindings';
-import { fixtureQueueSnapshot, mkJob } from '@/test/fixtures';
+import { fixturePrinters, fixtureQueueSnapshot, mkJob } from '@/test/fixtures';
+import { resetPrinterNames } from '@/stores/printerNamesStore';
 import { Toaster } from '@/components/AppShell/Toaster';
 
 // Swap the tauri-specta `events` object for a no-op (the queue store subscribes
@@ -107,6 +108,47 @@ describe('QueueScreen', () => {
     expect(
       screen.getByText(/Interrupted by shutdown · resume to continue/),
     ).toBeInTheDocument();
+  });
+
+  it('FR-031: names a job printer as Printers does, in every view', async () => {
+    resetPrinterNames();
+    mockIPC((cmd) => {
+      if (cmd === 'queue_status')
+        return snapshotOf([
+          mkJob({
+            id: 'p',
+            state: 'failed',
+            file_name: 'site-photo.jpg',
+            profile_name: 'Quick',
+            printer_resolved: 'EPSON_L15160',
+            error: {
+              code: 'print_aborted',
+              message: 'the printer aborted the job — check the printer',
+            },
+          }),
+        ]);
+      if (cmd === 'list_printers') return fixturePrinters;
+      return null;
+    });
+    await useQueueStore.getState().init();
+    for (const view of ['list', 'timeline'] as const) {
+      const { unmount } = render(
+        <QueueScreen view={view} setView={() => {}} />,
+      );
+      // Same "profile · printer" order everywhere, with the display name.
+      expect(
+        await screen.findByText(/Quick · EPSON L15160 Series/),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/EPSON_L15160/)).toBeNull();
+      // FR-092: the error is a sentence from the catalog, not the raw text.
+      expect(
+        screen.getByText(
+          /The printer aborted the job\. Check the printer, then retry\./,
+        ),
+      ).toBeInTheDocument();
+      unmount();
+    }
+    resetPrinterNames();
   });
 
   it('FR-033: toggles the whole queue: pause invokes pause_queue', async () => {

@@ -10,6 +10,7 @@
 
 import { CATALOGS, getActiveLocale, translate } from '@/i18n';
 import { IpcFailure, type IpcErrorPayload } from '@/lib/ipcError';
+import { localizeJobError } from '@/lib/jobError';
 
 import {
   commands,
@@ -22,6 +23,7 @@ import {
   type IpcError,
   type Job,
   type JobBatch,
+  type JobError,
   type PaperSize,
   type Printer as IpcPrinter,
   type PrinterPolicy,
@@ -50,6 +52,7 @@ export type {
   FolderScan,
   Job,
   JobBatch,
+  JobError,
   JobSettings,
   JobState,
   PrintRequest,
@@ -441,6 +444,11 @@ function elapsedMs(from: string | null, to: string | null): number | null {
 export interface UiQueueJobView extends UiQueueJob {
   indeterminate?: boolean;
   durationMs?: number;
+  /**
+   * The stored error behind `error`, so a view can say it again in another
+   * language (or with the printer's display name) without a new snapshot.
+   */
+  errorInfo?: JobError;
   noteKey?:
     | 'readyToPrint'
     | 'interruptedByShutdown'
@@ -493,9 +501,13 @@ export function toUiQueueJob(job: Job): UiQueueJobView {
   }
   if (job.error) {
     if (job.error.code === 'interrupted_by_shutdown') {
-      ui.noteKey = 'interruptedByShutdown';
+      // Only a paused job can be resumed; once it is cancelled (or done) the
+      // shutdown is history, and the note would offer an action nobody has.
+      if (job.state === 'paused') ui.noteKey = 'interruptedByShutdown';
     } else {
-      ui.error = job.error.message;
+      // FR-092: say it in the UI language, not the backend's English.
+      ui.error = localizeJobError(job.error);
+      ui.errorInfo = job.error;
     }
   } else if (job.state === 'converted') {
     ui.noteKey = 'readyToPrint';
