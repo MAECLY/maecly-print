@@ -269,8 +269,14 @@ fn print_one(
     // The CLI has no cancel channel (Ctrl-C kills the process), so the flag the
     // engine polls is always false here.
     let cancel = AtomicBool::new(false);
-    let converted =
-        crate::engine::convert::convert_to_pdf(input, cache_dir, job_id, &cancel, &|_| {})?;
+    let converted = crate::engine::convert::convert_to_pdf(
+        input,
+        cache_dir,
+        job_id,
+        &cancel,
+        &|_| {},
+        timeout,
+    )?;
 
     let pdf = converted.unwrap_or_else(|| input.to_path_buf());
     let title = input

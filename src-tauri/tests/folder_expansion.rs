@@ -188,7 +188,7 @@ fn fr_007_expansion_order_is_deterministic() {
 fn fr_005_unsupported_formats_are_reported_with_a_reason() {
     let (_guard, root) = canonical_tempdir();
     touch(&root, "keep.pdf");
-    touch(&root, "notes.docx");
+    touch(&root, "setup.exe");
     touch(&root, "README"); // no extension at all
 
     let exp = expand_folder(
@@ -205,11 +205,11 @@ fn fr_005_unsupported_formats_are_reported_with_a_reason() {
         .iter()
         .all(|s| s.reason == SkipReason::UnsupportedFormat));
 
-    let docx = exp.skipped.iter().find(|s| s.name == "notes.docx").unwrap();
+    let exe = exp.skipped.iter().find(|s| s.name == "setup.exe").unwrap();
     assert!(
-        docx.detail.contains("docx"),
+        exe.detail.contains("exe"),
         "the reason names the format: {}",
-        docx.detail
+        exe.detail
     );
     let readme = exp.skipped.iter().find(|s| s.name == "README").unwrap();
     assert!(

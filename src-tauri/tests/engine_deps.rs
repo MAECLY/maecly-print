@@ -262,10 +262,9 @@ fn fr_058_a_found_dependency_reports_no_remediation_and_blocks_nothing() {
 }
 
 /// The honesty rule: a report may only claim a format is blocked if the engine
-/// can actually print that format today. SumatraPDF is the final printer on
-/// Windows, so it blocks the whole supported list; the converters the
-/// architecture documents but has not wired block nothing, because their
-/// formats are unsupported whether or not the tool is installed.
+/// can actually print that format. SumatraPDF is the final printer on Windows,
+/// so it blocks the whole supported list; each converter blocks exactly the
+/// formats routed through it.
 #[test]
 fn fr_058_blocked_formats_are_a_subset_of_what_the_engine_supports() {
     for os in [Os::Windows, Os::MacOs, Os::Linux] {
@@ -299,23 +298,26 @@ fn fr_058_sumatrapdf_blocks_every_supported_format_on_windows_and_none_elsewhere
 }
 
 /// The probe against the real host must not raise a false alarm on the machine
-/// running the tests: on macOS/Linux nothing applicable can be missing in a way
-/// that blocks a format, because the only format-blocking dependency there is
-/// none.
+/// running the tests: a report blocks formats only when its dependency is
+/// applicable here and genuinely missing, and SumatraPDF is never even
+/// applicable off Windows.
 #[test]
-fn fr_058_report_all_never_blocks_a_format_off_windows() {
+fn fr_058_report_all_blocks_formats_only_for_missing_dependencies() {
     let reports = deps::report_all();
     assert_eq!(reports.len(), ALL.len());
 
-    if !cfg!(windows) {
-        for report in &reports {
+    for report in &reports {
+        if !report.blocks.is_empty() {
             assert!(
-                report.blocks.is_empty(),
-                "{} must not block formats off Windows: {:?}",
+                report.applicable && !report.found && report.remediation.is_some(),
+                "{} blocks {:?} without being missing",
                 report.name,
                 report.blocks
             );
         }
+    }
+
+    if !cfg!(windows) {
         let sumatra = reports
             .iter()
             .find(|r| r.id == Dependency::SumatraPdf)

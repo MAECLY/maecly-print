@@ -132,12 +132,16 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 # --- Windows printer enumeration (winspool + GDI DeviceCapabilities) ---
 # Only pulled in on Windows targets; macOS/Linux enumerate via the CUPS CLI.
 [target.'cfg(windows)'.dependencies]
+# Win32_Graphics_Imaging + Win32_System_Com: WIC decodes HEIC/HEIF (FR-052)
+# through the OS codec instead of a bundled libheif.
 windows = { version = "0.58", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
+  "Win32_Graphics_Imaging",
   "Win32_Graphics_Printing",
   "Win32_Security",
   "Win32_Storage_Xps",
+  "Win32_System_Com",
 ] }
 
 [features]

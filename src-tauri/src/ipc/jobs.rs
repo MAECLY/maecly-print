@@ -587,16 +587,14 @@ fn classify_one(path_str: &str, max_mb: u32) -> FileInfo {
         Ok(m) if !m.is_file() => unprintable(canonical, name, ext, "Not a file".to_string()),
         Ok(m) => {
             // Precedence: size first (a 900 MB PDF is refused for its size, not
-            // its type), then the honest HEIC answer, then the generic one.
+            // its type), then the format. A format whose converter is not
+            // installed is still accepted here: its job pauses with the FR-058
+            // remediation, and the Print Job screen already shows that text
+            // for the dependencies the selected files need.
             let (supported, reason) = if crate::queue::exceeds_size_limit(m.len(), max_mb) {
                 (false, Some(format!("Larger than the {max_mb} MB limit")))
             } else if crate::engine::is_supported(&ext) {
                 (true, None)
-            } else if crate::engine::convert::HEIF_EXTS.contains(&ext.as_str()) {
-                (
-                    false,
-                    Some(crate::engine::convert::HEIF_UNSUPPORTED_REASON.to_string()),
-                )
             } else {
                 (false, Some("Unsupported file type".to_string()))
             };
@@ -795,21 +793,28 @@ mod tests {
     }
 
     #[test]
-    fn fr_052_inspect_names_heic_instead_of_hiding_it() {
+    fn fr_052_to_057_inspect_accepts_the_converted_formats() {
         let dir = tempfile::tempdir().unwrap();
         let heic = write(dir.path(), "photo.HEIC", b"\0\0\0\x18ftypheic");
         let info = inspect(&heic, 100);
-        assert!(!info.supported);
-        assert_eq!(
-            info.reason.as_deref(),
-            Some(crate::engine::convert::HEIF_UNSUPPORTED_REASON)
-        );
+        assert!(info.supported, "reason: {:?}", info.reason);
         assert_eq!(info.ext, "heic", "extension is lowercased");
+        assert_eq!(info.pages, Some(1), "a photo is one page");
+
+        for name in [
+            "a.docx", "a.xlsx", "a.pptx", "a.odt", "a.ods", "a.odp", "a.doc", "a.rtf", "a.txt",
+            "a.html", "a.htm", "a.md",
+        ] {
+            let f = write(dir.path(), name, b"content");
+            let info = inspect(&f, 100);
+            assert!(info.supported, "{name}: {:?}", info.reason);
+            assert_eq!(info.pages, None, "{name}: pages unknown until converted");
+        }
 
         // Anything else still gets the generic message.
-        let txt = write(dir.path(), "notes.txt", b"hi");
+        let exe = write(dir.path(), "setup.exe", b"MZ");
         assert_eq!(
-            inspect(&txt, 100).reason.as_deref(),
+            inspect(&exe, 100).reason.as_deref(),
             Some("Unsupported file type")
         );
     }

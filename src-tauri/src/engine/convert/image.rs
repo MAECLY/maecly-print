@@ -61,11 +61,22 @@ pub fn to_pdf(
 
     progress(0.5);
 
-    let doc = build_single_page_pdf(width, height, rgb.into_raw());
-    write_pdf(doc, output)?;
+    rgb_to_pdf(width, height, rgb.into_raw(), output)?;
 
     progress(1.0);
     Ok(())
+}
+
+/// Write already-decoded 8-bit RGB pixels (row-major, top-to-bottom) as a
+/// one-page PDF. Shared with decoders that do not go through the `image`
+/// crate (the Windows HEIF path, see [`super::heif`]).
+pub fn rgb_to_pdf(width: u32, height: u32, rgb: Vec<u8>, output: &Path) -> Result<(), EngineError> {
+    if width == 0 || height == 0 || rgb.len() != width as usize * height as usize * 3 {
+        return Err(EngineError::ConversionFailed(
+            "decoded image has an inconsistent size".to_string(),
+        ));
+    }
+    write_pdf(build_single_page_pdf(width, height, rgb), output)
 }
 
 /// Decode any supported image to 8-bit RGB, with limits guarding against

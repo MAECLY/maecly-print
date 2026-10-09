@@ -36,12 +36,12 @@
 //!
 //! # Honesty
 //!
-//! A report never claims a format works. [`Spec::blocks`] lists only the
-//! extensions the engine can print *today* ([`crate::engine::SUPPORTED_EXTS`])
-//! and that this dependency actually gates. LibreOffice, Chromium and Pandoc
-//! therefore block nothing: the converters that would use them are documented
-//! in `docs/04-architecture/print-engine.md` but not wired, so installing them
-//! changes nothing yet — and their remediation text says exactly that.
+//! [`Spec::blocks`] lists exactly the extensions that cannot print while this
+//! dependency is missing — always a subset of
+//! [`crate::engine::SUPPORTED_EXTS`], and taken from the converter routing
+//! tables in [`crate::engine::convert`] so the two cannot drift. The
+//! remediation text names the dependency and how to install it; the converter
+//! returns the same text as `DependencyMissing` when a job needs it (FR-058).
 
 use std::path::{Path, PathBuf};
 
@@ -256,6 +256,10 @@ impl Spec {
     }
 }
 
+/// What a missing browser blocks: HTML directly, and Markdown, whose Pandoc
+/// output is printed by the same browser.
+const CHROMIUM_BLOCKS: &[&str] = &["html", "htm", "md", "markdown"];
+
 /// The facts about `dep` on `os`.
 pub fn spec(dep: Dependency, os: Os) -> Spec {
     match dep {
@@ -284,9 +288,9 @@ pub fn spec(dep: Dependency, os: Os) -> Spec {
                 _ => &["soffice"],
             },
             bundle_subdir: "libreoffice",
-            blocks: &[],
-            effect: "Office files will be skipped. MaeclyPrint does not convert \
-                     Office files yet, so installing it changes nothing today",
+            blocks: crate::engine::convert::OFFICE_EXTS,
+            effect: "Office, OpenDocument, TXT and RTF files cannot be printed until \
+                     it is installed. Download it free from https://www.libreoffice.org/download",
         },
         Dependency::Chromium => Spec {
             id: dep,
@@ -295,13 +299,19 @@ pub fn spec(dep: Dependency, os: Os) -> Spec {
                 // Edge first: it ships with Windows, so it is the copy the
                 // architecture calls the recommended one.
                 Os::Windows => &["msedge.exe", "chrome.exe"],
-                Os::MacOs => &["Microsoft Edge", "Google Chrome"],
-                Os::Linux => &["google-chrome", "chromium", "chromium-browser"],
+                Os::MacOs => &["Microsoft Edge", "Google Chrome", "Chromium"],
+                Os::Linux => &[
+                    "google-chrome",
+                    "chromium",
+                    "chromium-browser",
+                    "microsoft-edge",
+                ],
             },
             bundle_subdir: "chromium",
-            blocks: &[],
-            effect: "HTML files will be skipped. MaeclyPrint does not convert \
-                     HTML yet, so installing it changes nothing today",
+            blocks: CHROMIUM_BLOCKS,
+            effect: "HTML and Markdown files cannot be printed until one is installed. \
+                     Install Microsoft Edge (https://www.microsoft.com/edge) or \
+                     Google Chrome (https://www.google.com/chrome)",
         },
         Dependency::Pandoc => Spec {
             id: dep,
@@ -311,9 +321,9 @@ pub fn spec(dep: Dependency, os: Os) -> Spec {
                 _ => &["pandoc"],
             },
             bundle_subdir: "pandoc",
-            blocks: &[],
-            effect: "Markdown files will be skipped. MaeclyPrint does not \
-                     convert Markdown yet, so installing it changes nothing today",
+            blocks: crate::engine::convert::MARKDOWN_EXTS,
+            effect: "Markdown files cannot be printed until it is installed. \
+                     Download it from https://pandoc.org/installing.html",
         },
     }
 }
@@ -408,6 +418,7 @@ pub fn install_dirs(dep: Dependency, os: Os, env: &dyn Fn(&str) -> Option<String
             dirs.push(PathBuf::from(
                 "/Applications/Google Chrome.app/Contents/MacOS",
             ));
+            dirs.push(PathBuf::from("/Applications/Chromium.app/Contents/MacOS"));
         }
         (Dependency::Pandoc, Os::Windows) => {
             push("LOCALAPPDATA", &["Pandoc"]);
@@ -614,18 +625,53 @@ mod tests {
     }
 
     #[test]
-    fn only_dependencies_gating_a_supported_format_block_anything() {
-        for dep in [
-            Dependency::LibreOffice,
-            Dependency::Chromium,
-            Dependency::Pandoc,
-        ] {
-            let spec = spec(dep, Os::Windows);
-            let report = from_resolution(&spec, &Resolution::Missing);
-            assert!(
-                report.blocks.is_empty(),
-                "{dep:?} gates no format the engine supports today"
-            );
+    fn fr_058_every_converter_dependency_blocks_supported_formats_only() {
+        for os in [Os::Windows, Os::MacOs, Os::Linux] {
+            for dep in ALL {
+                let spec = spec(*dep, os);
+                for ext in spec.blocks {
+                    assert!(
+                        crate::engine::is_supported(ext),
+                        "{dep:?} blocks {ext}, which the engine does not advertise"
+                    );
+                }
+            }
         }
+    }
+
+    #[test]
+    fn fr_058_missing_converters_name_what_they_block_and_how_to_install() {
+        let cases = [
+            (Dependency::LibreOffice, "docx", "libreoffice.org"),
+            (Dependency::LibreOffice, "txt", "libreoffice.org"),
+            (Dependency::Chromium, "html", "Microsoft Edge"),
+            (Dependency::Chromium, "md", "Google Chrome"),
+            (Dependency::Pandoc, "md", "pandoc.org"),
+        ];
+        for (dep, ext, hint) in cases {
+            let report = from_resolution(&spec(dep, Os::Windows), &Resolution::Missing);
+            assert!(
+                report.blocks.iter().any(|b| b == ext),
+                "{dep:?} must block {ext}"
+            );
+            let text = report.remediation.expect("missing → remediation");
+            assert!(text.starts_with(&report.name), "{text}");
+            assert!(text.contains(hint), "{dep:?}: {text}");
+            assert!(!text.contains("changes nothing"), "stale text: {text}");
+        }
+    }
+
+    #[test]
+    fn a_found_converter_blocks_nothing() {
+        let spec = spec(Dependency::LibreOffice, Os::MacOs);
+        let report = from_resolution(
+            &spec,
+            &Resolution::Found {
+                path: PathBuf::from("/Applications/LibreOffice.app/Contents/MacOS/soffice"),
+                found_in: FoundIn::Installed,
+            },
+        );
+        assert!(report.blocks.is_empty());
+        assert!(report.remediation.is_none());
     }
 }

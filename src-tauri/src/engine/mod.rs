@@ -7,8 +7,9 @@
 //! - folder expansion ([`expand_folder`]) — turn a dropped/selected directory
 //!   into the list of printable files inside it (FR-004/FR-007), keeping the
 //!   discarded ones with a reason (FR-005/FR-059).
-//! - [`convert`] — turn a supported input file into a printable PDF (images are
-//!   rasterised into a one-page PDF; PDFs pass through untouched).
+//! - [`convert`] — turn a supported input file into a printable PDF (PDFs pass
+//!   through; images are rasterised in-process; HEIC goes through the OS
+//!   decoder; documents through LibreOffice, a headless browser or Pandoc).
 //! - [`print`] — translate [`crate::queue::job::JobSettings`] into the
 //!   SumatraPDF (Windows) / CUPS `lp` (Unix) invocation and spool it.
 //! - [`deps`] — locate the external programs the pipeline shells out to
@@ -30,11 +31,18 @@ pub mod deps;
 pub mod pagerange;
 pub mod print;
 
-/// File extensions the engine can currently turn into a printable PDF: PDFs
-/// (passthrough) plus the raster image formats the bundled `image` codecs
-/// decode. Office/HTML/Markdown converters (LibreOffice, Chromium, Pandoc) are
-/// documented in the architecture but not yet wired in here.
-pub const SUPPORTED_EXTS: &[&str] = &["pdf", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp"];
+/// File extensions the engine can turn into a printable PDF, grouped by
+/// converter (see [`convert::route`]): PDF passthrough; raster images (the
+/// in-process `image` codecs); HEIC/HEIF (the OS decoder); Office, OpenDocument,
+/// TXT and RTF (LibreOffice); HTML (a Chromium-class browser); Markdown (Pandoc,
+/// then the browser). A format whose converter is not installed is accepted:
+/// its job pauses with the FR-058 remediation instead of being refused at drop
+/// time. The UI mirrors this list in `src/lib/formats.ts` (a test diffs them).
+pub const SUPPORTED_EXTS: &[&str] = &[
+    "pdf", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp", "heic", "heif", "docx", "doc",
+    "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf", "txt", "html", "htm", "md",
+    "markdown",
+];
 
 /// Whether `ext` (with or without a leading dot, any case) names a format the
 /// engine can print.
@@ -318,8 +326,9 @@ pub enum EngineError {
     #[error("the driver for '{printer}' does not support {setting}")]
     UnsupportedSetting { setting: String, printer: String },
 
-    /// A required external program (CUPS `lp`, SumatraPDF) is not installed or
-    /// could not be located.
+    /// A required external program (CUPS `lp`, SumatraPDF, LibreOffice, a
+    /// Chromium-class browser, Pandoc, the HEIF codec) is not installed or
+    /// could not be located. The message is the FR-058 remediation text.
     #[error("missing dependency: {0}")]
     DependencyMissing(String),
 
@@ -344,16 +353,22 @@ mod tests {
         assert!(is_supported("JpEg"));
         assert!(is_supported(".png"));
         assert!(is_supported("TIFF"));
-        assert!(!is_supported("docx"));
+        assert!(is_supported("DOCX"));
+        assert!(is_supported(".md"));
         assert!(!is_supported("gif")); // decodable by `image` but not enabled
+        assert!(!is_supported("exe"));
         assert!(!is_supported(""));
     }
 
     #[test]
-    fn supported_exts_are_the_expected_set() {
+    fn fr_052_to_057_supported_exts_are_the_expected_set() {
         assert_eq!(
             SUPPORTED_EXTS,
-            &["pdf", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp"]
+            &[
+                "pdf", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp", "heic", "heif", "docx",
+                "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf", "txt", "html",
+                "htm", "md", "markdown",
+            ]
         );
     }
 

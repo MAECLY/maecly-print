@@ -237,7 +237,6 @@ pub fn spawn(app: tauri::AppHandle) -> anyhow::Result<QueueHandle> {
         jobs: recovered.jobs,
     }));
 
-    let runner: Arc<dyn dispatcher::JobRunner> = Arc::new(dispatcher::EngineRunner { cache_dir });
     let emit: Arc<dyn dispatcher::EventSink> = Arc::new(dispatcher::TauriEmit { app });
     let spawner: Arc<dyn dispatcher::BlockingSpawner> = Arc::new(dispatcher::TokioBlockingSpawner);
     let tracker: Arc<dyn dispatcher::JobTracker> = Arc::new(dispatcher::OsTracker);
@@ -252,6 +251,10 @@ pub fn spawn(app: tauri::AppHandle) -> anyhow::Result<QueueHandle> {
         .sanitized();
     let limits = dispatcher::DispatcherLimits::from_engine(&engine);
 
+    let runner: Arc<dyn dispatcher::JobRunner> = Arc::new(dispatcher::EngineRunner {
+        cache_dir,
+        conversion_timeout: limits.conversion_timeout,
+    });
     let d = dispatcher::Dispatcher::new(
         state.clone(),
         tx.clone(),
@@ -277,8 +280,10 @@ pub(crate) fn exceeds_size_limit(bytes: u64, max_mb: u32) -> bool {
 }
 
 /// Best-effort page count for the UI: PDFs are parsed with `lopdf` (unless
-/// larger than [`MAX_PDF_PROBE_BYTES`]); supported images are always one page;
-/// anything else is unknown.
+/// larger than [`MAX_PDF_PROBE_BYTES`]); pictures (images, HEIC) are always one
+/// page; documents that still need converting (Office, HTML, Markdown, …) are
+/// unknown until the conversion produces their PDF, at which point the
+/// dispatcher counts that instead.
 pub(crate) fn probe_pages(path: &Path, ext: &str, bytes: u64) -> Option<u32> {
     match ext {
         "pdf" => {
@@ -290,7 +295,7 @@ pub(crate) fn probe_pages(path: &Path, ext: &str, bytes: u64) -> Option<u32> {
                 .map(|d| d.get_pages().len() as u32)
         }
         "" => None,
-        other if crate::engine::is_supported(other) => Some(1),
+        other if crate::engine::convert::is_single_page(other) => Some(1),
         _ => None,
     }
 }
@@ -374,7 +379,7 @@ mod tests {
     #[test]
     fn submit_rejects_unsupported_extension() {
         let dir = tempfile::tempdir().unwrap();
-        let f = write_file(&dir, "notes.txt", b"hi");
+        let f = write_file(&dir, "archive.zip", b"hi");
         let (h, _rx) = handle_with_open_channel();
         assert!(matches!(
             h.submit(req(vec![f], JobSettings::default())),
@@ -447,6 +452,10 @@ mod tests {
         assert_eq!(probe_pages(Path::new("/x/a.png"), "png", 10), Some(1));
         // Unknown / unsupported types are unknown.
         assert_eq!(probe_pages(Path::new("/x/a.txt"), "txt", 10), None);
+        assert_eq!(probe_pages(Path::new("/x/a.heic"), "heic", 10), Some(1));
+        // A document's page count is unknown until it is converted.
+        assert_eq!(probe_pages(Path::new("/x/a.docx"), "docx", 10), None);
+        assert_eq!(probe_pages(Path::new("/x/a.md"), "md", 10), None);
         // An oversized PDF is not probed.
         assert_eq!(
             probe_pages(Path::new("/x/a.pdf"), "pdf", MAX_PDF_PROBE_BYTES + 1),

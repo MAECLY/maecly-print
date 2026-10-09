@@ -359,6 +359,11 @@ pub(crate) trait BlockingSpawner: Send + Sync + 'static {
 pub(crate) struct EngineRunner {
     /// Directory converted PDFs are written to (`<cache_dir>/conversions`).
     pub cache_dir: PathBuf,
+    /// Bound for each external converter process. The dispatcher's own
+    /// conversion timer raises the cancel flag at the same limit, which also
+    /// kills the converter; passing it here keeps the bound even if the timer
+    /// message is delayed.
+    pub conversion_timeout: Option<Duration>,
 }
 
 impl JobRunner for EngineRunner {
@@ -374,6 +379,7 @@ impl JobRunner for EngineRunner {
             &job.id,
             &cancel,
             &*progress,
+            self.conversion_timeout,
         )
     }
 

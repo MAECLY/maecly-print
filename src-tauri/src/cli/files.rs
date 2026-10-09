@@ -226,11 +226,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         touch(dir.path(), "a.pdf");
         touch(dir.path(), "sub/b.png");
-        touch(dir.path(), "sub/notes.txt");
+        touch(dir.path(), "sub/archive.zip");
 
         let files =
             expand_inputs(&[dir.path().to_string_lossy().into_owned()], NO_SIZE_LIMIT).unwrap();
-        assert_eq!(files.len(), 2, "the .txt is skipped: {files:?}");
+        assert_eq!(files.len(), 2, "the .zip is skipped: {files:?}");
     }
 
     #[test]
