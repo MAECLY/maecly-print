@@ -571,16 +571,16 @@ describe('ProfilesScreen', () => {
 
   // ---- Quality / tray honesty --------------------------------------------
 
-  it('regression(profile-quality-tray-never-applied): the editor says quality and tray are not sent yet', async () => {
+  it('FR-023: the editor says tray and quality are sent with every job', async () => {
     mockProfiles();
     render(<Harness initialId={CUSTOM_ID} />);
     await screen.findByDisplayValue('Contracts duplex');
 
     expect(
-      screen.getByText(
-        /Quality and tray are saved with the profile, but the print engine does not send them yet/i,
-      ),
+      screen.getByText(/Tray and quality are sent with every job/i),
     ).toBeInTheDocument();
+    // The old copy claimed the engine ignored them, which was false.
+    expect(screen.queryByText(/does not send them yet/i)).toBeNull();
   });
 
   // ---- FR-024: import / export -------------------------------------------

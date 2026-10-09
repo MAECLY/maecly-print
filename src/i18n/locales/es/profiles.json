@@ -66,7 +66,7 @@
     "nameEmpty": "Escribe un nombre para el perfil.",
     "nameTooLong": "El nombre no puede superar los 100 caracteres.",
     "nameTaken": "Ya existe un perfil con este nombre.",
-    "notApplied": "La calidad y la bandeja se guardan en el perfil, pero el motor de impresión todavía no las envía.",
+    "trayQualityNote": "La bandeja y la calidad se envían con cada trabajo. La bandeja debe coincidir con el nombre que usa el driver de tu impresora. En Windows la calidad no se puede aplicar, y el trabajo lo indica.",
     "restored": "Se han recuperado los cambios sin guardar de tu última visita.",
     "cancel": "Cancelar",
     "create": "Crear perfil",

@@ -1,6 +1,6 @@
 # Print Settings
 
-> **TL;DR** — Every printing setting MaeclyPrint exposes, mapped to the underlying engine flag (SumatraPDF on Windows, CUPS **`lp -o`** on macOS/Linux), with default value, implementation status, and driver-dependency notes. Ten settings reach the spooler today (`quality` only on CUPS — SumatraPDF has no switch for it and the preview says so); per-printer tray/paper defaults from the Printers screen fill whatever a job leaves open; the rest are unimplemented.
+> **TL;DR** — Every printing setting MaeclyPrint exposes, mapped to the underlying engine flag (SumatraPDF on Windows, CUPS **`lp -o`** on macOS/Linux), with default value, implementation status, and driver-dependency notes. Eleven settings reach the spooler today, `quality`, `tray` and `collate` included (SumatraPDF cannot express `quality` or `collate`, and the job says so); per-printer tray/paper defaults from the Printers screen fill whatever a job leaves open; the rest are unimplemented.
 
 A print setting is anything that can be different per job: the printer, paper, duplex, color, copies, range, etc. Some settings are universally supported by the OS spooler; others depend on the specific printer driver; a few would have to be synthesized via PDF preprocessing.
 
@@ -18,8 +18,8 @@ A print setting is anything that can be different per job: the printer, paper, d
 | `paper_size` | string: any size the printer reports (`A4`, `Letter`, `A6`, `4x6`, `Tabloid`…), or `auto` | A4 | `paper=<A2…A6, letter, legal, tabloid, statement>`; any other size is **not applied** and the preview says so; `auto` emits nothing | `-o media=<the printer's own keyword>`; `auto` emits nothing | **Shipped** | yes — validated against the printer's list when it reports one (`unsupported_setting` pause otherwise) |
 | `orientation` | enum: portrait / landscape / auto | auto | `landscape` / `portrait`; **auto emits nothing** | `-o orientation-requested=3` (portrait) / `=4` (landscape); **auto emits nothing** | **Shipped** | no |
 | `scaling` | enum: fit / shrink / none | fit | `fit` / `shrink` / `noscale` | `-o fit-to-page` for fit **and** shrink; none emits nothing | **Shipped** | no |
-| `quality` | enum: draft / normal / high | normal | **not expressible** — a `:: note:` in the preview says it is not applied | `-o print-quality=3\|4\|5 -o cupsPrintQuality=Draft\|Normal\|High` | **Shipped** (CUPS) | yes |
-| `tray` | string | the printer's override, else driver default | `bin=<name>` | `-o InputSlot=<name> -o media-source=<name>` | **Shipped** | yes |
+| `quality` | enum: draft / normal / high | normal | **not expressible**; the job carries a note saying so | `-o print-quality=3\|4\|5 -o cupsPrintQuality=Draft\|Normal\|High` | **Shipped** (CUPS); reported, not applied (Windows) | yes |
+| `tray` | string | the printer's override, else driver default | `bin=<name>`; `auto` emits nothing | `-o InputSlot=<bin> -o media-source=<bin>`; `auto` emits nothing | **Shipped** | yes |
 | `paper_size_custom` | width × height (mm) | — | would need preprocessing | `-o media=Custom.WxHmm` | Not implemented | yes |
 | `n_up` | enum: 1 / 2 / 4 / 6 / 9 | 1 | would need `qpdf`/`pdfjam` preprocessing | `-o number-up=N` | Not implemented | yes |
 | `collate` | bool | true | **not expressible** — a `:: note:` says the driver's collation is used | `-o collate=true\|false` (only when copies > 1) | **Shipped** (CUPS) | yes |
@@ -31,6 +31,7 @@ Three things in that table contradict earlier drafts and are worth stating plain
 
 - **`duplex` defaults to `none`, not to anything inherited.** `sides=` is emitted on every CUPS invocation precisely so an explicit "none" beats a driver default that duplexes.
 - **Per-printer defaults fill gaps, never override choices.** The Printers screen's tray and paper defaults (`PrinterPrefs::overrides`) apply to a job only where it leaves the value open — no tray, or paper **Printer default** (`auto`). Precedence is explicit job/profile value → printer override → the printer's own default (nothing sent). The dispatcher, the CLI and the honesty preview all apply them the same way (`engine::print::apply_printer_overrides`).
+- **`quality` and `tray` travel with every job.** `toJobSettings` (`src/lib/profiles.ts`) sends both from the profile. CUPS applies both; SumatraPDF applies the tray and states in the job that it cannot apply the quality. The tray is the driver's own bin name, passed verbatim, so a typo reaches the driver as typed. The Print Job screen offers no per-job override for either (see FR-041).
 - **CUPS cannot distinguish `fit` from `shrink`.** It has a single `fit-to-page` toggle, so both map to it. Only SumatraPDF honours the distinction (`fit` vs `shrink`).
 
 ### `paper_size`
@@ -107,7 +108,7 @@ If the printer's tray does not have the requested paper, behavior is driver-depe
 
 ### `tray`
 
-> **Stored but inert.** `tray` is a `String` field on `Profile`/`StoredProfile` that persists in `profiles.toml`, but it is not part of `JobSettings` and neither renderer emits a tray flag. Changing it has no effect on printed output.
+> **Shipped.** `tray` is on `JobSettings`. `auto` (or blank) emits nothing, so the printer's default bin wins. Any other value is the driver's bin name, passed verbatim: CUPS gets `-o InputSlot=<bin> -o media-source=<bin>`, SumatraPDF gets `bin=<bin>` (a bin name containing a comma is dropped and the drop is logged).
 
 Intended: an identifier for the printer's input bin, queried from the driver — useful for offices with letterhead in tray 2 and plain paper in tray 1.
 
@@ -121,7 +122,7 @@ CUPS implements n-up natively (`number-up`); nothing emits that flag today. On W
 
 ### `quality`
 
-> **Stored but inert.** Same situation as `tray`: a `Quality` enum (`Draft`/`Normal`/`High`, defaulting to `Normal`) on the profile, absent from `JobSettings`, never rendered.
+> **Shipped on CUPS, reported on Windows.** `quality` is on `JobSettings` (`Draft`/`Normal`/`High`, defaulting to `Normal`). CUPS gets `-o print-quality=3|4|5` plus `-o cupsPrintQuality=Draft|Normal|High`. SumatraPDF has no quality switch, so a non-normal preset is not applied and the job carries a note saying so.
 
 | Value | DPI hint |
 |---|---|
@@ -245,8 +246,8 @@ The command is **`lp`**, not `lpr`. Vector: `lp -d <printer> -t <title> <opts…
 | Orientation | `-o orientation-requested=3` portrait / `=4` landscape; `auto` emits nothing, so each page keeps its own orientation |
 | Fit-to-page | `-o fit-to-page` for both `fit` and `shrink`; `none` emits nothing |
 | Page ranges | `-o page-ranges=1-5,10` |
-| Tray | `-o InputSlot=<name> -o media-source=<name>` when the job (or the printer's override) names one |
-| Quality | `-o print-quality=3\|4\|5 -o cupsPrintQuality=Draft\|Normal\|High` |
+| Tray | `-o InputSlot=<bin> -o media-source=<bin>` when the job (or the printer's override) names one; `auto` emits nothing |
+| Quality | `-o print-quality=3 \| 4 \| 5 -o cupsPrintQuality=Draft \| Normal \| High` — always emitted |
 | N-up | *not emitted* — CUPS supports `number-up`, but no renderer produces it |
 
 `sides` and `media` are always emitted so an explicit user choice wins over any driver default.
@@ -267,9 +268,9 @@ A profile's settings are serialized as `[[profile]]` entries in `profiles.toml`,
 
 **There is information loss**, in two specific places, and it is worth being precise about it:
 
-- `quality` and `tray` round-trip through TOML perfectly and are then dropped: they are not on `JobSettings`, so they never reach a renderer.
+- `quality` cannot be expressed to SumatraPDF on Windows; the job reports that instead of applying it.
 - `scaling` loses the `fit`/`shrink` distinction on CUPS, which has only `fit-to-page`.
 
-For the eight settings that do reach a renderer on SumatraPDF, the mapping is lossless.
+For the other settings that reach a renderer on SumatraPDF, the mapping is lossless.
 
 "Save current job settings as profile" is not implemented.

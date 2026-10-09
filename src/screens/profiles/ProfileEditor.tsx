@@ -368,13 +368,13 @@ export function ProfileEditor({
       </div>
 
       {/*
-        Honesty: quality and tray round-trip to `profiles.toml` but are not part
-        of the wire `JobSettings` yet, so they do not reach the print engine
-        (they are v1 settings — see docs/03-requirements/print-settings.md).
-        Saying so beats two controls that silently do nothing.
+        Honesty: quality and tray travel with every job (`toJobSettings`). CUPS
+        applies both; SumatraPDF applies the tray and cannot express a quality,
+        which the job itself reports. The tray is the driver's bin name, passed
+        verbatim — see docs/03-requirements/print-settings.md.
       */}
       <div style={{ fontSize: 11, color: 'var(--mp-textDim)' }}>
-        {t('editor.notApplied')}
+        {t('editor.trayQualityNote')}
       </div>
 
       <Field label={t('field.pageRange')}>

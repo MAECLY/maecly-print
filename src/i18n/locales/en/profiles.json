@@ -66,7 +66,7 @@
     "nameEmpty": "Enter a profile name.",
     "nameTooLong": "Name must be 100 characters or fewer.",
     "nameTaken": "A profile with this name already exists.",
-    "notApplied": "Quality and tray are saved with the profile, but the print engine does not send them yet.",
+    "trayQualityNote": "Tray and quality are sent with every job. The tray must match the bin name your printer driver uses. On Windows the quality can't be applied, and the job says so.",
     "restored": "Unsaved changes from your last visit were restored.",
     "cancel": "Cancel",
     "create": "Create profile",
