@@ -165,6 +165,8 @@ Flag mapping (`engine/print/cups.rs`), in the exact order `lp_args` emits them:
 | monochrome | `-o ColorModel=Gray` |
 | copies > 1 | `-n <copies> -o collate=true\|false` |
 | paper | `-o media=<the printer's keyword>` *(`auto` omits)* |
+| tray (job's, else the printer's override) | `-o InputSlot=<bin> -o media-source=<bin>` *(none omits)* |
+| quality | `-o print-quality=3\|4\|5 -o cupsPrintQuality=Draft\|Normal\|High` |
 | orientation portrait / landscape | `-o orientation-requested=3` / `=4` *(`auto` omits)* |
 | scaling fit **or** shrink | `-o fit-to-page` *(`none` omits)* |
 | page ranges | `-o page-ranges=<r>` (whitespace stripped) |
@@ -172,7 +174,7 @@ Flag mapping (`engine/print/cups.rs`), in the exact order `lp_args` emits them:
 Three things worth stating plainly:
 
 - **`-d` and `-n`, not `lpr -P` and `-o copies=N`.** The engine invokes `lp`, whose own flags these are. Earlier drafts described the `lpr` spelling; it was never what the code emitted.
-- **`sides` and `media` are always emitted**, even for the defaults, so an explicit "single-sided" or "A4" beats a driver default that says otherwise. Everything else is emitted only when it differs from the driver default, so the command stays readable.
+- **`sides`, `media` and quality are always emitted** (media unless the job asks for the printer's own paper, `auto`), even for the defaults, so an explicit "single-sided" or "A4" beats a driver default that says otherwise. Everything else is emitted only when it differs from the driver default or names a real choice (a tray, an orientation, several copies), so the command stays readable.
 - **`fit` and `shrink` collapse to the same flag.** CUPS exposes exactly one `fit-to-page` toggle and cannot express "shrink oversized pages but never enlarge". So on macOS/Linux the two settings are indistinguishable at the spooler: a small page under `shrink` may still be scaled up. On Windows they are distinct (`fit` vs `shrink` in `-print-settings`). This is a real cross-platform behavioural difference, not a rounding error, and the honesty preview shows the user the actual flag either way.
 
 On success `lp`'s `request id is <dest>-<n>` line yields the CUPS job id used to follow the job and to `cancel` it. `<dest>` may itself contain `-`, so the number is only ever the last segment. `lp` is run in the C locale, but macOS localizes this line from the user's language list anyway (`el id de la petición es Office-42 (1 archivos)`), so the parser does not depend on the English marker: it falls back to the token naming the destination, then to any `<name>-<digits>` token.
