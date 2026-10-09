@@ -556,6 +556,53 @@ pub fn lpstat_verdict(not_completed: &str, os_job_id: &str) -> super::OsJobState
     }
 }
 
+/// The `ipptool` test MaeclyPrint runs to read a job's state: the same request
+/// as CUPS's stock `get-job-attributes.test`, carried in the binary.
+///
+/// `ipptool` looks a test named by a bare file name up in the *current
+/// directory first* and only then in CUPS's data folder, so passing
+/// `get-job-attributes.test` let a file planted in whatever folder the CLI was
+/// started from (a Downloads folder, say) run arbitrary IPP operations against
+/// the local scheduler and fake the state the dispatcher trusts. The test is
+/// therefore written to a private temporary file and named by its absolute
+/// path, which `ipptool` never resolves against the working directory.
+pub const GET_JOB_STATE_TEST: &str = r#"{
+	NAME "MaeclyPrint get job state"
+	OPERATION get-job-attributes
+	GROUP operation
+	ATTR charset attributes-charset utf-8
+	ATTR language attributes-natural-language en
+	ATTR uri job-uri $uri
+	EXPECT job-uri
+	EXPECT job-state
+}
+"#;
+
+/// Write [`GET_JOB_STATE_TEST`] to a fresh private temporary file (created
+/// exclusively, readable by this user only) whose path is absolute.
+#[cfg(unix)]
+fn job_state_test_file() -> std::io::Result<tempfile::NamedTempFile> {
+    use std::io::Write as _;
+    let mut file = tempfile::Builder::new()
+        .prefix("maeclyprint-ipp-")
+        .suffix(".test")
+        .tempfile()?;
+    file.write_all(GET_JOB_STATE_TEST.as_bytes())?;
+    file.flush()?;
+    Ok(file)
+}
+
+/// `ipptool`'s argument vector for reading job `number`'s state with the test
+/// at `test`. Pure. `test` must be absolute (see [`GET_JOB_STATE_TEST`]).
+pub fn ipptool_args(number: u32, test: &Path) -> Vec<String> {
+    debug_assert!(test.is_absolute(), "{}", test.display());
+    vec![
+        "-tv".to_string(),
+        format!("ipp://localhost/jobs/{number}"),
+        test.to_string_lossy().into_owned(),
+    ]
+}
+
 /// Where the CUPS job `os_job_id` stands.
 ///
 /// `ipptool get-job-attributes` is asked first because it is the only source
@@ -573,13 +620,20 @@ pub fn job_state(os_job_id: &str) -> Result<super::OsJobState, super::TrackError
         )));
     };
 
-    let uri = format!("ipp://localhost/jobs/{number}");
-    match Command::new("ipptool")
-        .args(["-tv", &uri, "get-job-attributes.test"])
+    let test = job_state_test_file()
+        .map_err(|e| TrackError::Transient(format!("cannot write the ipptool test: {e}")))?;
+    // The test is named by its absolute path and the child runs in the temp
+    // folder, so nothing in the caller's working directory is consulted.
+    let workdir = test.path().parent().map(Path::to_path_buf);
+    let mut ipptool = Command::new("ipptool");
+    ipptool
+        .args(ipptool_args(number, test.path()))
         .env("LC_ALL", "C")
-        .env("LANG", "C")
-        .output()
-    {
+        .env("LANG", "C");
+    if let Some(dir) = &workdir {
+        ipptool.current_dir(dir);
+    }
+    match ipptool.output() {
         Ok(out) => {
             let text = String::from_utf8_lossy(&out.stdout);
             if let Some(state) = parse_ipptool_output(&text) {
@@ -1053,6 +1107,52 @@ mod tests {
         let gone = "        status-code = client-error-not-found (client-error-not-found)\n";
         assert_eq!(parse_ipptool_output(gone), Some(S::Gone));
         assert_eq!(parse_ipptool_output("garbage"), None);
+    }
+
+    /// The test file is always passed by absolute path, never a bare name that
+    /// `ipptool` would first look up in the current directory.
+    #[cfg(unix)]
+    #[test]
+    fn ipptool_reads_job_state_from_an_absolute_private_test_file() {
+        let file = job_state_test_file().unwrap();
+        assert!(file.path().is_absolute());
+        assert_eq!(
+            std::fs::read_to_string(file.path()).unwrap(),
+            GET_JOB_STATE_TEST
+        );
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(file.path()).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "private to this user: {mode:o}");
+
+        let args = ipptool_args(42, file.path());
+        assert_eq!(args[..2], ["-tv", "ipp://localhost/jobs/42"]);
+        assert_eq!(Path::new(&args[2]), file.path());
+        assert!(!args.iter().any(|a| a == "get-job-attributes.test"));
+        assert!(GET_JOB_STATE_TEST.contains("OPERATION get-job-attributes"));
+    }
+
+    /// With a real `ipptool` and scheduler, the embedded test asks the same
+    /// question as CUPS's stock file: an unknown job reads as gone. Skips
+    /// when either is missing.
+    #[cfg(unix)]
+    #[test]
+    fn embedded_ipptool_test_reports_an_unknown_job_as_gone() {
+        let file = job_state_test_file().unwrap();
+        let out = match Command::new("ipptool")
+            .args(ipptool_args(999_999_999, file.path()))
+            .env("LC_ALL", "C")
+            .output()
+        {
+            Ok(out) => String::from_utf8_lossy(&out.stdout).into_owned(),
+            Err(e) => {
+                eprintln!("SKIPPED: ipptool not runnable: {e}");
+                return;
+            }
+        };
+        match parse_ipptool_output(&out) {
+            Some(state) => assert_eq!(state, super::super::OsJobState::Gone, "{out}"),
+            None => eprintln!("SKIPPED: no scheduler answered: {out}"),
+        }
     }
 
     /// Real-spooler check against the `Maecly_Hold` queue, which holds every
