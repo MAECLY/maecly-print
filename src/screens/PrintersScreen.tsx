@@ -714,6 +714,9 @@ export function PrintersScreen() {
               <button
                 key={p.id}
                 onClick={() => setSelectedId(p.id)}
+                // NFR-045: the row on show in the detail pane is not signalled
+                // by its background alone.
+                {...(active ? { 'aria-current': true } : {})}
                 className="mp-focus"
                 style={{
                   width: '100%',
@@ -2130,6 +2133,7 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
       <ModalField label={t('ip.host')}>
         <MPInput
           fullWidth
+          aria-label={t('ip.host')}
           value={host}
           onChange={(e) => setHost(e.target.value)}
           placeholder={t('ip.hostPlaceholder')}
@@ -2151,6 +2155,7 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
           <MPInput
             fullWidth
             type="number"
+            aria-label={t('ip.port')}
             value={port}
             onChange={(e) => setPort(e.target.value)}
             error={!portOk}
@@ -2189,6 +2194,7 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
         <MPInput
           fullWidth
           mono
+          aria-label={t('ip.queuePath')}
           value={queuePath}
           onChange={(e) => setQueuePath(e.target.value)}
           placeholder={
@@ -2200,6 +2206,7 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
       <ModalField label={t('ip.displayName')}>
         <MPInput
           fullWidth
+          aria-label={t('ip.displayName')}
           value={effectiveName}
           onChange={(e) => {
             setNameEdited(true);

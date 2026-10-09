@@ -406,6 +406,27 @@ describe('PrintersScreen', () => {
     expect(trigger).toHaveFocus();
   });
 
+  it('NFR-043/NFR-045: names the by-IP fields and marks the selected printer', async () => {
+    mockPrinters({ discovered: [] });
+    renderScreen(false);
+    await screen.findByText(/2 configured/);
+
+    expect(
+      screen
+        .getAllByRole('button')
+        .filter((b) => b.hasAttribute('aria-current')),
+    ).toHaveLength(1);
+
+    fireEvent.click(screen.getByText('Add printer'));
+    fireEvent.click(await screen.findByRole('tab', { name: /ip/i }));
+    for (const name of [/host/i, /queue/i, /name/i]) {
+      expect(screen.getByRole('textbox', { name })).toBeInTheDocument();
+    }
+    expect(
+      screen.getByRole('spinbutton', { name: /port/i }),
+    ).toBeInTheDocument();
+  });
+
   it('FR-044: discovers network printers in the add-printer modal', async () => {
     mockPrinters();
     renderScreen(false);
