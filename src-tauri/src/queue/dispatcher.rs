@@ -3736,7 +3736,7 @@ mod tests {
         let mut h = harness_with_print_timeout(10);
         spool_with_ids(&h, 1);
         h.tracker
-            .script(std::iter::repeat(Ok(OsJobState::Held)).take(50));
+            .script(std::iter::repeat_n(Ok(OsJobState::Held), 50));
         let j = make_job("a.pdf");
         let id = j.id.clone();
         h.submit(vec![j]);
@@ -3764,7 +3764,7 @@ mod tests {
         let mut h = harness(); // print_timeout: None
         spool_with_ids(&h, 1);
         h.tracker
-            .script(std::iter::repeat(Ok(OsJobState::Stopped)).take(20));
+            .script(std::iter::repeat_n(Ok(OsJobState::Stopped), 20));
         let j = make_job("a.pdf");
         let id = j.id.clone();
         h.submit(vec![j]);
