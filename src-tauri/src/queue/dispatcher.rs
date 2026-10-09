@@ -2783,13 +2783,20 @@ mod tests {
     }
 
     impl LogCapture {
-        /// Whether a record with this `event` name has been seen yet.
-        fn has(&self, event: &str) -> bool {
-            self.events
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|e| e.get("event").map(String::as_str) == Some(event))
+        /// A capture to install with `with_default`.
+        ///
+        /// `tracing` caches each callsite's interest process-wide. A callsite
+        /// first hit by a parallel test thread with no subscriber installed can
+        /// be cached as `never`, and then this thread's scoped subscriber never
+        /// sees the record. Installing an always-interested global registry once
+        /// keeps every callsite live. A drain loop does not fix that: the
+        /// harness spawner is inline, so nothing is ever left parked.
+        fn install() -> Self {
+            static GLOBAL: std::sync::Once = std::sync::Once::new();
+            GLOBAL.call_once(|| {
+                let _ = tracing::subscriber::set_global_default(tracing_subscriber::registry());
+            });
+            Self::default()
         }
 
         /// The fields of the first record with this `event` name.
@@ -2833,7 +2840,7 @@ mod tests {
     async fn fr_035_job_records_carry_start_end_file_profile_printer_pages_status() {
         use tracing_subscriber::layer::SubscriberExt;
 
-        let capture = LogCapture::default();
+        let capture = LogCapture::install();
         let subscriber = tracing_subscriber::registry().with(capture.clone());
 
         let mut h = harness();
@@ -2895,7 +2902,7 @@ mod tests {
     async fn fr_035_failure_record_carries_the_error_and_the_job_context() {
         use tracing_subscriber::layer::SubscriberExt;
 
-        let capture = LogCapture::default();
+        let capture = LogCapture::install();
         let subscriber = tracing_subscriber::registry().with(capture.clone());
 
         let mut h = harness_with_print_timeout(60);
@@ -2911,17 +2918,6 @@ mod tests {
         tracing::subscriber::with_default(subscriber, || {
             h.submit(vec![j]);
             h.run_to_idle();
-            // `with_default` is thread-local, so a record emitted by a task the
-            // first drain left parked would be written with no subscriber
-            // installed and lost. Draining until it lands keeps the whole
-            // sequence inside the closure; this test failed roughly one run in
-            // eight without it.
-            for _ in 0..10 {
-                if capture.has("job_print_timeout") {
-                    break;
-                }
-                h.run_to_idle();
-            }
         });
 
         let rec = capture.record("job_print_timeout");
