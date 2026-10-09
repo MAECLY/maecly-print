@@ -127,16 +127,28 @@ pub fn build(locale: &str, profiles: &[Profile]) -> ShellMenuCache {
 
 /// Write `cache` into `dir` atomically (temp file + rename), so Explorer never
 /// reads half a file.
+///
+/// The temp file has a **unique** name. The GUI (startup, profile and settings
+/// commands) and the CLI (`profiles …`) refresh the cache from separate
+/// processes, and with one fixed `shell-menu.json.tmp` a second writer's
+/// truncate-and-write could land in the file the first was renaming, leaving
+/// a mixed JSON document the shell extension rejects (English labels, no
+/// profiles). Each writer now renames only its own complete file; the last
+/// rename wins.
 pub fn write_to(dir: &Path, cache: &ShellMenuCache) -> io::Result<PathBuf> {
+    use std::io::Write as _;
     std::fs::create_dir_all(dir)?;
     let path = dir.join(CACHE_FILE);
-    let tmp = dir.join(format!("{CACHE_FILE}.tmp"));
     let bytes = serde_json::to_vec_pretty(cache).map_err(io::Error::other)?;
-    std::fs::write(&tmp, bytes)?;
-    if let Err(e) = std::fs::rename(&tmp, &path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e);
-    }
+    let mut tmp = tempfile::Builder::new()
+        .prefix(&format!("{CACHE_FILE}."))
+        .suffix(".tmp")
+        .tempfile_in(dir)?;
+    tmp.write_all(&bytes)?;
+    tmp.flush()?;
+    // `persist` replaces an existing cache file on every platform; on failure
+    // the temp file is removed when `tmp` drops.
+    tmp.persist(&path).map_err(|e| e.error)?;
     Ok(path)
 }
 
@@ -260,5 +272,40 @@ mod tests {
             builtins.len().min(MAX_MENU_PROFILES)
         );
         assert_eq!(v["profiles"][0]["id"], builtins[0].id.as_str());
+    }
+
+    /// GUI and CLI refresh the cache concurrently: every write must leave a
+    /// complete, parseable file (never a mix of two writers), and no temp file.
+    #[test]
+    fn fr_027_concurrent_writers_never_leave_a_mixed_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let caches: Vec<ShellMenuCache> = (1..=6)
+            .map(|n| build(if n % 2 == 0 { "es" } else { "en" }, &profiles(n)))
+            .collect();
+        std::thread::scope(|scope| {
+            for cache in &caches {
+                let dir = dir.path();
+                scope.spawn(move || {
+                    for _ in 0..40 {
+                        // On Windows a replace can lose a race to another
+                        // writer's rename; the next attempt wins.
+                        let _ = write_to(dir, cache);
+                    }
+                });
+            }
+        });
+        let text = std::fs::read_to_string(dir.path().join(CACHE_FILE)).unwrap();
+        let written: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
+        let profile_count = written["profiles"].as_array().unwrap().len();
+        assert!(
+            caches.iter().any(|c| c.profiles.len() == profile_count),
+            "the file is one writer's whole document"
+        );
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name() != CACHE_FILE)
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
     }
 }
