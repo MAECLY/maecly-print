@@ -201,19 +201,12 @@ where
     match classify(&tail) {
         Intent::Gui => {
             // At launch the working directory *is* the caller's, so a relative
-            // path typed in a terminal can be anchored here (and only here).
+            // path typed in a terminal can be anchored here. A launch forwarded
+            // to an already running instance is anchored there instead, against
+            // the cwd the single-instance plugin reports for it.
             let cwd = std::env::current_dir().ok();
-            let anchored: Vec<String> = tail
-                .iter()
-                .map(|a| match &cwd {
-                    Some(cwd) if !a.starts_with('-') && Path::new(a).is_relative() => {
-                        cwd.join(a).to_string_lossy().into_owned()
-                    }
-                    _ => a.clone(),
-                })
-                .collect();
             Startup::Gui {
-                selection: open_with_selection(&anchored),
+                selection: open_with_selection(&anchor_relative(&tail, cwd.as_deref())),
                 handoff: None,
             }
         }
@@ -269,16 +262,31 @@ where
     }
 }
 
+/// Make every relative, non-flag argument absolute against `cwd` (the
+/// launching process' working directory). Without a `cwd` the arguments are
+/// returned as they are, and [`open_with_selection`] drops the relative ones.
+pub fn anchor_relative<S: AsRef<str>>(args: &[S], cwd: Option<&Path>) -> Vec<String> {
+    args.iter()
+        .map(AsRef::as_ref)
+        .map(|a| match cwd {
+            Some(cwd) if !a.starts_with('-') && Path::new(a).is_relative() => {
+                cwd.join(a).to_string_lossy().into_owned()
+            }
+            _ => a.to_string(),
+        })
+        .collect()
+}
+
 /// The selection an "open with" launch carries (`maeclyprint C:\docs\a.pdf`,
 /// or a file dropped on the executable): every non-flag argument that resolves
 /// to an existing absolute path, as a `configure` selection — the app opens on
 /// the Print Job screen with the files loaded, and nothing prints by itself.
 ///
 /// Paths go through [`crate::util::paths::canonical_input`] (NFR-025), which
-/// refuses relative ones: a forwarded argv is interpreted by a *different*
-/// process with a different working directory, so a relative path could only
-/// ever be resolved against the wrong folder. The shells that perform an
-/// "open with" always pass absolute paths. `None` when nothing qualifies (a
+/// refuses relative ones: callers anchor them first with [`anchor_relative`]
+/// against the *launching* process' working directory — its own at startup,
+/// the one the single-instance plugin reports for a forwarded launch — never
+/// against the folder of whichever process happens to interpret them. `None` when nothing qualifies (a
 /// plain launch, macOS' `-psn_…` noise).
 pub fn open_with_selection<S: AsRef<str>>(args: &[S]) -> Option<Selection> {
     let paths: Vec<String> = args

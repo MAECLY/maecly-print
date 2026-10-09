@@ -42,19 +42,25 @@ pub struct Forwarded {
     pub handoff: Option<PathBuf>,
 }
 
-/// Interpret the argv a second launch forwarded.
-pub fn interpret<S: AsRef<str>>(argv: &[S]) -> Option<Forwarded> {
-    interpret_at(&handoff::handoff_dir(), argv)
+/// Interpret the argv a second launch forwarded from its working directory
+/// `cwd` (as the single-instance plugin reports it).
+pub fn interpret<S: AsRef<str>>(argv: &[S], cwd: &str) -> Option<Forwarded> {
+    interpret_at(&handoff::handoff_dir(), argv, cwd)
 }
 
 /// Interpret the argv a second launch forwarded, resolving its handoff file
 /// against `dir` (injected so the seam is testable against a tempdir).
 ///
+/// Relative "open with" paths are anchored against `cwd`, the *launching*
+/// process' working directory: `cd C:\docs && maeclyprint-cli report.pdf`
+/// while the app runs must open `C:\docs\report.pdf`, not drop it because this
+/// process sits in another folder. An empty `cwd` anchors nothing.
+///
 /// Returns the selection to merge into the running instance, or `None` when the
 /// launch carried nothing usable (a plain re-launch, a malformed command line,
 /// a stale or foreign handoff file). `None` is not an error: the running window
 /// is still raised, which is what the user asked for by launching the app.
-pub fn interpret_at<S: AsRef<str>>(dir: &Path, argv: &[S]) -> Option<Forwarded> {
+pub fn interpret_at<S: AsRef<str>>(dir: &Path, argv: &[S], cwd: &str) -> Option<Forwarded> {
     let argv: Vec<String> = argv.iter().map(|a| a.as_ref().to_string()).collect();
 
     // A context-menu invocation carries a selection in its handoff file; an
@@ -63,11 +69,16 @@ pub fn interpret_at<S: AsRef<str>>(dir: &Path, argv: &[S]) -> Option<Forwarded> 
     // is already running is not silently dropped); anything else is a plain
     // re-launch. Classifying first keeps a stray `--help` in a forwarded argv
     // from being answered by a running GUI.
-    let tail = argv.get(1..).unwrap_or_default();
-    match super::classify(tail) {
+    //
+    // Relative paths are anchored *before* classifying: `classify` asks
+    // whether a bare argument exists, and asked from this process' folder a
+    // caller-relative `report.pdf` would not, and would read as a typo.
+    let cwd = (!cwd.is_empty()).then(|| Path::new(cwd));
+    let tail = super::anchor_relative(argv.get(1..).unwrap_or_default(), cwd);
+    match super::classify(&tail) {
         super::Intent::ContextMenu => {}
         super::Intent::Gui => {
-            return super::open_with_selection(tail).map(|selection| Forwarded {
+            return super::open_with_selection(&tail).map(|selection| Forwarded {
                 selection,
                 handoff: None,
             });
@@ -139,7 +150,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let handoff = write_handoff(dir.path(), "sel.json");
 
-        let forwarded = interpret_at(dir.path(), &context_menu_argv(&handoff))
+        let forwarded = interpret_at(dir.path(), &context_menu_argv(&handoff), "")
             .expect("a fresh, contained, well-formed payload is honoured");
         assert_eq!(forwarded.selection.paths, vec!["/tmp/a.pdf", "/tmp/b.pdf"]);
         assert_eq!(
@@ -168,29 +179,30 @@ mod tests {
         let handoff = write_handoff(dir.path(), "sel.json");
         let argv = context_menu_argv(&handoff);
 
-        let first = interpret_at(dir.path(), &argv).expect("the launching process reads it");
+        let first = interpret_at(dir.path(), &argv, "").expect("the launching process reads it");
         assert!(
             handoff.exists(),
             "reading must leave the file for the forward"
         );
 
-        let second = interpret_at(dir.path(), &argv).expect("the running instance reads it too");
+        let second =
+            interpret_at(dir.path(), &argv, "").expect("the running instance reads it too");
         assert_eq!(first.selection, second.selection);
 
         // The instance that parked the selection is the one that deletes it,
         // and only then does the argv stop resolving.
         crate::cli::handoff::discard(second.handoff.as_ref().unwrap());
         assert!(!handoff.exists());
-        assert!(interpret_at(dir.path(), &argv).is_none());
+        assert!(interpret_at(dir.path(), &argv, "").is_none());
     }
 
     #[test]
     fn nfr_014_plain_relaunch_carries_no_selection() {
-        assert!(interpret(&["maeclyprint"]).is_none());
-        assert!(interpret(&["maeclyprint", "-psn_0_1234"]).is_none());
+        assert!(interpret(&["maeclyprint"], "").is_none());
+        assert!(interpret(&["maeclyprint", "-psn_0_1234"], "").is_none());
         // A subcommand can never reach this path (headless never builds an
         // app), and if one somehow did we must not act on it.
-        assert!(interpret(&["maeclyprint", "print", "--files", "a.pdf"]).is_none());
+        assert!(interpret(&["maeclyprint", "print", "--files", "a.pdf"], "").is_none());
     }
 
     /// A file opened "with" MaeclyPrint while it is already running reaches
@@ -207,6 +219,7 @@ mod tests {
                 "maeclyprint".to_string(),
                 file.to_string_lossy().into_owned(),
             ],
+            "",
         )
         .expect("an absolute, existing path is honoured");
         assert_eq!(
@@ -225,7 +238,7 @@ mod tests {
 
     #[test]
     fn nfr_014_context_menu_without_a_handoff_is_rejected() {
-        assert!(interpret(&["maeclyprint", "--invoke=context-menu"]).is_none());
+        assert!(interpret(&["maeclyprint", "--invoke=context-menu"], "").is_none());
     }
 
     #[test]
@@ -250,7 +263,31 @@ mod tests {
             "--files-from".to_string(),
             path.to_string_lossy().into_owned(),
         ];
-        assert!(interpret(&argv).is_none());
+        assert!(interpret(&argv, "").is_none());
         assert!(path.exists(), "a refused payload is not consumed");
+    }
+
+    /// FR-008: `cd C:\docs && maeclyprint-cli report.pdf` while the app is
+    /// open forwards a *relative* path. It is resolved against the launching
+    /// terminal's folder, which the plugin reports, not dropped.
+    #[test]
+    fn fr_008_a_forwarded_relative_path_is_anchored_at_the_callers_cwd() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("report.pdf"), b"%PDF-1.4\n").unwrap();
+        let argv = ["maeclyprint".to_string(), "report.pdf".to_string()];
+
+        let forwarded = interpret_at(dir.path(), &argv, &dir.path().to_string_lossy())
+            .expect("the relative path resolves against the caller's folder");
+        assert_eq!(
+            forwarded.selection.paths,
+            vec![crate::util::paths::canonical_input(
+                &dir.path().join("report.pdf").to_string_lossy()
+            )
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()]
+        );
+        // Without the caller's folder a relative path is still never guessed.
+        assert!(interpret_at(dir.path(), &argv, "").is_none());
     }
 }

@@ -81,35 +81,33 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
     let forwarded_into = pending.clone();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(
-            move |app, argv, _cwd| {
-                // A second launch already exited by the time this runs; all we get
-                // is its argv. Interpreting it is a pure function of the argv and
-                // the handoff file it names (see `cli::single_instance`), so the
-                // only work here is delivery.
-                if let Some(forwarded) = cli::single_instance::interpret(&argv) {
-                    use tauri_specta::Event;
-                    let cli::single_instance::Forwarded { selection, handoff } = forwarded;
-                    forwarded_into.push(selection.clone());
-                    // The selection lives in this process now, so the file it
-                    // travelled in has done its job. Deleting it *here* rather than
-                    // in the launching process is what lets the same payload be
-                    // read twice (NFR-014).
-                    if let Some(handoff) = &handoff {
-                        cli::handoff::discard(handoff);
-                    }
-                    // Before `setup` there is no window to ring: the selection
-                    // simply waits for the first drain.
-                    if let Err(e) = cli::pending::SelectionForwarded(selection).emit(app) {
-                        tracing::warn!(event = "selection_forwarded_emit_failed", error = %e);
-                    }
+        .plugin(tauri_plugin_single_instance::init(move |app, argv, cwd| {
+            // A second launch already exited by the time this runs; all we get
+            // is its argv and working directory. Interpreting them is a pure
+            // function of the two and the handoff file the argv names (see
+            // `cli::single_instance`), so the only work here is delivery.
+            if let Some(forwarded) = cli::single_instance::interpret(&argv, &cwd) {
+                use tauri_specta::Event;
+                let cli::single_instance::Forwarded { selection, handoff } = forwarded;
+                forwarded_into.push(selection.clone());
+                // The selection lives in this process now, so the file it
+                // travelled in has done its job. Deleting it *here* rather than
+                // in the launching process is what lets the same payload be
+                // read twice (NFR-014).
+                if let Some(handoff) = &handoff {
+                    cli::handoff::discard(handoff);
                 }
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
+                // Before `setup` there is no window to ring: the selection
+                // simply waits for the first drain.
+                if let Err(e) = cli::pending::SelectionForwarded(selection).emit(app) {
+                    tracing::warn!(event = "selection_forwarded_emit_failed", error = %e);
                 }
-            },
-        ))
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         // FR-072: native notifications. Driven Rust-side only

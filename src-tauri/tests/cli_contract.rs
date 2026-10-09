@@ -675,15 +675,18 @@ fn nfr_014_argv_classification_decides_the_mode() {
 fn nfr_014_a_forwarded_launch_without_a_selection_is_just_a_focus_request() {
     // These are the argvs a second launch realistically carries. None of them
     // may make the running instance print anything.
-    assert!(single_instance::interpret(&["maeclyprint"]).is_none());
-    assert!(single_instance::interpret(&["maeclyprint", "-psn_0_99"]).is_none());
-    assert!(single_instance::interpret(&["maeclyprint", "--invoke=context-menu"]).is_none());
-    assert!(single_instance::interpret(&[
-        "maeclyprint",
-        "--invoke=context-menu",
-        "--files-from",
-        "/no/such/sel.json"
-    ])
+    assert!(single_instance::interpret(&["maeclyprint"], "").is_none());
+    assert!(single_instance::interpret(&["maeclyprint", "-psn_0_99"], "").is_none());
+    assert!(single_instance::interpret(&["maeclyprint", "--invoke=context-menu"], "").is_none());
+    assert!(single_instance::interpret(
+        &[
+            "maeclyprint",
+            "--invoke=context-menu",
+            "--files-from",
+            "/no/such/sel.json"
+        ],
+        ""
+    )
     .is_none());
 }
 
@@ -718,7 +721,7 @@ fn nfr_014_a_forwarded_context_menu_launch_delivers_its_selection() {
 
     // 1. The launching process reads it — and leaves it alone, because it does
     //    not yet know whether it will be the one showing the window.
-    let launching = single_instance::interpret_at(dir.path(), &argv)
+    let launching = single_instance::interpret_at(dir.path(), &argv, "")
         .expect("a fresh, contained, well-formed payload is a selection");
     assert_eq!(launching.selection.paths.len(), 2);
     assert_eq!(launching.selection.action, ContextAction::PrintDefault);
@@ -726,7 +729,7 @@ fn nfr_014_a_forwarded_context_menu_launch_delivers_its_selection() {
 
     // 2. The single-instance plugin forwards the same argv to the running
     //    instance, which reads it again and gets the same selection.
-    let running = single_instance::interpret_at(dir.path(), &argv)
+    let running = single_instance::interpret_at(dir.path(), &argv, "")
         .expect("the forwarded argv still resolves");
     assert_eq!(running.selection, launching.selection);
     assert_eq!(running.handoff.as_deref(), Some(file.as_path()));
@@ -739,7 +742,7 @@ fn nfr_014_a_forwarded_context_menu_launch_delivers_its_selection() {
         "a delivered selection leaves no payload behind"
     );
     assert!(
-        single_instance::interpret_at(dir.path(), &argv).is_none(),
+        single_instance::interpret_at(dir.path(), &argv, "").is_none(),
         "and the same launch cannot be replayed"
     );
 }
@@ -749,13 +752,16 @@ fn nfr_014_a_forwarded_headless_argv_is_never_acted_on() {
     // A headless run never builds a Tauri app, so it never reaches the
     // single-instance callback; if a malformed launch ever did, the running
     // instance must not execute it.
-    assert!(single_instance::interpret(&[
-        "maeclyprint",
-        "print",
-        "--files",
-        "/tmp/a.pdf",
-        "--copies",
-        "999"
-    ])
+    assert!(single_instance::interpret(
+        &[
+            "maeclyprint",
+            "print",
+            "--files",
+            "/tmp/a.pdf",
+            "--copies",
+            "999"
+        ],
+        ""
+    )
     .is_none());
 }
