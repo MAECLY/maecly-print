@@ -133,17 +133,45 @@ pub fn lp_args(printer: &str, pdf: &Path, settings: &JobSettings, title: &str) -
     args
 }
 
-/// Parse `lp`'s success line — `request id is <dest>-<num> (1 file(s))` — into
-/// the `<dest>-<num>` job id. `<dest>` may itself contain `-`, so we take the
-/// whole token up to the first space after the marker.
-pub fn parse_request_id(stdout: &str) -> Option<String> {
+/// Parse `lp`'s success line into the `<dest>-<num>` request id.
+///
+/// In English the line is `request id is <dest>-<num> (1 file(s))`, but
+/// macOS localizes it from the user's language list whatever `LC_ALL` says
+/// (`el id de la petición es Maecly_Hold-1537 (1 archivos)` on a Spanish
+/// Mac), so the marker cannot be relied on. The id itself is not localized:
+/// it is `<dest>-<digits>`, and `dest` is the queue we just spooled to. So the
+/// English marker is tried first, then a token naming `printer`, then any
+/// `<name>-<digits>` token. `<dest>` may itself contain `-`, which is why the
+/// number is only ever the last segment.
+pub fn parse_request_id(stdout: &str, printer: &str) -> Option<String> {
     const MARKER: &str = "request id is ";
-    let start = stdout.find(MARKER)? + MARKER.len();
-    stdout[start..]
+    if let Some(start) = stdout.find(MARKER) {
+        if let Some(tok) = stdout[start + MARKER.len()..].split_whitespace().next() {
+            if is_request_id(tok) {
+                return Some(tok.to_string());
+            }
+        }
+    }
+    let tokens: Vec<&str> = stdout
         .split_whitespace()
-        .next()
-        .map(str::to_string)
-        .filter(|s| !s.is_empty())
+        .map(|t| t.trim_matches(|c: char| matches!(c, '(' | ')' | ',' | '.' | ':' | ';' | '"')))
+        .collect();
+    let named = format!("{printer}-");
+    tokens
+        .iter()
+        .find(|t| t.starts_with(&named) && is_request_id(t))
+        .or_else(|| tokens.iter().find(|t| is_request_id(t)))
+        .map(|t| t.to_string())
+}
+
+/// `<non-empty name>-<digits>`, the shape of every CUPS request id.
+fn is_request_id(token: &str) -> bool {
+    match token.rsplit_once('-') {
+        Some((dest, num)) => {
+            !dest.is_empty() && !num.is_empty() && num.chars().all(|c| c.is_ascii_digit())
+        }
+        None => false,
+    }
 }
 
 /// IPP `print-quality` enum value (RFC 8011: 3 draft, 4 normal, 5 high), as
@@ -226,7 +254,7 @@ pub fn spool(
 
     if status.success() {
         Ok(super::SpoolOutcome {
-            os_job_id: parse_request_id(&stdout),
+            os_job_id: parse_request_id(&stdout, printer),
         })
     } else {
         let msg = stderr.trim();
@@ -413,14 +441,43 @@ mod tests {
     #[test]
     fn parse_request_id_handles_hyphenated_dests() {
         assert_eq!(
-            parse_request_id("request id is Office-42 (1 file(s))"),
+            parse_request_id("request id is Office-42 (1 file(s))", "Office"),
             Some("Office-42".to_string())
         );
         assert_eq!(
-            parse_request_id("request id is EPSON_L15160_Series-7 (1 file(s))"),
+            parse_request_id(
+                "request id is EPSON_L15160_Series-7 (1 file(s))",
+                "EPSON_L15160_Series"
+            ),
             Some("EPSON_L15160_Series-7".to_string())
         );
-        assert_eq!(parse_request_id("no request id present"), None);
-        assert_eq!(parse_request_id(""), None);
+        assert_eq!(parse_request_id("no request id present", "Office"), None);
+        assert_eq!(parse_request_id("", "Office"), None);
+    }
+
+    /// macOS localizes `lp`'s line from the user's language list even under
+    /// `LC_ALL=C` — captured verbatim on a Spanish Mac. Without this the job id
+    /// was lost, so the job could neither be tracked nor cancelled.
+    #[test]
+    fn parse_request_id_survives_a_localized_lp() {
+        assert_eq!(
+            parse_request_id(
+                "el id de la petición es Maecly_Hold-1537 (1 archivos)",
+                "Maecly_Hold"
+            ),
+            Some("Maecly_Hold-1537".to_string())
+        );
+        assert_eq!(
+            parse_request_id(
+                "l'identifiant de requête est Front-Desk-9 (1 fichier(s))",
+                "Front-Desk"
+            ),
+            Some("Front-Desk-9".to_string())
+        );
+        // A number elsewhere on the line is not mistaken for the id.
+        assert_eq!(
+            parse_request_id("ID 2024 de solicitud: Office-3 (1 archivos)", "Office"),
+            Some("Office-3".to_string())
+        );
     }
 }
