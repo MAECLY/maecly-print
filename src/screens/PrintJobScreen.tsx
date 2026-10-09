@@ -37,7 +37,7 @@ import {
   printBlocker,
   type PrintJobOverrides,
 } from '@/lib/profiles';
-import { fmtKb } from '@/lib/format';
+import { distinguishingFolders, fmtKb } from '@/lib/format';
 import { PRINTABLE_EXTENSIONS } from '@/lib/formats';
 import {
   fetchAppInfo,
@@ -412,6 +412,9 @@ export function PrintJobScreen({
       copiesDraft,
     ) === null;
 
+  // Same-named files from different folders get a folder hint each.
+  const folderHints = distinguishingFolders(files.map((f) => f.path));
+
   // NFR-041: keyboard focus must survive list edits. A moved row's DOM node
   // can be re-inserted (which blurs it), and a removed row takes its focused
   // button with it, so after each edit we put focus back explicitly.
@@ -652,105 +655,136 @@ export function PrintJobScreen({
               tabIndex={-1}
               style={{ outline: 'none' }}
             >
-              {files.map((f, i) => (
-                // A focusable list item carrying its own arrow-key handler is
-                // the standard reorderable-list pattern: the row is the thing
-                // being moved, so it is the thing that must hold focus. The
-                // rule only knows that `listitem` is not natively interactive.
-                /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */
-                <div
-                  key={f.id}
-                  ref={(el) => {
-                    if (el) rowRefs.current.set(f.id, el);
-                    else rowRefs.current.delete(f.id);
-                  }}
-                  role="listitem"
-                  // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-                  tabIndex={0}
-                  aria-label={t('list.row', {
-                    position: i + 1,
-                    total: files.length,
-                    name: `${f.name}.${f.ext}`,
-                  })}
-                  onKeyDown={(e) => onRowKeyDown(e, f.id)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: density === 'compact' ? '6px 12px' : '10px 12px',
-                    borderBottom:
-                      i < files.length - 1
-                        ? '1px solid var(--mp-border)'
-                        : 'none',
-                  }}
-                >
-                  <span
-                    className="mp-mono"
+              {files.map((f, i) => {
+                const folder = folderHints.get(f.path);
+                return (
+                  // A focusable list item carrying its own arrow-key handler is
+                  // the standard reorderable-list pattern: the row is the thing
+                  // being moved, so it is the thing that must hold focus. The
+                  // rule only knows that `listitem` is not natively interactive.
+                  /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */
+                  <div
+                    key={f.id}
+                    ref={(el) => {
+                      if (el) rowRefs.current.set(f.id, el);
+                      else rowRefs.current.delete(f.id);
+                    }}
+                    role="listitem"
+                    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+                    tabIndex={0}
+                    aria-label={t('list.row', {
+                      position: i + 1,
+                      total: files.length,
+                      name: `${f.name}.${f.ext}`,
+                    })}
+                    onKeyDown={(e) => onRowKeyDown(e, f.id)}
                     style={{
-                      fontSize: 10.5,
-                      color: 'var(--mp-textDim)',
-                      width: 18,
-                      textAlign: 'right',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: density === 'compact' ? '6px 12px' : '10px 12px',
+                      borderBottom:
+                        i < files.length - 1
+                          ? '1px solid var(--mp-border)'
+                          : 'none',
                     }}
                   >
-                    {(i + 1).toString().padStart(2, '0')}
-                  </span>
-                  <FileGlyph
-                    ext={f.ext}
-                    size={density === 'compact' ? 18 : 24}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
+                    <span
+                      className="mp-mono"
                       style={{
-                        fontSize: 12.5,
-                        fontWeight: 500,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
+                        fontSize: 10.5,
+                        color: 'var(--mp-textDim)',
+                        width: 18,
+                        textAlign: 'right',
                       }}
                     >
-                      {f.name}.{f.ext}
-                    </div>
-                    {density !== 'compact' && (
+                      {(i + 1).toString().padStart(2, '0')}
+                    </span>
+                    <FileGlyph
+                      ext={f.ext}
+                      size={density === 'compact' ? 18 : 24}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div
-                        className="mp-mono"
+                        title={f.path}
                         style={{
-                          fontSize: 10.5,
-                          color: 'var(--mp-textDim)',
-                          marginTop: 1,
+                          display: 'flex',
+                          alignItems: 'baseline',
+                          gap: 6,
+                          minWidth: 0,
+                          fontSize: 12.5,
+                          whiteSpace: 'nowrap',
                         }}
                       >
-                        {f.pages
-                          ? t('units.page', { count: f.pages })
-                          : isImage(f.ext)
-                            ? t('list.image')
-                            : t('list.pagesUnknown')}{' '}
-                        · {fmtKb(f.kb)}
+                        <span
+                          style={{
+                            fontWeight: 500,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            minWidth: 0,
+                          }}
+                        >
+                          {f.name}.{f.ext}
+                        </span>
+                        {/* Two files with the same name: say which folder each
+                          one is in, so they can be told apart. */}
+                        {folder && (
+                          <span
+                            className="mp-mono"
+                            style={{
+                              fontSize: 10.5,
+                              color: 'var(--mp-textDim)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              flexShrink: 2,
+                              minWidth: 40,
+                            }}
+                          >
+                            {t('list.inFolder', { folder })}
+                          </span>
+                        )}
                       </div>
-                    )}
+                      {density !== 'compact' && (
+                        <div
+                          className="mp-mono"
+                          style={{
+                            fontSize: 10.5,
+                            color: 'var(--mp-textDim)',
+                            marginTop: 1,
+                          }}
+                        >
+                          {f.pages
+                            ? t('units.page', { count: f.pages })
+                            : isImage(f.ext)
+                              ? t('list.image')
+                              : t('list.pagesUnknown')}{' '}
+                          · {fmtKb(f.kb)}
+                        </div>
+                      )}
+                    </div>
+                    <MPIconButton
+                      icon="chevu"
+                      size={22}
+                      label={t('list.moveUp', { name: `${f.name}.${f.ext}` })}
+                      disabled={i === 0}
+                      onClick={() => move(f.id, -1)}
+                    />
+                    <MPIconButton
+                      icon="chevd"
+                      size={22}
+                      label={t('list.moveDown', { name: `${f.name}.${f.ext}` })}
+                      disabled={i === files.length - 1}
+                      onClick={() => move(f.id, 1)}
+                    />
+                    <MPIconButton
+                      icon="x"
+                      size={22}
+                      label={t('list.remove', { name: `${f.name}.${f.ext}` })}
+                      onClick={() => remove(f.id)}
+                    />
                   </div>
-                  <MPIconButton
-                    icon="chevu"
-                    size={22}
-                    label={t('list.moveUp', { name: `${f.name}.${f.ext}` })}
-                    disabled={i === 0}
-                    onClick={() => move(f.id, -1)}
-                  />
-                  <MPIconButton
-                    icon="chevd"
-                    size={22}
-                    label={t('list.moveDown', { name: `${f.name}.${f.ext}` })}
-                    disabled={i === files.length - 1}
-                    onClick={() => move(f.id, 1)}
-                  />
-                  <MPIconButton
-                    icon="x"
-                    size={22}
-                    label={t('list.remove', { name: `${f.name}.${f.ext}` })}
-                    onClick={() => remove(f.id)}
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
             {files.length === 0 && (
               <div

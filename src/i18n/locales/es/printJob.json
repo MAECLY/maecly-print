@@ -24,6 +24,7 @@
     "moveDown": "Bajar {{name}}",
     "remove": "Quitar {{name}}",
     "image": "imagen",
+    "inFolder": "en {{folder}}",
     "pagesUnknown": "páginas desconocidas",
     "reorderKeysMac": "⌥ ↑↓",
     "reorderKeysSpoken": "Alt + flecha arriba o abajo",

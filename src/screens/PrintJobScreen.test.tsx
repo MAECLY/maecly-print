@@ -953,6 +953,25 @@ describe('PrintJobScreen', () => {
     }
   });
 
+  it('FR-007: same-named files say which folder each is in; every name has its path', () => {
+    mockJob();
+    render(
+      <Harness
+        initial={[
+          uiFile('/Users/e2e/a/inv-001.pdf'),
+          uiFile('/Users/e2e/Documents/Invoices/inv-001.pdf'),
+          uiFile('/Users/e2e/unique.pdf'),
+        ]}
+      />,
+    );
+    expect(screen.getByText('in a')).toBeInTheDocument();
+    expect(screen.getByText('in Invoices')).toBeInTheDocument();
+    expect(screen.queryByText(/in e2e/)).toBeNull();
+    expect(screen.getByTitle('/Users/e2e/unique.pdf')).toHaveTextContent(
+      'unique.pdf',
+    );
+  });
+
   it('removes a file from the batch', async () => {
     mockJob();
     render(

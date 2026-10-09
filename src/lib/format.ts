@@ -105,3 +105,43 @@ export function cliPrintCommand({
 export function pluralize(n: number, singular: string, plural?: string) {
   return n === 1 ? singular : (plural ?? `${singular}s`);
 }
+
+/** Split a path into its directory segments (both `/` and `\` separators). */
+function parentSegments(path: string): string[] {
+  const parts = path.split(/[\\/]+/).filter((p) => p !== '');
+  parts.pop(); // the file itself
+  return parts;
+}
+
+/**
+ * For files whose names collide, the shortest tail of their parent folders
+ * that tells them apart (`Invoices`, `2025/Invoices`…); files with a unique
+ * name get no entry. Names compare case-insensitively, as on Windows and the
+ * default macOS volume. Keys are the input paths.
+ */
+export function distinguishingFolders(
+  paths: readonly string[],
+): Map<string, string> {
+  const byName = new Map<string, string[]>();
+  for (const p of paths) {
+    const name = (p.split(/[\\/]/).pop() ?? p).toLowerCase();
+    byName.set(name, [...(byName.get(name) ?? []), p]);
+  }
+  const out = new Map<string, string>();
+  for (const group of byName.values()) {
+    const unique = [...new Set(group)];
+    if (unique.length < 2) continue;
+    const segs = unique.map(parentSegments);
+    const longest = Math.max(...segs.map((s) => s.length), 1);
+    for (let depth = 1; depth <= longest; depth++) {
+      const tails = segs.map((s) => s.slice(-depth).join('/'));
+      const distinct =
+        new Set(tails.map((x) => x.toLowerCase())).size === tails.length;
+      if (distinct || depth === longest) {
+        unique.forEach((p, i) => out.set(p, tails[i] || '/'));
+        break;
+      }
+    }
+  }
+  return out;
+}

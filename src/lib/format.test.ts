@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { cliPrintCommand, formatFinished, quoteShellArg } from './format';
+import {
+  cliPrintCommand,
+  distinguishingFolders,
+  formatFinished,
+  quoteShellArg,
+} from './format';
 
 describe('formatFinished', () => {
   const now = new Date(2026, 6, 12, 18, 0, 0);
@@ -101,5 +106,29 @@ describe('cliPrintCommand', () => {
     expect(
       cliPrintCommand({ executable: null, os: undefined, profile: 'Quick' }),
     ).toBe("maeclyprint print --files '*.pdf' --profile Quick");
+  });
+});
+
+describe('distinguishingFolders', () => {
+  it('FR-007: names the folder only for files whose names collide', () => {
+    const out = distinguishingFolders([
+      '/Users/e2e/a/inv-001.pdf',
+      '/Users/e2e/Documents/Invoices/inv-001.pdf',
+      '/Users/e2e/Documents/unique.pdf',
+    ]);
+    expect(out.get('/Users/e2e/a/inv-001.pdf')).toBe('a');
+    expect(out.get('/Users/e2e/Documents/Invoices/inv-001.pdf')).toBe(
+      'Invoices',
+    );
+    expect(out.has('/Users/e2e/Documents/unique.pdf')).toBe(false);
+  });
+
+  it('FR-007: walks up until the folders differ, on either separator', () => {
+    const out = distinguishingFolders([
+      'C:\\2024\\Invoices\\INV.pdf',
+      'C:\\2025\\Invoices\\inv.pdf',
+    ]);
+    expect(out.get('C:\\2024\\Invoices\\INV.pdf')).toBe('2024/Invoices');
+    expect(out.get('C:\\2025\\Invoices\\inv.pdf')).toBe('2025/Invoices');
   });
 });

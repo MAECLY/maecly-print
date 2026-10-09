@@ -24,6 +24,7 @@
     "moveDown": "Move {{name}} down",
     "remove": "Remove {{name}}",
     "image": "image",
+    "inFolder": "in {{folder}}",
     "pagesUnknown": "pages unknown",
     "reorderKeysMac": "⌥ ↑↓",
     "reorderKeysSpoken": "Alt + Up or Down arrow",
