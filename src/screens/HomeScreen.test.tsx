@@ -272,8 +272,13 @@ describe('HomeScreen', () => {
       name: /show the details of Report-Broken\.pdf/i,
     });
     expect(row).toHaveAttribute('aria-expanded', 'false');
+    // NFR-044: the status is part of the row's accessible name.
+    expect(row).toHaveAccessibleName(/Report-Broken\.pdf \(Failed\)/);
     fireEvent.click(row);
     expect(row).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      document.getElementById(row.getAttribute('aria-controls') ?? ''),
+    ).toHaveTextContent(/Paper jam in Tray 2/);
     // The detail belongs to the clicked job, not to the first row.
     expect(screen.getByText(/Paper jam in Tray 2/)).toBeInTheDocument();
     // The other row stays collapsed.

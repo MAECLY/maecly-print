@@ -53,6 +53,7 @@ function CardButton({
   children: ReactNode;
   'aria-label'?: string;
   'aria-expanded'?: boolean;
+  'aria-controls'?: string;
 }) {
   const [hover, setHover] = useState(false);
   return (
@@ -251,16 +252,22 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
   } else {
     recentBody = recent.map((j, i, arr) => {
       const open = expanded === j.id;
+      const detailsId = `recent-details-${j.id}`;
+      // NFR-044/NFR-045: the label carries the status too — an aria-label
+      // replaces the row's visible text, so without it a screen reader could
+      // not tell a failed job from a printed one.
+      const status = tQueue(`status.${j.status}`);
       const border =
         i < arr.length - 1 || open ? '1px solid var(--mp-border)' : 'none';
       return (
         <div key={j.id}>
           <CardButton
             aria-expanded={open}
+            {...(open ? { 'aria-controls': detailsId } : {})}
             aria-label={
               open
-                ? t('recent.collapse', { file: j.file })
-                : t('recent.expand', { file: j.file })
+                ? t('recent.collapse', { file: j.file, status })
+                : t('recent.expand', { file: j.file, status })
             }
             onClick={() => setExpanded(open ? null : j.id)}
             style={{
@@ -315,6 +322,7 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
           </CardButton>
           {open && (
             <div
+              id={detailsId}
               style={{
                 padding: '10px 14px 12px 46px',
                 borderBottom: i < arr.length - 1 ? border : 'none',
