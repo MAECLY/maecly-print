@@ -539,7 +539,10 @@ Reasons currently emitted:
 | --- | --- | --- |
 | `UpdateCheckFailed` | `rate_limited`, `offline`, `bad_status` (`status`), `bad_response`, `repo_missing`, `not_configured` | `update::fetch_latest`, `ipc::update` |
 | `Internal` | `open_logs_failed`, `open_link_failed`, `config_corrupt`, `profiles_corrupt`, `profiles_invalid_entries` | `ipc::diag`, settings/profiles/printer prefs writes |
-| `InvalidRequest` | `url_not_allowed`, `unknown_default_profile` (`id`), `builtin_readonly`, `builtin_delete`, `delete_default`, `id_too_long`, `name_empty`, `name_too_long`, `name_taken` (`name`), `copies_out_of_range` (`copies`), `page_range`, `import_too_large`, `import_unreadable`, `import_malformed`, `import_unsupported_version` (`version`), `import_empty`, `import_invalid_profile` (`name`), `add_printer_unsupported_scheme` (`scheme`) | `ipc::diag`, `ipc::settings`, `ipc::profiles`, `platform::{cups,windows}` |
+| `InvalidRequest` | `url_not_allowed`, `builtin_readonly`, `reserved_id`, `builtin_delete`, `delete_default`, `id_too_long`, `name_empty`, `name_too_long`, `name_taken` (`name`), `copies_out_of_range` (`copies`), `page_range`, `import_too_large`, `import_unreadable`, `import_malformed`, `import_unsupported_version` (`version`), `import_empty`, `import_invalid_profile` (`name`), `add_printer_unsupported_scheme` (`scheme`), `major_update_unconfirmed` (`version`, `current`) | `ipc::diag`, `ipc::profiles`, `platform::{cups,windows}`, `update::install` |
+| `InvalidState` | `update_in_progress`, `resume_no_printer`, `resume_printer_missing` (`printer`) | `update::install`, `queue::dispatcher` (resuming a job paused for a missing printer) |
+| `UpdateInstallFailed` | `download_failed`, `no_platform_update`, `not_an_installed_app` | `update::install` |
+| `UpdateSignatureInvalid` | `signature_rejected` | `update::install` |
 | `DependencyMissing` | `ippfind_missing` | `platform::cups` discovery |
 | `PrintFailed` | `set_default_failed`, `add_printer_needs_admin` | `platform::windows` |
 

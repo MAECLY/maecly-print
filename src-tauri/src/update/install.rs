@@ -31,7 +31,7 @@ use specta::Type;
 use tauri::Url;
 use tauri_plugin_updater::UpdaterExt;
 
-use crate::util::error::IpcError;
+use crate::util::error::{IpcError, IpcErrorCode};
 
 /// Where releases publish their updater manifest. `releases/latest/download`
 /// always redirects to the newest non-prerelease, so the URL never changes.
@@ -130,16 +130,22 @@ pub fn classify_error(err: &tauri_plugin_updater::Error) -> IpcError {
         | E::Base64(_)
         | E::SignatureUtf8(_)
         | E::SignedVersionMismatch { .. }
-        | E::MissingSignedVersion => {
-            IpcError::UpdateSignatureInvalid(format!("{SIGNATURE_REJECTED} ({err})"))
-        }
-        E::Reqwest(_) | E::Network(_) => IpcError::UpdateInstallFailed(format!(
-            "could not download the update — check your connection ({err})"
-        )),
+        | E::MissingSignedVersion => IpcError::localized(
+            IpcErrorCode::UpdateSignatureInvalid,
+            "signature_rejected",
+            format!("{SIGNATURE_REJECTED} ({err})"),
+        ),
+        E::Reqwest(_) | E::Network(_) => IpcError::localized(
+            IpcErrorCode::UpdateInstallFailed,
+            "download_failed",
+            format!("could not download the update — check your connection ({err})"),
+        ),
         E::ReleaseNotFound | E::Serialization(_) | E::TargetNotFound(_) | E::TargetsNotFound(_) => {
-            IpcError::UpdateInstallFailed(format!(
-                "the release does not offer an update for this platform yet ({err})"
-            ))
+            IpcError::localized(
+                IpcErrorCode::UpdateInstallFailed,
+                "no_platform_update",
+                format!("the release does not offer an update for this platform yet ({err})"),
+            )
         }
         other => IpcError::UpdateInstallFailed(other.to_string()),
     }
@@ -173,8 +179,10 @@ struct InstallGuard;
 impl InstallGuard {
     fn acquire() -> Result<Self, IpcError> {
         if INSTALLING.swap(true, Ordering::SeqCst) {
-            return Err(IpcError::InvalidState(
-                "an update is already being installed".to_string(),
+            return Err(IpcError::localized(
+                IpcErrorCode::InvalidState,
+                "update_in_progress",
+                "an update is already being installed",
             ));
         }
         Ok(Self)
@@ -226,16 +234,27 @@ where
     let _guard = InstallGuard::acquire()?;
 
     if is_major_bump(&update.current_version, &update.version) && !allow_major {
-        return Err(IpcError::InvalidRequest(format!(
-            "{} is a major update from {}; it is only installed after you confirm it explicitly",
-            update.version, update.current_version
-        )));
+        return Err(IpcError::localized(
+            IpcErrorCode::InvalidRequest,
+            "major_update_unconfirmed",
+            format!(
+                "{} is a major update from {}; it is only installed after you confirm it explicitly",
+                update.version, update.current_version
+            ),
+        )
+        .with_param("version", &update.version)
+        .with_param("current", &update.current_version));
     }
 
     let exe = std::env::current_exe()
         .map_err(|e| IpcError::UpdateInstallFailed(format!("cannot locate the app: {e}")))?;
-    check_installable_location(std::env::consts::OS, &exe)
-        .map_err(IpcError::UpdateInstallFailed)?;
+    check_installable_location(std::env::consts::OS, &exe).map_err(|msg| {
+        IpcError::localized(
+            IpcErrorCode::UpdateInstallFailed,
+            "not_an_installed_app",
+            msg,
+        )
+    })?;
 
     tracing::info!(
         event = "update_install_started",
@@ -334,21 +353,17 @@ mod tests {
                 announced: "2.0.0".into(),
             },
         ] {
-            match classify_error(&err) {
-                IpcError::UpdateSignatureInvalid(msg) => {
-                    assert!(msg.contains("NOT installed"), "{msg}");
-                }
-                other => panic!("{err:?} classified as {other:?}"),
-            }
+            let got = classify_error(&err);
+            assert_eq!(got.code(), IpcErrorCode::UpdateSignatureInvalid, "{err:?}");
+            assert_eq!(got.reason(), Some("signature_rejected"));
+            assert!(got.message().contains("NOT installed"), "{got:?}");
         }
-        assert!(matches!(
-            classify_error(&E::Network("503".into())),
-            IpcError::UpdateInstallFailed(_)
-        ));
-        assert!(matches!(
-            classify_error(&E::ReleaseNotFound),
-            IpcError::UpdateInstallFailed(_)
-        ));
+        let network = classify_error(&E::Network("503".into()));
+        assert_eq!(network.code(), IpcErrorCode::UpdateInstallFailed);
+        assert_eq!(network.reason(), Some("download_failed"));
+        let missing = classify_error(&E::ReleaseNotFound);
+        assert_eq!(missing.code(), IpcErrorCode::UpdateInstallFailed);
+        assert_eq!(missing.reason(), Some("no_platform_update"));
     }
 
     /// The shipped configuration is what makes FR-082/083 true at all: a public
@@ -383,10 +398,11 @@ mod tests {
     #[test]
     fn fr_082_only_one_install_runs_at_a_time() {
         let first = InstallGuard::acquire().unwrap();
-        assert!(matches!(
-            InstallGuard::acquire(),
-            Err(IpcError::InvalidState(_))
-        ));
+        let busy = InstallGuard::acquire()
+            .err()
+            .expect("second install refused");
+        assert_eq!(busy.code(), IpcErrorCode::InvalidState);
+        assert_eq!(busy.reason(), Some("update_in_progress"));
         drop(first);
         assert!(InstallGuard::acquire().is_ok());
     }

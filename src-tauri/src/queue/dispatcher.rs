@@ -1621,8 +1621,10 @@ fn plan_printer_fix(
 
     let Some(missing) = requested else {
         // Nothing was pinned, so there is simply no printer to print on.
-        return Err(IpcError::InvalidState(
-            "no printer is configured — add one, or set a default on the Printers screen, then resume this job".to_string(),
+        return Err(IpcError::localized(
+            crate::util::error::IpcErrorCode::InvalidState,
+            "resume_no_printer",
+            "no printer is configured — add one, or set a default on the Printers screen, then resume this job",
         ));
     };
 
@@ -1637,9 +1639,14 @@ fn plan_printer_fix(
             missing,
             replacement,
         }),
-        Err(_) => Err(IpcError::InvalidState(format!(
-            "printer '{missing}' is still not installed and nothing else is configured — reinstall it, or reassign it on the Printers screen, then resume this job"
-        ))),
+        Err(_) => Err(IpcError::localized(
+            crate::util::error::IpcErrorCode::InvalidState,
+            "resume_printer_missing",
+            format!(
+                "printer '{missing}' is still not installed and nothing else is configured — reinstall it, or reassign it on the Printers screen, then resume this job"
+            ),
+        )
+        .with_param("printer", &missing)),
     }
 }
 

@@ -65,6 +65,8 @@
       "InvalidState": "Esa acción no se puede hacer ahora con este trabajo.",
       "ProfileNotFound": "Ese perfil ya no existe.",
       "UpdateCheckFailed": "No se pudo comprobar si hay actualizaciones: {{detail}}",
+      "UpdateInstallFailed": "No se pudo instalar la actualización: {{detail}}",
+      "UpdateSignatureInvalid": "La actualización descargada no superó la comprobación de firma y no se instaló.",
       "Internal": "Error interno: {{detail}}"
     },
     "reasons": {
@@ -101,7 +103,9 @@
         "import_unsupported_version": "El archivo usa la versión {{version}} del formato de perfiles, que esta versión no sabe leer.",
         "import_empty": "El archivo no contiene ningún perfil.",
         "import_invalid_profile": "El perfil «{{name}}» del archivo no es válido.",
-        "add_printer_unsupported_scheme": "MaeclyPrint no puede añadir una impresora mediante {{scheme}}://. Añádela desde la configuración de impresoras del sistema."
+        "add_printer_unsupported_scheme": "MaeclyPrint no puede añadir una impresora mediante {{scheme}}://. Añádela desde la configuración de impresoras del sistema.",
+        "major_update_unconfirmed": "{{version}} es una actualización mayor desde {{current}}; solo se instala cuando la confirmas.",
+        "reserved_id": "Los identificadores de perfil que empiezan por «builtin-» están reservados."
       },
       "DependencyMissing": {
         "ippfind_missing": "La detección en red necesita las herramientas cliente de CUPS (ippfind), que no están instaladas."
@@ -109,6 +113,19 @@
       "PrintFailed": {
         "set_default_failed": "Windows no pudo establecer la impresora predeterminada.",
         "add_printer_needs_admin": "Añadir una impresora puede requerir permisos de administrador. Usa «Abrir la configuración de impresoras» para añadirla desde Windows."
+      },
+      "UpdateSignatureInvalid": {
+        "signature_rejected": "La actualización descargada no superó la comprobación de firma y NO se instaló. Puede haber sido manipulada o haberse dañado durante la descarga; no se ha cambiado nada en este equipo. Inténtalo más tarde o descarga la versión desde la página de versiones."
+      },
+      "UpdateInstallFailed": {
+        "download_failed": "No se pudo descargar la actualización. Comprueba la conexión e inténtalo de nuevo.",
+        "no_platform_update": "Esta versión todavía no ofrece una actualización para esta plataforma.",
+        "not_an_installed_app": "Esta copia de MaeclyPrint no es una aplicación instalada, así que no puede actualizarse sola. Descarga la versión desde la página de versiones."
+      },
+      "InvalidState": {
+        "update_in_progress": "Ya se está instalando una actualización.",
+        "resume_no_printer": "No hay ninguna impresora configurada. Añade una o elige una predeterminada en la pantalla Impresoras y reanuda este trabajo.",
+        "resume_printer_missing": "La impresora «{{printer}}» sigue sin estar instalada y no hay otra configurada. Vuelve a instalarla o reasígnala en la pantalla Impresoras y reanuda este trabajo."
       }
     },
     "noHost": "Esto necesita la aplicación de escritorio (se está ejecutando en una vista previa del navegador)."

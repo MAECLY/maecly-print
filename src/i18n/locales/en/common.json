@@ -65,6 +65,8 @@
       "InvalidState": "That action is not possible for this job right now.",
       "ProfileNotFound": "That profile no longer exists.",
       "UpdateCheckFailed": "The update check failed: {{detail}}",
+      "UpdateInstallFailed": "The update could not be installed: {{detail}}",
+      "UpdateSignatureInvalid": "The downloaded update failed its signature check and was not installed.",
       "Internal": "Internal error: {{detail}}"
     },
     "reasons": {
@@ -101,7 +103,9 @@
         "import_unsupported_version": "The file uses profile format version {{version}}, which this version cannot read.",
         "import_empty": "The file contains no profiles.",
         "import_invalid_profile": "The profile “{{name}}” in the file is not valid.",
-        "add_printer_unsupported_scheme": "MaeclyPrint can't add a printer over {{scheme}}://. Add it from the system printer settings instead."
+        "add_printer_unsupported_scheme": "MaeclyPrint can't add a printer over {{scheme}}://. Add it from the system printer settings instead.",
+        "major_update_unconfirmed": "{{version}} is a major update from {{current}}; it is only installed after you confirm it.",
+        "reserved_id": "Profile ids starting with “builtin-” are reserved."
       },
       "DependencyMissing": {
         "ippfind_missing": "Network discovery needs the CUPS client tools (ippfind), which are not installed."
@@ -109,6 +113,19 @@
       "PrintFailed": {
         "set_default_failed": "Windows could not set the default printer.",
         "add_printer_needs_admin": "Adding a printer may require administrator rights. Use “Open printer settings” to add it from Windows."
+      },
+      "UpdateSignatureInvalid": {
+        "signature_rejected": "The downloaded update failed its signature check and was NOT installed. It may have been tampered with or corrupted in transit; nothing on this computer was changed. Try again later, or download the release from the releases page."
+      },
+      "UpdateInstallFailed": {
+        "download_failed": "The update could not be downloaded. Check your connection and try again.",
+        "no_platform_update": "This release does not offer an update for this platform yet.",
+        "not_an_installed_app": "This copy of MaeclyPrint is not an installed app, so it cannot update itself. Download the release from the releases page instead."
+      },
+      "InvalidState": {
+        "update_in_progress": "An update is already being installed.",
+        "resume_no_printer": "No printer is configured. Add one, or set a default on the Printers screen, then resume this job.",
+        "resume_printer_missing": "Printer “{{printer}}” is still not installed and nothing else is configured. Reinstall it, or reassign it on the Printers screen, then resume this job."
       }
     },
     "noHost": "This needs the desktop app (it is running in a plain browser preview)."
