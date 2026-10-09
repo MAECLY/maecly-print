@@ -33,6 +33,7 @@ import {
   type PrintJobOverrides,
 } from '@/lib/profiles';
 import { fmtKb } from '@/lib/format';
+import { PRINTABLE_EXTENSIONS } from '@/lib/formats';
 import {
   fetchAppInfo,
   getPrinterPrefs,
@@ -60,16 +61,7 @@ import type { UiFile, UiProfile } from '@/types/domain';
 export type { PrintJobOverrides };
 
 /** Extensions the print engine accepts — mirrors the backend allowlist. */
-const SUPPORTED = [
-  'pdf',
-  'jpg',
-  'jpeg',
-  'png',
-  'tif',
-  'tiff',
-  'bmp',
-  'webp',
-] as const;
+const SUPPORTED = PRINTABLE_EXTENSIONS;
 
 /** Turn an unknown thrown value into a user-facing message. */
 function message(e: unknown): string {

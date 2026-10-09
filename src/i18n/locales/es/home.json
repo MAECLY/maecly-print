@@ -4,6 +4,7 @@
   "dropzone": {
     "title": "Suelta archivos para imprimir",
     "formats": "{{formats}} · sin límite de cantidad",
+    "formatList": "PDF, imágenes (JPG, PNG, TIFF, BMP, WebP, HEIC), Word, Excel, PowerPoint, OpenDocument, TXT, RTF, HTML y Markdown",
     "folders": "Las carpetas también valen: tú decides si se incluyen las subcarpetas.",
     "action": "Suelta archivos para imprimir, o haz clic para elegirlos"
   },

@@ -22,27 +22,11 @@ import { useProfilesStore } from '@/stores/profilesStore';
 import { useQueueStore } from '@/stores/queueStore';
 
 /**
- * Extensions the print engine accepts today, and the single place the Home
- * screen is allowed to name a format.
- *
- * This mirrors `SUPPORTED_EXTS` in `src-tauri/src/engine/mod.rs`, which is the
- * only authority — `HomeScreen.test.tsx` reads that Rust file and fails if the
- * two ever drift, so the drop zone can no longer advertise a format the engine
- * rejects. It is exported because `App` needs the same list for the OS file
- * picker's filter; the proper long-term home is a `supported_formats` IPC
- * command (see the report), which would also fold in the copy that
- * `PrintJobScreen` keeps.
+ * Re-exported for `App`'s OS file-picker filter; the list itself lives in
+ * `@/lib/formats` so every picker and the drop zone share one mirror of the
+ * engine's `SUPPORTED_EXTS`.
  */
-export const PRINTABLE_EXTENSIONS = [
-  'pdf',
-  'jpg',
-  'jpeg',
-  'png',
-  'tif',
-  'tiff',
-  'bmp',
-  'webp',
-] as const;
+export { PRINTABLE_EXTENSIONS } from '@/lib/formats';
 
 /** What a Home affordance asks the app to do; every one of them is wired. */
 export type HomeAction = 'newjob' | 'queue' | 'files' | 'folder';
@@ -147,7 +131,9 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
   const defaultProfile = findProfileIn(profiles, null);
   const cliCommand = `maeclyprint print --files "*.pdf" --profile "${defaultProfile.name}"`;
 
-  const formats = PRINTABLE_EXTENSIONS.map((e) => e.toUpperCase()).join(', ');
+  // Twenty-five extensions do not fit on a drop zone; the copy names the
+  // families instead (pinned against `PRINTABLE_EXTENSIONS` by the tests).
+  const formats = t('dropzone.formatList');
 
   async function copyCliCommand() {
     try {

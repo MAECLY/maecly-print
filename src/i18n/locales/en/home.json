@@ -4,6 +4,7 @@
   "dropzone": {
     "title": "Drop files to print",
     "formats": "{{formats}} · no count limit",
+    "formatList": "PDF, images (JPG, PNG, TIFF, BMP, WebP, HEIC), Word, Excel, PowerPoint, OpenDocument, TXT, RTF, HTML and Markdown",
     "folders": "Folders work too — you decide whether subfolders are included.",
     "action": "Drop files to print, or click to choose them"
   },

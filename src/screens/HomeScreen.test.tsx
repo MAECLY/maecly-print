@@ -87,14 +87,35 @@ describe('HomeScreen', () => {
   // Formats advertised by the drop zone
   // -------------------------------------------------------------------------
 
-  it('FR-005: the drop zone advertises exactly the formats the engine accepts', () => {
+  it('FR-005/FR-052..057: the drop zone names every format family the engine prints', () => {
     renderHome();
     const zone = screen.getByRole('button', { name: /click to choose them/i });
-    for (const ext of PRINTABLE_EXTENSIONS) {
-      expect(zone).toHaveTextContent(ext.toUpperCase());
+    // Family label in the copy → the extensions it stands for. Every printable
+    // extension must be covered by exactly one advertised family.
+    const families: Record<string, string[]> = {
+      PDF: ['pdf'],
+      JPG: ['jpg', 'jpeg'],
+      PNG: ['png'],
+      TIFF: ['tif', 'tiff'],
+      BMP: ['bmp'],
+      WebP: ['webp'],
+      HEIC: ['heic', 'heif'],
+      Word: ['docx', 'doc'],
+      Excel: ['xlsx', 'xls'],
+      PowerPoint: ['pptx', 'ppt'],
+      OpenDocument: ['odt', 'ods', 'odp'],
+      TXT: ['txt'],
+      RTF: ['rtf'],
+      HTML: ['html', 'htm'],
+      Markdown: ['md', 'markdown'],
+    };
+    for (const label of Object.keys(families)) {
+      expect(zone).toHaveTextContent(label);
     }
-    // The formats the engine rejects must not be promised anywhere on screen.
-    for (const absent of [/office/i, /odf/i, /html/i, /markdown/i]) {
+    const covered = Object.values(families).flat().sort();
+    expect(covered).toEqual([...PRINTABLE_EXTENSIONS].sort());
+    // Nothing the engine rejects is promised.
+    for (const absent of [/\bGIF\b/, /\bSVG\b/, /\bEPUB\b/]) {
       expect(document.body.textContent ?? '').not.toMatch(absent);
     }
   });
