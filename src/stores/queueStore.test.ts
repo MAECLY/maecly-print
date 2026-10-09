@@ -187,6 +187,31 @@ describe('queueStore', () => {
     expect(job?.indeterminate).toBe(true);
   });
 
+  it('FR-031: a print the OS queue is holding, or a stopped printer, gets a note', async () => {
+    mockQueue({
+      snapshot: snapshotOf([
+        mkJob({
+          id: 'held',
+          state: 'printing',
+          file_name: 'held.pdf',
+          progress: { phase: 'held', percent: null },
+        }),
+        mkJob({
+          id: 'stopped',
+          state: 'printing',
+          file_name: 'stopped.pdf',
+          progress: { phase: 'stopped', percent: null },
+        }),
+      ]),
+    });
+    await useQueueStore.getState().init();
+
+    const byId = new Map(useQueueStore.getState().uiJobs.map((j) => [j.id, j]));
+    expect(byId.get('held')?.noteKey).toBe('heldByPrinter');
+    expect(byId.get('held')?.indeterminate).toBe(true);
+    expect(byId.get('stopped')?.noteKey).toBe('printerNeedsAttention');
+  });
+
   it('FR-032: invokes the matching command for each job action', async () => {
     const calls = mockQueue();
     await useQueueStore.getState().init();

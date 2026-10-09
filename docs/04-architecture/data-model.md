@@ -333,15 +333,15 @@ The file lives at `<data_dir>/queue.json` (`paths::data_dir()`); its wire shape 
 }
 ```
 
-Field notes: `input_ext` is the lowercased extension without a dot; `pages` is best-effort (PDFs parsed with `lopdf` when ≤ 100 MB, images always `1`, else `null`); `cache_pdf` is set only for converted inputs (a PDF prints in place, so it stays `null`); `printer_resolved` records the printer actually chosen once a job reaches `printing`/`done`; all timestamps are RFC 3339 UTC. The full TS shapes are in [ipc-and-cli.md § 2.2](./ipc-and-cli.md#22-type-definitions).
+Field notes: `input_ext` is the lowercased extension without a dot; `pages` is best-effort (PDFs parsed with `lopdf` when ≤ 100 MB, images always `1`, else `null`); `cache_pdf` is set only for converted inputs (a PDF prints in place, so it stays `null`); `printer_resolved` records the printer actually chosen once a job reaches `printing`/`done`; `os_job_id` is the spooler's id for the job once spooled (`Office-42` on CUPS, a spooler job number on Windows), `null` before that or when it could not be identified, and missing in files written before it existed; all timestamps are RFC 3339 UTC. The full TS shapes are in [ipc-and-cli.md § 2.2](./ipc-and-cli.md#22-type-definitions).
 
 States (`state` enum, lowercase):
 
 - `queued` — created but not started.
 - `converting` — a converter is producing the cache PDF.
 - `converted` — cache PDF ready, waiting for a free printer.
-- `printing` — handed off to the OS spooler (exactly one job prints at a time).
-- `done` — printer reported completion (terminal); the cache PDF is deleted.
+- `printing` — handed to the OS spooler and not yet finished there (exactly one job prints at a time). `os_job_id` carries the spooler's id while the dispatcher follows it; `progress.phase` is `printing`, `held` (the OS queue is holding it) or `stopped` (the printer needs attention).
+- `done` — the OS job completed or left the queue (terminal); the cache PDF is deleted.
 - `failed` — terminal error after retries; details in `error`.
 - `paused` — user-paused, interrupted by shutdown, or stopped on a user-fixable error (`unsupported_setting` / `dependency_missing`); resumable, **not** auto-retried.
 - `cancelled` — user cancelled (terminal).

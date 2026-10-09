@@ -240,6 +240,7 @@ pub fn spawn(app: tauri::AppHandle) -> anyhow::Result<QueueHandle> {
     let runner: Arc<dyn dispatcher::JobRunner> = Arc::new(dispatcher::EngineRunner { cache_dir });
     let emit: Arc<dyn dispatcher::EventSink> = Arc::new(dispatcher::TauriEmit { app });
     let spawner: Arc<dyn dispatcher::BlockingSpawner> = Arc::new(dispatcher::TokioBlockingSpawner);
+    let tracker: Arc<dyn dispatcher::JobTracker> = Arc::new(dispatcher::OsTracker);
 
     // Engine limits are read here at boot and pushed again by
     // `set_app_settings` whenever they change (`QueueHandle::set_limits`).
@@ -257,6 +258,7 @@ pub fn spawn(app: tauri::AppHandle) -> anyhow::Result<QueueHandle> {
         runner,
         emit,
         spawner,
+        tracker,
         queue_file,
         limits,
     );

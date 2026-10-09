@@ -343,6 +343,12 @@ pub struct Job {
     pub profile_name: Option<String>,
     /// Printer actually chosen at dispatch time (after resolving `<default>`).
     pub printer_resolved: Option<String>,
+    /// The OS spooler's id for this job once it has been handed off (CUPS
+    /// `Office-42`, a Windows spooler job number), while the dispatcher follows
+    /// it to completion. `None` before spooling, or when the backend could not
+    /// identify the job. `#[serde(default)]` so an older `queue.json` loads.
+    #[serde(default)]
+    pub os_job_id: Option<String>,
     /// Number of times this job has been started (for retry/backoff, FR-034).
     pub attempts: u32,
     pub error: Option<JobError>,
@@ -393,6 +399,7 @@ impl Job {
             settings,
             profile_name,
             printer_resolved: None,
+            os_job_id: None,
             attempts: 0,
             error: None,
             progress: None,

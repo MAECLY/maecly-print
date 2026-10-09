@@ -62,10 +62,26 @@
 //!   silently re-pausing. Without this a job pinned to a printer that
 //!   disappeared was stuck forever: resuming re-ran the same failed lookup and
 //!   nothing could re-point it.
-//! - Cancel of a `Printing` job cannot un-spool synchronously (the OS job id is
-//!   only known once `spool` returns), so the job is marked `Cancelled`
-//!   immediately and the eventual `PrintDone` reconciles by cancelling the OS
-//!   job and deleting the cache.
+//! - **A print is done when the printer is done, not when the spooler accepts
+//!   it.** Once `spool` returns an OS job id the job stays `Printing` and the
+//!   dispatcher polls the spooler through [`JobTracker`] with backoff
+//!   ([`TRACK_BACKOFFS`], then every [`TRACK_POLL_CAP`]). `completed` (or the
+//!   job leaving the queue) → `Done`; `canceled` → `Cancelled`; `aborted` →
+//!   `Failed`; a held job stays `Printing` with the `"held"` progress phase and
+//!   a stopped printer with `"stopped"`. The whole print — spooling plus
+//!   tracking — is bounded by [`DispatcherLimits::print_timeout`]; running out
+//!   fails the job with `print_timeout` and leaves the OS job alone (cancelling
+//!   a job the printer may still print would lose it). A backend that cannot
+//!   report job state at all, or a job id it could not recover, falls back to
+//!   `Done` on hand-off, as before tracking existed.
+//! - **One print slot.** It is taken when a job starts spooling and released
+//!   only when its OS job leaves the queue (or the print fails), so the next
+//!   job never reaches the spooler while the previous one is still printing.
+//! - Cancel of a `Printing` job marks it `Cancelled` at once. If its OS job id
+//!   is already known, the OS job is cancelled and the slot freed there and
+//!   then; if it is still spooling, the slot stays taken until `PrintDone`
+//!   arrives, which then cancels the OS job and deletes the cache — so a
+//!   cancelled job can never share the printer with the next one.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -75,7 +91,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot};
 
-use crate::engine::print::{PrintError, SpoolOutcome};
+use crate::engine::print::{OsJobState, PrintError, SpoolOutcome, TrackError};
 use crate::engine::EngineError;
 use crate::queue::job::{
     now_rfc3339, Job, JobError, JobProgress, JobState, QueueSnapshot, SCHEMA_VERSION,
@@ -143,6 +159,30 @@ pub(crate) const RETRY_BACKOFFS: [Duration; 3] = [
     Duration::from_secs(25),
 ];
 
+/// Delay before each of the first OS-job polls after a successful spool. A job
+/// usually finishes within seconds, so polling starts fast and backs off.
+pub(crate) const TRACK_BACKOFFS: [Duration; 4] = [
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+];
+
+/// Poll interval once [`TRACK_BACKOFFS`] is exhausted.
+pub(crate) const TRACK_POLL_CAP: Duration = Duration::from_secs(10);
+
+/// Consecutive failed polls after which tracking gives up and the job is
+/// treated as finished on hand-off (the spooler did accept it).
+pub(crate) const MAX_TRACK_FAILURES: u32 = 5;
+
+/// The delay before poll number `polls` (0-based).
+fn track_delay(polls: u32) -> Duration {
+    TRACK_BACKOFFS
+        .get(polls as usize)
+        .copied()
+        .unwrap_or(TRACK_POLL_CAP)
+}
+
 /// Minimum gap between progress emissions for a single job.
 const PROGRESS_THROTTLE: Duration = Duration::from_millis(100);
 
@@ -206,6 +246,15 @@ pub(crate) enum Cmd {
     RetryDue {
         id: String,
     },
+    /// Time to ask the spooler where the tracked print `id` stands.
+    TrackDue {
+        id: String,
+    },
+    /// What the spooler said about the tracked print `id`.
+    TrackResult {
+        id: String,
+        result: Result<OsJobState, TrackError>,
+    },
     /// A per-attempt conversion timer elapsed. `flag` is the exact cancel-flag
     /// [`Arc`] the timer captured, so a stale timer (from a prior attempt whose
     /// flag was since replaced) can be distinguished by pointer identity and
@@ -251,8 +300,25 @@ pub(crate) trait JobRunner: Send + Sync + 'static {
         file_name: &str,
     ) -> Result<(String, bool), PrintError>;
 
-    /// Best-effort cancellation of an already-spooled OS job.
-    fn cancel_os_job(&self, os_job_id: &str);
+    /// Best-effort cancellation of an already-spooled OS job on `printer`.
+    fn cancel_os_job(&self, printer: &str, os_job_id: &str);
+}
+
+/// The OS-queue seam: where a spooled job stands. Real impl is [`OsTracker`];
+/// tests script the answers so the dispatcher stays hermetic.
+pub(crate) trait JobTracker: Send + Sync + 'static {
+    /// Ask the spooler once about `os_job_id` on `printer`. Must not block for
+    /// long: the dispatcher owns the cadence and the overall budget.
+    fn poll(&self, printer: &str, os_job_id: &str) -> Result<OsJobState, TrackError>;
+}
+
+/// Production [`JobTracker`] backed by [`crate::engine::print::job_state`].
+pub(crate) struct OsTracker;
+
+impl JobTracker for OsTracker {
+    fn poll(&self, printer: &str, os_job_id: &str) -> Result<OsJobState, TrackError> {
+        crate::engine::print::job_state(printer, os_job_id)
+    }
 }
 
 /// The event seam: how queue changes reach the webview. Real impl is
@@ -343,16 +409,9 @@ impl JobRunner for EngineRunner {
         }
     }
 
-    fn cancel_os_job(&self, os_job_id: &str) {
-        #[cfg(unix)]
-        {
-            if let Err(e) = crate::engine::print::cups::cancel(os_job_id) {
-                tracing::warn!(event = "os_job_cancel_failed", os_job_id = %os_job_id, error = %e);
-            }
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = os_job_id;
+    fn cancel_os_job(&self, printer: &str, os_job_id: &str) {
+        if let Err(e) = crate::engine::print::cancel_os_job(printer, os_job_id) {
+            tracing::warn!(event = "os_job_cancel_failed", os_job_id = %os_job_id, error = %e);
         }
     }
 }
@@ -420,7 +479,8 @@ impl BlockingSpawner for TokioBlockingSpawner {
 #[derive(Default)]
 struct Post {
     delete_cache: Vec<String>,
-    cancel_os: Vec<String>,
+    /// `(printer, os job id)` pairs to cancel at the spooler.
+    cancel_os: Vec<(String, String)>,
     remove_delayed: Vec<String>,
     retry: Option<(String, Duration)>,
 }
@@ -444,6 +504,39 @@ enum PrinterFix {
     },
 }
 
+/// The single print slot: which job holds it and, once spooled, which OS job it
+/// is waiting on. See the module docs (§One print slot).
+struct PrintSlot {
+    job_id: String,
+    /// When spooling began; the print budget counts from here.
+    started: tokio::time::Instant,
+    /// Set once `spool` returned an id; the slot then waits on the OS queue.
+    printer: Option<String>,
+    os_job_id: Option<String>,
+    /// Polls answered so far (drives the backoff).
+    polls: u32,
+    /// Consecutive polls that failed transiently.
+    failures: u32,
+    /// The cache PDF of a job cleared from the queue while it was still
+    /// spooling: deleting it then would pull the file out from under the
+    /// spooler, so it is deleted when the print returns.
+    orphan_cache: Option<String>,
+}
+
+impl PrintSlot {
+    fn new(job_id: String) -> Self {
+        Self {
+            job_id,
+            started: tokio::time::Instant::now(),
+            printer: None,
+            os_job_id: None,
+            polls: 0,
+            failures: 0,
+            orphan_cache: None,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------------
@@ -456,9 +549,14 @@ pub(crate) struct Dispatcher {
     runner: Arc<dyn JobRunner>,
     emit: Arc<dyn EventSink>,
     spawner: Arc<dyn BlockingSpawner>,
+    tracker: Arc<dyn JobTracker>,
     queue_file: PathBuf,
-    /// Boot-time engine limits (concurrency cap + conversion timeout).
+    /// Engine limits (concurrency cap and both timeouts); replaced at run time
+    /// by [`Cmd::SetLimits`].
     limits: DispatcherLimits,
+    /// The single print slot, held from spooling until the OS job leaves the
+    /// queue.
+    print_slot: Option<PrintSlot>,
     /// Cancellation flags for in-flight conversions, keyed by job id.
     converting: HashMap<String, Arc<AtomicBool>>,
     /// Jobs waiting out a retry backoff; the scheduler skips these.
@@ -479,6 +577,7 @@ impl Dispatcher {
         runner: Arc<dyn JobRunner>,
         emit: Arc<dyn EventSink>,
         spawner: Arc<dyn BlockingSpawner>,
+        tracker: Arc<dyn JobTracker>,
         queue_file: PathBuf,
         limits: DispatcherLimits,
     ) -> Self {
@@ -488,8 +587,10 @@ impl Dispatcher {
             runner,
             emit,
             spawner,
+            tracker,
             queue_file,
             limits,
+            print_slot: None,
             converting: HashMap::new(),
             delayed: HashSet::new(),
             progress_last: Arc::new(Mutex::new(HashMap::new())),
@@ -541,6 +642,8 @@ impl Dispatcher {
             Cmd::RetryDue { id } => {
                 self.delayed.remove(&id);
             }
+            Cmd::TrackDue { id } => self.on_track_due(id),
+            Cmd::TrackResult { id, result } => self.on_track_result(id, result),
             Cmd::ConversionTimeout { id, flag } => self.on_conversion_timeout(id, flag),
         }
     }
@@ -584,6 +687,7 @@ impl Dispatcher {
                 ))),
                 Some(job) => {
                     cancel_job_in_place(job, &self.converting, &mut post);
+                    release_tracked_slot(&mut self.print_slot, job, &mut post);
                     post.remove_delayed.push(id.to_string());
                     Ok(())
                 }
@@ -610,6 +714,7 @@ impl Dispatcher {
             count = ids.len() as u32;
             for job in st.jobs.iter_mut().filter(|j| !j.state.is_terminal()) {
                 cancel_job_in_place(job, &self.converting, &mut post);
+                release_tracked_slot(&mut self.print_slot, job, &mut post);
             }
             post.remove_delayed = ids;
         }
@@ -856,8 +961,13 @@ impl Dispatcher {
             let mut st = self.state.write().unwrap();
             let before = st.jobs.len();
             for job in st.jobs.iter().filter(|j| j.state.is_terminal()) {
-                if let Some(c) = &job.cache_pdf {
-                    post.delete_cache.push(c.clone());
+                let Some(c) = &job.cache_pdf else { continue };
+                match self.print_slot.as_mut() {
+                    // Cancelled while still spooling: the spooler may be
+                    // reading this very file. It is deleted when the print
+                    // returns (`on_print_done`), not now.
+                    Some(slot) if slot.job_id == job.id => slot.orphan_cache = Some(c.clone()),
+                    _ => post.delete_cache.push(c.clone()),
                 }
             }
             st.jobs.retain(|j| !j.state.is_terminal());
@@ -1002,6 +1112,8 @@ impl Dispatcher {
 
     fn on_print_done(&mut self, id: String, result: Result<PrintOk, PrintError>) {
         let mut post = Post::default();
+        // `(printer, os job id)` when the spooler handed back an id to follow.
+        let mut track: Option<(String, String)> = None;
         {
             let mut st = self.state.write().unwrap();
             match st.jobs.iter_mut().find(|j| j.id == id) {
@@ -1009,41 +1121,41 @@ impl Dispatcher {
                     // Job cleared after spool; cancel it at the OS if it landed.
                     if let Ok(ok) = &result {
                         if let Some(oid) = &ok.os_job_id {
-                            post.cancel_os.push(oid.clone());
+                            post.cancel_os.push((ok.printer.clone(), oid.clone()));
                         }
                     }
                 }
                 Some(job) => match job.state {
                     JobState::Printing => match result {
                         Ok(ok) => {
-                            job.state = JobState::Done;
-                            job.finished_at = Some(now_rfc3339());
-                            job.printer_resolved = Some(ok.printer);
-                            job.progress = None;
-                            job.error = None;
-                            if let Some(c) = job.cache_pdf.take() {
-                                post.delete_cache.push(c);
+                            job.printer_resolved = Some(ok.printer.clone());
+                            match ok.os_job_id {
+                                // Handed off: the job is done when the OS job is.
+                                Some(oid) => {
+                                    job.os_job_id = Some(oid.clone());
+                                    job.progress = Some(JobProgress::indeterminate("printing"));
+                                    let f = JobLog::of(job);
+                                    tracing::info!(
+                                        event = "job_spooled",
+                                        job_id = %id,
+                                        file = %f.file,
+                                        printer = %f.printer,
+                                        os_job_id = %oid,
+                                        status = %f.status
+                                    );
+                                    track = Some((ok.printer, oid));
+                                }
+                                // No id to follow: hand-off is all we can know.
+                                None => mark_done(job, "untracked", &mut post),
                             }
-                            let f = JobLog::of(job);
-                            tracing::info!(
-                                event = "job_done",
-                                job_id = %id,
-                                file = %f.file,
-                                profile = %f.profile,
-                                printer = %f.printer,
-                                pages = f.pages,
-                                status = %f.status,
-                                started_at = %f.started_at,
-                                finished_at = %f.finished_at
-                            );
                         }
                         Err(e) => record_print_failure(job, e, &mut post),
                     },
-                    // Cancelled during the brief spool window: reconcile.
+                    // Cancelled during the spool window: reconcile.
                     JobState::Cancelled => {
                         if let Ok(ok) = &result {
                             if let Some(oid) = &ok.os_job_id {
-                                post.cancel_os.push(oid.clone());
+                                post.cancel_os.push((ok.printer.clone(), oid.clone()));
                             }
                         }
                         if let Some(c) = job.cache_pdf.take() {
@@ -1054,6 +1166,89 @@ impl Dispatcher {
                 },
             }
         }
+
+        // Settle the print slot: it moves on to tracking, or it is free.
+        if let Some(slot) = self.print_slot.as_mut().filter(|s| s.job_id == id) {
+            if let Some(c) = slot.orphan_cache.take() {
+                post.delete_cache.push(c);
+            }
+            match track {
+                Some((printer, oid)) => {
+                    slot.printer = Some(printer);
+                    slot.os_job_id = Some(oid);
+                    let delay = track_delay(0);
+                    self.arm_track_timer(id, delay);
+                }
+                None => self.print_slot = None,
+            }
+        }
+        self.apply_post(post);
+    }
+
+    /// Ask the spooler about the tracked print after `delay`.
+    fn arm_track_timer(&self, id: String, delay: Duration) {
+        let tx = self.self_tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            let _ = tx.send(Cmd::TrackDue { id });
+        });
+    }
+
+    /// A tracking timer fired: poll the spooler off the loop (it shells out or
+    /// calls the spooler API) and report back with [`Cmd::TrackResult`].
+    fn on_track_due(&mut self, id: String) {
+        let Some(slot) = self.print_slot.as_ref().filter(|s| s.job_id == id) else {
+            return; // cancelled or finished since the timer was armed
+        };
+        let (Some(printer), Some(oid)) = (slot.printer.clone(), slot.os_job_id.clone()) else {
+            return;
+        };
+        let tracker = self.tracker.clone();
+        let tx = self.self_tx.clone();
+        self.spawner.spawn_blocking(Box::new(move || {
+            let result = tracker.poll(&printer, &oid);
+            let _ = tx.send(Cmd::TrackResult { id, result });
+        }));
+    }
+
+    /// Act on what the spooler said about the tracked print `id`.
+    fn on_track_result(&mut self, id: String, result: Result<OsJobState, TrackError>) {
+        let print_timeout = self.limits.print_timeout;
+        let Some(slot) = self.print_slot.as_mut().filter(|s| s.job_id == id) else {
+            return; // a stale answer for a print that already settled
+        };
+        slot.polls += 1;
+        match &result {
+            Ok(_) => slot.failures = 0,
+            Err(TrackError::Transient(_)) => slot.failures += 1,
+            Err(TrackError::Unavailable(_)) => {}
+        }
+        let failures = slot.failures;
+        let polls = slot.polls;
+        let timed_out = print_timeout.is_some_and(|t| slot.started.elapsed() >= t);
+
+        let mut post = Post::default();
+        let finished = {
+            let mut st = self.state.write().unwrap();
+            match st.jobs.iter_mut().find(|j| j.id == id) {
+                Some(job) if job.state == JobState::Printing => {
+                    let settled = settle_tracked(job, &result, failures, &mut post);
+                    if !settled && timed_out {
+                        fail_print_timeout(job, print_timeout, &mut post);
+                        true
+                    } else {
+                        settled
+                    }
+                }
+                // Gone from the queue or no longer printing: nothing to follow.
+                _ => true,
+            }
+        };
+        if finished {
+            self.print_slot = None;
+        } else {
+            self.arm_track_timer(id, track_delay(polls));
+        }
         self.apply_post(post);
     }
 
@@ -1063,8 +1258,8 @@ impl Dispatcher {
         for path in post.delete_cache {
             delete_cache_file(&path);
         }
-        for oid in post.cancel_os {
-            self.runner.cancel_os_job(&oid);
+        for (printer, oid) in post.cancel_os {
+            self.runner.cancel_os_job(&printer, &oid);
         }
         for id in post.remove_delayed {
             self.delayed.remove(&id);
@@ -1144,8 +1339,10 @@ impl Dispatcher {
                     converting += 1;
                 }
 
-                let printing = st.jobs.iter().any(|j| j.state == JobState::Printing);
-                if !printing {
+                // The slot, not the job states: a cancelled job whose spool is
+                // still running, or a printed job still in the OS queue, keeps
+                // the printer busy even though no job reads `Printing`.
+                if self.print_slot.is_none() {
                     if let Some(idx) = st.jobs.iter().position(|j| {
                         j.state == JobState::Converted && !self.delayed.contains(&j.id)
                     }) {
@@ -1159,6 +1356,8 @@ impl Dispatcher {
                         // a bar frozen at 0 %.
                         job.progress = Some(JobProgress::indeterminate("printing"));
                         job.error = None;
+                        // A re-print (resume, retry) is a new OS job.
+                        job.os_job_id = None;
                         let f = JobLog::of(job);
                         tracing::info!(
                             event = "job_start_print",
@@ -1179,6 +1378,7 @@ impl Dispatcher {
             self.spawn_convert(job, flag);
         }
         if let Some(job) = to_print {
+            self.print_slot = Some(PrintSlot::new(job.id.clone()));
             self.spawn_print(job);
         }
     }
@@ -1340,12 +1540,173 @@ fn cancel_job_in_place(
                 post.delete_cache.push(c);
             }
         }
-        JobState::Printing => { /* os id unknown yet; reconciled at PrintDone */ }
+        // Spooling: reconciled at PrintDone. Tracking: `release_tracked_slot`.
+        JobState::Printing => {}
         _ => {}
     }
     job.state = JobState::Cancelled;
     job.finished_at = Some(now_rfc3339());
     job.progress = None;
+}
+
+/// Free the print slot if `job` (just cancelled) was waiting on an OS job:
+/// cancel that OS job and drop the cache now. A job still spooling keeps the
+/// slot — its OS id is not known yet — and `on_print_done` reconciles it.
+fn release_tracked_slot(slot: &mut Option<PrintSlot>, job: &mut Job, post: &mut Post) {
+    let Some(s) = slot.as_ref().filter(|s| s.job_id == job.id) else {
+        return;
+    };
+    let (Some(printer), Some(oid)) = (s.printer.clone(), s.os_job_id.clone()) else {
+        return;
+    };
+    post.cancel_os.push((printer, oid));
+    if let Some(c) = job.cache_pdf.take() {
+        post.delete_cache.push(c);
+    }
+    *slot = None;
+}
+
+/// Mark a printing job `Done`: the printer finished it (`how` says how we
+/// know, for the log).
+fn mark_done(job: &mut Job, how: &str, post: &mut Post) {
+    job.state = JobState::Done;
+    job.finished_at = Some(now_rfc3339());
+    job.progress = None;
+    job.error = None;
+    if let Some(c) = job.cache_pdf.take() {
+        post.delete_cache.push(c);
+    }
+    let f = JobLog::of(job);
+    tracing::info!(
+        event = "job_done",
+        job_id = %job.id,
+        file = %f.file,
+        profile = %f.profile,
+        printer = %f.printer,
+        pages = f.pages,
+        status = %f.status,
+        started_at = %f.started_at,
+        finished_at = %f.finished_at,
+        completion = %how
+    );
+}
+
+/// Apply one tracking answer to a `Printing` job. Returns `true` when the
+/// print is over (the slot can be released).
+fn settle_tracked(
+    job: &mut Job,
+    result: &Result<OsJobState, TrackError>,
+    failures: u32,
+    post: &mut Post,
+) -> bool {
+    let end = |job: &mut Job, state: JobState, code: &str, message: &str, post: &mut Post| {
+        job.state = state;
+        job.finished_at = Some(now_rfc3339());
+        job.progress = None;
+        job.error = Some(JobError::new(code, message));
+        if let Some(c) = job.cache_pdf.take() {
+            post.delete_cache.push(c);
+        }
+        let f = JobLog::of(job);
+        tracing::warn!(
+            event = "job_os_ended",
+            job_id = %job.id,
+            file = %f.file,
+            profile = %f.profile,
+            printer = %f.printer,
+            pages = f.pages,
+            status = %f.status,
+            started_at = %f.started_at,
+            finished_at = %f.finished_at,
+            error = %f.error
+        );
+    };
+    let phase = |job: &mut Job, phase: &str| {
+        if job.progress.as_ref().map(|p| p.phase.as_str()) != Some(phase) {
+            tracing::info!(event = "job_print_phase", job_id = %job.id, phase = %phase);
+        }
+        job.progress = Some(JobProgress::indeterminate(phase));
+        false
+    };
+    match result {
+        Ok(OsJobState::Completed) => {
+            mark_done(job, "completed", post);
+            true
+        }
+        Ok(OsJobState::Gone) => {
+            mark_done(job, "left_queue", post);
+            true
+        }
+        Ok(OsJobState::Canceled) => {
+            end(
+                job,
+                JobState::Cancelled,
+                "os_cancelled",
+                "the job was cancelled in the system print queue",
+                post,
+            );
+            true
+        }
+        Ok(OsJobState::Aborted) => {
+            end(
+                job,
+                JobState::Failed,
+                "print_aborted",
+                "the printer aborted the job — check the printer, then retry",
+                post,
+            );
+            true
+        }
+        Ok(OsJobState::Held) => phase(job, "held"),
+        Ok(OsJobState::Stopped) => phase(job, "stopped"),
+        Ok(OsJobState::Pending | OsJobState::Processing) => phase(job, "printing"),
+        // This host cannot follow jobs at all: the hand-off is all there is.
+        Err(TrackError::Unavailable(e)) => {
+            tracing::warn!(event = "job_tracking_unavailable", job_id = %job.id, reason = %e);
+            mark_done(job, "untracked", post);
+            true
+        }
+        Err(TrackError::Transient(e)) if failures >= MAX_TRACK_FAILURES => {
+            tracing::warn!(event = "job_tracking_failed", job_id = %job.id, reason = %e, failures);
+            mark_done(job, "unconfirmed", post);
+            true
+        }
+        Err(TrackError::Transient(_)) => false,
+    }
+}
+
+/// The print outran its budget while waiting on the OS queue. The OS job is
+/// deliberately left alone: the printer may still print it, and cancelling
+/// would lose a job that is merely slow. The message says so, so nobody retries
+/// into a duplicate without checking.
+fn fail_print_timeout(job: &mut Job, budget: Option<Duration>, post: &mut Post) {
+    let secs = budget.map(|d| d.as_secs()).unwrap_or(0);
+    job.state = JobState::Failed;
+    job.finished_at = Some(now_rfc3339());
+    job.progress = None;
+    job.error = Some(JobError::new(
+        "print_timeout",
+        format!(
+            "the printer did not finish within {secs}s — the job is still in the system print queue; check the printer before retrying"
+        ),
+    ));
+    if let Some(c) = job.cache_pdf.take() {
+        post.delete_cache.push(c);
+    }
+    let f = JobLog::of(job);
+    tracing::warn!(
+        event = "job_print_timeout",
+        job_id = %job.id,
+        file = %f.file,
+        profile = %f.profile,
+        printer = %f.printer,
+        pages = f.pages,
+        status = %f.status,
+        started_at = %f.started_at,
+        finished_at = %f.finished_at,
+        error = %f.error,
+        timeout_s = secs
+    );
 }
 
 /// The FR-035 fields of a job, borrowed for one `tracing` record.
@@ -1716,11 +2077,38 @@ mod tests {
             Ok((name, self.duplex_supported.load(Ordering::Relaxed)))
         }
 
-        fn cancel_os_job(&self, os_job_id: &str) {
+        fn cancel_os_job(&self, _printer: &str, os_job_id: &str) {
             self.cancelled_os
                 .lock()
                 .unwrap()
                 .push(os_job_id.to_string());
+        }
+    }
+
+    /// Scripted spooler: answers each poll from `answers`, then `Completed`.
+    #[derive(Default)]
+    struct FakeTracker {
+        answers: Mutex<VecDeque<Result<OsJobState, TrackError>>>,
+        polls: Mutex<Vec<(String, String)>>,
+    }
+
+    impl FakeTracker {
+        fn script(&self, answers: impl IntoIterator<Item = Result<OsJobState, TrackError>>) {
+            self.answers.lock().unwrap().extend(answers);
+        }
+    }
+
+    impl JobTracker for FakeTracker {
+        fn poll(&self, printer: &str, os_job_id: &str) -> Result<OsJobState, TrackError> {
+            self.polls
+                .lock()
+                .unwrap()
+                .push((printer.to_string(), os_job_id.to_string()));
+            self.answers
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or(Ok(OsJobState::Completed))
         }
     }
 
@@ -1788,6 +2176,7 @@ mod tests {
         rx: mpsc::UnboundedReceiver<Cmd>,
         tx: mpsc::UnboundedSender<Cmd>,
         runner: Arc<FakeRunner>,
+        tracker: Arc<FakeTracker>,
         emit: Arc<FakeEmit>,
         state: Arc<RwLock<QueueState>>,
         queue_file: PathBuf,
@@ -1808,6 +2197,7 @@ mod tests {
         let queue_file = tmp.path().join("queue.json");
         let (tx, rx) = mpsc::unbounded_channel();
         let runner = Arc::new(FakeRunner::new(cache));
+        let tracker = Arc::new(FakeTracker::default());
         let emit = Arc::new(FakeEmit::default());
         let state = Arc::new(RwLock::new(QueueState {
             queue_paused: false,
@@ -1819,6 +2209,7 @@ mod tests {
             runner.clone(),
             emit.clone(),
             spawner,
+            tracker.clone(),
             queue_file.clone(),
             limits,
         );
@@ -1827,6 +2218,7 @@ mod tests {
             rx,
             tx,
             runner,
+            tracker,
             emit,
             state,
             queue_file,
@@ -2693,10 +3085,12 @@ mod tests {
 
     #[test]
     fn limits_follow_the_engine_settings() {
-        let mut e = crate::settings::EngineCfg::default();
-        e.max_concurrent_conversions = 3;
-        e.conversion_timeout_seconds = 0;
-        e.print_timeout_seconds = 120;
+        let e = crate::settings::EngineCfg {
+            max_concurrent_conversions: 3,
+            conversion_timeout_seconds: 0,
+            print_timeout_seconds: 120,
+            ..Default::default()
+        };
         let l = DispatcherLimits::from_engine(&e);
         assert_eq!(l.max_concurrent, 3);
         assert_eq!(l.conversion_timeout, None, "0 disables it");
@@ -2957,6 +3351,264 @@ mod tests {
             ["report.pdf"],
             "the job's file name must reach printer resolution for a .pdf rule to apply"
         );
+    }
+
+    // ---- OS job tracking (the print slot) --------------------------------
+
+    /// Queue `n` spool answers that hand back OS job ids `P-1`, `P-2`, …
+    fn spool_with_ids(h: &Harness, n: usize) {
+        let mut steps = h.runner.print_steps.lock().unwrap();
+        for i in 1..=n {
+            steps.push_back(PrintStep::Ok(Some(format!("P-{i}"))));
+        }
+    }
+
+    /// A job is done when the printer is done, not when `lp` returns — and the
+    /// next job does not reach the spooler until then.
+    #[tokio::test(start_paused = true)]
+    async fn fr_tracked_print_stays_printing_until_the_os_job_completes() {
+        let mut h = harness();
+        spool_with_ids(&h, 2);
+        h.tracker.script([
+            Ok(OsJobState::Processing),
+            Ok(OsJobState::Held),
+            Ok(OsJobState::Completed),
+        ]);
+        let a = make_job("a.pdf");
+        let b = make_job("b.pdf");
+        let (ida, idb) = (a.id.clone(), b.id.clone());
+        h.submit(vec![a, b]);
+        h.run_to_idle();
+
+        assert_eq!(h.job(&ida).state, JobState::Printing, "spooled ≠ printed");
+        assert_eq!(h.job(&ida).os_job_id.as_deref(), Some("P-1"));
+        assert_eq!(h.job(&idb).state, JobState::Converted, "slot still taken");
+        assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 1);
+
+        h.advance_and_settle(TRACK_BACKOFFS[0]).await; // → processing
+        assert_eq!(h.job(&ida).state, JobState::Printing);
+        assert_eq!(h.job(&ida).progress.unwrap().phase, "printing");
+
+        h.advance_and_settle(TRACK_BACKOFFS[1]).await; // → held
+        let p = h.job(&ida).progress.unwrap();
+        assert_eq!(p.phase, "held", "a held job says so");
+        assert!(p.percent.is_none());
+        assert_eq!(h.job(&ida).state, JobState::Printing);
+
+        h.advance_and_settle(TRACK_BACKOFFS[2]).await; // → completed
+        assert_eq!(h.job(&ida).state, JobState::Done);
+        assert!(h.job(&ida).cache_pdf.is_none());
+        // Only now does the second job reach the spooler.
+        assert_eq!(h.job(&idb).state, JobState::Printing);
+        assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 2);
+        assert_eq!(
+            h.tracker.polls.lock().unwrap()[0],
+            ("FakePrinter".to_string(), "P-1".to_string())
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fr_os_cancel_and_abort_end_the_job_with_their_own_reason() {
+        let mut h = harness();
+        spool_with_ids(&h, 2);
+        h.tracker
+            .script([Ok(OsJobState::Canceled), Ok(OsJobState::Aborted)]);
+        let a = make_job("a.pdf");
+        let b = make_job("b.pdf");
+        let (ida, idb) = (a.id.clone(), b.id.clone());
+        h.submit(vec![a, b]);
+        h.run_to_idle();
+        h.advance_and_settle(TRACK_BACKOFFS[0]).await;
+        assert_eq!(h.job(&ida).state, JobState::Cancelled);
+        assert_eq!(h.job(&ida).error.unwrap().code, "os_cancelled");
+
+        h.advance_and_settle(TRACK_BACKOFFS[0]).await;
+        assert_eq!(h.job(&idb).state, JobState::Failed);
+        assert_eq!(h.job(&idb).error.unwrap().code, "print_aborted");
+        assert_eq!(h.job(&idb).attempts, 0, "never re-sent automatically");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fr_034_print_budget_bounds_the_wait_on_the_os_queue() {
+        let mut h = harness_with_print_timeout(10);
+        spool_with_ids(&h, 1);
+        h.tracker
+            .script(std::iter::repeat(Ok(OsJobState::Held)).take(50));
+        let j = make_job("a.pdf");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+
+        for d in TRACK_BACKOFFS {
+            h.advance_and_settle(d).await;
+        }
+        let job = h.job(&id);
+        assert_eq!(job.state, JobState::Failed);
+        let err = job.error.unwrap();
+        assert_eq!(err.code, "print_timeout");
+        assert!(
+            err.message.contains("still in the system print queue"),
+            "{err:?}"
+        );
+        assert!(
+            h.runner.cancelled_os.lock().unwrap().is_empty(),
+            "a slow job is not cancelled behind the user's back"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fr_print_budget_off_means_tracking_waits_as_long_as_it_takes() {
+        let mut h = harness(); // print_timeout: None
+        spool_with_ids(&h, 1);
+        h.tracker
+            .script(std::iter::repeat(Ok(OsJobState::Stopped)).take(20));
+        let j = make_job("a.pdf");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        for _ in 0..12 {
+            h.advance_and_settle(TRACK_POLL_CAP).await;
+        }
+        assert_eq!(h.job(&id).state, JobState::Printing);
+        assert_eq!(h.job(&id).progress.unwrap().phase, "stopped");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fr_032_cancelling_a_tracked_print_cancels_the_os_job_and_frees_the_slot() {
+        let mut h = harness();
+        spool_with_ids(&h, 2);
+        h.tracker.script([Ok(OsJobState::Processing)]);
+        let a = make_job("a.pdf");
+        let b = make_job("b.pdf");
+        let (ida, idb) = (a.id.clone(), b.id.clone());
+        h.submit(vec![a, b]);
+        h.run_to_idle();
+        assert_eq!(h.job(&ida).state, JobState::Printing);
+
+        h.request(|reply| Cmd::Cancel {
+            id: ida.clone(),
+            reply,
+        })
+        .await
+        .unwrap();
+        assert_eq!(h.job(&ida).state, JobState::Cancelled);
+        assert_eq!(
+            h.runner.cancelled_os.lock().unwrap().as_slice(),
+            &["P-1".to_string()]
+        );
+        assert_eq!(h.job(&idb).state, JobState::Printing, "slot released");
+
+        // The stale timer for the cancelled print is harmless.
+        h.advance_and_settle(TRACK_BACKOFFS[0]).await;
+        assert_eq!(h.job(&ida).state, JobState::Cancelled);
+    }
+
+    /// Cancelling a job while it is still spooling must not hand the printer to
+    /// the next job: the spooler child is still running.
+    #[tokio::test]
+    async fn fr_032_a_cancel_mid_spool_keeps_the_slot_until_the_spool_returns() {
+        let spawner = Arc::new(DeferredSpawner::default());
+        let mut h = harness_with(spawner.clone(), DispatcherLimits::default());
+        spool_with_ids(&h, 2);
+        let a = make_job("a.pdf");
+        let b = make_job("b.pdf");
+        let (ida, idb) = (a.id.clone(), b.id.clone());
+        h.submit(vec![a, b]);
+        h.run_to_idle();
+        // Both conversions finish; A starts spooling (parked).
+        spawner.run_next();
+        spawner.run_next();
+        h.run_to_idle();
+        assert_eq!(h.job(&ida).state, JobState::Printing);
+        assert_eq!(h.job(&idb).state, JobState::Converted);
+
+        h.request(|reply| Cmd::Cancel {
+            id: ida.clone(),
+            reply,
+        })
+        .await
+        .unwrap();
+        assert_eq!(h.job(&ida).state, JobState::Cancelled);
+        assert_eq!(
+            h.job(&idb).state,
+            JobState::Converted,
+            "B must wait: A's spooler child is still running"
+        );
+        assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 0);
+
+        // A's spool returns: its OS job is cancelled and B finally starts.
+        spawner.run_next();
+        h.run_to_idle();
+        assert_eq!(
+            h.runner.cancelled_os.lock().unwrap().as_slice(),
+            &["P-1".to_string()]
+        );
+        assert_eq!(h.job(&idb).state, JobState::Printing);
+    }
+
+    /// Clearing finished jobs must not delete the PDF a cancelled job's spooler
+    /// is still reading; it goes once the spool returns.
+    #[tokio::test]
+    async fn clear_done_keeps_the_cache_of_a_cancelled_job_still_spooling() {
+        let spawner = Arc::new(DeferredSpawner::default());
+        let mut h = harness_with(spawner.clone(), DispatcherLimits::default());
+        let j = make_job("a.png");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        spawner.run_next(); // conversion → cache PDF
+        h.run_to_idle();
+        let cache = PathBuf::from(h.job(&id).cache_pdf.clone().expect("converted"));
+        assert_eq!(h.job(&id).state, JobState::Printing);
+
+        h.request(|reply| Cmd::Cancel {
+            id: id.clone(),
+            reply,
+        })
+        .await
+        .unwrap();
+        let cleared = h.request(|reply| Cmd::ClearDone { reply }).await;
+        assert_eq!(cleared, 1);
+        assert!(cache.exists(), "the spooler may still be reading it");
+
+        spawner.run_next(); // the spool returns
+        h.run_to_idle();
+        assert!(!cache.exists(), "deleted once the spool is over");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn tracking_that_this_host_cannot_do_finishes_on_hand_off() {
+        let mut h = harness();
+        spool_with_ids(&h, 1);
+        h.tracker
+            .script([Err(TrackError::Unavailable("no ipptool".into()))]);
+        let j = make_job("a.pdf");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        h.advance_and_settle(TRACK_BACKOFFS[0]).await;
+        assert_eq!(h.job(&id).state, JobState::Done);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn repeated_poll_failures_give_up_instead_of_holding_the_slot() {
+        let mut h = harness();
+        spool_with_ids(&h, 1);
+        h.tracker.script(
+            std::iter::repeat_with(|| Err(TrackError::Transient("busy".into())))
+                .take(MAX_TRACK_FAILURES as usize),
+        );
+        let j = make_job("a.pdf");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        for i in 0..MAX_TRACK_FAILURES - 1 {
+            h.advance_and_settle(track_delay(i)).await;
+            assert_eq!(h.job(&id).state, JobState::Printing, "poll {i}");
+        }
+        h.advance_and_settle(track_delay(MAX_TRACK_FAILURES - 1))
+            .await;
+        assert_eq!(h.job(&id).state, JobState::Done);
     }
 
     // ---- Progress honesty -------------------------------------------------

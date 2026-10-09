@@ -61,7 +61,9 @@
   },
   "note": {
     "readyToPrint": "Listo para imprimir",
-    "interruptedByShutdown": "Interrumpido al cerrarse la aplicación · reanúdalo para continuar"
+    "interruptedByShutdown": "Interrumpido al cerrarse la aplicación · reanúdalo para continuar",
+    "heldByPrinter": "Retenido en la cola de impresión del sistema · libéralo allí para imprimir",
+    "printerNeedsAttention": "La impresora necesita atención (papel, tinta o sin conexión)"
   },
   "job": {
     "meta": "{{profile}} · {{printer}}",

@@ -1003,6 +1003,13 @@ profile_name: string | null;
  */
 printer_resolved: string | null; 
 /**
+ * The OS spooler's id for this job once it has been handed off (CUPS
+ * `Office-42`, a Windows spooler job number), while the dispatcher follows
+ * it to completion. `None` before spooling, or when the backend could not
+ * identify the job. `#[serde(default)]` so an older `queue.json` loads.
+ */
+os_job_id?: string | null; 
+/**
  * Number of times this job has been started (for retry/backoff, FR-034).
  */
 attempts: number; error: JobError | null; progress: JobProgress | null; 

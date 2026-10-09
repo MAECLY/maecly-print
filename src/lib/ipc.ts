@@ -374,7 +374,10 @@ function elapsedMs(from: string | null, to: string | null): number | null {
  *   already formatted to a local clock here, so the views can no longer
  *   subtract them (the Timeline view promises durations).
  * - `noteKey` — which advisory note to show, as a key rather than English
- *   prose, so the views translate it (FR-092).
+ *   prose, so the views translate it (FR-092). A job the OS queue is holding,
+ *   or one waiting on a printer that needs attention, is still `printing` —
+ *   the backend reports that through the progress phase (`held`/`stopped`)
+ *   and the note says it out loud.
  *
  * It is declared next to the adapter that fills it because `@/types/domain` is
  * shared by every screen, and these three fields concern only the queue.
@@ -382,7 +385,11 @@ function elapsedMs(from: string | null, to: string | null): number | null {
 export interface UiQueueJobView extends UiQueueJob {
   indeterminate?: boolean;
   durationMs?: number;
-  noteKey?: 'readyToPrint' | 'interruptedByShutdown';
+  noteKey?:
+    | 'readyToPrint'
+    | 'interruptedByShutdown'
+    | 'heldByPrinter'
+    | 'printerNeedsAttention';
 }
 
 /**
@@ -426,6 +433,10 @@ export function toUiQueueJob(job: Job): UiQueueJobView {
     }
   } else if (job.state === 'converted') {
     ui.noteKey = 'readyToPrint';
+  } else if (job.state === 'printing' && job.progress?.phase === 'held') {
+    ui.noteKey = 'heldByPrinter';
+  } else if (job.state === 'printing' && job.progress?.phase === 'stopped') {
+    ui.noteKey = 'printerNeedsAttention';
   }
   return ui;
 }

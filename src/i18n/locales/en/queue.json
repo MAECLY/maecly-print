@@ -61,7 +61,9 @@
   },
   "note": {
     "readyToPrint": "Ready to print",
-    "interruptedByShutdown": "Interrupted by shutdown · resume to continue"
+    "interruptedByShutdown": "Interrupted by shutdown · resume to continue",
+    "heldByPrinter": "Held in the system print queue · release it there to print",
+    "printerNeedsAttention": "The printer needs attention (paper, ink or offline)"
   },
   "job": {
     "meta": "{{profile}} · {{printer}}",

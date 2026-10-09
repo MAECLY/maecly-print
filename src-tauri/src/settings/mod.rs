@@ -892,8 +892,10 @@ mod tests {
         assert!(b.accepts(10) && b.accepts(3600));
         assert!(!b.accepts(9) && !b.accepts(3601));
 
-        let mut e = EngineCfg::default();
-        e.print_timeout_seconds = 5;
+        let mut e = EngineCfg {
+            print_timeout_seconds: 5,
+            ..Default::default()
+        };
         assert_eq!(e.sanitized().print_timeout_seconds, 10);
         e.print_timeout_seconds = 0;
         assert_eq!(e.sanitized().print_timeout_seconds, 0);

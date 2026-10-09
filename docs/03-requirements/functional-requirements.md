@@ -54,7 +54,7 @@ This document is the canonical list of functional requirements (FRs) for MaeclyP
 | ID | Requirement | Priority | MVP | Status |
 |---|---|---|---|---|
 | FR-030 | The system MUST maintain a queue of pending and active print jobs persisted to disk so that a crash does not lose unprinted work. | MUST | yes | **Done** — `queue.json` behind a single-writer dispatcher with crash recovery on boot. |
-| FR-031 | The user MUST be able to view queue status: pending, converting, spooling, printed, failed. | MUST | yes | **Done** — three views (list, board, timeline) fed by typed `queue-updated` / `job-progress-event` events. |
+| FR-031 | The user MUST be able to view queue status: pending, converting, spooling, printed, failed. | MUST | yes | **Done** — three views (list, board, timeline) fed by typed `queue-updated` / `job-progress-event` events. "Printed" is real: a spooled job stays `printing` until the OS job completes (CUPS `ipptool`/`lpstat`, Windows `GetJob`), and a job the OS queue holds, or a printer that needs attention, is shown as such. |
 | FR-032 | The user MUST be able to **pause**, **resume**, and **cancel** individual jobs. | MUST | yes | **Done** — `pause_job` / `resume_job` / `cancel_job`, plus `retry_job` and `cancel_all`. |
 | FR-033 | The user MUST be able to **pause/resume the entire queue**. | MUST | yes | **Done** — `pause_queue` / `resume_queue`. |
 | FR-034 | Failed jobs MUST be retried automatically up to **3 times** with exponential backoff before being marked permanently failed. | MUST | yes | **Done** — `MAX_ATTEMPTS = 4` (initial attempt plus 3 retries) with `RETRY_BACKOFFS` of 1s/5s/25s. Errors the user must fix (missing dependency, unsupported setting) pause instead of burning retries. |
