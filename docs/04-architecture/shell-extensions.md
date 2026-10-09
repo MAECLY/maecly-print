@@ -317,6 +317,17 @@ Four keys carry the load:
 it as required; several macOS releases are reported to filter out services that
 omit it entirely, and an empty dictionary costs nothing.
 
+**Localization (FR-092).** The `NSMenuItem` `default` strings are the English
+titles. macOS translates them through `Resources/<lang>.lproj/ServicesMenu.strings`,
+keyed by the English title, so a Spanish system shows "Imprimir con MaeclyPrint"
+and "Imprimir con MaeclyPrint (perfil predeterminado)". The sources live in
+`src-tauri/macos/{en,es}.lproj/ServicesMenu.strings`, are copied into the bundle
+by `bundle.macOS.files` in `tauri.conf.json`, and `CFBundleLocalizations` in
+`Info.plist` declares both languages. The Services menu follows the **system**
+language, not MaeclyPrint's own language setting, because the Finder draws it
+before the app is involved. `tests/macos_services_l10n.rs` fails if a title is
+added to `Info.plist` without its translations or if the bundle mapping is lost.
+
 **Deliberately not declared: `CFBundleDocumentTypes`.** It would add a free
 "Open With → MaeclyPrint" entry, but Launch Services delivers those files
 through `application:openURLs:`, an AppKit delegate callback the app does not

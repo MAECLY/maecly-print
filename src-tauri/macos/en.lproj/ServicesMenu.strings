@@ -1,0 +1,11 @@
+/*
+  English titles for the Finder Services entries declared in Info.plist. They
+  repeat the NSMenuItem defaults so the bundle carries an explicit en.lproj
+  next to es.lproj; src-tauri/tests/macos_services_l10n.rs keeps them in sync.
+*/
+
+/* Opens the selection in the Print Job screen to configure it. */
+"Print with MaeclyPrint" = "Print with MaeclyPrint";
+
+/* Prints the selection straight away with the default profile. */
+"Print with MaeclyPrint (default profile)" = "Print with MaeclyPrint (default profile)";

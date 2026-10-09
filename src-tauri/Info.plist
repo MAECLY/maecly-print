@@ -28,9 +28,18 @@
     both files and folders (FR-004). NSSendTypes lists the pasteboard flavour.
   - NSRequiredContext is declared (empty = "no restriction"); several macOS
     releases are reported to filter out services that omit it entirely.
+  - The NSMenuItem titles are localized through Resources/<lang>.lproj/
+    ServicesMenu.strings (sources in src-tauri/macos/, copied by
+    tauri.conf.json bundle.macOS.files); CFBundleLocalizations declares the
+    languages so macOS consults them.
 -->
 <plist version="1.0">
 <dict>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>es</string>
+	</array>
 	<key>NSServices</key>
 	<array>
 		<dict>

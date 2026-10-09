@@ -34,9 +34,11 @@ MaeclyPrint.app/
     ├── Resources/
     │   ├── icon.icns
     │   ├── en.lproj/
-    │   │   └── InfoPlist.strings
+    │   │   ├── InfoPlist.strings
+    │   │   └── ServicesMenu.strings   # Finder Services titles (FR-001)
     │   ├── es.lproj/
-    │   │   └── InfoPlist.strings
+    │   │   ├── InfoPlist.strings
+    │   │   └── ServicesMenu.strings   # "Imprimir con MaeclyPrint", …
     │   └── third-party/
     │       └── LICENSES.txt
     ├── Frameworks/

@@ -1,0 +1,12 @@
+/*
+  Spanish titles for the Finder Services entries declared in Info.plist
+  (NSServices → NSMenuItem → default). macOS looks each English title up here
+  when the system language is Spanish. Keys must match Info.plist exactly;
+  src-tauri/tests/macos_services_l10n.rs checks that they do.
+*/
+
+/* Opens the selection in the Print Job screen to configure it. */
+"Print with MaeclyPrint" = "Imprimir con MaeclyPrint";
+
+/* Prints the selection straight away with the default profile. */
+"Print with MaeclyPrint (default profile)" = "Imprimir con MaeclyPrint (perfil predeterminado)";
