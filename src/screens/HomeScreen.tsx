@@ -304,6 +304,9 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
                   fontSize: 10.5,
                   color: 'var(--mp-textDim)',
                   marginTop: 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
                 }}
               >
                 {tQueue('job.meta', {
