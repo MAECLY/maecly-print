@@ -51,5 +51,76 @@
     "title": "The app hit an unexpected error",
     "hint": "This screen could not be rendered. Reloading usually clears it; the logs folder has the details.",
     "detailsLabel": "Error details"
+  },
+  "ipcErrors": {
+    "codes": {
+      "FileNotFound": "File not found: {{detail}}",
+      "InvalidRequest": "The request was rejected: {{detail}}",
+      "UnsupportedFormat": "Unsupported file format: {{detail}}",
+      "ConversionFailed": "The file could not be converted for printing: {{detail}}",
+      "PrintFailed": "Printing failed: {{detail}}",
+      "UnsupportedSetting": "The printer does not support this setting: {{detail}}",
+      "DependencyMissing": "A required program is missing: {{detail}}",
+      "JobNotFound": "That job is no longer in the queue.",
+      "InvalidState": "That action is not possible for this job right now.",
+      "ProfileNotFound": "That profile no longer exists.",
+      "UpdateCheckFailed": "The update check failed: {{detail}}",
+      "Internal": "Internal error: {{detail}}"
+    },
+    "reasons": {
+      "UpdateCheckFailed": {
+        "rate_limited": "GitHub's rate limit was reached. Try again later.",
+        "offline": "Could not reach github.com. Check your connection.",
+        "bad_status": "github.com returned an unexpected status ({{status}}).",
+        "bad_response": "GitHub sent an unexpected response. Try again later.",
+        "repo_missing": "This build's repository was not found on github.com.",
+        "not_configured": "This build has no update repository configured."
+      },
+      "Internal": {
+        "open_logs_failed": "Could not open the logs folder.",
+        "open_link_failed": "Could not open the link in your browser.",
+        "config_corrupt": "config.toml could not be read. Fix or remove it; your settings were not changed.",
+        "profiles_corrupt": "profiles.toml could not be read. Fix or remove it; nothing was changed.",
+        "profiles_invalid_entries": "profiles.toml has duplicate or invalid entries. Fix or remove it; nothing was changed."
+      },
+      "InvalidRequest": {
+        "url_not_allowed": "That link is not on the list of allowed sites.",
+        "unknown_default_profile": "The default profile no longer exists. Choose another one.",
+        "builtin_readonly": "Built-in profiles cannot be changed.",
+        "builtin_delete": "Built-in profiles cannot be deleted.",
+        "delete_default": "This is the default profile. Set another profile as default first.",
+        "id_too_long": "The profile id must be 100 characters or fewer.",
+        "name_empty": "The profile name cannot be empty.",
+        "name_too_long": "The profile name must be 100 characters or fewer.",
+        "name_taken": "A profile named “{{name}}” already exists.",
+        "copies_out_of_range": "Copies must be between 1 and 999.",
+        "page_range": "The page range is not valid.",
+        "import_too_large": "The file is too large to be a profile file.",
+        "import_unreadable": "The file could not be read.",
+        "import_malformed": "This is not a MaeclyPrint profile file.",
+        "import_unsupported_version": "The file uses profile format version {{version}}, which this version cannot read.",
+        "import_empty": "The file contains no profiles.",
+        "import_invalid_profile": "The profile “{{name}}” in the file is not valid.",
+        "add_printer_unsupported_scheme": "MaeclyPrint can't add a printer over {{scheme}}://. Add it from the system printer settings instead."
+      },
+      "DependencyMissing": {
+        "ippfind_missing": "Network discovery needs the CUPS client tools (ippfind), which are not installed."
+      },
+      "PrintFailed": {
+        "set_default_failed": "Windows could not set the default printer.",
+        "add_printer_needs_admin": "Adding a printer may require administrator rights. Use “Open printer settings” to add it from Windows."
+      }
+    },
+    "noHost": "This needs the desktop app (it is running in a plain browser preview)."
+  },
+  "toaster": {
+    "region": "Notifications",
+    "close": "Close notification"
+  },
+  "filePicker": {
+    "filterName": "Printable files"
+  },
+  "dialog": {
+    "close": "Close dialog"
   }
 }

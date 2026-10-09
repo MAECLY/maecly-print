@@ -50,11 +50,11 @@ import {
 } from '@/i18n';
 import { detectSystemLocale } from '@/i18n/I18nProvider';
 import { logError } from '@/lib/errorLog';
+import { IpcFailure } from '@/lib/ipcError';
 import {
   cancelAll as cancelAllCmd,
   cancelJob as cancelJobCmd,
   clearDone as clearDoneCmd,
-  IpcCallError,
   isTauri,
   notifyNative,
   openLogsFolder,
@@ -511,7 +511,7 @@ export const useQueueStore = create<QueueState>()((set, get) => {
     } catch (e) {
       const now = get().snapshot?.jobs.find((j) => j.id === id);
       const movedOn =
-        e instanceof IpcCallError &&
+        e instanceof IpcFailure &&
         (e.code === 'JobNotFound' ||
           (e.code === 'InvalidState' && (!now || TERMINAL.has(now.state))));
       if (movedOn) {

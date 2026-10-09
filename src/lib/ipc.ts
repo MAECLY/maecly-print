@@ -8,6 +8,9 @@
  * "unavailable" state.
  */
 
+import { CATALOGS, getActiveLocale, translate } from '@/i18n';
+import { IpcFailure, type IpcErrorPayload } from '@/lib/ipcError';
+
 import {
   commands,
   type AppInfo,
@@ -97,25 +100,21 @@ export function isTauri(): boolean {
   return '__TAURI_INTERNALS__' in window || '__TAURI__' in window;
 }
 
-const NO_HOST = 'Not running inside Tauri (standalone Vite preview)';
-
-/**
- * A command that answered with an [`IpcError`]. Still an `Error` (with the
- * backend's message), so every existing `e.message` toast keeps working, but
- * it also carries the machine-readable `code` — the only safe thing to branch
- * on, since the message is prose and may name internal ids.
- */
-export class IpcCallError extends Error {
-  readonly code: IpcError['code'] | undefined;
-  constructor(message: string, code: IpcError['code'] | undefined) {
-    super(message);
-    this.name = 'IpcCallError';
-    this.code = code;
-  }
+/** The error every command throws outside the desktop host (browser preview). */
+function noHost(): Error {
+  return new Error(
+    translate(CATALOGS[getActiveLocale()], 'common', 'ipcErrors.noHost'),
+  );
 }
 
-/** Unwrap a tauri-specta `Result`, turning the error branch into a throw. */
-async function unwrap<T>(
+/**
+ * Unwrap a tauri-specta `Result`, turning the error branch into a throw.
+ *
+ * Command-returned errors become an {@link IpcFailure} whose `message` is
+ * already translated from the stable `code`/`reason` (FR-092), so every
+ * `toast.error(e.message)` call site shows the user's language.
+ */
+export async function unwrap<T>(
   p: Promise<{ status: 'ok'; data: T } | { status: 'error'; error: IpcError }>,
 ): Promise<T> {
   // The generated bindings resolve to the error branch for command-returned
@@ -129,17 +128,10 @@ async function unwrap<T>(
     throw e instanceof Error ? e : new Error(String(e));
   }
   if (r.status === 'ok') return r.data;
-  const { message, code } = {
-    message: r.error?.message,
-    code: r.error?.code,
-  };
-  throw new IpcCallError(
-    message ?? (code ? `IPC error: ${code}` : 'IPC error'),
-    code,
-  );
+  throw new IpcFailure((r.error as IpcErrorPayload | undefined) ?? {});
 }
 
-/** The IPC error code attached by {@link unwrap}, when there is one. */
+/** The stable IPC error code of a failure thrown by {@link unwrap}, if any. */
 export function ipcErrorCode(e: unknown): string | undefined {
   if (e instanceof Error && 'code' in e) {
     const code = (e as Error & { code?: unknown }).code;
@@ -156,13 +148,13 @@ export function ipcErrorCode(e: unknown): string | undefined {
 export async function installUpdate(
   allowMajor: boolean,
 ): Promise<UpdateInstallResult> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.installUpdate(allowMajor));
 }
 
 /** Relaunch the app so an installed update takes effect. */
 export async function restartApp(): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await commands.restartApp();
 }
 
@@ -175,13 +167,13 @@ export async function notifyNative(
   title: string,
   body: string,
 ): Promise<boolean> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.notifyNative(title, body));
 }
 
 /** Returns the live AppInfo from Rust, or rejects in non-Tauri contexts. */
 export async function fetchAppInfo(): Promise<AppInfo> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.appInfo());
 }
 
@@ -237,19 +229,19 @@ function toUiDiscovered(d: IpcDiscoveredPrinter): UiDiscoveredPrinter {
 
 /** Every installed printer with its OS-reported capabilities. */
 export async function listPrinters(): Promise<UiPrinter[]> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return (await unwrap(commands.listPrinters())).map(toUiPrinter);
 }
 
 /** Id of the OS default printer, or null when none is configured. */
 export async function fetchDefaultPrinter(): Promise<string | null> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.defaultPrinter());
 }
 
 /** Best-effort network discovery of not-yet-installed printers. */
 export async function discoverPrinters(): Promise<UiDiscoveredPrinter[]> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return (await unwrap(commands.discoverPrinters())).map(toUiDiscovered);
 }
 
@@ -259,7 +251,7 @@ export async function discoverPrinters(): Promise<UiDiscoveredPrinter[]> {
 
 /** Read the persisted MaeclyPrint printer preferences. */
 export async function getPrinterPrefs(): Promise<PrinterPrefs> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.getPrinterPrefs());
 }
 
@@ -267,25 +259,25 @@ export async function getPrinterPrefs(): Promise<PrinterPrefs> {
 export async function setPrinterPrefs(
   prefs: PrinterPrefs,
 ): Promise<PrinterPrefs> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.setPrinterPrefs(prefs));
 }
 
 /** Set the OS user-default printer (no elevation required). */
 export async function setDefaultPrinter(name: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.setDefaultPrinter(name));
 }
 
 /** Send a test page to the named printer. */
 export async function printTestPage(name: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.printTestPage(name));
 }
 
 /** Open the OS "Printers" settings pane. */
 export async function openPrinterSettings(): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.openPrinterSettings());
 }
 
@@ -295,13 +287,13 @@ export async function openPrinterSettings(): Promise<void> {
  * failure the spooler's own diagnostic is surfaced verbatim.
  */
 export async function addPrinter(name: string, uri: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.addPrinter(name, uri));
 }
 
 /** Read the effective organization printer policy (`policy.json`). */
 export async function getPrinterPolicy(): Promise<PrinterPolicy> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.getPrinterPolicy());
 }
 
@@ -312,67 +304,67 @@ export async function getPrinterPolicy(): Promise<PrinterPolicy> {
 
 /** Submit a print request; returns the batch id and per-file job ids. */
 export async function printFiles(req: PrintRequest): Promise<JobBatch> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.printFiles(req));
 }
 
 /** A consistent snapshot of the whole queue for the initial paint. */
 export async function queueStatus(): Promise<QueueSnapshot> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.queueStatus());
 }
 
 /** Cancel a single job by id (any non-terminal state). */
 export async function cancelJob(id: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.cancelJob(id));
 }
 
 /** Cancel every non-terminal job; resolves with how many were cancelled. */
 export async function cancelAll(): Promise<number> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.cancelAll());
 }
 
 /** Pause a single job (queued/converting/converted, not printing). */
 export async function pauseJob(id: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.pauseJob(id));
 }
 
 /** Resume a single paused job. */
 export async function resumeJob(id: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.resumeJob(id));
 }
 
 /** Retry a single failed job from the start. */
 export async function retryJob(id: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.retryJob(id));
 }
 
 /** Pause the whole queue (stops starting new work; in-flight jobs finish). */
 export async function pauseQueue(): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.pauseQueue());
 }
 
 /** Resume the whole queue. */
 export async function resumeQueue(): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.resumeQueue());
 }
 
 /** Remove all terminal jobs; resolves with how many were removed. */
 export async function clearDone(): Promise<number> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.clearDone());
 }
 
 /** Inspect a list of file paths for the print dialog. */
 export async function inspectFiles(paths: string[]): Promise<FileInfo[]> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.inspectFiles(paths));
 }
 
@@ -388,13 +380,13 @@ export async function expandFolders(
   paths: string[],
   scan: FolderScan,
 ): Promise<FolderExpansion[]> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.expandFolders(paths, scan));
 }
 
 /** The exact command MaeclyPrint would run for `req` (honesty preview). */
 export async function previewCommand(req: PrintRequest): Promise<string> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.previewCommand(req));
 }
 
@@ -580,7 +572,7 @@ function toWireProfile(p: UiProfile): Profile {
 
 /** Every profile: built-ins first, then customs, each with its computed flags. */
 export async function listProfiles(): Promise<UiProfile[]> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return (await unwrap(commands.listProfiles())).map(toUiProfile);
 }
 
@@ -590,19 +582,19 @@ export async function listProfiles(): Promise<UiProfile[]> {
  * preserving that id (client-side undo); a built-in id is rejected.
  */
 export async function saveProfile(p: UiProfile): Promise<UiProfile> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return toUiProfile(await unwrap(commands.saveProfile(toWireProfile(p))));
 }
 
 /** Delete a custom profile (rejects a built-in or the current default). */
 export async function deleteProfile(id: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.deleteProfile(id));
 }
 
 /** Set the app's default profile (id must name a known built-in or custom). */
 export async function setDefaultProfile(id: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.setDefaultProfile(id));
 }
 
@@ -626,13 +618,13 @@ function normalizeAppSettings(s: AppSettings): AppSettings {
 
 /** Read the current app settings, with optional fields normalized. */
 export async function getAppSettings(): Promise<AppSettings> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return normalizeAppSettings(await unwrap(commands.getAppSettings()));
 }
 
 /** Validate and persist app settings; returns the saved (normalized) value. */
 export async function setAppSettings(s: AppSettings): Promise<AppSettings> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return normalizeAppSettings(await unwrap(commands.setAppSettings(s)));
 }
 
@@ -642,7 +634,7 @@ export async function setAppSettings(s: AppSettings): Promise<AppSettings> {
 
 /** Check GitHub for a newer release than the running build. */
 export async function checkForUpdates(): Promise<UpdateCheck> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.checkForUpdates());
 }
 
@@ -651,7 +643,7 @@ export async function checkForUpdates(): Promise<UpdateCheck> {
  * the user skipped (FR-084).
  */
 export async function getUpdateState(): Promise<UpdateState> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.getUpdateState());
 }
 
@@ -664,7 +656,7 @@ export async function getUpdateState(): Promise<UpdateState> {
 export async function setSkippedUpdateVersion(
   version: string | null,
 ): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.setSkippedUpdateVersion(version));
 }
 
@@ -684,24 +676,24 @@ export async function setSkippedUpdateVersion(
  * matter how many times it is called.
  */
 export async function takePendingSelections(): Promise<Selection[]> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.takePendingSelections());
 }
 
 /** Reveal the app's log directory in the OS file browser. */
 export async function openLogsFolder(): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.openLogsFolder());
 }
 
 /** Open a prefilled "new issue" page on the project's GitHub, seeded with `text`. */
 export async function reportIssue(text: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.reportIssue(text));
 }
 
 /** Open an external link in the default browser (allow-listed project hosts). */
 export async function openExternal(url: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.openExternal(url));
 }

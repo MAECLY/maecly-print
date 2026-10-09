@@ -21,7 +21,7 @@
 import { create } from 'zustand';
 import { toast } from 'sonner';
 
-import { commands, type IpcError } from '@/ipc/bindings';
+import { commands } from '@/ipc/bindings';
 import {
   deleteProfile as deleteProfileCmd,
   isTauri,
@@ -29,6 +29,7 @@ import {
   saveProfile as saveProfileCmd,
   setDefaultProfile as setDefaultProfileCmd,
   toUiProfile,
+  unwrap,
 } from '@/lib/ipc';
 import { BUILT_IN_PROFILES, findProfileIn } from '@/lib/profiles';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -105,30 +106,6 @@ interface ProfilesState {
 /** Turn an unknown thrown value into a user-facing message. */
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
-}
-
-/**
- * Unwrap a tauri-specta `Result` into a value, or throw its message.
- *
- * The canonical wrapper lives in `src/lib/ipc.ts`, but the import/export
- * commands have no wrapper there yet, so the three calls below unwrap here.
- * Fold them back into `src/lib/ipc.ts` once it gains `getProfile` /
- * `exportProfile` / `importProfiles`.
- */
-async function unwrap<T>(
-  p: Promise<{ status: 'ok'; data: T } | { status: 'error'; error: IpcError }>,
-): Promise<T> {
-  let r;
-  try {
-    r = await p;
-  } catch (e) {
-    throw e instanceof Error ? e : new Error(String(e));
-  }
-  if (r.status === 'ok') return r.data;
-  throw new Error(
-    r.error?.message ??
-      (r.error?.code ? `IPC error: ${r.error.code}` : 'IPC error'),
-  );
 }
 
 export const useProfilesStore = create<ProfilesState>()((set, get) => {

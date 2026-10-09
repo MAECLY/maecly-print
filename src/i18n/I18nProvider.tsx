@@ -29,6 +29,7 @@ import {
   CATALOGS,
   DEFAULT_LOCALE,
   matchLocale,
+  setActiveLocale,
   translate,
   type Locale,
   type Namespace,
@@ -113,6 +114,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     () => matchLocale(configured) ?? detectSystemLocale(),
     [configured],
   );
+
+  // Publish the locale for code that translates outside React (IPC error
+  // mapping). Assigned during render so the very first error is already in the
+  // right language; it is an idempotent module write, not React state.
+  setActiveLocale(locale);
 
   const value = useMemo<I18nContextValue>(() => ({ locale }), [locale]);
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

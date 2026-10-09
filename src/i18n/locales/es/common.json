@@ -51,5 +51,76 @@
     "title": "La aplicación ha encontrado un error inesperado",
     "hint": "No se ha podido dibujar esta pantalla. Recargar suele resolverlo; los detalles están en la carpeta de registros.",
     "detailsLabel": "Detalles del error"
+  },
+  "ipcErrors": {
+    "codes": {
+      "FileNotFound": "No se encontró el archivo: {{detail}}",
+      "InvalidRequest": "Se rechazó la solicitud: {{detail}}",
+      "UnsupportedFormat": "Formato de archivo no compatible: {{detail}}",
+      "ConversionFailed": "No se pudo convertir el archivo para imprimirlo: {{detail}}",
+      "PrintFailed": "Error al imprimir: {{detail}}",
+      "UnsupportedSetting": "La impresora no admite este ajuste: {{detail}}",
+      "DependencyMissing": "Falta un programa necesario: {{detail}}",
+      "JobNotFound": "Ese trabajo ya no está en la cola.",
+      "InvalidState": "Esa acción no se puede hacer ahora con este trabajo.",
+      "ProfileNotFound": "Ese perfil ya no existe.",
+      "UpdateCheckFailed": "No se pudo comprobar si hay actualizaciones: {{detail}}",
+      "Internal": "Error interno: {{detail}}"
+    },
+    "reasons": {
+      "UpdateCheckFailed": {
+        "rate_limited": "Se alcanzó el límite de consultas de GitHub. Inténtalo más tarde.",
+        "offline": "No se pudo conectar con github.com. Comprueba tu conexión.",
+        "bad_status": "github.com devolvió un estado inesperado ({{status}}).",
+        "bad_response": "GitHub envió una respuesta inesperada. Inténtalo más tarde.",
+        "repo_missing": "No se encontró en github.com el repositorio de esta versión.",
+        "not_configured": "Esta versión no tiene configurado ningún repositorio de actualizaciones."
+      },
+      "Internal": {
+        "open_logs_failed": "No se pudo abrir la carpeta de registros.",
+        "open_link_failed": "No se pudo abrir el enlace en el navegador.",
+        "config_corrupt": "No se pudo leer config.toml. Corrígelo o elimínalo; tu configuración no ha cambiado.",
+        "profiles_corrupt": "No se pudo leer profiles.toml. Corrígelo o elimínalo; no se ha cambiado nada.",
+        "profiles_invalid_entries": "profiles.toml tiene entradas duplicadas o no válidas. Corrígelo o elimínalo; no se ha cambiado nada."
+      },
+      "InvalidRequest": {
+        "url_not_allowed": "Ese enlace no está en la lista de sitios permitidos.",
+        "unknown_default_profile": "El perfil predeterminado ya no existe. Elige otro.",
+        "builtin_readonly": "Los perfiles integrados no se pueden modificar.",
+        "builtin_delete": "Los perfiles integrados no se pueden eliminar.",
+        "delete_default": "Este es el perfil predeterminado. Elige antes otro perfil como predeterminado.",
+        "id_too_long": "El identificador del perfil debe tener 100 caracteres como máximo.",
+        "name_empty": "El nombre del perfil no puede estar vacío.",
+        "name_too_long": "El nombre del perfil debe tener 100 caracteres como máximo.",
+        "name_taken": "Ya existe un perfil llamado «{{name}}».",
+        "copies_out_of_range": "Las copias deben estar entre 1 y 999.",
+        "page_range": "El intervalo de páginas no es válido.",
+        "import_too_large": "El archivo es demasiado grande para ser un archivo de perfiles.",
+        "import_unreadable": "No se pudo leer el archivo.",
+        "import_malformed": "Este no es un archivo de perfiles de MaeclyPrint.",
+        "import_unsupported_version": "El archivo usa la versión {{version}} del formato de perfiles, que esta versión no sabe leer.",
+        "import_empty": "El archivo no contiene ningún perfil.",
+        "import_invalid_profile": "El perfil «{{name}}» del archivo no es válido.",
+        "add_printer_unsupported_scheme": "MaeclyPrint no puede añadir una impresora mediante {{scheme}}://. Añádela desde la configuración de impresoras del sistema."
+      },
+      "DependencyMissing": {
+        "ippfind_missing": "La detección en red necesita las herramientas cliente de CUPS (ippfind), que no están instaladas."
+      },
+      "PrintFailed": {
+        "set_default_failed": "Windows no pudo establecer la impresora predeterminada.",
+        "add_printer_needs_admin": "Añadir una impresora puede requerir permisos de administrador. Usa «Abrir la configuración de impresoras» para añadirla desde Windows."
+      }
+    },
+    "noHost": "Esto necesita la aplicación de escritorio (se está ejecutando en una vista previa del navegador)."
+  },
+  "toaster": {
+    "region": "Notificaciones",
+    "close": "Cerrar notificación"
+  },
+  "filePicker": {
+    "filterName": "Archivos imprimibles"
+  },
+  "dialog": {
+    "close": "Cerrar el diálogo"
   }
 }

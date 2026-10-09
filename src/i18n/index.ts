@@ -200,3 +200,34 @@ export function translate<N extends Namespace>(
   }
   return interpolate(hit, params);
 }
+
+/** True when `key` resolves to a string in `ns` (in `catalog` or English). */
+export function hasTranslation(
+  catalog: LocaleCatalog,
+  ns: Namespace,
+  key: string,
+): boolean {
+  return (
+    lookup(catalog[ns], key) !== undefined || lookup(EN[ns], key) !== undefined
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Active locale (for code that translates outside React)
+// ---------------------------------------------------------------------------
+
+let activeLocale: Locale | undefined;
+
+/**
+ * Record the locale the UI is rendering in. `I18nProvider` calls this on every
+ * render, so non-React code (IPC error mapping, stores) translates into the
+ * same language as the screen without importing a store.
+ */
+export function setActiveLocale(locale: Locale): void {
+  activeLocale = locale;
+}
+
+/** The locale last published by `I18nProvider`, or `fallback` before it ran. */
+export function getActiveLocale(fallback: Locale = DEFAULT_LOCALE): Locale {
+  return activeLocale ?? fallback;
+}
