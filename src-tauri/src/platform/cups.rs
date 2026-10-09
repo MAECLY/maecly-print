@@ -172,23 +172,29 @@ pub fn add_printer(name: &str, uri: &str) -> anyhow::Result<()> {
 
 /// Turn a free-form display name into a legal CUPS queue id.
 ///
-/// CUPS queue ids may not contain spaces, `/`, or `#`; those become `_`. The
-/// result is capped at 127 characters and falls back to `"printer"` when the
-/// input sanitizes to nothing (e.g. it was empty or all whitespace).
+/// Mirrors `lpadmin`'s own `validate_name` so nothing the form accepts can be
+/// refused by the spooler: every character that is not printable ASCII, and
+/// each of `/ \ ? ' " # @` (`@` ends a CUPS name), becomes `_`. Accented
+/// letters are therefore replaced too — the human name survives untouched as
+/// the queue's description (`-D`). The result is capped at 127 **bytes** (CUPS
+/// requires fewer than 128 octets) and falls back to `"printer"` when nothing
+/// usable is left (empty, all whitespace, all punctuation).
 fn sanitize_queue_name(name: &str) -> String {
+    const MAX_BYTES: usize = 127;
     let cleaned: String = name
         .trim()
         .chars()
         .map(|c| {
-            if matches!(c, ' ' | '\t' | '/' | '#') {
-                '_'
-            } else {
+            if c.is_ascii_graphic() && !matches!(c, '/' | '\\' | '?' | '\'' | '"' | '#' | '@') {
                 c
+            } else {
+                '_'
             }
         })
-        .take(127)
+        // Every char is ASCII at this point, so one char is one byte.
+        .take(MAX_BYTES)
         .collect();
-    if cleaned.is_empty() {
+    if cleaned.chars().all(|c| c == '_') {
         "printer".to_string()
     } else {
         cleaned
@@ -198,14 +204,19 @@ fn sanitize_queue_name(name: &str) -> String {
 /// Return `base` if no installed queue already uses it, otherwise the first
 /// free `base_2`, `base_3`, … variant. This is what keeps `add` from silently
 /// overwriting an existing queue.
+///
+/// CUPS resolves queue names **case-insensitively** (`lpadmin -p office`
+/// modifies an existing `Office`), so the comparison ignores ASCII case; the
+/// sanitized id is pure ASCII, so that is a complete case fold.
 fn unique_queue_name(base: &str, existing: &[String]) -> String {
-    if !existing.iter().any(|e| e == base) {
+    let taken = |name: &str| existing.iter().any(|e| e.eq_ignore_ascii_case(name));
+    if !taken(base) {
         return base.to_string();
     }
     let mut n = 2u32;
     loop {
         let candidate = format!("{base}_{n}");
-        if !existing.iter().any(|e| e == &candidate) {
+        if !taken(&candidate) {
             return candidate;
         }
         n += 1;
@@ -752,6 +763,38 @@ mod tests {
     fn sanitize_queue_name_caps_length() {
         let out = sanitize_queue_name(&"a".repeat(300));
         assert_eq!(out.chars().count(), 127);
+    }
+
+    /// Every character `lpadmin`'s `validate_name` refuses must be mapped,
+    /// otherwise a name the form accepted fails at the spooler.
+    #[test]
+    fn fr_regression_sanitize_queue_name_maps_every_char_lpadmin_rejects() {
+        assert_eq!(sanitize_queue_name("Ana's printer"), "Ana_s_printer");
+        assert_eq!(sanitize_queue_name("Printer?2"), "Printer_2");
+        assert_eq!(sanitize_queue_name(r#"A\B"C"#), "A_B_C");
+        assert_eq!(sanitize_queue_name("lab@host"), "lab_host");
+        assert_eq!(sanitize_queue_name("tab\there\u{7f}"), "tab_here_");
+        assert_eq!(sanitize_queue_name("Impresora España"), "Impresora_Espa_a");
+        assert_eq!(sanitize_queue_name("@@@"), "printer");
+        for c in sanitize_queue_name("x'\"?#@/\\ é\u{1}").chars() {
+            assert!(c.is_ascii_graphic(), "{c:?} would be refused by lpadmin");
+        }
+    }
+
+    /// The cap is in bytes: a long accented name must stay under 128 octets.
+    #[test]
+    fn fr_regression_sanitize_queue_name_caps_by_bytes() {
+        let out = sanitize_queue_name(&"ñ".repeat(120));
+        assert!(out.len() <= 127, "{} bytes", out.len());
+    }
+
+    /// CUPS queue names are case-insensitive: `office` must not reach
+    /// `lpadmin -p` when `Office` exists, or the existing queue is rewritten.
+    #[test]
+    fn fr_regression_unique_queue_name_is_case_insensitive() {
+        let existing = vec!["Office".to_string(), "OFFICE_2".to_string()];
+        assert_eq!(unique_queue_name("office", &existing), "office_3");
+        assert_eq!(unique_queue_name("Lab", &existing), "Lab");
     }
 
     #[test]
