@@ -86,6 +86,7 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
   const resumeQueue = useQueueStore((s) => s.resumeQueue);
   const requestClearDone = useQueueStore((s) => s.requestClearDone);
   const undoClearDone = useQueueStore((s) => s.undoClearDone);
+  const cancelAll = useQueueStore((s) => s.cancelAll);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
 
   const subtitle =
@@ -127,18 +128,47 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
       }),
       confirmLabel: t('actions.clearDone'),
       run: () => {
-        const hidden = requestClearDone();
+        // The toast pauses its countdown while hovered, so it can outlive the
+        // undo window: the store tells us when the window closes and the toast
+        // goes with it, and an Undo that still lands too late says so instead
+        // of claiming the (already deleted) jobs were kept.
+        const toastId = `clear-done-${Date.now()}`;
+        const hidden = requestClearDone(() => toast.dismiss(toastId));
         if (hidden === 0) return;
         toast.success(t('toast.cleared', { count: hidden }), {
+          id: toastId,
           duration: CLEAR_UNDO_MS,
           action: {
             label: t('toast.undo'),
             onClick: () => {
-              undoClearDone();
-              toast.success(t('toast.restored', { count: hidden }));
+              if (undoClearDone()) {
+                toast.success(t('toast.restored', { count: hidden }));
+              } else {
+                toast.error(t('toast.undoTooLate'));
+              }
             },
           },
         });
+      },
+    });
+  };
+
+  /**
+   * Cancel every unfinished job (FR-032). Confirmed first, and with no undo:
+   * the backend cannot un-cancel, and pages already on the printer are gone —
+   * so the confirmation, not a 5 s window, is the safety net.
+   */
+  const unfinished = counts.active + counts.pending;
+  const askCancelAll = () => {
+    setConfirm({
+      title: t('confirm.cancelAllTitle'),
+      message: t('confirm.cancelAllMessage', { count: unfinished }),
+      confirmLabel: t('confirm.cancelAllConfirm'),
+      run: async () => {
+        const cancelled = await cancelAll();
+        if (cancelled !== null) {
+          toast.success(t('toast.cancelledAll', { count: cancelled }));
+        }
       },
     });
   };
@@ -158,6 +188,15 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
               onClick={() => void (queuePaused ? resumeQueue() : pauseQueue())}
             >
               {queuePaused ? t('actions.resumeQueue') : t('actions.pauseQueue')}
+            </MPButton>
+            <MPButton
+              variant="ghost"
+              icon="x"
+              size="sm"
+              disabled={unfinished === 0}
+              onClick={askCancelAll}
+            >
+              {t('actions.cancelAll')}
             </MPButton>
             <MPButton
               variant="ghost"

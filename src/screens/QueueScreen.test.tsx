@@ -38,6 +38,7 @@ function mockQueue(snapshot: QueueSnapshot = fixtureQueueSnapshot): Call[] {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
     if (cmd === 'queue_status') return snapshot;
     if (cmd === 'clear_done') return 4;
+    if (cmd === 'cancel_all') return 6;
     return null;
   });
   return calls;
@@ -56,6 +57,7 @@ function resetStore() {
     snapshot: null,
     subscribed: false,
     pendingClear: [],
+    pendingIds: [],
     notifiedBatches: [],
     uiJobs: [],
     counts: { active: 0, pending: 0, done: 0 },
@@ -161,6 +163,33 @@ describe('QueueScreen', () => {
     expect(await screen.findByText('Recent · 3')).toBeInTheDocument();
     expect(await screen.findByText('3 finished jobs kept')).toBeInTheDocument();
     expect(calls.some((c) => c.cmd === 'clear_done')).toBe(false);
+  });
+
+  it('FR-032: Cancel all confirms, then cancels every unfinished job', async () => {
+    const calls = await renderReady();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel all' }));
+    const dialog = await screen.findByRole('dialog');
+    // 3 active + 3 pending in the fixture; finished ones are not counted.
+    expect(
+      within(dialog).getByText(/6 jobs that have not finished/),
+    ).toBeInTheDocument();
+    expect(calls.some((c) => c.cmd === 'cancel_all')).toBe(false);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel all' }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.cmd === 'cancel_all')).toBe(true),
+    );
+    expect(await screen.findByText('Cancelled 6 jobs')).toBeInTheDocument();
+  });
+
+  it('FR-032: Cancel all is disabled when nothing is left to cancel', async () => {
+    await renderReady({
+      snapshot: snapshotOf([
+        mkJob({ id: 'a', state: 'done', file_name: 'a.pdf' }),
+      ]),
+    });
+    expect(screen.getByRole('button', { name: 'Cancel all' })).toBeDisabled();
   });
 
   it('FR-036: Clear done is disabled when there is no finished job', async () => {

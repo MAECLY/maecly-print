@@ -9,7 +9,7 @@ This document is the source of truth for the **content and behavior** of the Que
 A single scrolling body with three interchangeable views (List / Board / Timeline), chosen with a segmented control in the top bar.
 
 ```
-┌─ Queue ──────────────────  2 active · 1 pending · 5 done   [List|Board|Timeline] [⏸ Pause queue] [🗑 Clear done] ┐
+┌─ Queue ──────────────────  2 active · 1 pending · 5 done   [List|Board|Timeline] [⏸ Pause queue] [✕ Cancel all] [🗑 Clear done] ┐
 ├───────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ ACTIVE · 2                                                                                          │
 │ 📄 report.pdf     PRINTING  ▓▓▓▓▓▓▓░░  10:42:03            [⏸]      [✕]                             │
@@ -22,7 +22,7 @@ A single scrolling body with three interchangeable views (List / Board / Timelin
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Top bar** — title `Queue`, a subtitle that in List view reads `{active} active · {pending} pending · {done} done` (Board/Timeline show a view description instead), and — **only in List view** — a **Pause queue / Resume queue** toggle and a **Clear done** button (disabled when there is no finished job; confirms before clearing).
+- **Top bar** — title `Queue`, a subtitle that in List view reads `{active} active · {pending} pending · {done} done` (Board/Timeline show a view description instead), and — **only in List view** — a **Pause queue / Resume queue** toggle, a **Cancel all** button (disabled when nothing is unfinished; confirms first) and a **Clear done** button (disabled when there is no finished job; confirms before clearing).
 - **List view** — jobs grouped into **Active** (printing / converting / converted), **Pending** (queued / paused), and **Recent** (done / failed / cancelled). Each row shows a file glyph, name, `profile · printer` (plus a note or error tail), a status dot + label, a progress bar, a `started → finished` clock, and the per-state action buttons.
 - **Board view** — a kanban across the job phases (read-only visualization).
 - **Timeline view** — jobs in chronological order with durations (read-only visualization).
@@ -80,13 +80,16 @@ The queue is persisted to `queue.json` (atomic write on every transition), cappe
 | Action           | Where                | Behavior                                                                 |
 | ---------------- | -------------------- | ------------------------------------------------------------------------ |
 | **Pause queue**  | top bar (List)       | Stops starting new work; in-flight jobs finish. Toggles to **Resume queue**. |
-| **Clear done**   | top bar (List)       | Removes all terminal jobs (and their cache) after a confirm.             |
+| **Cancel all**   | top bar (List)       | Cancels every unfinished job (`cancel_all`) after a confirm that states the count; disabled when nothing is unfinished. No undo — the backend cannot un-cancel, so the confirm is the safety net. |
+| **Clear done**   | top bar (List)       | Hides all terminal jobs at once and calls `clear_done` 5 s later; the toast's **Undo** restores them inside that window. When the window closes the toast is dismissed, and an Undo that still arrives too late says so instead of claiming the jobs were kept (NFR-032). |
 | **Pause**        | job row              | Pauses a queued/converting/converted job.                                |
 | **Resume**       | job row              | Returns a paused job to the pipeline.                                     |
 | **Retry**        | job row              | Re-runs a failed job from the start (attempts reset).                     |
 | **Cancel**       | job row              | Cancels a non-terminal job (confirms if it is printing).                  |
 
-`cancel_all` (cancel every non-terminal job) is exposed by the store and IPC for callers such as the CLI/other surfaces, though the List view drives cancellation per-row.
+Row actions are disabled while a command for that job is in flight (`pendingIds`), so a double click cannot send it twice. A cancel the backend refuses because the job finished (or vanished) in the meantime is reported as a translated "had already finished" note rather than the raw `InvalidState` message.
+
+Batch completion toasts (FR-070) count every job the batch had this session, including finished jobs a **Clear done** already removed, so a batch of three is never announced as "1 of 1".
 
 ## Per-platform differences
 
