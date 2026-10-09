@@ -150,11 +150,13 @@ mod tests {
 
     #[test]
     fn fr_056_header_points_relative_links_at_the_source_folder() {
-        let head = head_fragment(Path::new("/docs/my notes"));
-        assert!(
-            head.contains("<base href=\"file:///docs/my%20notes/\">"),
-            "{head}"
-        );
+        let (dir, base) = if cfg!(windows) {
+            (r"C:\docs\my notes", "file:///C:/docs/my%20notes/")
+        } else {
+            ("/docs/my notes", "file:///docs/my%20notes/")
+        };
+        let head = head_fragment(Path::new(dir));
+        assert!(head.contains(&format!("<base href=\"{base}\">")), "{head}");
         assert!(head.contains("@page"));
     }
 }

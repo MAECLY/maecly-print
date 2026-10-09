@@ -518,7 +518,12 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let file = dir.path().join("report.pdf");
         std::fs::write(&file, b"%PDF-1.4\n").expect("write");
-        let canonical = file.canonicalize().unwrap().to_string_lossy().into_owned();
+        // Same normalization as production: on Windows `canonicalize` yields the
+        // verbatim `\\?\C:\…` form, which the app deliberately strips.
+        let canonical = crate::util::paths::canonical_input(&file.to_string_lossy())
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
 
         match startup([
             "maeclyprint".to_string(),

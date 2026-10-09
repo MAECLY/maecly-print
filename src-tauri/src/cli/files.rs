@@ -237,8 +237,15 @@ mod tests {
     fn fr_008_plain_paths_pass_through_untouched() {
         // Not stat'ed here: a missing file must be reported by name later, with
         // the FileNotFound exit code, not swallowed as "matched nothing".
-        let files = expand_inputs(&["/no/such/file.pdf".to_string()], NO_SIZE_LIMIT).unwrap();
-        assert_eq!(files, vec!["/no/such/file.pdf"]);
+        // An absolute path in the platform's own form; on Windows a bare
+        // `/no/…` is drive-relative and is resolved like any relative entry.
+        let missing = if cfg!(windows) {
+            r"C:\no\such\file.pdf"
+        } else {
+            "/no/such/file.pdf"
+        };
+        let files = expand_inputs(&[missing.to_string()], NO_SIZE_LIMIT).unwrap();
+        assert_eq!(files, vec![missing]);
     }
 
     #[test]

@@ -115,13 +115,20 @@ mod tests {
 
     #[test]
     fn fr_053_soffice_args_use_a_private_profile_and_headless_convert() {
+        // Platform-absolute paths: `/w` is not absolute on Windows.
+        let (w, url) = if cfg!(windows) {
+            (r"C:\w", "file:///C:/w/profile")
+        } else {
+            ("/w", "file:///w/profile")
+        };
+        let w = Path::new(w);
         let args = soffice_args(
-            Path::new("/w/profile"),
-            Path::new("/w/out"),
-            Path::new("/w/input.docx"),
+            &w.join("profile"),
+            &w.join("out"),
+            &w.join("input.docx"),
             "docx",
         );
-        assert_eq!(args[0], "-env:UserInstallation=file:///w/profile");
+        assert_eq!(args[0], format!("-env:UserInstallation={url}"));
         assert!(args.contains(&"--headless".to_string()));
         assert!(args.contains(&"--norestore".to_string()));
         let tail: Vec<&str> = args
@@ -131,10 +138,9 @@ mod tests {
             .rev()
             .map(String::as_str)
             .collect();
-        assert_eq!(
-            tail,
-            ["--convert-to", "pdf", "--outdir", "/w/out", "/w/input.docx"]
-        );
+        let out = w.join("out").to_string_lossy().into_owned();
+        let input = w.join("input.docx").to_string_lossy().into_owned();
+        assert_eq!(tail, ["--convert-to", "pdf", "--outdir", &out, &input]);
         assert!(!args.iter().any(|a| a.starts_with("--infilter")));
     }
 

@@ -211,7 +211,10 @@ mod tests {
         .expect("an absolute, existing path is honoured");
         assert_eq!(
             forwarded.selection.paths,
-            vec![file.canonicalize().unwrap().to_string_lossy().into_owned()]
+            vec![crate::util::paths::canonical_input(&file.to_string_lossy())
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()]
         );
         assert_eq!(
             forwarded.selection.action,
