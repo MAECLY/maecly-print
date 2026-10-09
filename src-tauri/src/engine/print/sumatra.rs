@@ -196,6 +196,13 @@ pub fn unsupported_notes(settings: &JobSettings) -> Vec<String> {
         .map(str::to_string)
         .into_iter()
         .collect();
+    if settings.copies > 1 {
+        notes.push(format!(
+            ":: note: SumatraPDF has no collate switch, so \"{}\" is NOT applied — the driver's own collation is used for the {} copies.",
+            if settings.collate { "collated" } else { "uncollated" },
+            settings.copies
+        ));
+    }
     if !settings.paper_size.is_auto() && paper_token(&settings.paper_size).is_none() {
         notes.push(format!(
             ":: note: SumatraPDF has no keyword for the paper size \"{}\", so it is NOT applied — the printer's own paper setting is used.",
@@ -342,6 +349,7 @@ mod tests {
             page_ranges: Some("1-5, 10".to_string()),
             quality: Quality::High,
             tray: Some("Drawer 1".to_string()),
+            collate: true,
         };
         assert_eq!(
             print_settings_string(&settings),
@@ -411,6 +419,21 @@ mod tests {
         let auto = with("auto");
         assert!(!print_settings_string(&auto).contains("paper="));
         assert!(unsupported_notes(&auto).is_empty());
+    }
+
+    #[test]
+    fn collation_is_declared_not_applied_for_several_copies() {
+        let with = |copies, collate| JobSettings {
+            copies,
+            collate,
+            ..JobSettings::default()
+        };
+        assert!(unsupported_notes(&with(1, false)).is_empty());
+        let notes = unsupported_notes(&with(3, false));
+        assert!(notes
+            .iter()
+            .any(|n| n.contains("uncollated") && n.contains("NOT applied")));
+        assert!(!print_settings_string(&with(3, false)).contains("collate"));
     }
 
     #[test]

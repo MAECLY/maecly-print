@@ -68,6 +68,7 @@ A profile provides the baseline; the controls below it are per-invocation overri
 | **Sides**    | Single / Long / Short                     | `duplex` = `none` / `long` / `short`             |
 | **Color**    | Color / B&W                               | `color_mode` = `color` / `monochrome`            |
 | **Copies**   | integer, validated `1..=999`              | `copies`                                         |
+| **Collate copies** | switch, on by default               | `collate` (CUPS `-o collate=…` when copies > 1)  |
 | **Paper**    | Printer default / A4 / Letter / Legal / A3 + every size the chosen printer reports | `paper_size` (`auto` = printer default; classic sizes lowercase, others verbatim) |
 | **Orient.**  | Auto / Portrait / Landscape               | `orientation`                                    |
 | **Scaling**  | Fit / Shrink / 100%                       | `scaling` = `fit` / `shrink` / `none`            |

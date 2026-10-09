@@ -378,6 +378,7 @@ maeclyprint print (--files <FILES> | --files-from <PATH>)
                   [--copies <N>] [--paper <a4|letter|legal|a3>] [--range <SPEC>]
                   [--scale <fit|shrink|actual>]
                   [--orientation <auto|portrait|landscape>]
+                  [--collate | --no-collate]
                   [--no-dialog] [--wait]
 
 maeclyprint printers list
@@ -388,6 +389,7 @@ maeclyprint profiles create --name <NAME> [--from <NAME-OR-ID>] [--printer <NAME
                             [--quality <draft|normal|high>] [--tray <TRAY>]
                             [--color | --mono] [--duplex …] [--copies …]
                             [--paper …] [--range …] [--scale …] [--orientation …]
+                            [--collate | --no-collate]
 maeclyprint profiles delete <NAME-OR-ID>
 maeclyprint profiles set-default <NAME-OR-ID>
 
@@ -411,7 +413,7 @@ maeclyprint --help
 - Relative paths are resolved against the working directory **only here**; every other surface refuses them (`util::paths::canonical_input`, NFR-025).
 - `--files-from <PATH>` reads a JSON handoff file instead of argv — how the shell extensions pass a large selection past Windows' 32,767-character argv cap. A handoff file is untrusted input: it must resolve **inside** the per-user handoff directory (`<data dir>/handoff`) and be fresh, or it is refused.
 - `--duplex`, `--paper`, `--scale`, `--orientation`, `--quality` are case-insensitive. `--scale actual` is the engine's `none` — the one deliberate rename.
-- `--color` and `--mono` are mutually exclusive; omitting both leaves the profile's value.
+- `--color` and `--mono` are mutually exclusive; omitting both leaves the profile's value. The same holds for `--collate` / `--no-collate`.
 - `--no-dialog` and `--wait` are accepted for compatibility and are **no-ops**: a headless `print` never opens a window and always runs each file to completion before exiting.
 - `--json` switches every command to JSON on stdout; errors become JSON on stderr.
 

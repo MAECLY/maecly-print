@@ -1097,7 +1097,14 @@ quality?: Quality;
  * 
  * `#[serde(default)]` for the same forward-migration reason as `quality`.
  */
-tray?: string | null }
+tray?: string | null; 
+/**
+ * With several copies: `true` prints whole sets (1-2-3, 1-2-3), `false`
+ * groups each page (1-1, 2-2, 3-3). Irrelevant for one copy.
+ * `#[serde(default = …)]` reads an older `queue.json` as collated, the
+ * usual driver default.
+ */
+collate?: boolean }
 /**
  * Lifecycle state of a single print job.
  * 
@@ -1250,7 +1257,12 @@ printer: string; color_mode: ColorMode; duplex: ProfileDuplex; copies: number; p
  * Page-range expression (engine grammar), or `None` for all pages. Omitted
  * from the wire when `None`.
  */
-page_range?: string | null; quality: Quality; tray: string }
+page_range?: string | null; quality: Quality; tray: string; 
+/**
+ * Collate multiple copies (see [`crate::queue::job::JobSettings::collate`]).
+ * Defaults to `true` so a profile saved before the field existed loads.
+ */
+collate?: boolean }
 /**
  * Duplex mode as spelled in the profile UI vocabulary (distinct from the
  * engine's [`crate::queue::job::Duplex`], which uses `none`/`long`/`short`).

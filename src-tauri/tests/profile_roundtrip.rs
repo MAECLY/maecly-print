@@ -27,6 +27,7 @@ fn profile(name: &str) -> Profile {
         page_range: None,
         quality: Quality::Normal,
         tray: "auto".to_string(),
+        collate: true,
     }
 }
 

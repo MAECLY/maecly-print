@@ -12,7 +12,7 @@
 //! | duplex short         | `-o sides=two-sided-short-edge`                       |
 //! | colour               | `-o ColorModel=RGB` *only if the printer lists `RGB`* |
 //! | monochrome           | `-o ColorModel=Gray`                                  |
-//! | copies > 1           | `-n <copies>`                                         |
+//! | copies > 1           | `-n <copies> -o collate=true\|false`                  |
 //! | paper                | `-o media=<the printer's keyword>` *(auto omitted)*   |
 //! | tray                 | `-o InputSlot=<bin> -o media-source=<bin>`            |
 //! | quality              | `-o print-quality=3\|4\|5 -o cupsPrintQuality=…`      |
@@ -93,10 +93,14 @@ pub fn lp_opts_for(settings: &JobSettings, caps: &PrinterCaps) -> Vec<String> {
         }
     }
 
-    // Copies use `lp`'s own `-n` flag.
+    // Copies use `lp`'s own `-n` flag, and collation is stated explicitly
+    // whenever it matters (more than one copy) so the driver default cannot
+    // decide it.
     if settings.copies > 1 {
         opts.push("-n".to_string());
         opts.push(settings.copies.to_string());
+        opts.push("-o".to_string());
+        opts.push(format!("collate={}", settings.collate));
     }
 
     // Paper — explicit unless the job defers to the printer ("auto"), and in
@@ -491,6 +495,7 @@ mod tests {
             page_ranges: Some(" 1-5, 8 ".to_string()),
             quality: Quality::High,
             tray: Some("Tray 2".to_string()),
+            collate: true,
         };
         assert_eq!(
             strs(&lp_opts(&settings)),
@@ -501,6 +506,8 @@ mod tests {
                 "ColorModel=Gray",
                 "-n",
                 "3",
+                "-o",
+                "collate=true",
                 "-o",
                 "media=Legal",
                 "-o",
@@ -684,6 +691,20 @@ mod tests {
         );
         assert!(mono.iter().any(|o| o == "ColorModel=Gray"));
         assert!(!mono.iter().any(|o| o == "ColorModel=RGB"));
+    }
+
+    #[test]
+    fn collate_is_explicit_for_several_copies_only() {
+        let with = |copies, collate| {
+            lp_opts(&JobSettings {
+                copies,
+                collate,
+                ..JobSettings::default()
+            })
+        };
+        assert!(with(3, true).iter().any(|o| o == "collate=true"));
+        assert!(with(3, false).iter().any(|o| o == "collate=false"));
+        assert!(!with(1, false).iter().any(|o| o.starts_with("collate=")));
     }
 
     #[test]

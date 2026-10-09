@@ -331,6 +331,9 @@ pub fn resolve_settings(
     if let Some(range) = &flags.range {
         settings.page_ranges = Some(range.clone());
     }
+    if let Some(collate) = flags.collate() {
+        settings.collate = collate;
+    }
 
     settings
         .validate()
@@ -364,6 +367,7 @@ pub fn from_profile(profile: &Profile) -> JobSettings {
         page_ranges: profile.page_range.clone(),
         quality: profile.quality,
         tray: (!tray.is_empty() && !tray.eq_ignore_ascii_case("auto")).then(|| tray.to_string()),
+        collate: profile.collate,
     }
 }
 
@@ -520,6 +524,55 @@ mod tests {
         assert_eq!(settings.paper_size, PaperSize::LETTER);
         assert_eq!(settings.scaling, Scaling::None);
         assert_eq!(settings.page_ranges.as_deref(), Some("1-5,8"));
+    }
+
+    #[test]
+    fn fr_008_collate_flags_override_the_profile() {
+        use crate::cli::args::{Cli, Command};
+        use clap::Parser;
+
+        let profile = quick();
+        assert!(
+            resolve_settings(&profile, None, &SettingFlags::default())
+                .unwrap()
+                .collate
+        );
+
+        let parsed =
+            Cli::try_parse_from(["maeclyprint", "print", "--files", "a.pdf", "--no-collate"])
+                .expect("--no-collate parses");
+        let Some(Command::Print(args)) = parsed.command else {
+            panic!("expected print");
+        };
+        assert!(
+            !resolve_settings(&profile, None, &args.settings)
+                .unwrap()
+                .collate
+        );
+
+        let parsed = Cli::try_parse_from(["maeclyprint", "print", "--files", "a.pdf", "--collate"])
+            .expect("--collate parses");
+        let Some(Command::Print(args)) = parsed.command else {
+            panic!("expected print");
+        };
+        assert!(
+            resolve_settings(&profile, None, &args.settings)
+                .unwrap()
+                .collate
+        );
+
+        assert!(
+            Cli::try_parse_from([
+                "maeclyprint",
+                "print",
+                "--files",
+                "a.pdf",
+                "--collate",
+                "--no-collate"
+            ])
+            .is_err(),
+            "the two flags conflict"
+        );
     }
 
     #[test]

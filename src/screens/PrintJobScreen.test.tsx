@@ -526,6 +526,24 @@ describe('PrintJobScreen', () => {
     expect(seen.at(-1)?.settings.paper_size).toBe('auto');
   });
 
+  it('FR-041: the collate toggle reaches the request', async () => {
+    const seen: PrintRequest[] = [];
+    mockJob();
+    render(
+      <Harness
+        initial={[uiFile('/docs/a.pdf')]}
+        onRequest={(req) => seen.push(req)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
+    expect(seen.at(-1)?.settings.collate).toBe(true);
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Collate copies' }));
+    fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
+    expect(seen.at(-1)?.settings.collate).toBe(false);
+  });
+
   it('FR-044: keeps a stored printer selectable even when it is not installed', async () => {
     // A profile saved against an offline (or pre-id) printer must not snap
     // silently to the system default.

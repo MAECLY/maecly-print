@@ -61,6 +61,7 @@
     "color": "Color",
     "copies": "Copies",
     "copiesSuffix": "× per file",
+    "collate": "Collate copies",
     "paper": "Paper",
     "paperPrinterDefault": "Printer default",
     "orientation": "Orient.",

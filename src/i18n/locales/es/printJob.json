@@ -61,6 +61,7 @@
     "color": "Color",
     "copies": "Copias",
     "copiesSuffix": "× por archivo",
+    "collate": "Intercalar copias",
     "paper": "Papel",
     "paperPrinterDefault": "La de la impresora",
     "orientation": "Orient.",

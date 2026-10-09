@@ -22,7 +22,7 @@ A print setting is anything that can be different per job: the printer, paper, d
 | `tray` | string | the printer's override, else driver default | `bin=<name>` | `-o InputSlot=<name> -o media-source=<name>` | **Shipped** | yes |
 | `paper_size_custom` | width × height (mm) | — | would need preprocessing | `-o media=Custom.WxHmm` | Not implemented | yes |
 | `n_up` | enum: 1 / 2 / 4 / 6 / 9 | 1 | would need `qpdf`/`pdfjam` preprocessing | `-o number-up=N` | Not implemented | yes |
-| `collate` | bool | true | implicit | `-o Collate=true` | Not implemented | yes |
+| `collate` | bool | true | **not expressible** — a `:: note:` says the driver's collation is used | `-o collate=true\|false` (only when copies > 1) | **Shipped** (CUPS) | yes |
 | `margins` | object (mm) | driver default | would need preprocessing | not directly | Not implemented | partial |
 | `watermark` | object | none | would need a preprocessing step | same | Not implemented | no (synthesized) |
 | `separator_pages` | bool | false | would need concatenation | same | Not implemented | no (synthesized) |
@@ -68,12 +68,12 @@ There is no `auto` value. On CUPS, `color` emits no flag at all — the driver's
 
 `copies` is validated as `1..=999` by `JobSettings::validate` and sets the number of copies of the **whole job**. It is only emitted when greater than 1 (`copies=N` for SumatraPDF, `-n N` for `lp`).
 
-`collate` is **not implemented** — there is no such field, and neither renderer emits a collation flag. What follows describes the intended semantics:
+`collate` is on `JobSettings` and on profiles (default `true`), set from the Print Job **Collate copies** switch or `--collate` / `--no-collate`:
 
 - `collate = true` (default): full document repeated. (1,2,3 / 1,2,3)
 - `collate = false`: each page repeated. (1,1 / 2,2 / 3,3)
 
-Most modern printers handle collation in firmware. The application sets the flag and trusts the driver.
+CUPS receives `-o collate=true|false` whenever more than one copy is printed (one copy has nothing to collate, so nothing is sent). SumatraPDF's `-print-settings` has no collate keyword; with several copies the preview carries a `:: note:` saying the driver's own collation is used, in the same spirit as the quality gap.
 
 ### `page_ranges`
 
@@ -222,7 +222,7 @@ Full argument vector: `-print-to <printer> -print-settings <string> -silent -exi
 | Colour / monochrome | `color` / `monochrome` — always emitted |
 | Scaling fit / shrink / none | `fit` / `shrink` / `noscale` — always emitted |
 | Paper size | `paper=A4` (also `Letter`, `Legal`, `A3`, and SumatraPDF's own `A2`, `A5`, `A6`, `tabloid`, `statement`); `auto` emits nothing; any other size cannot be named here, so it is left out and a `:: note:` line in the preview says it is not applied |
-| Copies | `copies=N`, **only when N > 1** |
+| Copies | `copies=N`, **only when N > 1**; collation cannot be expressed (preview note) |
 | Orientation | `landscape` / `portrait`; `auto` emits nothing |
 | Tray (bin) | `bin=<name>` when the job (or the printer's override) names one; a name containing a comma cannot be expressed and is left out (logged) |
 
@@ -239,7 +239,7 @@ The command is **`lp`**, not `lpr`. Vector: `lp -d <printer> -t <title> <opts…
 | Sides (duplex) | `-o sides=one-sided \| two-sided-long-edge \| two-sided-short-edge` — always emitted |
 | Paper | `-o media=<keyword>` in the printer's own spelling (`A4`, `Letter`, `4x6`, `Tabloid`, `w288h432`…); omitted only for `auto` |
 | Colour model | Monochrome: `-o ColorModel=Gray`. Colour: `-o ColorModel=RGB` in the printer's spelling **only when the printer lists an `RGB` model** (so a queue that defaults to `Gray` still prints colour); otherwise nothing, and the driver default applies |
-| Copies | `-n N` — `lp`'s own flag, **not** `-o copies=N`; only when N > 1 |
+| Copies | `-n N` — `lp`'s own flag, **not** `-o copies=N`; only when N > 1, together with `-o collate=true\|false` |
 | Orientation | `-o orientation-requested=3` portrait / `=4` landscape; `auto` emits nothing, so each page keeps its own orientation |
 | Fit-to-page | `-o fit-to-page` for both `fit` and `shrink`; `none` emits nothing |
 | Page ranges | `-o page-ranges=1-5,10` |

@@ -193,6 +193,14 @@ pub struct SettingFlags {
     /// Page orientation.
     #[arg(long, value_name = "MODE", ignore_case = true)]
     pub orientation: Option<CliOrientation>,
+
+    /// Collate multiple copies (whole sets: 1-2-3, 1-2-3).
+    #[arg(long, conflicts_with = "no_collate")]
+    pub collate: bool,
+
+    /// Do not collate multiple copies (each page grouped: 1-1, 2-2, 3-3).
+    #[arg(long)]
+    pub no_collate: bool,
 }
 
 #[derive(Debug, Subcommand, PartialEq, Eq)]
@@ -408,6 +416,16 @@ impl SettingFlags {
         match (self.color, self.mono) {
             (true, _) => Some(ColorMode::Color),
             (_, true) => Some(ColorMode::Monochrome),
+            _ => None,
+        }
+    }
+
+    /// The collation override, if any. `--collate` and `--no-collate` are
+    /// mutually exclusive (enforced by clap).
+    pub fn collate(&self) -> Option<bool> {
+        match (self.collate, self.no_collate) {
+            (true, _) => Some(true),
+            (_, true) => Some(false),
             _ => None,
         }
     }

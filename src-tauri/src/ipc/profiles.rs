@@ -392,6 +392,7 @@ mod tests {
             page_range: None,
             quality: crate::profiles::Quality::Normal,
             tray: "auto".to_string(),
+            collate: true,
         }
     }
 

@@ -96,6 +96,10 @@ pub struct Profile {
     pub page_range: Option<String>,
     pub quality: Quality,
     pub tray: String,
+    /// Collate multiple copies (see [`crate::queue::job::JobSettings::collate`]).
+    /// Defaults to `true` so a profile saved before the field existed loads.
+    #[serde(default = "crate::queue::job::default_collate")]
+    pub collate: bool,
 }
 
 /// On-disk profile: [`Profile`] minus the two server-computed flags. This is the
@@ -115,6 +119,8 @@ pub struct StoredProfile {
     pub page_range: Option<String>,
     pub quality: Quality,
     pub tray: String,
+    #[serde(default = "crate::queue::job::default_collate")]
+    pub collate: bool,
 }
 
 /// The whole `profiles.toml`: a schema version plus the custom profiles. The
@@ -182,6 +188,7 @@ impl StoredProfile {
             page_range: self.page_range.clone(),
             quality: self.quality,
             tray: self.tray.clone(),
+            collate: self.collate,
         }
     }
 }
@@ -202,6 +209,7 @@ impl Profile {
             page_range: self.page_range.clone(),
             quality: self.quality,
             tray: self.tray.clone(),
+            collate: self.collate,
         }
     }
 }
@@ -227,6 +235,7 @@ pub fn builtins() -> Vec<Profile> {
             page_range: None,
             quality: Quality::Normal,
             tray: "auto".to_string(),
+            collate: true,
         },
         Profile {
             id: BUILTIN_DUPLEX_BW.to_string(),
@@ -243,6 +252,7 @@ pub fn builtins() -> Vec<Profile> {
             page_range: None,
             quality: Quality::Normal,
             tray: "auto".to_string(),
+            collate: true,
         },
         Profile {
             id: BUILTIN_PHOTO_COLOR.to_string(),
@@ -259,6 +269,7 @@ pub fn builtins() -> Vec<Profile> {
             page_range: None,
             quality: Quality::High,
             tray: "auto".to_string(),
+            collate: true,
         },
     ]
 }
@@ -747,6 +758,7 @@ mod tests {
             page_range: None,
             quality: Quality::Normal,
             tray: "auto".to_string(),
+            collate: true,
         }
     }
 

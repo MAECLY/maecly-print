@@ -125,6 +125,7 @@ export interface PrintJobOverrides {
   orientation?: UiProfile['orientation'];
   scaling?: UiProfile['scaling'];
   range?: string;
+  collate?: boolean;
 }
 
 /**
@@ -352,6 +353,7 @@ export function toJobSettings(
     page_ranges: range ? range : null,
     quality: merged.quality,
     tray: toWireTray(merged.tray),
+    collate: merged.collate ?? true,
   };
 }
 

@@ -245,7 +245,7 @@ page_range   = "1-5,8,11-13"           # engine grammar; absent means all pages
 There are two shapes. `StoredProfile` is the on-disk `[[profile]]` entry; the wire `Profile` the frontend sees is `StoredProfile` plus the two server-computed flags (`builtin`, `default`).
 
 ```rust
-// The on-disk entry (profiles/mod.rs). No collate/margins/notes — those are
+// The on-disk entry (profiles/mod.rs). No margins/notes — those are
 // deferred; no builtin/default flag — those are computed, not stored.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StoredProfile {
@@ -262,6 +262,8 @@ pub struct StoredProfile {
     pub page_range: Option<String>,       // None == all pages (omitted from TOML)
     pub quality: Quality,                 // "draft" | "normal" | "high"
     pub tray: String,
+    #[serde(default = "default_collate")]
+    pub collate: bool,                    // true == whole sets; missing reads as true
 }
 
 // The wire shape adds the computed flags (ignored on input, recomputed on read).
@@ -272,7 +274,7 @@ pub struct Profile { /* …StoredProfile fields…, */ pub builtin: bool, pub de
 pub struct ProfilesFile { pub schema_version: u32, pub profile: Vec<StoredProfile> }
 ```
 
-The `<default>` printer sentinel is a plain string preserved verbatim on round-trip (not a tagged enum), so the file stays human-readable. `page_range` is `None`/omitted for "all pages" — there is no `"all"` sentinel. `collate`, `margins_mm`, and `notes` from earlier drafts are **deferred** and not persisted.
+The `<default>` printer sentinel is a plain string preserved verbatim on round-trip (not a tagged enum), so the file stays human-readable. `page_range` is `None`/omitted for "all pages" — there is no `"all"` sentinel. `collate` is stored (missing in an older file reads as `true`); `margins_mm` and `notes` from earlier drafts are **deferred** and not persisted.
 
 ### 3.3 Profile invariants
 

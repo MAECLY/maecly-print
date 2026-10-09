@@ -82,6 +82,9 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: ProfilesCmd) -> Result<(), CliE
             if let Some(o) = settings.orientation {
                 profile.orientation = o.to_engine();
             }
+            if let Some(c) = settings.collate() {
+                profile.collate = c;
+            }
             if let Some(r) = settings.range {
                 profile.page_range = Some(r);
             }

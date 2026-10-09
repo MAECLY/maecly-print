@@ -97,6 +97,11 @@ export interface UiProfile {
   scaling: 'fit' | 'shrink' | 'none';
   quality: 'draft' | 'normal' | 'high';
   tray: string;
+  /**
+   * Collate multiple copies (whole sets, 1-2-3 1-2-3) rather than grouping each
+   * page (1-1 2-2 3-3). Absent means collated, the backend's default.
+   */
+  collate?: boolean;
   /** Page-range expression (e.g. "1-5,8"); absent means all pages. */
   pageRange?: string;
 }

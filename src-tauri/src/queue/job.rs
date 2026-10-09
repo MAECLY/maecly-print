@@ -265,6 +265,17 @@ pub struct JobSettings {
     /// `#[serde(default)]` for the same forward-migration reason as `quality`.
     #[serde(default)]
     pub tray: Option<String>,
+    /// With several copies: `true` prints whole sets (1-2-3, 1-2-3), `false`
+    /// groups each page (1-1, 2-2, 3-3). Irrelevant for one copy.
+    /// `#[serde(default = …)]` reads an older `queue.json` as collated, the
+    /// usual driver default.
+    #[serde(default = "default_collate")]
+    pub collate: bool,
+}
+
+/// Serde default for [`JobSettings::collate`] (and the profile field).
+pub fn default_collate() -> bool {
+    true
 }
 
 impl Default for JobSettings {
@@ -280,6 +291,7 @@ impl Default for JobSettings {
             page_ranges: None,
             quality: Quality::Normal,
             tray: None,
+            collate: true,
         }
     }
 }

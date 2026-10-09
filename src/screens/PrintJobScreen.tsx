@@ -7,6 +7,7 @@ import {
   MPSectionLabel,
   MPSegmented,
   MPSelect,
+  MPSwitch,
   MPTopBar,
   FileGlyph,
 } from '@/components/ui';
@@ -736,6 +737,15 @@ export function PrintJobScreen({
               {t('copies.error')}
             </div>
           )}
+          <div style={{ height: 8 }} />
+          <MPSwitch
+            checked={merged.collate ?? true}
+            label={t('settings.collate')}
+            aria-label={t('settings.collate')}
+            onChange={() =>
+              setOverrides({ ...overrides, collate: !(merged.collate ?? true) })
+            }
+          />
           <div style={{ height: 14 }} />
 
           <div

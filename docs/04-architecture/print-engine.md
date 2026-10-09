@@ -163,7 +163,7 @@ Flag mapping (`engine/print/cups.rs`), in the exact order `lp_args` emits them:
 | duplex none / long / short | `-o sides=one-sided` / `two-sided-long-edge` / `two-sided-short-edge` |
 | colour | `-o ColorModel=RGB` *only when the printer lists `RGB`; else omitted* |
 | monochrome | `-o ColorModel=Gray` |
-| copies > 1 | `-n <copies>` |
+| copies > 1 | `-n <copies> -o collate=true\|false` |
 | paper | `-o media=<the printer's keyword>` *(`auto` omits)* |
 | orientation portrait / landscape | `-o orientation-requested=3` / `=4` *(`auto` omits)* |
 | scaling fit **or** shrink | `-o fit-to-page` *(`none` omits)* |

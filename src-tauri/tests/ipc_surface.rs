@@ -43,6 +43,7 @@ fn stored(id: &str, name: &str) -> StoredProfile {
         page_range: None,
         quality: Quality::Normal,
         tray: "auto".to_string(),
+        collate: true,
     }
 }
 

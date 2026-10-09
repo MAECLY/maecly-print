@@ -476,6 +476,7 @@ export function toUiProfile(p: Profile): UiProfile {
     scaling: p.scaling,
     quality: p.quality,
     tray: p.tray,
+    collate: p.collate ?? true,
   };
   if (p.page_range != null) ui.pageRange = p.page_range;
   return ui;
@@ -502,6 +503,7 @@ function toWireProfile(p: UiProfile): Profile {
     scaling: p.scaling,
     quality: p.quality,
     tray: p.tray,
+    collate: p.collate ?? true,
   };
   if (p.pageRange) wire.page_range = p.pageRange;
   return wire;
