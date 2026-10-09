@@ -371,6 +371,13 @@ export class FakeBackend {
               `${key} must be between ${b.min} and ${b.max}`,
             );
         }
+        // As in `ipc::settings::set_app_settings_at`: the default profile is
+        // owned by `set_default_profile`, so whatever the client sends for it
+        // (often a stale settings cache) is ignored and the stored one kept.
+        next.engine = {
+          ...next.engine,
+          default_profile: this.settings.engine.default_profile ?? null,
+        };
         this.settings = { ...next, meta: settingsMeta() };
         return clone(this.settings);
       }

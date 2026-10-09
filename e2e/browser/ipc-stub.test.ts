@@ -183,6 +183,24 @@ describe('installIpcStub', () => {
     expect((await commands.setAppSettings(bad)).status).toBe('error');
   });
 
+  it('FR-100: saving settings keeps the default profile, like the backend', async () => {
+    // A settings form holding a stale copy must not revert a default chosen
+    // since through `set_default_profile`: the real backend ignores the
+    // incoming value, so the fake has to as well.
+    const stale = ok(await commands.getAppSettings());
+    const [, other] = ok(await commands.listProfiles());
+    ok(await commands.setDefaultProfile(other.id));
+    ok(
+      await commands.setAppSettings({
+        ...stale,
+        engine: { ...stale.engine, default_profile: 'builtin-quick' },
+      }),
+    );
+    expect(ok(await commands.getAppSettings()).engine.default_profile).toBe(
+      other.id,
+    );
+  });
+
   it('FR-004: folders are reported as such and expand per scan depth', async () => {
     const [info] = ok(
       await commands.inspectFiles(['/Users/e2e/Documents/Invoices']),
