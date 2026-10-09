@@ -318,8 +318,9 @@ pub fn locate() -> Result<PathBuf, EngineError> {
 
 /// Spool `pdf` via SumatraPDF, hiding the child's console window. SumatraPDF
 /// reports no OS job id itself, so the spooler's job list is compared before
-/// and after ([`super::windows::find_spooled_job`]); `os_job_id` is `None` only
-/// when the new job cannot be told apart from another (or already left).
+/// and after ([`super::windows::find_spooled_job`]); `os_job_id` is `None` when
+/// either list could not be read, or no new job of this user carries `pdf`'s
+/// path (it already left, or it cannot be told apart from another).
 /// `title` is accepted for parity with the CUPS backend but SumatraPDF has no
 /// job-title flag, so it is not forwarded.
 ///
@@ -392,8 +393,21 @@ pub fn spool_with(
     let exe = locate()?;
     let args = sumatra_args_with(printer, settings, pdf, paper_choice);
     // SumatraPDF reports no job id, so take the spooler's job list before and
-    // after: the new job carrying this file's name is the one to track.
-    let before = super::windows::job_ids(printer);
+    // after: the new job carrying this file's path is the one to track. If the
+    // "before" list cannot be read there is nothing to compare against, so the
+    // job is not tracked at all rather than guessed.
+    let before = match super::windows::job_ids(printer) {
+        Ok(ids) => Some(ids),
+        Err(e) => {
+            tracing::warn!(
+                event = "os_job_untracked",
+                printer = %printer,
+                reason = "the job list could not be read before spooling",
+                error = %e,
+            );
+            None
+        }
+    };
     let mut child = Command::new(exe)
         .args(&args)
         .creation_flags(CREATE_NO_WINDOW)
@@ -403,12 +417,11 @@ pub fn spool_with(
     let status = super::wait_with_timeout(&mut child, timeout)?;
 
     if status.success() {
-        let file_name = pdf
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+        let document = pdf.to_string_lossy();
         Ok(super::SpoolOutcome {
-            os_job_id: super::windows::find_spooled_job(printer, &before, &file_name)
+            os_job_id: before
+                .as_deref()
+                .and_then(|before| super::windows::find_spooled_job(printer, before, &document))
                 .map(|id| id.to_string()),
         })
     } else {
