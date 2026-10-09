@@ -27,7 +27,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use time::{Date, OffsetDateTime};
 use tracing_appender::non_blocking::WorkerGuard;
@@ -35,7 +35,20 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 use crate::util::paths;
 
-static GUARD: OnceLock<WorkerGuard> = OnceLock::new();
+/// The writer thread's guard. In a `Mutex<Option<_>>` rather than a bare
+/// `OnceLock` so [`flush`] can drop it: a headless run ends in
+/// `std::process::exit`, which never runs destructors, and the lines still
+/// buffered in the non-blocking writer would be lost with it.
+static GUARD: OnceLock<Mutex<Option<WorkerGuard>>> = OnceLock::new();
+
+/// Flush and stop the file writer. For a process about to `exit` (the CLI);
+/// anything logged afterwards is dropped, so call it last.
+pub fn flush() {
+    if let Some(slot) = GUARD.get() {
+        let guard = slot.lock().unwrap_or_else(|e| e.into_inner()).take();
+        drop(guard);
+    }
+}
 
 /// Leading part of every log file name, before the date.
 const FILE_PREFIX: &str = "maeclyprint-";
@@ -69,7 +82,24 @@ impl Default for Policy {
     }
 }
 
+/// Logging for the GUI: the JSONL file plus a compact human stream on stdout
+/// (what `pnpm tauri dev` shows).
 pub fn init() -> io::Result<()> {
+    init_with(true)
+}
+
+/// Logging for a headless CLI run: the **same** JSONL file, same directory,
+/// same rotation and record schema as the GUI — and nothing on stdout.
+///
+/// stdout is the CLI's output channel: `--json` callers parse it, and a
+/// tracing line interleaved with the payload would break every script that
+/// does. Without this a CLI run left no trace at all in the app log, so a
+/// failed scripted print could not be explained after the fact (FR-035).
+pub fn init_cli() -> io::Result<()> {
+    init_with(false)
+}
+
+fn init_with(stdout: bool) -> io::Result<()> {
     let log_dir = paths::log_dir();
     paths::ensure_dir(&log_dir)?;
 
@@ -83,16 +113,20 @@ pub fn init() -> io::Result<()> {
 
     // Hold the guard for the lifetime of the process so the writer thread
     // doesn't shut down mid-write.
-    let _ = GUARD.set(guard);
+    let _ = GUARD.set(Mutex::new(Some(guard)));
 
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,maeclyprint=debug"));
 
+    // `Option<Layer>` is itself a layer, so the stdout stream is simply absent
+    // for a CLI run instead of being redirected somewhere.
+    let console = stdout.then(|| fmt::layer().compact().with_target(false));
     tracing_subscriber::registry()
         .with(env_filter)
         .with(fmt::layer().json().with_writer(non_blocking))
-        .with(fmt::layer().compact().with_target(false))
-        .init();
+        .with(console)
+        .try_init()
+        .map_err(io::Error::other)?;
 
     if swept > 0 {
         tracing::info!(

@@ -418,7 +418,10 @@ These are the spec's numbers (NFR-081, FR-113), not tunables: there is no `[logg
 
 ```rust
 // src-tauri/src/logging/mod.rs (shape)
-pub fn init() -> io::Result<()> {
+pub fn init() -> io::Result<()> { init_with(true) }      // GUI
+pub fn init_cli() -> io::Result<()> { init_with(false) } // headless CLI: no stdout layer
+
+fn init_with(stdout: bool) -> io::Result<()> {
     let log_dir = paths::log_dir();
     paths::ensure_dir(&log_dir)?;
 
@@ -427,21 +430,23 @@ pub fn init() -> io::Result<()> {
 
     let writer = RollingJsonl::new(log_dir, policy);
     let (non_blocking, guard) = tracing_appender::non_blocking(writer);
-    let _ = GUARD.set(guard);                // held for the process lifetime
+    let _ = GUARD.set(Mutex::new(Some(guard)));  // dropped by `flush()` (CLI exit)
 
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,maeclyprint=debug"));
 
+    let console = stdout.then(|| fmt::layer().compact().with_target(false));
     tracing_subscriber::registry()
         .with(env_filter)
         .with(fmt::layer().json().with_writer(non_blocking))  // JSONL to disk
-        .with(fmt::layer().compact().with_target(false))      // human-readable to stdout
-        .init();
+        .with(console)                                        // GUI only: human-readable to stdout
+        .try_init()
+        .map_err(io::Error::other)?;
     // ...
 }
 ```
 
-Two consequences worth knowing: the default filter is **`info,maeclyprint=debug`** (overridable with `RUST_LOG`), so our own crate logs at debug — including paths — out of the box; and a second `compact` layer writes to stdout for `pnpm tauri dev`, which is also what makes `attach_parent()` matter for the headless CLI on Windows.
+Consequences worth knowing: the default filter is **`info,maeclyprint=debug`** (overridable with `RUST_LOG`), so our own crate logs at debug — including paths — out of the box; the GUI adds a `compact` layer on stdout for `pnpm tauri dev`. A **headless CLI run logs too**, to the same file with the same schema (`cli_invoked` / `cli_finished` / `cli_failed` records, plus whatever the shared cores log), but with **no stdout layer**: stdout is the CLI's output channel and `--json` callers parse it. `cli::execute` calls `logging::flush()` before returning because the process then ends in `std::process::exit`, which runs no destructors.
 
 ### 5.4 Panics and frontend errors
 

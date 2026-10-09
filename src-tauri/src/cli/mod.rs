@@ -237,6 +237,18 @@ fn execute(cli: Cli) -> i32 {
     let emitter = Emitter::new(cli.json);
     let paths = Paths::real();
 
+    // Same log file as the GUI, never on stdout (`--json` parses stdout). A
+    // run that cannot open its log still runs: the log explains failures, it
+    // must never become one — so the problem goes to stderr and we carry on.
+    if let Err(e) = crate::logging::init_cli() {
+        eprintln!("maeclyprint: logging disabled for this run: {e}");
+    }
+    tracing::info!(
+        event = "cli_invoked",
+        command = cli.command.as_ref().map(command_name).unwrap_or("none"),
+        json = cli.json,
+    );
+
     let result = match cli.command {
         Some(Command::Print(args)) => print::run(&paths, emitter, args),
         Some(Command::Printers { cmd }) => printers::run(emitter, cmd).map(|_| ExitCode::Success),
@@ -256,12 +268,41 @@ fn execute(cli: Cli) -> i32 {
         }
     };
 
-    match result {
-        Ok(code) => code.code(),
+    let code = match result {
+        Ok(code) => {
+            tracing::info!(event = "cli_finished", exit_code = code.code());
+            code.code()
+        }
         Err(err) => {
+            // The error *code*, not its message: messages can name absolute
+            // paths, which NFR-082 keeps out of WARN records.
+            let code = serde_json::to_value(&err.error)
+                .ok()
+                .and_then(|v| v.get("code").and_then(|c| c.as_str()).map(str::to_owned))
+                .unwrap_or_default();
+            tracing::warn!(
+                event = "cli_failed",
+                exit_code = err.exit.code(),
+                error_code = %code,
+            );
             emitter.fail(&err);
             err.exit.code()
         }
+    };
+    // `main` exits with `process::exit`, which skips destructors.
+    crate::logging::flush();
+    code
+}
+
+/// The subcommand's name for the log (never its arguments: those can carry
+/// absolute paths, which NFR-082 keeps out of routine records).
+fn command_name(cmd: &Command) -> &'static str {
+    match cmd {
+        Command::Print(_) => "print",
+        Command::Printers { .. } => "printers",
+        Command::Profiles { .. } => "profiles",
+        Command::Queue { .. } => "queue",
+        Command::Update { .. } => "update",
     }
 }
 
@@ -491,6 +532,17 @@ mod tests {
             other => panic!("a context-menu launch always opens the GUI, got {other:?}"),
         }
         assert!(path.exists());
+    }
+
+    /// The CLI's log records name the subcommand and nothing it was given:
+    /// arguments carry absolute paths (NFR-082).
+    #[test]
+    fn fr_035_cli_log_names_the_subcommand_not_its_arguments() {
+        let cli = Cli::try_parse_from(["maeclyprint", "print", "--files", "/secret/a.pdf"])
+            .expect("a well-formed print argv");
+        assert_eq!(cli.command.as_ref().map(command_name), Some("print"));
+        let cli = Cli::try_parse_from(["maeclyprint", "queue", "status"]).unwrap();
+        assert_eq!(cli.command.as_ref().map(command_name), Some("queue"));
     }
 
     #[test]
