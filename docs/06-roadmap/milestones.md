@@ -163,7 +163,6 @@ Note: several scope lines below are framed Windows-first, but the enumeration/pr
 - **Sparse MSIX.** `installers/windows/` contains only a `.gitkeep`. Without it the DLL has no package identity, so on a normal machine the entry never appears no matter how well the handler works.
 - **The Inno Setup installer** and the Win 10 registry fallback path.
 - Install/uninstall round-trip, reproducible builds, and the Shell Extension Best Practices audit in the exit criteria below — none of them have been run.
-- **The menu-label cache is never written.** The DLL reads `<data_local_dir>\shell-menu.json` for localized labels and the profile rows, and `shell-ext-win/README.md` says the app writes it whenever the profile list or the UI language changes. Nothing in `src-tauri` writes that file. Until it does, the submenu always falls back to built-in English with **no per-profile entries**, however many profiles the user has — so "Print with profile…" is effectively missing on a real machine.
 - The **Win 10 fallback** (`IShellExtInit` + `IContextMenu`) is not implemented and is documented as deliberately not registered. Windows 10 support is therefore an open decision, not a pending task.
 
 ### Scope

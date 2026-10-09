@@ -133,9 +133,12 @@ Do **not** register `shellex\ContextMenuHandlers`: that route calls
 
 ## The menu label cache
 
-The app is expected to write `<data_local_dir>\shell-menu.json` whenever the
-profile list or the UI language changes. Missing or invalid is fine — the menu
-falls back to built-in English with no profile entries.
+The app writes `<data_local_dir>\shell-menu.json` (`src-tauri/src/shell_menu.rs`)
+at startup and whenever the profile list, the default profile or the UI
+language changes, from the same i18n catalog the UI uses (`common.json` →
+`shellMenu`). Missing or invalid is fine — the menu falls back to built-in
+English with no profile entries. `tests/fixtures/shell-menu.es.json` is the
+app's exact output for a fixed input; both crates' tests read it.
 
 ```json
 {

@@ -22,10 +22,9 @@ The MVP exists to **prove the core thesis**: that a free, open-source tool can i
 
 Implementation: Sparse MSIX package + COM DLL implementing `IExplorerCommand`, written in Rust rather than C++. Details in [shell-extensions.md](../04-architecture/shell-extensions.md) and [ADR-0005](../adr/0005-shell-extension-sparse-msix.md).
 
-**Status:** the DLL is implemented and tested in `shell-ext-win/`, and the app accepts the handoff (`--invoke=context-menu --files-from <PATH>`). The macOS counterpart is an `NSServices` provider declared in `src-tauri/Info.plist`. Two things are missing:
+**Status:** the DLL is implemented and tested in `shell-ext-win/`, and the app accepts the handoff (`--invoke=context-menu --files-from <PATH>`). The macOS counterpart is an `NSServices` provider declared in `src-tauri/Info.plist`. The per-profile rows and the translated labels come from `<data_local_dir>\shell-menu.json`, which the app writes at startup and on every profile or language change (`src-tauri/src/shell_menu.rs`). One thing is missing:
 
 - **Packaging.** No Sparse MSIX and no installer register the handler, so on a normal machine the entry does not appear at all. That is M2.
-- **The label cache.** The per-profile rows and the translated labels come from `<data_local_dir>\shell-menu.json`, which the app is specified to write and does not. Until it does, the submenu shows built-in English labels and **no profile rows**.
 
 The Windows 10 fallback path (`IShellExtInit` + `IContextMenu`) is not implemented and is documented as deliberately not registered, so "modern menu" here means Windows 11 only.
 

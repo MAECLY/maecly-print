@@ -18,6 +18,7 @@ pub mod platform;
 pub mod profiles;
 pub mod queue;
 pub mod settings;
+pub mod shell_menu;
 pub mod update;
 pub mod util;
 
@@ -198,6 +199,11 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
             // included — so a cold start never waits on the network, and a user
             // who quits before the delay elapses simply takes the thread down
             // with the process, having persisted nothing.
+            // FR-001: the Explorer menu's localized labels and per-profile
+            // entries (Windows only; a no-op elsewhere). Off the startup path:
+            // it reads two small files and writes one.
+            std::thread::spawn(shell_menu::refresh);
+
             let update_handle = app.handle().clone();
             std::thread::spawn(move || {
                 std::thread::sleep(update::STARTUP_CHECK_DELAY);

@@ -36,6 +36,14 @@
     "nothingPrintable": "No hay nada imprimible en esa selección.",
     "unknownProfile": "No hay ningún perfil llamado «{{name}}»: se ha usado el perfil por defecto."
   },
+  "shellMenu": {
+    "print_one": "Imprimir 1 archivo",
+    "print_other": "Imprimir {{count}} archivos",
+    "printWithProfile": "Imprimir con «{{name}}»",
+    "configure": "Configurar el trabajo de impresión…",
+    "queue": "Añadir a la cola de impresión",
+    "tooltip": "Imprime por lotes los archivos seleccionados con MaeclyPrint"
+  },
   "errorBoundary": {
     "title": "La aplicación ha encontrado un error inesperado",
     "hint": "No se ha podido dibujar esta pantalla. Recargar suele resolverlo; los detalles están en la carpeta de registros.",

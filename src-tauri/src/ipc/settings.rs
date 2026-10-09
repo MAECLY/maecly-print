@@ -79,6 +79,8 @@ pub async fn set_app_settings(
             &crate::profiles::profiles_path(),
             settings,
         )
+        // The UI language may have changed; the Explorer menu follows it.
+        .inspect(|_| crate::shell_menu::refresh())
     })
     .await?;
     // Hot reload: the running queue picks up the new limits now rather than at

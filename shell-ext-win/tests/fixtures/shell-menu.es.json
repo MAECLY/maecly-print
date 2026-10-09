@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "lang": "es",
+  "labels": {
+    "root": "MaeclyPrint",
+    "print_one": "Imprimir 1 archivo",
+    "print_many": "Imprimir {count} archivos",
+    "print_with_profile": "Imprimir con «{name}»",
+    "configure": "Configurar el trabajo de impresión…",
+    "queue": "Añadir a la cola de impresión",
+    "tooltip": "Imprime por lotes los archivos seleccionados con MaeclyPrint"
+  },
+  "profiles": [
+    {
+      "id": "p0",
+      "name": "Profile 0"
+    },
+    {
+      "id": "p1",
+      "name": "Profile 1"
+    }
+  ]
+}

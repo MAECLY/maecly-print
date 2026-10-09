@@ -193,3 +193,26 @@ fn fr_005_visibility_follows_the_supported_formats() {
         .collect();
     assert!(should_show(&unprintable, 9_000));
 }
+
+/// FR-001 / FR-092: the cache the app writes (`src-tauri/src/shell_menu.rs`)
+/// is one this reader accepts. The fixture is the app's exact output for a
+/// fixed input — the app's own test asserts that — so a field renamed on either
+/// side fails one of the two crates instead of silently falling back to the
+/// English defaults on a user's machine.
+#[test]
+fn fr_001_reads_the_cache_the_app_writes() {
+    let raw = include_str!("fixtures/shell-menu.es.json");
+    let strings = strings::parse(raw).expect("the app-written cache parses");
+    assert_eq!(strings.lang, "es");
+    assert_eq!(strings.print_title(1), "Imprimir 1 archivo");
+    assert_eq!(strings.print_title(3), "Imprimir 3 archivos");
+
+    let items = strings.menu(2);
+    let cmds = commands(&items);
+    assert!(cmds
+        .iter()
+        .any(|c| c.title == "Imprimir con «Profile 0»" && c.profile_id.as_deref() == Some("p0")));
+    assert!(cmds
+        .iter()
+        .any(|c| c.title == "Configurar el trabajo de impresión…"));
+}

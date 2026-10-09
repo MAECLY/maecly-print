@@ -90,12 +90,14 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: ProfilesCmd) -> Result<(), CliE
             }
 
             let saved = save_profile_at(&paths.profiles, &paths.config, profile)?;
+            refresh_menu(paths);
             emitter.emit(&saved, || format!("Created profile \"{}\"", saved.name));
             Ok(())
         }
         ProfilesCmd::Delete { name_or_id } => {
             let profile = resolve(paths, &name_or_id)?;
             delete_profile_at(&paths.profiles, &paths.config, profile.id.clone())?;
+            refresh_menu(paths);
             emitter.emit(&serde_json::json!({ "deleted": profile.id }), || {
                 format!("Deleted profile \"{}\"", profile.name)
             });
@@ -104,6 +106,7 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: ProfilesCmd) -> Result<(), CliE
         ProfilesCmd::SetDefault { name_or_id } => {
             let profile = resolve(paths, &name_or_id)?;
             set_default_profile_at(&paths.profiles, &paths.config, profile.id.clone())?;
+            refresh_menu(paths);
             emitter.emit(&serde_json::json!({ "default": profile.id }), || {
                 format!("\"{}\" is now the default profile", profile.name)
             });
@@ -186,4 +189,14 @@ fn render(profiles: &[Profile]) -> String {
         ],
         &rows,
     )
+}
+
+/// Keep the Explorer menu cache in step with a profile change made from the
+/// command line, exactly as the GUI's commands do. Only for the real profile
+/// store: a run pointed at other files (tests, `Paths` injected) must not
+/// rewrite the user's menu.
+fn refresh_menu(paths: &Paths) {
+    if paths.profiles == crate::profiles::profiles_path() {
+        crate::shell_menu::refresh();
+    }
 }

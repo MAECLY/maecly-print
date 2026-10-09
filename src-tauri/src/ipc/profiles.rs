@@ -92,6 +92,7 @@ pub fn get_profile_at(
 pub async fn save_profile(profile: Profile) -> Result<Profile, IpcError> {
     super::run_blocking(move || {
         save_profile_at(&profiles::profiles_path(), &Config::config_path(), profile)
+            .inspect(|_| crate::shell_menu::refresh())
     })
     .await
 }
@@ -135,6 +136,7 @@ pub fn save_profile_at(
 pub async fn delete_profile(id: String) -> Result<(), IpcError> {
     super::run_blocking(move || {
         delete_profile_at(&profiles::profiles_path(), &Config::config_path(), id)
+            .inspect(|_| crate::shell_menu::refresh())
     })
     .await
 }
@@ -180,6 +182,7 @@ pub fn delete_profile_at(
 pub async fn set_default_profile(id: String) -> Result<(), IpcError> {
     super::run_blocking(move || {
         set_default_profile_at(&profiles::profiles_path(), &Config::config_path(), id)
+            .inspect(|_| crate::shell_menu::refresh())
     })
     .await
 }
@@ -271,6 +274,7 @@ pub async fn import_profiles(path: String) -> Result<Vec<Profile>, IpcError> {
             &Config::config_path(),
             Path::new(&path),
         )
+        .inspect(|_| crate::shell_menu::refresh())
     })
     .await
 }
