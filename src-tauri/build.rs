@@ -21,7 +21,35 @@ fn main() {
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
 
-    tauri_build::build();
+    println!("cargo:rerun-if-changed=windows-app-manifest.xml");
+
+    // Windows: the Common-Controls v6 manifest must reach *every* linked
+    // artifact, not only the app binary. `tauri_build::build()` embeds it as a
+    // resource that is linked into `[[bin]]` targets alone, so the lib's test
+    // harness (`maeclyprint_lib-*.exe`) imports comctl32 v6 entry points
+    // (TaskDialogIndirect, pulled in by tao/rfd) without the manifest that
+    // makes the loader resolve them, and dies with STATUS_ENTRYPOINT_NOT_FOUND
+    // (0xc0000139) before running a single test. Tauri's own guidance is to
+    // drop its manifest resource and hand the same manifest to the linker for
+    // all targets instead (`rustc-link-arg` covers tests, benches and bins).
+    // Doing both would embed two manifests and fail the link (CVT1100).
+    // `windows-app-manifest.xml` is a verbatim copy of tauri-build's default.
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    if target_os == "windows" && target_env == "msvc" {
+        let manifest = std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
+            .join("windows-app-manifest.xml");
+        println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest.display());
+        // A missing manifest would only show up at run time on Windows, as
+        // the same entry-point crash, so fail the build here instead.
+        assert!(manifest.is_file(), "missing {}", manifest.display());
+        let attrs = tauri_build::Attributes::new()
+            .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
+        tauri_build::try_build(attrs).expect("tauri-build failed");
+    } else {
+        tauri_build::build();
+    }
 }
 
 fn now_secs() -> u64 {
