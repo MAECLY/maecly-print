@@ -358,4 +358,12 @@ describe('HomeScreen', () => {
     // The CLI, which does exist, is what the tip points at.
     expect(text).toMatch(/maeclyprint print --files/);
   });
+
+  it('FR-001: the tip names the Finder entry that ships, and only Windows as missing', () => {
+    renderHome();
+    const text = document.body.textContent ?? '';
+    expect(text).toMatch(/Services ▸ Print with MaeclyPrint/);
+    expect(text).not.toMatch(/Explorer and Finder right-click entry is not/i);
+    expect(text).toMatch(/Windows Explorer entry is not installed/i);
+  });
 });

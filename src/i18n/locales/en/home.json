@@ -64,7 +64,7 @@
   },
   "tip": {
     "label": "Tip",
-    "body": "MaeclyPrint already prints from the command line: {{command}} works without opening the window. The Explorer and Finder right-click entry is not part of this build yet — it arrives with the shell-integration milestone."
+    "body": "MaeclyPrint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. Nothing adds it to your PATH yet, so call it by its full path — the Run from CLI card copies a command that already does. On a Mac you can also select files in the Finder and choose Services ▸ Print with MaeclyPrint; the Windows Explorer entry is not installed by this build yet."
   },
   "nav": {
     "home": "Home",
@@ -95,7 +95,7 @@
     },
     "ready": {
       "title": "Ready to print",
-      "body": "Drag any number of files onto the window or press {{shortcut}}, pick a profile, and watch them queue up. A right-click entry in Explorer and Finder is planned for a later milestone."
+      "body": "Drag any number of files onto the window or press {{shortcut}}, pick a profile, and watch them queue up. On a Mac, Finder ▸ Services ▸ Print with MaeclyPrint works too; the Windows Explorer entry is planned for a later milestone."
     },
     "skip": "Skip",
     "back": "Back",

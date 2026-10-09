@@ -64,7 +64,7 @@
   },
   "tip": {
     "label": "Consejo",
-    "body": "MaeclyPrint ya imprime desde la línea de comandos: {{command}} funciona sin abrir la ventana. La entrada del menú contextual de Explorer y Finder aún no está en esta versión: llegará con el hito de integración con el shell."
+    "body": "MaeclyPrint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. Todavía nada lo añade al PATH, así que llámalo por su ruta completa: la tarjeta «Usar la CLI» copia un comando que ya la incluye. En Mac también puedes seleccionar archivos en el Finder y elegir Servicios ▸ «Print with MaeclyPrint»; esta versión aún no instala la entrada del Explorador de Windows."
   },
   "nav": {
     "home": "Inicio",
@@ -95,7 +95,7 @@
     },
     "ready": {
       "title": "Listo para imprimir",
-      "body": "Arrastra los archivos que quieras a la ventana o pulsa {{shortcut}}, elige un perfil y verás cómo se encolan. La entrada en el menú contextual de Explorer y Finder está planificada para un hito posterior."
+      "body": "Arrastra los archivos que quieras a la ventana o pulsa {{shortcut}}, elige un perfil y verás cómo se encolan. En Mac también puedes usar Finder ▸ Servicios ▸ «Print with MaeclyPrint»; la entrada del Explorador de Windows está planificada para un hito posterior."
     },
     "skip": "Omitir",
     "back": "Atrás",
