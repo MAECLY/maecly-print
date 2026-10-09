@@ -72,7 +72,7 @@ Built-ins render a read-only field table with a **Clone** button. Customs (and d
 - **Color, Duplex, Orientation, Scaling, Quality, Paper** — selects over the fixed vocabularies above.
 - **Copies** — buffered as text so an out-of-range keystroke shows an inline error (`Enter a whole number from 1 to 999.`) instead of being silently clamped; only a valid value is submitted.
 - **Tray** — free text, defaulting to `auto`.
-- **Page range** — validated against a client mirror of the engine grammar (`isValidPageRange`); `Applies to PDFs only — leave blank for all pages.` A descending range is rejected inline.
+- **Page range** — validated against a client mirror of the engine grammar (`isValidPageRange`); `Applies to PDFs and documents — leave blank for all pages.` A descending range is rejected inline.
 
 **Save** is gated by a dirty check and validity: an unchanged or invalid form disables it. A brand-new draft is always considered dirty. A server-side rejection surfaces as a toast and leaves the editor open with its state intact so the user can correct and retry.
 

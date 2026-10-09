@@ -399,20 +399,20 @@ Inno Setup's standard `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\
 ## Dependency detection
 
 > Still part of the unimplemented design. The installer that would run these
-> checks does not exist. Note also that only the WebView2 row is meaningful
-> today: LibreOffice, Pandoc and Chromium gate **no** format, because no
-> converter shells out to them (see
-> [supported-formats.md](../03-requirements/supported-formats.md)). Warning a
-> user about them before that changes would be a false alarm.
+> checks does not exist. The app itself already does the runtime half: a job
+> that needs a missing converter pauses with a remediation message (FR-058,
+> see [supported-formats.md](../03-requirements/supported-formats.md)), and
+> the Print Job screen shows it for the files the user selected.
 
 The installer would **detect** but never **install** optional runtimes:
 
 | Dependency | Detection method | If missing |
 |---|---|---|
 | WebView2 Runtime | `HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}\pv` | Hard error: WebView2 is required (preinstalled on Win 11; bootstrap link shown for Win 10). |
-| LibreOffice | `HKLM` or `HKCU` `SOFTWARE\LibreOffice\UNO\InstallPath` | Soft warning — *only once an Office converter exists*; today Office files are refused regardless. |
-| Pandoc | `where.exe pandoc` returns 0 | Same: no Markdown converter exists yet. |
-| Chromium / Edge | Edge is preinstalled; check `where.exe msedge` | Same: no HTML converter exists yet. |
+| LibreOffice | `HKLM` or `HKCU` `SOFTWARE\LibreOffice\UNO\InstallPath` | Soft warning: Office, OpenDocument, TXT and RTF jobs will pause until it is installed. |
+| Pandoc | `where.exe pandoc` returns 0 | Soft warning: Markdown jobs will pause until it is installed. |
+| Chromium / Edge | Edge is preinstalled; check `where.exe msedge` | Soft warning only if Edge was removed: HTML and Markdown jobs pause. |
+| HEIF Image Extensions | WIC decoder lookup (the app does this at conversion time) | Soft warning: HEIC/HEIF jobs pause with a Microsoft Store link. |
 
 **ImageMagick is deliberately not on this list.** Image conversion is in-process (the pure-Rust `image` crate), so there is nothing to detect; an earlier draft of this table listed it.
 

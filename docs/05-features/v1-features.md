@@ -10,17 +10,20 @@ These features are sequenced into intermediate releases (`v0.2`, `v0.3`, …) be
 
 The headline feature of v0.2 is **format breadth**. After v0.2, MaeclyPrint covers ~95% of the documents an office user needs to print.
 
-### New formats
+### New formats — **delivered early**
+
+All of these shipped ahead of v0.2 (FR-052..FR-057). See [supported-formats.md](../03-requirements/supported-formats.md) for how each one is run.
 
 | Format | Converter | Notes |
 |---|---|---|
-| `.docx`, `.doc` | LibreOffice headless → PDF | First-run prompts user to install LibreOffice if absent |
+| `.docx`, `.doc` | LibreOffice headless → PDF | No first-run prompt: a job that needs a missing LibreOffice pauses with a download link (FR-058) |
 | `.xlsx`, `.xls` | LibreOffice | |
 | `.pptx`, `.ppt` | LibreOffice | |
 | `.odt`, `.ods`, `.odp` | LibreOffice | |
-| `.rtf`, `.txt` | LibreOffice | |
-| `.html`, `.htm` | Chromium headless `--print-to-pdf` | Local files only; remote HTML deferred |
-| `.md`, `.markdown` | Pandoc → PDF | Pandoc required as external dep |
+| `.rtf`, `.txt` | LibreOffice | TXT is read as UTF-8 |
+| `.html`, `.htm` | Edge / Chrome / Chromium headless `--print-to-pdf` | Local files only; remote HTML deferred |
+| `.md`, `.markdown` | Pandoc → HTML → the browser step | Pandoc required; no LaTeX |
+| `.heic`, `.heif` | OS decoder (`sips` / WIC) | Windows needs the Store *HEIF Image Extensions* |
 
 ### Dependency detection
 

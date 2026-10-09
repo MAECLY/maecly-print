@@ -90,7 +90,7 @@ This data stays on your device. We never transmit it. You can inspect or delete 
 When MaeclyPrint prints a file:
 
 - The file is read from disk by MaeclyPrint.
-- If it is not already a PDF, it is converted to one — in this version, images are converted **inside MaeclyPrint itself** (no external tool involved); other formats are handed to a converter installed on your machine (LibreOffice, Chromium/Edge, Pandoc) as a normal subprocess running as you.
+- If it is not already a PDF, it is converted to one — images are converted **inside MaeclyPrint itself** (no external tool involved). HEIC photos are decoded by your operating system (`sips` on macOS, Windows Imaging Component on Windows). Other formats are handed to a converter installed on your machine (LibreOffice, Edge/Chrome/Chromium, Pandoc), which runs as a normal subprocess under your user account with a private, temporary profile that is deleted afterwards.
 - The resulting PDF is handed to the printing backend: SumatraPDF on Windows, the CUPS `lp` command on macOS/Linux.
 - The rendered output is sent to your printer (via the OS print spooler).
 

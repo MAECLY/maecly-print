@@ -669,6 +669,7 @@ describe('third-party inventory (docs/09-legal/third-party-licenses.md)', () => 
     'WebView2 loader',
     'create-dmg',
     'qpdf',
+    'sips / Windows Imaging Component',
   ];
 
   /** Inventory rows named after the project rather than the package. */

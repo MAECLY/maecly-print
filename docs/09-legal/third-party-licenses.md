@@ -83,9 +83,10 @@ Two notes: **Tailwind CSS is MIT and its generated CSS *is* distributed** in the
 | Component | License | Used for | Embedded? | GPLv3 compatible? |
 |---|---|---|---|---|
 | SumatraPDF **3.5.2** (pinned) | **GPLv3** | PDF printing on Windows | Yes — fetched at packaging time and bundled | Yes (same license); see the compliance note below |
-| LibreOffice | MPL 2.0 | Office → PDF *(not yet wired)* | No (subprocess) | Yes (separate) |
-| Chromium / Microsoft Edge | BSD 3-Clause | HTML → PDF *(not yet wired)* | No (subprocess) | Yes (separate) |
-| Pandoc | GPLv2-or-later | Markdown → PDF *(not yet wired)* | No (subprocess) | Yes (separate) |
+| LibreOffice | MPL 2.0 | Office, OpenDocument, TXT, RTF → PDF | No (subprocess) | Yes (separate) |
+| Chromium / Microsoft Edge | BSD 3-Clause (Chromium core) | HTML and Markdown → PDF (Google Chrome or Chromium also work) | No (subprocess) | Yes (separate) |
+| Pandoc | GPLv2-or-later | Markdown → HTML | No (subprocess) | Yes (separate) |
+| sips / Windows Imaging Component | OS components | HEIC/HEIF decoding (`sips` on macOS; WIC plus the Store *HEIF Image Extensions* on Windows) | No (system tool / OS API) | Yes (separate) |
 | CUPS `lp` | Apache 2.0 (system component) | Printing on macOS/Linux | No (system binary) | Yes (separate) |
 | WebView2 loader | MIT (loader); Edge engine system-installed | Webview rendering | Loader linked; engine system | Yes (loader); engine N/A |
 | WKWebView (macOS) | Apple SLA | Webview rendering | No (system framework) | N/A (system) |
@@ -166,7 +167,7 @@ If we ever bundle Pandoc (GPLv2-or-later) or another GPL'd binary, the same comp
 
 ## External components (subprocess invocation)
 
-These are tools we shell out to with `std::process::Command`. We never bundle them; they must be installed by the user separately (the app probes for them and reports what is missing — `engine::deps`, FR-058). **Only CUPS `lp` is actually invoked in this version**; LibreOffice, Chromium/Edge and Pandoc are probed and reported but no converter calls them yet. **Per the [FSF's guidance](https://www.gnu.org/licenses/gpl-faq.html#GPLPlugins) and [Mere Aggregation FAQ](https://www.gnu.org/licenses/gpl-faq.en.html#MereAggregation), subprocess invocation does not create a combined work, so the subprocess's license does not infect ours.**
+These are tools we shell out to with `std::process::Command`. We never bundle them; they must be installed by the user separately (the app probes for them and reports what is missing — `engine::deps`, FR-058). CUPS `lp` (macOS/Linux), LibreOffice, a Chromium-class browser, Pandoc and macOS `sips` are all invoked as separate processes, each with an argument vector and never through a shell. **Per the [FSF's guidance](https://www.gnu.org/licenses/gpl-faq.html#GPLPlugins) and [Mere Aggregation FAQ](https://www.gnu.org/licenses/gpl-faq.en.html#MereAggregation), subprocess invocation does not create a combined work, so the subprocess's license does not infect ours.**
 
 Quoting the FSF directly:
 

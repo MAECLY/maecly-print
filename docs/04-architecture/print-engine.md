@@ -1,15 +1,15 @@
 # Print Engine
 
-> **TL;DR** — MaeclyPrint uses a **hybrid pipeline**: each input file is converted to PDF by the most appropriate converter for its format, then printed by a single back-end (SumatraPDF on Windows, CUPS `lp` on macOS/Linux). This "convert-everything-to-PDF, then print PDF" strategy is dramatically simpler than per-format printing while still producing native-quality output. **Images are converted in-process by the Rust `image` crate — not by ImageMagick**; the external converters (LibreOffice, Chromium, Pandoc) are the M3 target and are not yet invoked.
+> **TL;DR** — MaeclyPrint uses a **hybrid pipeline**: each input file is converted to PDF by the most appropriate converter for its format, then printed by a single back-end (SumatraPDF on Windows, CUPS `lp` on macOS/Linux). This "convert-everything-to-PDF, then print PDF" strategy is dramatically simpler than per-format printing while still producing native-quality output. **Images are converted in-process by the Rust `image` crate, not by ImageMagick.** HEIC goes through the OS decoder. Office, OpenDocument, TXT and RTF go through LibreOffice headless, HTML through a headless Edge/Chrome/Chromium, and Markdown through Pandoc followed by that browser.
 
-## Implementation status (M1 — shipped)
+## Implementation status
 
-This document describes the **full hybrid design** (the M3 multi-format target). What is wired **today** is a subset — enough to print PDFs and images end-to-end — with the rest still on the roadmap. Treat matrix rows, converter invocations, and the performance/config sections below as the target design; the reality in M1 is:
+This document describes the hybrid design. EPUB and SVG are still targets only. Everything else in the matrix is wired:
 
-- **Supported inputs:** `pdf` (passthrough) plus the raster images `jpg`, `jpeg`, `png`, `tif`, `tiff`, `bmp`, `webp` (`src-tauri/src/engine/mod.rs::SUPPORTED_EXTS`). Office/HTML/Markdown (LibreOffice, Chromium, Pandoc) are **documented targets, not yet wired** — those extensions are rejected as unsupported for now. **ImageMagick is not a target at all**: the image path is in-process and stays that way.
-- **Conversion (M1):** PDFs are validated by their `%PDF-` header and printed in place (no cache file); images are decoded with the pure-Rust `image` crate and wrapped into a one-page PDF built by hand with `lopdf` — **not** `printpdf`, whose image feature is disabled (`src-tauri/src/engine/convert/`). Documented limitations of the image path: EXIF orientation is not applied, multi-frame TIFFs use the first frame only, and CMYK JPEGs / sub-formats the codec can't handle surface as a clear `ConversionFailed`.
+- **Supported inputs:** `pdf` (passthrough); the raster images `jpg`, `jpeg`, `png`, `tif`, `tiff`, `bmp`, `webp`; `heic`/`heif`; Office `docx`, `doc`, `xlsx`, `xls`, `pptx`, `ppt`; OpenDocument `odt`, `ods`, `odp`; `rtf`, `txt`; `html`, `htm`; `md`, `markdown` (`src-tauri/src/engine/mod.rs::SUPPORTED_EXTS`). The per-format matrix and each converter's exact command line are in [supported-formats.md](../03-requirements/supported-formats.md). **ImageMagick is not a target at all**: the image path is in-process and stays that way.
+- **Conversion:** PDFs are validated by their `%PDF-` header and printed in place (no cache file). Images are decoded with the pure-Rust `image` crate and wrapped into a one-page PDF built by hand with `lopdf`, **not** `printpdf`, whose image feature is disabled. HEIC is decoded by `sips` (macOS) or WIC (Windows) into the same one-page PDF. Documents are converted by external programs through `engine::convert::process::run_bounded`. It uses an argument vector (no shell) and a private scratch folder removed on every exit path, and it is bounded by the conversion timeout and the cancel flag, either of which kills the whole child process tree. Documented limitations of the image path: EXIF orientation is not applied, multi-frame TIFFs use the first frame only, and CMYK JPEGs and other sub-formats the codec cannot handle surface as a clear `ConversionFailed`.
 - **Printing (M1):** CUPS `lp` on macOS/Linux; **SumatraPDF** on Windows. It is now **bundled**: `scripts/fetch-sumatrapdf.{ps1,sh}` fetches the pinned 3.5.2 release into `src-tauri/resources/sumatrapdf/`, which `tauri.conf.json` ships as a bundle resource, and `engine::deps::bundled_dirs` looks there first. The search order is bundled → configured → `PATH` → well-known install dirs (`%LOCALAPPDATA%`, `%ProgramFiles%`, `%ProgramFiles(x86)%` under `SumatraPDF\`), and where a binary was found is reported to the UI as `found_in`. A genuinely missing binary is still a `DependencyMissing` that pauses the job, with FR-058 remediation text. Real flags are in §3.1 / §3.6.
-- **Dependency probing (FR-058):** `engine::deps` probes SumatraPDF, LibreOffice, Chromium/Edge and Pandoc on every `app_info` call (a handful of `is_file` checks) and reports, per dependency, whether it is *applicable on this OS at all*. That last flag matters: SumatraPDF is irrelevant on macOS, and reporting it as "missing" there would be the loudest possible false alarm.
+- **Dependency probing (FR-058):** `engine::deps` probes SumatraPDF, LibreOffice, Chromium/Edge and Pandoc on every `app_info` call (a handful of `is_file` checks). For each dependency it reports whether it is *applicable on this OS at all* and which extensions it blocks while missing. The applicability flag matters: SumatraPDF is irrelevant on macOS, and reporting it as "missing" there would be the loudest possible false alarm. The converters use the same resolver, and a missing one returns `DependencyMissing` with the same remediation text, which pauses the job.
 - **Capability gate:** only **duplex** is hard-checked — a duplex request against a non-duplex driver is an error (the failure would otherwise be invisible at the tray); colour on a mono printer is allowed (it prints grey, which is visible). See `engine::print::check_supported`.
 - **Orchestration lives in the queue, not the engine.** Conversion/print concurrency (default ≤ 2 conversions, 1 print), retries with backoff, cancellation, and the conversion cache are owned by the dispatcher — see [queue.md](../05-features/queue.md) and [data-model § 4](./data-model.md#4-queuejson--live-print-queue). The converter/printer functions here are pure, blocking, single-file units the dispatcher drives, with a page-range parser (`engine::pagerange`) shared by validation and the backends.
 - **The headless CLI does not use the queue at all.** `maeclyprint print` walks the same `engine::convert` → `engine::print::spool` path directly, into a private temp cache deleted on exit, with **no `queue.json` and no retries** — see [ipc-and-cli.md §3.3](./ipc-and-cli.md#33-flag-semantics).
@@ -40,17 +40,17 @@ The hybrid choice — **convert each format to PDF with the best-of-breed tool, 
 | `.pptx` `.ppt`   | LibreOffice         | `soffice --headless --convert-to pdf` | SumatraPDF    | CUPS `lp`            |
 | `.odt` `.ods` `.odp` | LibreOffice     | `soffice --headless --convert-to pdf` | SumatraPDF    | CUPS `lp`            |
 | `.rtf`           | LibreOffice         | `soffice --headless --convert-to pdf` | SumatraPDF    | CUPS `lp`            |
-| `.txt`           | LibreOffice (or Pandoc) | `soffice --headless --convert-to pdf` | SumatraPDF | CUPS `lp`            |
+| `.txt`           | LibreOffice (UTF-8 import) | `soffice --headless --infilter=… --convert-to pdf` | SumatraPDF | CUPS `lp`            |
 | `.png` `.jpg` `.jpeg` `.tif` `.tiff` `.bmp` `.webp` | **in-process** (`image` + `lopdf`) | — (no subprocess) | SumatraPDF | CUPS `lp` |
-| `.html` `.htm`   | Chromium headless   | `chrome --headless --print-to-pdf=...` | SumatraPDF   | CUPS `lp`            |
-| `.md` `.markdown` | Pandoc             | `pandoc file.md -o file.pdf`    | SumatraPDF          | CUPS `lp`            |
-| `.epub`          | Pandoc              | `pandoc -t html in.epub | chrome --headless --print-to-pdf=...` | SumatraPDF | CUPS `lp` |
-| `.svg`           | Chromium            | `chrome --headless --print-to-pdf=…` | SumatraPDF   | CUPS `lp`            |
-| `.heic` `.heif`  | *(none — see below)* | —                             | —                    | —                    |
+| `.heic` `.heif`  | OS decoder          | `sips -s format png` (macOS) / WIC (Windows) | SumatraPDF | CUPS `lp`      |
+| `.html` `.htm`   | Chromium headless   | `<browser> --headless --print-to-pdf=...` | SumatraPDF | CUPS `lp`            |
+| `.md` `.markdown` | Pandoc → browser   | `pandoc --to=html5 --standalone`, then the HTML row | SumatraPDF | CUPS `lp`     |
+| `.epub`          | *(target)* Pandoc → browser | — | — | — |
+| `.svg`           | *(target)* browser  | — | — | — |
 
-Anything not in this table is treated as **unsupported** and shown grouped at the bottom of the print dialog with a "Skip" badge.
+Anything not in this table (and the two *target* rows) is **unsupported**. It is refused at drop time with a reason, never skipped silently.
 
-`.gif` is not in the supported list: the `image` crate's `gif` codec is not enabled. `.heic`/`.heif` are recognized as a *named* unsupported case (`engine::convert::HEIF_EXTS` / `HEIF_UNSUPPORTED_REASON`) so the user gets a specific explanation rather than a generic "unsupported file type".
+`.gif` is not in the supported list: the `image` crate's `gif` codec is not enabled.
 
 Detection is by **extension**, lowercased. There is no magic-byte fallback: `infer` and `mime_guess` are not dependencies, and a file whose extension lies is rejected by the converter with a `ConversionFailed` naming the decoder's own complaint.
 
@@ -83,17 +83,19 @@ Defaults serialise to `simplex,color,fit,paper=A4`. Translation from the wire `J
 
 ```
 soffice ^
-  --headless ^
+  -env:UserInstallation=file:///C:/Users/.../AppData/Local/Temp/maeclyprint-convert-<job>-XXXX/profile ^
+  --headless --invisible --nologo --nodefault --nolockcheck --norestore ^
   --convert-to pdf ^
-  --outdir "C:\Users\...\AppData\Local\MaeclyPrint\cache" ^
-  "C:\Users\...\Documents\report.docx"
+  --outdir "%TEMP%\maeclyprint-convert-<job>-XXXX\out" ^
+  "%TEMP%\maeclyprint-convert-<job>-XXXX\input.docx"
 ```
 
-Caveats:
+(`engine::convert::office`.) Caveats:
 
-- `soffice` does not allow concurrent invocations against the same user profile. We pass `-env:UserInstallation=file:///...` to give each conversion its own profile dir, so we can run them in parallel.
-- Conversion can take 2–10 s for non-trivial documents; we set a default timeout of **60 s per file**, configurable.
-- Macros and external links are disabled (`--norestore --nologo --nofirststartwizard`). Password-protected files surface a non-zero exit and we report "PasswordProtected" in the queue.
+- `soffice` does not allow concurrent invocations against the same user profile, and without its own profile a headless run hands the file to an already-open LibreOffice window. Each conversion therefore gets a throwaway `-env:UserInstallation` profile inside its scratch folder. Conversions can then run in parallel, and while the user has LibreOffice open.
+- The input is copied to `input.<ext>` first, so the output name is predictable and no lock file appears next to the user's document. `.txt` adds `--infilter="Text (encoded):UTF8,LF,,,"`.
+- `soffice` exits 0 even when it could not load the document, so success means `out/input.pdf` exists and starts with `%PDF-`. Otherwise the error quotes stderr.
+- First start with a fresh profile costs a few seconds per file. The default conversion timeout is 60 s, and LibreOffice is killed (with `soffice.bin`) when it runs out. Macros are not executed. A password-protected file produces no PDF and fails with `ConversionFailed`.
 
 ### 3.3 Images (in-process, shipped — no external tool)
 
@@ -114,31 +116,29 @@ Known limitations, documented rather than treated as bugs:
 ### 3.4 Chromium headless
 
 ```
-chrome ^
-  --headless=new ^
-  --disable-gpu ^
-  --no-sandbox ^
-  --print-to-pdf="output.pdf" ^
-  --print-to-pdf-no-header ^
+msedge.exe ^
+  --headless --disable-gpu --no-pdf-header-footer --print-to-pdf-no-header ^
+  --user-data-dir="%TEMP%\maeclyprint-convert-<job>-XXXX\browser" ^
+  --no-first-run --no-default-browser-check --disable-extensions ^
+  --disable-background-networking --disable-sync --mute-audio ^
+  --print-to-pdf="%TEMP%\maeclyprint-convert-<job>-XXXX\out.pdf" ^
   "file:///C:/Users/.../page.html"
 ```
 
-We locate Chromium in this order:
+(`engine::convert::html`.) No `--no-sandbox`: the browser's sandbox stays on. The browser is located through `engine::deps` (bundled → configured → `PATH` → install dirs), with `msedge.exe` before `chrome.exe` on Windows and Edge, Chrome, then Chromium on macOS. A private `--user-data-dir` keeps the user's browser and profile out of it.
 
-1. Bundled `MaeclyPrint\redist\chromium\chrome.exe` (when the user opted into the full bundle, M2+).
-2. Edge: `%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe`.
-3. Chrome: `%ProgramFiles%\Google\Chrome\Application\chrome.exe`.
-4. PATH lookup (`which`).
+The step ends when the PDF is **complete**, not when the browser exits. Chrome 156 on macOS writes the PDF in about a second and then never exits. `pdf_is_complete` waits for the `%%EOF` trailer and a size that did not change between two polls, and then the browser tree is killed.
 
-If none is present and HTML files are queued, the user sees a clear message in the dialog and a one-click "Install Microsoft Edge (recommended)" link.
+If no browser is found, the job pauses with *"Microsoft Edge or Google Chrome is missing — HTML and Markdown files cannot be printed until one is installed…"* and download links.
 
 ### 3.5 Pandoc
 
 ```
-pandoc "notes.md" --pdf-engine=wkhtmltopdf -o "notes.pdf"
+pandoc --from=markdown --to=html5 --standalone --metadata=pagetitle:notes ^
+       --include-in-header=<scratch>\head.html --output=<scratch>\page.html "notes.md"
 ```
 
-If `wkhtmltopdf` is unavailable we fall back to converting Markdown → HTML via pandoc, then HTML → PDF via the chosen Chromium binary. This avoids requiring a TeX install.
+(`engine::convert::markdown`.) This is always Markdown → HTML → the §3.4 browser step. There is no wkhtmltopdf or TeX path, so no TeX install is needed. The injected header carries a print stylesheet and `<base href>` set to the Markdown file's folder, so relative images resolve. Pandoc and the browser share one timeout budget, and a Pandoc failure stops the pipeline before the browser starts.
 
 ### 3.6 CUPS `lp` (macOS / Linux, shipped)
 
@@ -245,10 +245,12 @@ The router is **not** a MIME-keyed trait-object factory. `engine::convert::conve
 
 - **`pdf`** → validated cheaply by its `%PDF-` header and printed in place: `Ok(None)`, no cache file.
 - **Raster images** (`jpg`, `jpeg`, `png`, `tif`, `tiff`, `bmp`, `webp`) → `image::to_pdf`, `Ok(Some(path))`.
-- **`heic`/`heif`** → a *named* unsupported case with its own explanation.
+- **`heic`/`heif`** → `heif::convert` (OS decoder), `Ok(Some(path))`.
+- **Office / ODF / `txt` / `rtf`** → `office::convert_with` (LibreOffice).
+- **`html`/`htm`** → `html::convert_with` (browser). **`md`/`markdown`** → `markdown::convert_with` (Pandoc, then the browser).
 - **Everything else** → `EngineError::UnsupportedFormat`.
 
-The trait-object design above was never implemented and there is no `JobPlan` type; when the Office/HTML/Markdown converters land, the natural extension is more arms in this match, not a plugin registry.
+`convert::route(ext)` is the table. The external program is resolved before anything is written, so a missing one costs nothing but a paused job. The trait-object design above was never implemented and there is no `JobPlan` type. The router is a match on `Route`, not a plugin registry.
 
 ### 4.2 PDF caching
 
@@ -271,7 +273,7 @@ Folder expansion has its own independent ceilings, `MAX_FOLDER_FILES = 5,000` en
 
 ## 5. Error handling matrix
 
-Rows marked **(target)** describe converters that are not wired yet; the rest are shipped behaviour.
+Rows marked **(target)** are not implemented yet; the rest are shipped behaviour.
 
 | Error | Detection | Error code | Queue effect |
 | --- | --- | --- | --- |
@@ -282,7 +284,7 @@ Rows marked **(target)** describe converters that are not wired yet; the rest ar
 | File path no longer exists | `canonical_input` at submit | `FileNotFound` (CLI exit **6**) | Rejected before enqueue |
 | Relative path from IPC/drop | `canonical_input` | `InvalidRequest` (CLI exit **2**) | Rejected; only the CLI resolves relative paths |
 | File is a directory | `inspect_files` reports `is_dir` | — | Not an error: the caller asks the FR-004 recurse question and calls `expand_folders` |
-| Unsupported format | extension not in `SUPPORTED_EXTS` | `UnsupportedFormat` (CLI exit **7**) | Rejected before enqueue; `.heic`/`.heif` get a specific message |
+| Unsupported format | extension not in `SUPPORTED_EXTS` | `UnsupportedFormat` (CLI exit **7**) | Rejected before enqueue |
 | File over `max_file_size_mb` | `stat` at submit / during the folder walk | `InvalidRequest`, or `SkipReason::TooLarge` in an expansion | Rejected / skipped with a reason, never silently dropped |
 | Duplex requested, driver cannot | `engine::print::check_supported` | `UnsupportedSetting` → CLI exit **5** (a *printer* problem, not a usage one) | Job fails |
 | No printer configured at all | printer resolution at dispatch | `PrintFailed` → CLI exit **5** | GUI pauses the job so the user can pick another; CLI fails immediately |
@@ -290,8 +292,9 @@ Rows marked **(target)** describe converters that are not wired yet; the rest ar
 | Spooler rejected the job | non-zero exit / stderr from `lp`/SumatraPDF | `PrintFailed` (CLI exit **9**) | Retryable; the spooler's own text is surfaced verbatim |
 | App was killed mid-job | recovery at next start (`queue::persist::recover`) | error code `"interrupted_by_shutdown"` | Job is `paused` and treated as **resumable**, not failed |
 | User cancellation | `cancel_job` / `cancel_all` | — | Job `cancelled` (terminal); a terminal job refuses cancellation with `InvalidState` |
-| Converter binary not found *(target)* | dependency probe | `DependencyMissing` | Job paused |
-| Converter exit ≠ 0 / password-protected document *(target)* | child wait status + stderr | `ConversionFailed` | Job failed |
+| Converter binary not found (LibreOffice, browser, Pandoc, Windows HEIF codec) | `engine::deps` resolution before the conversion starts; WIC's "no decoder" result | `DependencyMissing` (CLI exit **3**) | Job paused with the FR-058 remediation (what is blocked and where to download it) |
+| Converter exit ≠ 0, or exit 0 without a PDF (e.g. a password-protected document) | child exit status, then a `%PDF-` check of the expected output | `ConversionFailed`, quoting the converter's stderr | Retryable, like any conversion failure |
+| Converter hangs | the conversion timeout raises the cancel flag, and `run_bounded` kills the process tree | error code `"conversion_timeout"` | Terminal (see §5.1); the scratch folder is removed |
 | Encrypted PDF *(target)* | not detected today — an encrypted PDF passes the `%PDF-` header check and fails at the printer | — | — |
 
 Two honest gaps worth naming: there is **no live spooler polling**, so "printer offline" / "out of paper" are not distinguished as their own states — they surface as whatever the spooler says when the job is submitted. And there is no encrypted-PDF pre-check (`qpdf` is not a dependency).
@@ -312,7 +315,7 @@ Earlier drafts said "3 attempts with 1 s/5 s backoff"; both numbers were wrong. 
 
 ## 6. Performance characteristics
 
-> **These figures are design-target estimates for the full M3 pipeline, not measurements of the shipped build.** Three of the four rows describe converters that are not wired up, and the image row describes ImageMagick, which is not used at all. Treat the table as a budget to validate against, and replace it with real numbers when the converters land.
+> **These figures are design-target estimates, not measurements.** The converters are wired, but nobody has benchmarked them yet. The image row also describes ImageMagick, which is not used at all. Treat the table as a budget to validate against, and replace it with real numbers. For reference, on an Apple-silicon Mac the real-tool tests convert a TXT, an RTF and a DOCX (LibreOffice, a fresh profile each), an HTML page (Chrome) and a Markdown file (Pandoc + Chrome) in parallel in about 5 s in total.
 
 Intended envelope on a Windows 11 machine, Ryzen 7 5800X, NVMe SSD, files in `%TEMP%`:
 

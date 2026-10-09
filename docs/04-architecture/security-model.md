@@ -136,7 +136,13 @@ Processes the engine *does* spawn today are the **printing** hops — `lp` on ma
 
 The image decoder is hardened against decompression bombs independently of any subprocess boundary: `image::Limits` caps decoded dimensions, and the emitted page is clamped to the 14,400 pt (200 in) PDF page ceiling.
 
-**Not yet true, and worth stating as a gap:** env minimization, a dedicated working directory, and `kill_on_drop`-style teardown are not implemented for spawned children. When LibreOffice/Chromium/Pandoc are wired up — each of which is a far larger attack surface than `lp` — those mitigations (and LibreOffice's `-env:UserInstallation=` temp profile) need to land with them.
+The converters (LibreOffice, Chromium-class browser, Pandoc, `sips`) are a far larger attack surface than `lp`. They all go through `engine::convert::process::run_bounded`:
+
+- each gets a **dedicated scratch folder** in the OS temp directory. It holds LibreOffice's throwaway `-env:UserInstallation` profile and the browser's private `--user-data-dir`, and it is removed on every exit path;
+- each runs under a **deadline and the job's cancel flag**, and on either the **whole process tree** is killed (process group on Unix, `taskkill /T` on Windows);
+- LibreOffice works on a private copy of the input, so a hostile file name never reaches its command line. The browser keeps its sandbox (no `--no-sandbox`).
+
+**Still a gap:** environment minimization. Converters inherit the app's environment.
 
 ## 4. Permissions
 

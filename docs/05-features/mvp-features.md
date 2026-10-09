@@ -36,12 +36,12 @@ The Windows 10 fallback path (`IShellExtInit` + `IContextMenu`) is not implement
 | **PDF** (`.pdf`) | Passthrough → SumatraPDF (Win) / `lp` (macOS) | Native, no conversion |
 | **JPG/JPEG, PNG** | Rust `image` → one-page PDF (`lopdf`) → spooler | Standard image batch |
 | **TIFF, BMP, WebP** | Rust `image` → one-page PDF (`lopdf`) → spooler | Less common but cheap to include |
+| **HEIC/HEIF** | OS decoder (`sips` on macOS, WIC on Windows) → one-page PDF | Windows needs the Store *HEIF Image Extensions*. Without them the job pauses with that hint |
+| **DOCX, XLSX, PPTX, DOC, XLS, PPT, ODT, ODS, ODP, TXT, RTF** | LibreOffice headless → PDF | Needs LibreOffice. Pulled forward from v0.2 |
+| **HTML** | Edge / Chrome / Chromium headless `--print-to-pdf` | Edge ships with Windows. Pulled forward from v0.2 |
+| **Markdown** | Pandoc → HTML → the browser step | Needs Pandoc and a browser. Pulled forward from v0.2 |
 
-The image path is **pure Rust** — the `image` crate decodes, `lopdf` embeds the bitmap as an XObject in a one-page PDF. There is no ImageMagick dependency in the MVP; ImageMagick returns in M3 for resampling, where it buys something. The engine's supported-extension list is `SUPPORTED_EXTS` in `src-tauri/src/engine/mod.rs` and it is exactly the eight above.
-
-**HEIC/HEIF is not supported.** It is not in `SUPPORTED_EXTS` and the `image` crate is not built with an HEIF codec, so a `.heic` file is refused by name with "HEIC is not supported yet — convert it to JPEG or PNG first" rather than being silently dropped. See [FR-052](../03-requirements/functional-requirements.md).
-
-That's it for MVP. Office and HTML wait for v0.2.
+The image path is **pure Rust**: the `image` crate decodes, and `lopdf` embeds the bitmap as an XObject in a one-page PDF. There is no ImageMagick dependency. Documents are converted by programs already on the machine. A missing one pauses the job with an install hint (FR-058) instead of skipping the file. The engine's supported-extension list is `SUPPORTED_EXTS` in `src-tauri/src/engine/mod.rs`. See [supported-formats.md](../03-requirements/supported-formats.md) for the full matrix and how each converter is run.
 
 ### 3. Print settings
 
@@ -51,7 +51,7 @@ The user can configure (per profile or per job override):
 - **Duplex**: none / long-edge / short-edge
 - **Color mode**: color / monochrome
 - **Copies**: 1–999
-- **Page ranges**: e.g., `1-5,10` (PDFs only; images are single-page)
+- **Page ranges**: e.g., `1-5,10` (PDFs and converted documents; images are single-page)
 - **Paper size**: A4 / Letter / Legal / A3
 - **Orientation**: portrait / landscape / auto
 - **Scaling**: fit / shrink / none
@@ -156,12 +156,12 @@ This is scope pulled forward, not scope added — the v0.4 line in [v1-features.
 
 | Feature | Defer to | Note |
 |---|---|---|
-| Office (DOCX/XLSX/PPTX) | v0.2 | Not wired. Rejected with a reason. |
-| ODF (ODT/ODS/ODP) | v0.2 | Not wired. |
-| HTML printing | v0.2 | Not wired. |
-| Markdown printing | v0.2 | Not wired. |
-| TXT/RTF | v0.2 | Not wired. |
-| HEIC/HEIF | v0.2+ | Was listed as MVP; no codec exists in the build. Rejected by name. |
+| ~~Office (DOCX/XLSX/PPTX)~~ | ~~v0.2~~ | **Shipped early** — LibreOffice headless (FR-053). |
+| ~~ODF (ODT/ODS/ODP)~~ | ~~v0.2~~ | **Shipped early** (FR-054). |
+| ~~HTML printing~~ | ~~v0.2~~ | **Shipped early** — headless Edge/Chrome (FR-055). |
+| ~~Markdown printing~~ | ~~v0.2~~ | **Shipped early** — Pandoc → HTML → browser (FR-056). |
+| ~~TXT/RTF~~ | ~~v0.2~~ | **Shipped early** — LibreOffice (FR-057). |
+| ~~HEIC/HEIF~~ | ~~v0.2+~~ | **Shipped** — OS decoder (FR-052). |
 | Tray selection | v0.2 | Field exists on a profile but is never sent to the spooler. |
 | N-up | v1.0 | |
 | Custom paper sizes | v1.0 | |

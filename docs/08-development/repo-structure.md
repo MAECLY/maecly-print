@@ -179,7 +179,7 @@ src-tauri/
 Two shapes here are worth calling out because they contradict older drafts of this document:
 
 - **There is no `printer/` module.** Printer enumeration and queue management live in `platform/` (`windows.rs`, `cups.rs`); turning settings into a spooler invocation lives in `engine/print/`. The split is *enumeration vs. spooling*, not *trait vs. impl*.
-- **There is no `office.rs`, `html.rs` or `markdown.rs`.** `engine/convert/` handles PDF passthrough and raster images only. LibreOffice, Chromium and Pandoc are *resolvable* by `engine/deps.rs` but no converter calls them yet.
+- **Converters live in `engine/convert/`, one file each.** `image.rs` (in-process), `heif.rs` (`sips` / WIC), `office.rs` (LibreOffice), `html.rs` (headless browser), `markdown.rs` (Pandoc → `html.rs`), all sharing `process.rs` (a bounded, killable, shell-free child runner). `mod.rs` holds the routing table. The external programs are resolved by `engine/deps.rs`.
 
 ### Why `src-tauri/` is a separate directory
 

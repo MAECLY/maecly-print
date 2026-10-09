@@ -216,7 +216,7 @@ Note: several scope lines below are framed Windows-first, but the enumeration/pr
 
 **Dependency detection is done** (`engine::deps`, FR-058): LibreOffice, Chromium and Pandoc are located across bundled directories, `PATH` and the usual per-OS install locations, reported through `app_info`, and surfaced with remediation text on the Print Job screen — but only for the dependencies that actually gate a file the user added. The always-on Settings panel in the M3 deliverables table is still owed. ImageMagick is not probed, because nothing uses it yet.
 
-No adapter exists. `SUPPORTED_EXTS` is `pdf, jpg, jpeg, png, tif, tiff, bmp, webp` and everything else is refused with a reason; HEIC/HEIF gets its own message. Note that the MVP image path is pure-Rust (`image` + `lopdf`), so `engine::image` here means *adding* ImageMagick resampling to a working converter, not building the first one.
+**The adapters are done** (FR-052..FR-057, pulled forward from M3): `engine::convert::{office, html, markdown, heif}` convert Office, OpenDocument, TXT, RTF (LibreOffice), HTML (Edge, Chrome or Chromium headless), Markdown (Pandoc → HTML → browser) and HEIC (`sips` / WIC). A missing converter pauses the job with FR-058 remediation. See [supported-formats.md](../03-requirements/supported-formats.md). Still open from the scope below: magic-byte detection, ImageMagick resampling (not planned: the image path is pure Rust), `qpdf` preprocessing, the always-on dependency panel, and per-format adapter selection in profiles.
 
 ### Scope
 

@@ -76,7 +76,7 @@ A profile provides the baseline; the controls below it are per-invocation overri
 
 - **Profiles are backend-persisted** (`list_profiles` / `profiles.toml`, see [profiles-management](./profiles-management.md)), with `BUILT_IN_PROFILES` in `src/lib/profiles.ts` as the static fallback when the backend is unreachable. A profile only seeds the panel — the overrides are the real source of truth and win over it; `profile_name` rides along purely for the log/UI.
 - **Copies** is buffered locally so an out-of-range keystroke shows an inline error instead of being silently clamped; only a valid value flows into the request (`isValidCopies`).
-- **Page range** is validated client-side against a mirror of the engine grammar (`isValidPageRange`) so the Print button reflects intent; the backend re-validates authoritatively (`engine::pagerange::parse`). Ranges apply to PDFs only — images ignore them.
+- **Page range** is validated client-side against a mirror of the engine grammar (`isValidPageRange`) so the Print button reflects intent; the backend re-validates authoritatively (`engine::pagerange::parse`). Ranges apply to PDFs and to converted documents (pages of the converted PDF); images ignore them.
 - **Printer** options come from `list_printers` with MaeclyPrint-disabled queues filtered out (via `get_printer_prefs`).
 - **Paper** lists the sizes the selected printer reports (`Printer.papers`), so photo, envelope and other sizes can be chosen; a size the printer does not list pauses the job (`unsupported_setting`) instead of being substituted silently. **Printer default** sends no size, so the printer's override from the Printers screen (or its own default) applies.
 

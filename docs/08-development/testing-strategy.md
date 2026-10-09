@@ -151,9 +151,12 @@ Verification would be page count + text layer (deterministic, fast), with an opt
 
 ### Subprocess fixtures — not applicable yet
 
-CI installs **no** converters. There is no LibreOffice, Pandoc, Chromium or ImageMagick step in `ci.yml`, because the engine does not shell out to any of them: `engine::convert` routes PDFs through untouched and rasterises images with the pure-Rust `image` codecs. `engine::deps` can *locate* LibreOffice/Chromium/Pandoc and reports honestly that finding them changes nothing today.
+CI installs **no** converters yet. The converters that shell out (LibreOffice, a headless browser, Pandoc, `sips`) are covered at two levels in `engine::convert`:
 
-When a converter is actually wired in, its adapter tests install the subprocess in CI (`choco install libreoffice-fresh` on Windows, `brew install --cask libreoffice` on macOS) and gate the test behind `#[ignore]` so a developer without it still gets a green `cargo test`.
+- **Fake binaries** (`external_tests::fakes`, Unix only): `/bin/sh` scripts standing in for `soffice`, `chrome`, `pandoc` and `sips`. They pin the argument vector that is actually spawned, the "exit 0 but no PDF" failure, the timeout kill of the whole process tree, and scratch-folder cleanup. They need nothing installed.
+- **Real tools** (`external_tests::fr_05x_real_*`): convert fixtures generated in-test (a multi-page UTF-8 TXT, an RTF, a DOCX made by LibreOffice from a TXT, an HTML page with a relative stylesheet, a Markdown file, and on macOS a HEIC made by `sips`). Each test locates its tool with the engine's own resolver and **returns early with a `SKIPPED` note** when the tool is absent, instead of using `#[ignore]`. A developer machine with the tools runs them on every `cargo test`, and a bare CI runner stays green.
+
+Installing the tools in CI (`choco install libreoffice-fresh pandoc` on Windows, `brew install --cask libreoffice` and `brew install pandoc` on macOS) would turn those skips into real coverage. That CI step is still owed.
 
 ### Ignored tests
 
