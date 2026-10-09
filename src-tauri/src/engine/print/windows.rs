@@ -34,17 +34,22 @@ const PRINTING: u32 = 0x0010;
 
 /// Map a job's `JOB_STATUS_*` bit set onto [`OsJobState`].
 ///
-/// Precedence matters because the spooler sets several bits at once: a job
-/// being deleted is cancelled whatever else it says; a printed or complete job
-/// is done; a device problem (error, offline, paper out, a user prompt) means
-/// the printer needs attention, which outranks "paused"; and a job the user
-/// paused in the Windows queue is held.
+/// Precedence matters because the spooler sets several bits at once:
+///
+/// - a printed or complete job is done, **even while it is being deleted**:
+///   the spooler removes every job it finished printing (unless *Keep printed
+///   documents* is on), so `PRINTED | DELETING` is the normal end of a
+///   successful job, not a cancellation;
+/// - a job being deleted that never printed was cancelled;
+/// - a device problem (error, offline, paper out, a user prompt) means the
+///   printer needs attention, which outranks "paused";
+/// - and a job the user paused in the Windows queue is held.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn map_status(status: u32) -> OsJobState {
-    if status & (DELETING | DELETED) != 0 {
-        OsJobState::Canceled
-    } else if status & (PRINTED | COMPLETE) != 0 {
+    if status & (PRINTED | COMPLETE) != 0 {
         OsJobState::Completed
+    } else if status & (DELETING | DELETED) != 0 {
+        OsJobState::Canceled
     } else if status & (ERROR | OFFLINE | PAPEROUT | USER_INTERVENTION | BLOCKED_DEVQ) != 0 {
         OsJobState::Stopped
     } else if status & PAUSED != 0 {
@@ -256,7 +261,24 @@ mod tests {
         assert_eq!(map_status(PRINTED), OsJobState::Completed);
         assert_eq!(map_status(COMPLETE | PRINTING), OsJobState::Completed);
         assert_eq!(map_status(DELETING | PRINTING), OsJobState::Canceled);
-        assert_eq!(map_status(DELETED | PRINTED), OsJobState::Canceled);
+        assert_eq!(map_status(DELETED), OsJobState::Canceled);
+    }
+
+    /// FR-031: a job the spooler is removing *because it finished printing*
+    /// is done, not cancelled — otherwise a poll that lands in that window
+    /// reports a printed job as "cancelled in the system print queue".
+    #[test]
+    fn fr_031_a_printed_job_being_removed_is_completed_not_cancelled() {
+        assert_eq!(map_status(DELETING | PRINTED), OsJobState::Completed);
+        assert_eq!(map_status(DELETED | PRINTED), OsJobState::Completed);
+        assert_eq!(map_status(DELETING | COMPLETE), OsJobState::Completed);
+        assert_eq!(
+            map_status(DELETING | PRINTED | PRINTING),
+            OsJobState::Completed
+        );
+        // Deleted before anything came out: cancelled.
+        assert_eq!(map_status(DELETING), OsJobState::Canceled);
+        assert_eq!(map_status(DELETING | PAUSED), OsJobState::Canceled);
     }
 
     #[test]
