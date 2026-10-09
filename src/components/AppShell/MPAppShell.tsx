@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 
-import { useAnyModalOpen } from '@/components/Modal';
+import { useAnyModalOpen } from '@/components/useModal';
 
 /**
  * Root application shell, and the home of the app-wide keyboard layer.

@@ -8,7 +8,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { fixtureAppSettings } from '@/test/fixtures';
 
 import { ConfirmDialog, type ConfirmState } from './ConfirmDialog';
-import { useAnyModalOpen } from './Modal';
+import { useAnyModalOpen } from './useModal';
 
 const STATE: ConfirmState = {
   title: 'Delete profile',

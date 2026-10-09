@@ -1,6 +1,7 @@
 import { useId, useRef } from 'react';
 
-import { ModalOverlay, useModalFocus } from '@/components/Modal';
+import { ModalOverlay } from '@/components/Modal';
+import { useModalFocus } from '@/components/useModal';
 import { MPButton } from '@/components/ui';
 import { useT } from '@/i18n/I18nProvider';
 
