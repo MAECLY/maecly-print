@@ -28,7 +28,7 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: UpdateCmd) -> Result<(), CliErr
                 ))
             })?;
             let release = crate::update::fetch_latest(&owner, &repo)
-                .map_err(|e| CliError::from(IpcError::UpdateCheckFailed(e)))?;
+                .map_err(|e| CliError::from(IpcError::from(e)))?;
             let check = crate::update::evaluate(
                 env!("CARGO_PKG_VERSION"),
                 release,

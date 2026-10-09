@@ -36,8 +36,12 @@ pub struct FileInfo {
     pub bytes: u64,
     pub pages: Option<u32>,
     pub supported: bool,
-    /// Why the file is not printable, when `supported` is false.
+    /// Why the file is not printable, when `supported` is false (English
+    /// detail for logs; the UI translates [`FileInfo::reason_code`]).
     pub reason: Option<String>,
+    /// Stable, machine-readable form of `reason` (FR-092), set exactly when
+    /// `reason` is.
+    pub reason_code: Option<RejectReason>,
     /// The path is a directory. Not printable as such, but not an error either:
     /// the caller runs it through [`expand_folders`] after asking the FR-004
     /// recurse-or-not question.
@@ -46,6 +50,33 @@ pub struct FileInfo {
     /// all. When it does not there is nothing to recurse into, so the UI skips
     /// the question and expands top-level (FR-004 asks; it does not nag).
     pub has_subfolders: bool,
+}
+
+/// Why a path is not printable as-is. Stable wire values the UI maps to
+/// translated text (FR-005, FR-092); never renamed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RejectReason {
+    /// The path does not exist (or vanished before it could be read).
+    NotFound,
+    /// The path could not be resolved at all (relative, empty, unreadable).
+    InvalidPath,
+    /// A folder: legal input that must go through `expand_folders` first.
+    Folder,
+    /// Exists but is neither a regular file nor a folder (device, socket…).
+    NotAFile,
+    /// Bigger than the configured `max_file_size_mb` ceiling.
+    TooLarge,
+    /// Any other extension the engine cannot print.
+    UnsupportedType,
+}
+
+/// The [`RejectReason`] for a path [`canonical_input`] refused.
+fn resolve_reason(e: &IpcError) -> RejectReason {
+    match e.code() {
+        crate::util::error::IpcErrorCode::FileNotFound => RejectReason::NotFound,
+        _ => RejectReason::InvalidPath,
+    }
 }
 
 /// Submit a print request. Validates and fans the files out into jobs, returning
@@ -476,14 +507,16 @@ fn classify_one(path_str: &str, max_mb: u32) -> FileInfo {
                 .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_else(|| path_str.to_string());
-            let reason = match e {
-                IpcError::FileNotFound(_) => "File not found".to_string(),
-                other => other.to_string(),
+            let code = resolve_reason(&e);
+            let reason = match code {
+                RejectReason::NotFound => "File not found".to_string(),
+                _ => e.to_string(),
             };
             return unprintable(
                 path_str.to_string(),
                 name,
                 crate::engine::extension_of(path),
+                code,
                 reason,
             );
         }
@@ -497,7 +530,13 @@ fn classify_one(path_str: &str, max_mb: u32) -> FileInfo {
     let ext = crate::engine::extension_of(path);
 
     match std::fs::metadata(path) {
-        Err(_) => unprintable(canonical, name, ext, "File not found".to_string()),
+        Err(_) => unprintable(
+            canonical,
+            name,
+            ext,
+            RejectReason::NotFound,
+            "File not found".to_string(),
+        ),
         Ok(m) if m.is_dir() => FileInfo {
             // FR-004: folders are legal input, they just have to go through
             // `expand_folders` before they reach the file list.
@@ -507,22 +546,40 @@ fn classify_one(path_str: &str, max_mb: u32) -> FileInfo {
                 canonical,
                 name,
                 ext,
+                RejectReason::Folder,
                 "Folder — expand it to print the files inside".to_string(),
             )
         },
-        Ok(m) if !m.is_file() => unprintable(canonical, name, ext, "Not a file".to_string()),
+        Ok(m) if !m.is_file() => unprintable(
+            canonical,
+            name,
+            ext,
+            RejectReason::NotAFile,
+            "Not a file".to_string(),
+        ),
         Ok(m) => {
             // Precedence: size first (a 900 MB PDF is refused for its size, not
             // its type), then the format. A format whose converter is not
             // installed is still accepted here: its job pauses with the FR-058
             // remediation, and the Print Job screen already shows that text
             // for the dependencies the selected files need.
-            let (supported, reason) = if crate::queue::exceeds_size_limit(m.len(), max_mb) {
-                (false, Some(format!("Larger than the {max_mb} MB limit")))
+            let refusal = if crate::queue::exceeds_size_limit(m.len(), max_mb) {
+                Some((
+                    RejectReason::TooLarge,
+                    format!("Larger than the {max_mb} MB limit"),
+                ))
             } else if crate::engine::is_supported(&ext) {
-                (true, None)
+                None
             } else {
-                (false, Some("Unsupported file type".to_string()))
+                Some((
+                    RejectReason::UnsupportedType,
+                    "Unsupported file type".to_string(),
+                ))
+            };
+            let supported = refusal.is_none();
+            let (reason_code, reason) = match refusal {
+                Some((code, text)) => (Some(code), Some(text)),
+                None => (None, None),
             };
             let pages = crate::queue::probe_pages(path, &ext, m.len());
             FileInfo {
@@ -533,6 +590,7 @@ fn classify_one(path_str: &str, max_mb: u32) -> FileInfo {
                 pages,
                 supported,
                 reason,
+                reason_code,
                 is_dir: false,
                 has_subfolders: false,
             }
@@ -542,7 +600,13 @@ fn classify_one(path_str: &str, max_mb: u32) -> FileInfo {
 
 /// A `supported: false` [`FileInfo`] carrying `reason`. Keeps the six unchanging
 /// fields in one place so each refusal branch reads as just its own decision.
-fn unprintable(path: String, name: String, ext: String, reason: String) -> FileInfo {
+fn unprintable(
+    path: String,
+    name: String,
+    ext: String,
+    reason_code: RejectReason,
+    reason: String,
+) -> FileInfo {
     FileInfo {
         path,
         name,
@@ -551,6 +615,7 @@ fn unprintable(path: String, name: String, ext: String, reason: String) -> FileI
         pages: None,
         supported: false,
         reason: Some(reason),
+        reason_code: Some(reason_code),
         is_dir: false,
         has_subfolders: false,
     }
@@ -684,6 +749,7 @@ mod tests {
         let info = classify_one(&dir.path().join("ghost.pdf").to_string_lossy(), 100);
         assert!(!info.supported);
         assert_eq!(info.reason.as_deref(), Some("File not found"));
+        assert_eq!(info.reason_code, Some(RejectReason::NotFound));
         assert_eq!(info.name, "ghost.pdf");
         assert!(!info.is_dir);
     }
@@ -730,6 +796,8 @@ mod tests {
         let info = inspect(&big, 1);
         assert!(!info.supported);
         assert_eq!(info.reason.as_deref(), Some("Larger than the 1 MB limit"));
+        // FR-092: the stable code the UI translates rides along.
+        assert_eq!(info.reason_code, Some(RejectReason::TooLarge));
     }
 
     #[test]

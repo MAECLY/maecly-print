@@ -906,9 +906,15 @@ export type FileInfo = { path: string; name: string;
  */
 ext: string; bytes: number; pages: number | null; supported: boolean; 
 /**
- * Why the file is not printable, when `supported` is false.
+ * Why the file is not printable, when `supported` is false (English
+ * detail for logs; the UI translates [`FileInfo::reason_code`]).
  */
 reason: string | null; 
+/**
+ * Stable, machine-readable form of `reason` (FR-092), set exactly when
+ * `reason` is.
+ */
+reason_code: RejectReason | null; 
 /**
  * The path is a directory. Not printable as such, but not an error either:
  * the caller runs it through [`expand_folders`] after asking the FR-004
@@ -1010,65 +1016,29 @@ message: string;
  * The JS stack and/or React component stack, when there is one.
  */
 stack: string | null }
-export type IpcError = { code: "FileNotFound"; message: string } | 
+export type IpcError = { 
 /**
- * The caller sent a structurally invalid request (empty file list, bad
- * copies count, unparseable page range, …). The message is safe to show
- * inline in the UI.
+ * Stable error family. Never renamed.
  */
-{ code: "InvalidRequest"; message: string } | 
+code: IpcErrorCode; 
 /**
- * A file's format is not one the engine can print.
+ * English detail: logs, the CLI, and the UI's fallback for an
+ * unknown code.
  */
-{ code: "UnsupportedFormat"; message: string } | 
+message: string; 
 /**
- * A converter could not turn the input into a printable PDF.
+ * Stable machine reason within `code` (e.g. `"rate_limited"`); the UI
+ * translates `code` + `reason` with `params`. Never renamed.
  */
-{ code: "ConversionFailed"; message: string } | 
+reason?: string | null; 
 /**
- * The OS spooler/printer backend rejected the job.
+ * Interpolation values for the translated `reason` sentence.
  */
-{ code: "PrintFailed"; message: string } | 
+params?: Partial<{ [key in string]: string }> | null }
 /**
- * A requested print setting the driver cannot honour (currently duplex).
+ * The stable error family of an [`IpcError`] — its `code` on the wire.
  */
-{ code: "UnsupportedSetting"; message: string } | 
-/**
- * A required external program (CUPS `lp`, SumatraPDF) is missing.
- */
-{ code: "DependencyMissing"; message: string } | 
-/**
- * No job with the given id exists in the queue.
- */
-{ code: "JobNotFound"; message: string } | 
-/**
- * The action is not legal for the job's current state (e.g. pausing a job
- * that is already printing, or retrying one that has not failed).
- */
-{ code: "InvalidState"; message: string } | 
-/**
- * No profile with the given id exists (get/delete/set-default of an
- * unknown profile). Distinct from [`IpcError::InvalidRequest`] so the UI
- * can special-case a stale id (e.g. deleted in another window).
- */
-{ code: "ProfileNotFound"; message: string } | 
-/**
- * The GitHub-release update check could not complete (repository not
- * configured, network error, rate limit). The message is user-facing.
- */
-{ code: "UpdateCheckFailed"; message: string } | 
-/**
- * Downloading or installing an update failed (network, disk, installer,
- * or a copy of the app that cannot update itself). The message is
- * user-facing.
- */
-{ code: "UpdateInstallFailed"; message: string } | 
-/**
- * FR-082: the downloaded update did not carry a valid signature from the
- * release key, so it was rejected and **nothing was installed**. Its own
- * code so the UI can say exactly that.
- */
-{ code: "UpdateSignatureInvalid"; message: string } | { code: "Internal"; message: string }
+export type IpcErrorCode = "FileNotFound" | "InvalidRequest" | "UnsupportedFormat" | "ConversionFailed" | "PrintFailed" | "UnsupportedSetting" | "DependencyMissing" | "JobNotFound" | "InvalidState" | "ProfileNotFound" | "UpdateCheckFailed" | "UpdateInstallFailed" | "UpdateSignatureInvalid" | "Internal"
 /**
  * One print job: a single input file tracked through the convert → print
  * pipeline. Persisted verbatim in `queue.json`.
@@ -1411,6 +1381,35 @@ queue_paused: boolean; jobs: Job[] }
  * than reconcile deltas (FR-030). Emitted on every persisted mutation.
  */
 export type QueueUpdated = QueueSnapshot
+/**
+ * Why a path is not printable as-is. Stable wire values the UI maps to
+ * translated text (FR-005, FR-092); never renamed.
+ */
+export type RejectReason = 
+/**
+ * The path does not exist (or vanished before it could be read).
+ */
+"not_found" | 
+/**
+ * The path could not be resolved at all (relative, empty, unreadable).
+ */
+"invalid_path" | 
+/**
+ * A folder: legal input that must go through `expand_folders` first.
+ */
+"folder" | 
+/**
+ * Exists but is neither a regular file nor a folder (device, socket…).
+ */
+"not_a_file" | 
+/**
+ * Bigger than the configured `max_file_size_mb` ceiling.
+ */
+"too_large" | 
+/**
+ * Any other extension the engine cannot print.
+ */
+"unsupported_type"
 /**
  * How source pages are fitted to the target paper.
  */

@@ -182,6 +182,7 @@ function fileInfo(path: string, over: Partial<FileInfo> = {}): FileInfo {
     pages: 3,
     supported: true,
     reason: null,
+    reason_code: null,
     is_dir: false,
     has_subfolders: false,
     ...over,

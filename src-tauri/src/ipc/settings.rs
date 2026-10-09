@@ -21,8 +21,7 @@
 use std::path::Path;
 
 use crate::settings::{
-    AppCfg, AppSettings, Bounds, Config, EngineCfg, SettingsMeta, CONFIG_CORRUPT_MSG, CONFIG_LOCK,
-    ENGINE_LIMITS,
+    AppCfg, AppSettings, Bounds, Config, EngineCfg, SettingsMeta, CONFIG_LOCK, ENGINE_LIMITS,
 };
 use crate::util::error::IpcError;
 
@@ -119,8 +118,8 @@ pub fn set_app_settings_at(
     validate_bounds(&settings.app, &settings.engine).map_err(IpcError::InvalidRequest)?;
 
     let _guard = CONFIG_LOCK.lock().unwrap();
-    let mut cfg = Config::load_strict(config_path)
-        .map_err(|_| IpcError::Internal(CONFIG_CORRUPT_MSG.to_string()))?;
+    let mut cfg =
+        Config::load_strict(config_path).map_err(|_| crate::settings::config_corrupt_error())?;
 
     let default_profile = cfg.engine.default_profile.take();
     cfg.app = settings.app;
@@ -349,7 +348,12 @@ mod tests {
 
         // The refusal on write is unchanged: the corrupt bytes stay put.
         let err = set_app_settings_at(&config_path, &profiles_path, got).unwrap_err();
-        assert!(matches!(err, IpcError::Internal(_)), "got {err:?}");
+        assert_eq!(
+            err.code(),
+            crate::util::error::IpcErrorCode::Internal,
+            "got {err:?}"
+        );
+        assert_eq!(err.reason(), Some("config_corrupt"));
 
         // A readable file reports healthy.
         Config::default().save_to(&config_path).unwrap();

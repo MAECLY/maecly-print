@@ -331,13 +331,13 @@ pub fn validate_and_normalize(
     mut p: Profile,
     existing: &[StoredProfile],
     self_id: Option<&str>,
-) -> Result<Profile, String> {
+) -> Result<Profile, ProfileInvalid> {
     let name = p.name.trim();
     if name.is_empty() {
-        return Err("profile name must not be empty".to_string());
+        return Err(ProfileInvalid::NameEmpty);
     }
     if name.chars().count() > MAX_NAME_CHARS {
-        return Err("profile name must be 100 characters or fewer".to_string());
+        return Err(ProfileInvalid::NameTooLong);
     }
     let name_lc = name.to_lowercase();
     let clashes_builtin = builtins().iter().any(|b| b.name.to_lowercase() == name_lc);
@@ -345,22 +345,19 @@ pub fn validate_and_normalize(
         .iter()
         .any(|e| Some(e.id.as_str()) != self_id && e.name.trim().to_lowercase() == name_lc);
     if clashes_builtin || clashes_custom {
-        return Err(format!("a profile named \"{name}\" already exists"));
+        return Err(ProfileInvalid::NameTaken(name.to_string()));
     }
     p.name = name.to_string();
 
     if !(1..=999).contains(&p.copies) {
-        return Err(format!(
-            "copies must be between 1 and 999, got {}",
-            p.copies
-        ));
+        return Err(ProfileInvalid::Copies(p.copies));
     }
 
     // A blank/whitespace range means "all pages" (None); a non-blank one must
     // parse against the engine grammar.
     p.page_range = match p.page_range.as_deref() {
         Some(s) if !s.trim().is_empty() => {
-            crate::engine::pagerange::parse(s)?;
+            crate::engine::pagerange::parse(s).map_err(ProfileInvalid::PageRange)?;
             Some(s.trim().to_string())
         }
         _ => None,
@@ -376,6 +373,25 @@ pub fn validate_and_normalize(
     Ok(p)
 }
 
+/// Why [`validate_and_normalize`] rejected a profile. `Display` is the English,
+/// user-facing sentence (CLI, logs); the IPC layer maps each variant to a stable
+/// reason the UI translates (FR-092).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ProfileInvalid {
+    #[error("profile name must not be empty")]
+    NameEmpty,
+    #[error("profile name must be 100 characters or fewer")]
+    NameTooLong,
+    /// The (trimmed) name collides case-insensitively with another profile.
+    #[error("a profile named \"{0}\" already exists")]
+    NameTaken(String),
+    #[error("copies must be between 1 and 999, got {0}")]
+    Copies(u16),
+    /// The page-range grammar rejected the value; the payload is its message.
+    #[error("{0}")]
+    PageRange(String),
+}
+
 /// Why a [`upsert`] was rejected. The command layer maps each to an
 /// [`crate::util::error::IpcError`].
 #[derive(Debug, PartialEq, Eq)]
@@ -388,8 +404,8 @@ pub enum UpsertError {
     ReservedId,
     /// A provided (non-empty) id is longer than 100 characters.
     IdTooLong,
-    /// Validation failed; the message is user-facing.
-    Invalid(String),
+    /// Validation failed; `Display` is user-facing.
+    Invalid(ProfileInvalid),
 }
 
 /// Create or update a custom profile in `file` (upsert), returning the
@@ -692,7 +708,7 @@ pub fn merge_imported(
                     "it claims a reserved built-in id".to_string()
                 }
                 UpsertError::IdTooLong => "its id is too long".to_string(),
-                UpsertError::Invalid(msg) => msg,
+                UpsertError::Invalid(why) => why.to_string(),
             },
         })?;
         saved.push(stored);

@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
+use crate::util::error::{IpcErrorCode, LocalizedError};
 use crate::util::paths;
 
 /// Parsed subset of a GitHub release we care about.
@@ -186,19 +187,33 @@ pub fn evaluate(current: &str, release: Option<ReleaseInfo>, checked_at: String)
 ///   two with [`interpret_repo_probe`].
 /// - `403` / `429` → rate-limit error.
 /// - anything else → an "unexpected status" error.
-pub fn interpret_response(status: u16, body: &str) -> Result<Option<ReleaseInfo>, String> {
+pub fn interpret_response(status: u16, body: &str) -> Result<Option<ReleaseInfo>, LocalizedError> {
     match status {
         200 => match parse_release(body) {
             Some(r) => Ok(Some(r)),
-            None => Err("unexpected response from GitHub — try again later".to_string()),
+            None => Err(failure(
+                "bad_response",
+                "unexpected response from GitHub — try again later",
+            )),
         },
         // No releases published yet — a normal, non-error state.
         404 => Ok(None),
-        403 | 429 => Err("GitHub rate limit reached — try again later".to_string()),
-        other => Err(format!(
-            "github.com returned an unexpected status ({other})"
+        403 | 429 => Err(failure(
+            "rate_limited",
+            "GitHub rate limit reached — try again later",
         )),
+        other => Err(failure(
+            "bad_status",
+            format!("github.com returned an unexpected status ({other})"),
+        )
+        .param("status", other)),
     }
+}
+
+/// An [`IpcErrorCode::UpdateCheckFailed`] with a stable `reason` the UI
+/// translates (FR-092); the English text stays the log/CLI detail.
+pub fn failure(reason: &'static str, message: impl Into<String>) -> LocalizedError {
+    LocalizedError::new(IpcErrorCode::UpdateCheckFailed, reason, message)
 }
 
 /// Map the status of the `GET /repos/{owner}/{repo}` probe that disambiguates a
@@ -210,13 +225,13 @@ pub fn interpret_response(status: u16, body: &str) -> Result<Option<ReleaseInfo>
 /// - anything else (including a rate-limited `403`) → inconclusive, treated as
 ///   "the repo exists, it just has no releases yet", so a transient hiccup
 ///   never turns a normal state into an error.
-pub fn interpret_repo_probe(status: u16) -> Result<(), String> {
+pub fn interpret_repo_probe(status: u16) -> Result<(), LocalizedError> {
     if status == 404 {
-        return Err(
+        return Err(failure(
+            "repo_missing",
             "the configured repository was not found on github.com — this build's \
-             repository URL is wrong"
-                .to_string(),
-        );
+             repository URL is wrong",
+        ));
     }
     Ok(())
 }
@@ -246,7 +261,7 @@ fn build_agent() -> ureq::Agent {
 /// A non-2xx status is delivered by ureq as an error carrying the response, so
 /// it is unwrapped here and callers see a single shape; only a transport-level
 /// failure (DNS, connection) is an `Err`.
-fn get_api(agent: &ureq::Agent, url: &str) -> Result<(u16, String), String> {
+fn get_api(agent: &ureq::Agent, url: &str) -> Result<(u16, String), LocalizedError> {
     let user_agent = format!("MaeclyPrint/{}", env!("CARGO_PKG_VERSION"));
     let response = agent
         .get(url)
@@ -258,15 +273,19 @@ fn get_api(agent: &ureq::Agent, url: &str) -> Result<(u16, String), String> {
     match response {
         Ok(resp) => {
             let status = resp.status();
-            let body = resp
-                .into_string()
-                .map_err(|_| "could not read the response from github.com".to_string())?;
+            let body = resp.into_string().map_err(|_| {
+                failure(
+                    "bad_response",
+                    "could not read the response from github.com",
+                )
+            })?;
             Ok((status, body))
         }
         Err(ureq::Error::Status(code, resp)) => Ok((code, resp.into_string().unwrap_or_default())),
-        Err(ureq::Error::Transport(_)) => {
-            Err("could not reach github.com — check your connection".to_string())
-        }
+        Err(ureq::Error::Transport(_)) => Err(failure(
+            "offline",
+            "could not reach github.com — check your connection",
+        )),
     }
 }
 
@@ -281,7 +300,7 @@ fn get_api(agent: &ureq::Agent, url: &str) -> Result<(u16, String), String> {
 /// and for "no such repository". Without it a wrong `repository` slug would
 /// render as a reassuring "You're up to date" forever. The probe only runs on
 /// that one branch, so the happy path is still a single request.
-pub fn fetch_latest(owner: &str, repo: &str) -> Result<Option<ReleaseInfo>, String> {
+pub fn fetch_latest(owner: &str, repo: &str) -> Result<Option<ReleaseInfo>, LocalizedError> {
     let agent = build_agent();
     let (status, body) = get_api(
         &agent,
@@ -600,7 +619,7 @@ pub fn run_startup_check() -> Option<UpdateCheck> {
         || {
             let (owner, repo) =
                 repo_slug().ok_or_else(|| "repository not configured".to_string())?;
-            fetch_latest(&owner, &repo)
+            fetch_latest(&owner, &repo).map_err(|e| e.message)
         },
     )
 }
@@ -740,7 +759,28 @@ mod tests {
 
         // Any other status is an unexpected-status error naming the code.
         let err = interpret_response(500, "").unwrap_err();
-        assert!(err.contains("500"), "message names the status: {err}");
+        assert!(
+            err.message.contains("500"),
+            "message names the status: {err}"
+        );
+    }
+
+    /// FR-092: every update failure carries a stable reason the UI translates,
+    /// so a Spanish UI never shows GitHub's English prose.
+    #[test]
+    fn fr_092_update_failures_carry_stable_reasons() {
+        let reason = |r: Result<Option<ReleaseInfo>, LocalizedError>| r.unwrap_err().reason;
+        assert_eq!(reason(interpret_response(403, "")), "rate_limited");
+        assert_eq!(reason(interpret_response(429, "")), "rate_limited");
+        assert_eq!(reason(interpret_response(200, "nope")), "bad_response");
+        let bad = interpret_response(502, "").unwrap_err();
+        assert_eq!(bad.reason, "bad_status");
+        assert_eq!(bad.params.get("status").map(String::as_str), Some("502"));
+        assert_eq!(bad.code, IpcErrorCode::UpdateCheckFailed);
+        assert_eq!(
+            interpret_repo_probe(404).unwrap_err().reason,
+            "repo_missing"
+        );
     }
 
     #[test]
@@ -748,7 +788,10 @@ mod tests {
         // A 404 on the repository itself means the configured slug is wrong;
         // without this the same 404 would render as "You're up to date".
         let err = interpret_repo_probe(404).unwrap_err();
-        assert!(err.contains("repository"), "message names the cause: {err}");
+        assert!(
+            err.message.contains("repository"),
+            "message names the cause: {err}"
+        );
 
         // Everything else is inconclusive and must not manufacture an error out
         // of a repository that simply has no releases yet.

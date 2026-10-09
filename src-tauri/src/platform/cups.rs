@@ -21,6 +21,7 @@ use anyhow::Context;
 
 use crate::ipc::printers::{DiscoveredPrinter, Printer, PrinterStatus, Supplies, Tray};
 use crate::platform::infer_kind;
+use crate::util::error::{IpcErrorCode, LocalizedError};
 
 /// Run a CLI in the C locale and return its stdout (lossy UTF-8).
 fn lc_run(program: &str, args: &[&str]) -> anyhow::Result<String> {
@@ -231,10 +232,18 @@ fn lpadmin_args(queue: &str, uri: &str, display: &str) -> anyhow::Result<Vec<Str
     let model = match scheme(uri) {
         "ipp" | "ipps" | "dnssd" => "everywhere",
         "socket" | "lpd" => "raw",
-        other => anyhow::bail!(
-            "MaeclyPrint can't add a printer over '{other}'. Add it from your \
-             system's printer settings instead."
-        ),
+        other => {
+            return Err(LocalizedError::new(
+                IpcErrorCode::InvalidRequest,
+                "add_printer_unsupported_scheme",
+                format!(
+                    "MaeclyPrint can't add a printer over '{other}'. Add it from your \
+                     system's printer settings instead."
+                ),
+            )
+            .param("scheme", other)
+            .into())
+        }
     };
     Ok(vec![
         "-p".into(),
@@ -294,9 +303,14 @@ fn run_ippfind(args: &[&str]) -> anyhow::Result<String> {
         .output()
     {
         Ok(out) => out,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => anyhow::bail!(
-            "`ippfind` is not installed — network discovery needs the CUPS client tools"
-        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(LocalizedError::new(
+                IpcErrorCode::DependencyMissing,
+                "ippfind_missing",
+                "`ippfind` is not installed — network discovery needs the CUPS client tools",
+            )
+            .into())
+        }
         Err(e) => anyhow::bail!("failed to run `ippfind`: {e}"),
     };
     classify_ippfind(
@@ -998,6 +1012,18 @@ mod tests {
         assert_eq!(model_of(&lpd), Some("raw"));
         // unknown scheme is rejected
         assert!(lpadmin_args("Q", "usb://HP/Printer", "Disp").is_err());
+    }
+
+    /// FR-092: the unsupported-scheme refusal reaches the UI as a stable
+    /// reason (+ the scheme), so it is translated instead of shown in English.
+    #[test]
+    fn fr_092_unsupported_scheme_is_a_localized_error() {
+        let err = lpadmin_args("Q", "usb://HP/Printer", "Disp").unwrap_err();
+        let ipc = crate::util::error::IpcError::from(err);
+        assert_eq!(ipc.code(), IpcErrorCode::InvalidRequest);
+        assert_eq!(ipc.reason(), Some("add_printer_unsupported_scheme"));
+        let v = serde_json::to_value(&ipc).unwrap();
+        assert_eq!(v["params"]["scheme"], "usb");
     }
 
     /// Real `lpadmin` round-trip. Ignored by default so it never runs in CI;

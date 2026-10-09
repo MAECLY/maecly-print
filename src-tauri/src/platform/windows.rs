@@ -44,6 +44,7 @@ use windows::Win32::Storage::Xps::{
 use crate::ipc::printers::{DiscoveredPrinter, Printer, PrinterStatus, Supplies, Tray};
 use crate::platform::{dnssd, infer_kind};
 use crate::queue::job::PaperSize;
+use crate::util::error::{IpcErrorCode, LocalizedError};
 
 /// `RPC_S_SERVER_UNAVAILABLE`: what every spooler call returns while the Print
 /// Spooler service is stopped.
@@ -272,7 +273,12 @@ pub fn set_os_default(name: &str) -> anyhow::Result<()> {
     if unsafe { SetDefaultPrinterW(PCWSTR(w.as_ptr())) }.as_bool() {
         Ok(())
     } else {
-        anyhow::bail!("SetDefaultPrinter failed");
+        Err(LocalizedError::new(
+            IpcErrorCode::PrintFailed,
+            "set_default_failed",
+            "SetDefaultPrinter failed",
+        )
+        .into())
     }
 }
 
@@ -532,10 +538,16 @@ pub fn add_printer(name: &str, uri: &str) -> anyhow::Result<()> {
         .unwrap_or_default()
         .to_ascii_lowercase();
     if scheme != "ipp" && scheme != "ipps" {
-        anyhow::bail!(
-            "On Windows, printers using {scheme}:// must be added via system settings \
-             (Open printer settings)"
-        );
+        return Err(LocalizedError::new(
+            IpcErrorCode::InvalidRequest,
+            "add_printer_unsupported_scheme",
+            format!(
+                "On Windows, printers using {scheme}:// must be added via system settings \
+                 (Open printer settings)"
+            ),
+        )
+        .param("scheme", &scheme)
+        .into());
     }
 
     let url = ipp_class_driver_url(uri)?;
@@ -550,10 +562,15 @@ pub fn add_printer(name: &str, uri: &str) -> anyhow::Result<()> {
     match run_powershell(&script)? {
         PsOutcome::Ok => Ok(()),
         PsOutcome::Failed { code, message } => match code {
-            PS_EXIT_ACCESS_DENIED => anyhow::bail!(
+            // Elevation problems can't be retried away, so the guidance is
+            // localized (FR-092) rather than left as the spooler's text.
+            PS_EXIT_ACCESS_DENIED => Err(LocalizedError::new(
+                IpcErrorCode::PrintFailed,
+                "add_printer_needs_admin",
                 "Adding a printer may require administrator rights. Use \"Open printer \
-                 settings\" to add it from Windows."
-            ),
+                 settings\" to add it from Windows.",
+            )
+            .into()),
             PS_EXIT_NO_IPPURL => anyhow::bail!(
                 "This version of Windows cannot add an IPP printer from MaeclyPrint \
                  (Add-Printer has no -IppURL). Use \"Open printer settings\" to add it from \

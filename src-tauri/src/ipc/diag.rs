@@ -14,7 +14,10 @@ use specta::Type;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::engine::deps::{self, DependencyReport};
-use crate::util::{error::IpcError, paths};
+use crate::util::{
+    error::{IpcError, IpcErrorCode},
+    paths,
+};
 
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct AppInfo {
@@ -81,7 +84,13 @@ pub fn open_logs_folder(app: tauri::AppHandle) -> Result<(), IpcError> {
     paths::ensure_dir(&dir)?;
     app.opener()
         .open_path(dir.to_string_lossy().into_owned(), None::<&str>)
-        .map_err(|e| IpcError::Internal(format!("could not open the logs folder: {e}")))
+        .map_err(|e| {
+            IpcError::localized(
+                IpcErrorCode::Internal,
+                "open_logs_failed",
+                format!("could not open the logs folder: {e}"),
+            )
+        })
 }
 
 /// Open a prefilled "new issue" page on the project's GitHub, seeding the body
@@ -97,9 +106,13 @@ pub fn report_issue(app: tauri::AppHandle, text: String) -> Result<(), IpcError>
         std::env::consts::ARCH,
         &text,
     );
-    app.opener()
-        .open_url(url, None::<&str>)
-        .map_err(|e| IpcError::Internal(format!("could not open the issue page: {e}")))
+    app.opener().open_url(url, None::<&str>).map_err(|e| {
+        IpcError::localized(
+            IpcErrorCode::Internal,
+            "open_link_failed",
+            format!("could not open the issue page: {e}"),
+        )
+    })
 }
 
 /// Open an external link in the default browser, restricted to an allow-list of
@@ -109,13 +122,19 @@ pub fn report_issue(app: tauri::AppHandle, text: String) -> Result<(), IpcError>
 #[specta::specta]
 pub fn open_external(app: tauri::AppHandle, url: String) -> Result<(), IpcError> {
     if !allowed_external(&url) {
-        return Err(IpcError::InvalidRequest(format!(
-            "refusing to open a non-allowlisted URL: {url}"
-        )));
+        return Err(IpcError::localized(
+            IpcErrorCode::InvalidRequest,
+            "url_not_allowed",
+            format!("refusing to open a non-allowlisted URL: {url}"),
+        ));
     }
-    app.opener()
-        .open_url(url, None::<&str>)
-        .map_err(|e| IpcError::Internal(format!("could not open the link: {e}")))
+    app.opener().open_url(url, None::<&str>).map_err(|e| {
+        IpcError::localized(
+            IpcErrorCode::Internal,
+            "open_link_failed",
+            format!("could not open the link: {e}"),
+        )
+    })
 }
 
 /// An error raised in the webview, forwarded so it lands in the log file the

@@ -31,6 +31,16 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub(crate) const CONFIG_CORRUPT_MSG: &str =
     "config.toml could not be parsed — fix or remove it; your settings were not modified";
 
+/// The [`CONFIG_CORRUPT_MSG`] refusal as a localizable IPC error (FR-092): the
+/// UI translates the stable `config_corrupt` reason.
+pub(crate) fn config_corrupt_error() -> crate::util::error::IpcError {
+    crate::util::error::IpcError::localized(
+        crate::util::error::IpcErrorCode::Internal,
+        "config_corrupt",
+        CONFIG_CORRUPT_MSG,
+    )
+}
+
 /// Serializes every read-modify-write of `config.toml`. Any command that mutates
 /// the file — [`crate::ipc::printers::set_printer_prefs`],
 /// [`crate::ipc::settings::set_app_settings`],

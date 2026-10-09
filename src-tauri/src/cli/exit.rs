@@ -13,7 +13,7 @@
 //! [`IpcError::PrintFailed`] but is really a printer problem — overrides it
 //! with [`CliError::new`].
 
-use crate::util::error::IpcError;
+use crate::util::error::{IpcError, IpcErrorCode};
 
 /// Every exit code the binary can return. Values are frozen public surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -78,20 +78,22 @@ impl ExitCode {
 /// [`IpcError::JobNotFound`] / [`IpcError::InvalidState`] have no dedicated
 /// code in the documented table and fall back to [`ExitCode::Generic`].
 pub fn exit_code_for(err: &IpcError) -> ExitCode {
-    match err {
-        IpcError::FileNotFound(_) => ExitCode::FileNotFound,
-        IpcError::InvalidRequest(_) => ExitCode::Usage,
-        IpcError::UnsupportedFormat(_) => ExitCode::UnsupportedFile,
-        IpcError::ConversionFailed(_) => ExitCode::ConversionFailed,
-        IpcError::PrintFailed(_) => ExitCode::PrintFailed,
-        IpcError::UnsupportedSetting(_) => ExitCode::Printer,
-        IpcError::DependencyMissing(_) => ExitCode::Config,
-        IpcError::ProfileNotFound(_) => ExitCode::Profile,
-        IpcError::UpdateCheckFailed(_) => ExitCode::UpdateCheckFailed,
-        IpcError::UpdateInstallFailed(_) | IpcError::UpdateSignatureInvalid(_) => {
+    // Keyed on the stable family code, so a localized error (same family,
+    // extra `reason`) exits exactly like its plain counterpart.
+    match err.code() {
+        IpcErrorCode::FileNotFound => ExitCode::FileNotFound,
+        IpcErrorCode::InvalidRequest => ExitCode::Usage,
+        IpcErrorCode::UnsupportedFormat => ExitCode::UnsupportedFile,
+        IpcErrorCode::ConversionFailed => ExitCode::ConversionFailed,
+        IpcErrorCode::PrintFailed => ExitCode::PrintFailed,
+        IpcErrorCode::UnsupportedSetting => ExitCode::Printer,
+        IpcErrorCode::DependencyMissing => ExitCode::Config,
+        IpcErrorCode::ProfileNotFound => ExitCode::Profile,
+        IpcErrorCode::UpdateCheckFailed => ExitCode::UpdateCheckFailed,
+        IpcErrorCode::UpdateInstallFailed | IpcErrorCode::UpdateSignatureInvalid => {
             ExitCode::UpdateInstallFailed
         }
-        IpcError::JobNotFound(_) | IpcError::InvalidState(_) | IpcError::Internal(_) => {
+        IpcErrorCode::JobNotFound | IpcErrorCode::InvalidState | IpcErrorCode::Internal => {
             ExitCode::Generic
         }
     }

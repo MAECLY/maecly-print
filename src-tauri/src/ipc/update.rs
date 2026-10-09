@@ -52,15 +52,19 @@ pub struct UpdateAvailable(pub UpdateCheck);
 #[specta::specta]
 pub async fn check_for_updates() -> Result<UpdateCheck, IpcError> {
     super::run_blocking(|| {
-        let (owner, repo) = update::repo_slug()
-            .ok_or_else(|| IpcError::UpdateCheckFailed("repository not configured".to_string()))?;
+        let (owner, repo) = update::repo_slug().ok_or_else(|| {
+            IpcError::from(update::failure(
+                "not_configured",
+                "repository not configured",
+            ))
+        })?;
 
         // The configured channel is read but does not change the endpoint yet:
         // every check hits the single `releases/latest` feed because separate
         // beta/nightly feeds don't exist in this version.
         let _channel = crate::settings::Config::load_or_default().updater.channel;
 
-        let release = update::fetch_latest(&owner, &repo).map_err(IpcError::UpdateCheckFailed)?;
+        let release = update::fetch_latest(&owner, &repo).map_err(IpcError::from)?;
         let check = update::evaluate(
             env!("CARGO_PKG_VERSION"),
             release,

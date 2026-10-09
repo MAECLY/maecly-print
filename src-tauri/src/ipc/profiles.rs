@@ -13,11 +13,11 @@
 use std::path::Path;
 
 use crate::profiles::{
-    self, effective_default_id, is_builtin_id, DeleteError, MutationLoadError, Profile,
-    ProfilesFile, UpsertError, PROFILES_LOCK,
+    self, effective_default_id, is_builtin_id, DeleteError, ImportError, MutationLoadError,
+    Profile, ProfileInvalid, ProfilesFile, UpsertError, PROFILES_LOCK,
 };
-use crate::settings::{Config, CONFIG_CORRUPT_MSG, CONFIG_LOCK};
-use crate::util::error::IpcError;
+use crate::settings::{Config, CONFIG_LOCK};
+use crate::util::error::{IpcError, IpcErrorCode};
 
 // Each `#[tauri::command]` below is a thin transport wrapper that resolves the
 // real config-dir paths and defers to a path-injected `*_at` core. The cores are
@@ -106,18 +106,7 @@ pub fn save_profile_at(
     let _guard = PROFILES_LOCK.lock().unwrap();
     let mut file = load_for_mutation(profiles_path)?;
 
-    let mut normalized = profiles::upsert(&mut file, profile).map_err(|e| match e {
-        UpsertError::Builtin => {
-            IpcError::InvalidRequest("built-in profiles cannot be modified".to_string())
-        }
-        UpsertError::ReservedId => IpcError::InvalidRequest(
-            "profile ids starting with 'builtin-' are reserved".to_string(),
-        ),
-        UpsertError::IdTooLong => {
-            IpcError::InvalidRequest("profile id must be 100 characters or fewer".to_string())
-        }
-        UpsertError::Invalid(msg) => IpcError::InvalidRequest(msg),
-    })?;
+    let mut normalized = profiles::upsert(&mut file, profile).map_err(upsert_error)?;
 
     profiles::save(profiles_path, &file)?;
 
@@ -150,8 +139,9 @@ pub fn delete_profile_at(
     // Reject built-ins before touching the file, so the attempt never even
     // reads (or risks a corrupt-file error masking) the real reason.
     if is_builtin_id(&id) {
-        return Err(IpcError::InvalidRequest(
-            "built-in profiles cannot be deleted".to_string(),
+        return Err(invalid(
+            "builtin_delete",
+            "built-in profiles cannot be deleted",
         ));
     }
 
@@ -161,12 +151,8 @@ pub fn delete_profile_at(
 
     profiles::delete(&mut file, &id, &default_id).map_err(|e| match e {
         DeleteError::NotFound => IpcError::ProfileNotFound(id.clone()),
-        DeleteError::IsDefault => {
-            IpcError::InvalidRequest("set another profile as default first".to_string())
-        }
-        DeleteError::Builtin => {
-            IpcError::InvalidRequest("built-in profiles cannot be deleted".to_string())
-        }
+        DeleteError::IsDefault => invalid("delete_default", "set another profile as default first"),
+        DeleteError::Builtin => invalid("builtin_delete", "built-in profiles cannot be deleted"),
     })?;
 
     profiles::save(profiles_path, &file)?;
@@ -287,15 +273,14 @@ pub fn import_profiles_at(
 ) -> Result<Vec<Profile>, IpcError> {
     // Parse and structurally validate before taking the lock: a bad file must
     // cost the user nothing but an error message.
-    let doc = profiles::read_document(src).map_err(|e| IpcError::InvalidRequest(e.to_string()))?;
+    let doc = profiles::read_document(src).map_err(import_error)?;
 
     let _guard = PROFILES_LOCK.lock().unwrap();
     let mut file = load_for_mutation(profiles_path)?;
 
     // `merge_imported` mutates `file` in place, so an error must return before
     // `save` — the on-disk file is only ever written after every entry passed.
-    let imported = profiles::merge_imported(&mut file, &doc.profile)
-        .map_err(|e| IpcError::InvalidRequest(e.to_string()))?;
+    let imported = profiles::merge_imported(&mut file, &doc.profile).map_err(import_error)?;
     profiles::save(profiles_path, &file)?;
 
     let default_id = current_default_id(config_path, &file);
@@ -314,12 +299,63 @@ pub fn import_profiles_at(
 /// hold [`CONFIG_LOCK`]. Uses [`Config::load_strict`] so a corrupt config is
 /// refused rather than silently rewritten as defaults + this one field.
 fn persist_default(config_path: &Path, id: &str) -> Result<(), IpcError> {
-    let mut cfg = Config::load_strict(config_path)
-        .map_err(|_| IpcError::Internal(CONFIG_CORRUPT_MSG.to_string()))?;
+    let mut cfg =
+        Config::load_strict(config_path).map_err(|_| crate::settings::config_corrupt_error())?;
     cfg.engine.default_profile = Some(id.to_string());
     cfg.save_to(config_path)?;
     tracing::info!(event = "default_profile_set", profile_id = %id);
     Ok(())
+}
+
+/// An `InvalidRequest` with a stable reason the UI translates (FR-092).
+fn invalid(reason: &'static str, message: impl Into<String>) -> IpcError {
+    IpcError::localized(IpcErrorCode::InvalidRequest, reason, message)
+}
+
+/// Map a rejected upsert to a localizable error. The English `Display` stays
+/// the detail; `reason` (+ params) is what the UI renders.
+fn upsert_error(e: UpsertError) -> IpcError {
+    match e {
+        UpsertError::Builtin => invalid("builtin_readonly", "built-in profiles cannot be modified"),
+        UpsertError::ReservedId => invalid(
+            "reserved_id",
+            "profile ids starting with 'builtin-' are reserved",
+        ),
+        UpsertError::IdTooLong => {
+            invalid("id_too_long", "profile id must be 100 characters or fewer")
+        }
+        UpsertError::Invalid(why) => profile_invalid(&why),
+    }
+}
+
+fn profile_invalid(why: &ProfileInvalid) -> IpcError {
+    let message = why.to_string();
+    match why {
+        ProfileInvalid::NameEmpty => invalid("name_empty", message),
+        ProfileInvalid::NameTooLong => invalid("name_too_long", message),
+        ProfileInvalid::NameTaken(name) => invalid("name_taken", message).with_param("name", name),
+        ProfileInvalid::Copies(n) => {
+            invalid("copies_out_of_range", message).with_param("copies", n)
+        }
+        ProfileInvalid::PageRange(_) => invalid("page_range", message),
+    }
+}
+
+/// Map a rejected import to a localizable error.
+fn import_error(e: ImportError) -> IpcError {
+    let message = e.to_string();
+    match e {
+        ImportError::TooLarge => invalid("import_too_large", message),
+        ImportError::Unreadable(_) => invalid("import_unreadable", message),
+        ImportError::Malformed(_) => invalid("import_malformed", message),
+        ImportError::UnsupportedVersion(v) => {
+            invalid("import_unsupported_version", message).with_param("version", v)
+        }
+        ImportError::Empty => invalid("import_empty", message),
+        ImportError::InvalidProfile { name, .. } => {
+            invalid("import_invalid_profile", message).with_param("name", name)
+        }
+    }
 }
 
 /// Load `profiles.toml` for a read-only command: a corrupt file degrades to
@@ -343,12 +379,15 @@ fn load_for_read(path: &Path) -> ProfilesFile {
 /// overwrite (and lose) data we could not safely round-trip.
 fn load_for_mutation(path: &Path) -> Result<ProfilesFile, IpcError> {
     profiles::load_for_mutation(path).map_err(|e| match e {
-        MutationLoadError::Unreadable(_) => IpcError::Internal(
-            "profiles.toml could not be parsed — fix or remove it".to_string(),
+        MutationLoadError::Unreadable(_) => IpcError::localized(
+            IpcErrorCode::Internal,
+            "profiles_corrupt",
+            "profiles.toml could not be parsed — fix or remove it",
         ),
-        MutationLoadError::InvalidEntries => IpcError::Internal(
-            "profiles.toml contains duplicate or invalid entries — fix or remove it; nothing was modified"
-                .to_string(),
+        MutationLoadError::InvalidEntries => IpcError::localized(
+            IpcErrorCode::Internal,
+            "profiles_invalid_entries",
+            "profiles.toml contains duplicate or invalid entries — fix or remove it; nothing was modified",
         ),
     })
 }
@@ -525,15 +564,38 @@ mod tests {
         std::fs::write(&bad, b"<<<not a profile document>>>").unwrap();
 
         let err = import_profiles_at(&env.profiles, &env.config, &bad).unwrap_err();
-        assert!(
-            matches!(err, IpcError::InvalidRequest(_)),
+        assert_eq!(
+            err.code(),
+            IpcErrorCode::InvalidRequest,
             "unexpected error: {err:?}"
         );
+        // FR-092: a stable reason the UI translates, not just English prose.
+        assert_eq!(err.reason(), Some("import_malformed"));
         assert_eq!(
             std::fs::read(&env.profiles).unwrap(),
             before,
             "nothing was written"
         );
+    }
+
+    /// FR-092: upsert/delete refusals carry stable reasons (+ params) so the
+    /// Spanish UI never shows the backend's English sentence.
+    #[test]
+    fn fr_092_profile_refusals_carry_stable_reasons() {
+        let env = env();
+        write_customs(&env, vec![stored("c-1", "Press A")]);
+
+        let mut dup = stored("", "press a").to_profile(false, false);
+        dup.id = String::new();
+        let err = save_profile_at(&env.profiles, &env.config, dup).unwrap_err();
+        assert_eq!(err.code(), IpcErrorCode::InvalidRequest);
+        assert_eq!(err.reason(), Some("name_taken"));
+        let v = serde_json::to_value(&err).unwrap();
+        assert_eq!(v["params"]["name"], "press a");
+
+        let err =
+            delete_profile_at(&env.profiles, &env.config, "builtin-quick".into()).unwrap_err();
+        assert_eq!(err.reason(), Some("builtin_delete"));
     }
 
     #[test]
@@ -551,10 +613,9 @@ mod tests {
         let src = env.profiles.with_file_name("bundle.toml");
         std::fs::write(&src, toml::to_string_pretty(&doc).unwrap()).unwrap();
 
-        assert!(matches!(
-            import_profiles_at(&env.profiles, &env.config, &src),
-            Err(IpcError::InvalidRequest(_))
-        ));
+        let err = import_profiles_at(&env.profiles, &env.config, &src).unwrap_err();
+        assert_eq!(err.code(), IpcErrorCode::InvalidRequest);
+        assert_eq!(err.reason(), Some("import_invalid_profile"));
         assert_eq!(
             std::fs::read(&env.profiles).unwrap(),
             before,
@@ -610,10 +671,9 @@ mod tests {
         )
         .unwrap();
 
-        assert!(matches!(
-            import_profiles_at(&env.profiles, &env.config, &src),
-            Err(IpcError::Internal(_))
-        ));
+        let err = import_profiles_at(&env.profiles, &env.config, &src).unwrap_err();
+        assert_eq!(err.code(), IpcErrorCode::Internal);
+        assert_eq!(err.reason(), Some("profiles_corrupt"));
         assert_eq!(std::fs::read(&env.profiles).unwrap(), before);
     }
 }

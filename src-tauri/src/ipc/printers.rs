@@ -156,13 +156,13 @@ pub fn set_printer_prefs_at(
     config_path: &Path,
     prefs: crate::settings::PrinterPrefs,
 ) -> Result<crate::settings::PrinterPrefs, IpcError> {
-    use crate::settings::{Config, CONFIG_CORRUPT_MSG, CONFIG_LOCK};
+    use crate::settings::{Config, CONFIG_LOCK};
 
     // Serialize the whole load-mutate-save against other config writers so a
     // concurrent settings/profile write can't clobber the printers section.
     let _guard = CONFIG_LOCK.lock().unwrap();
-    let mut cfg = Config::load_strict(config_path)
-        .map_err(|_| IpcError::Internal(CONFIG_CORRUPT_MSG.to_string()))?;
+    let mut cfg =
+        Config::load_strict(config_path).map_err(|_| crate::settings::config_corrupt_error())?;
     cfg.printers = prefs;
     cfg.save_to(config_path)?;
     Ok(cfg.printers)
