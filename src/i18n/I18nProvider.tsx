@@ -19,6 +19,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   type ReactNode,
 } from 'react';
 
@@ -75,18 +76,36 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const settings = useSettingsStore((s) => s.settings);
   const patch = useSettingsStore((s) => s.patch);
   const configured = settings?.app.locale;
+  const configUnreadable = settings?.meta?.config_unreadable ?? false;
+  /** True while the first-run write is in flight: its optimistic value and a
+   *  rollback both re-run the effect, and neither may settle the flag early. */
+  const detecting = useRef(false);
 
   // First run: the config still carries the backend default, so prefer what the
   // OS says and write it back once (so Settings shows the real value, and the
-  // choice survives even if the OS language later changes).
+  // choice survives even if the OS language later changes). The "done" flag is
+  // only set once the outcome is on disk: a refused write (locked or unreadable
+  // config) leaves detection to run again on the next launch instead of pinning
+  // the app to English for good.
   useEffect(() => {
-    if (!configured || readDetectedFlag()) return;
-    writeDetectedFlag();
+    if (!configured || detecting.current || readDetectedFlag()) return;
+    // An unreadable config.toml refuses every write (FR-101), and the values on
+    // show are defaults rather than the user's, so there is nothing to detect
+    // against yet.
+    if (configUnreadable) return;
     const system = detectSystemLocale();
-    if (configured === DEFAULT_LOCALE && system !== DEFAULT_LOCALE) {
-      void patch({ app: { locale: system } });
+    if (configured !== DEFAULT_LOCALE || system === DEFAULT_LOCALE) {
+      // Either the user already has a language, or the OS agrees with the
+      // default: nothing to write, so detection is settled.
+      writeDetectedFlag();
+      return;
     }
-  }, [configured, patch]);
+    detecting.current = true;
+    void patch({ app: { locale: system } }).then((saved) => {
+      detecting.current = false;
+      if (saved) writeDetectedFlag();
+    });
+  }, [configured, configUnreadable, patch]);
 
   // Until the config is loaded (and outside the desktop app, where it never
   // loads) the OS language is the best guess — better than flashing English.

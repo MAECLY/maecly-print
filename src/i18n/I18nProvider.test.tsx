@@ -101,6 +101,90 @@ describe('I18nProvider', () => {
     );
   });
 
+  it('FR-093: a refused first-run write leaves detection to run again', async () => {
+    const patch = vi.fn(async () => false);
+    setBrowserLanguage('es-ES');
+    useSettingsStore.setState({ patch });
+    loaded('en-US');
+    render(
+      <I18nProvider>
+        <Probe />
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(
+      window.localStorage.getItem('maeclyprint:locale-detected'),
+    ).toBeNull();
+  });
+
+  it('FR-093: a saved first-run write marks detection as done', async () => {
+    const patch = vi.fn(async () => true);
+    setBrowserLanguage('es-ES');
+    useSettingsStore.setState({ patch });
+    loaded('en-US');
+    render(
+      <I18nProvider>
+        <Probe />
+      </I18nProvider>,
+    );
+    await waitFor(() =>
+      expect(window.localStorage.getItem('maeclyprint:locale-detected')).toBe(
+        '1',
+      ),
+    );
+  });
+
+  it('FR-093: no detection write while config.toml is unreadable', async () => {
+    const patch = vi.fn(async () => true);
+    setBrowserLanguage('es-ES');
+    useSettingsStore.setState({
+      patch,
+      status: 'ready',
+      settings: {
+        ...fixtureAppSettings,
+        meta: {
+          config_unreadable: true,
+          config_path: '/tmp/config.toml',
+          limits: {
+            max_concurrent_conversions: {
+              min: 1,
+              max: 8,
+              default: 2,
+              zero: 'clamp',
+            },
+            conversion_timeout_seconds: {
+              min: 10,
+              max: 3600,
+              default: 60,
+              zero: 'disables',
+            },
+            max_file_size_mb: {
+              min: 1,
+              max: 4096,
+              default: 200,
+              zero: 'default',
+            },
+          },
+        },
+      },
+    });
+    render(
+      <I18nProvider>
+        <Probe />
+      </I18nProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(patch).not.toHaveBeenCalled();
+    expect(
+      window.localStorage.getItem('maeclyprint:locale-detected'),
+    ).toBeNull();
+  });
+
   it('FR-094: a stored locale is never overwritten by the OS language', async () => {
     const patch = vi.fn(async () => true);
     setBrowserLanguage('es-ES');
