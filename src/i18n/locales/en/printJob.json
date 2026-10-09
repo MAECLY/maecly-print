@@ -24,7 +24,10 @@
     "moveDown": "Move {{name}} down",
     "remove": "Remove {{name}}",
     "image": "image",
-    "pagesUnknown": "pages unknown"
+    "pagesUnknown": "pages unknown",
+    "reorderKeysMac": "⌥ ↑↓",
+    "reorderKeysSpoken": "Alt + Up or Down arrow",
+    "reorderKeysSpokenMac": "Option + Up or Down arrow"
   },
   "empty": {
     "desktop": "No files yet. Drag files or folders from Explorer or Finder, or use Add files.",

@@ -13,6 +13,7 @@ import {
 } from '@/components/ui';
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   useSyncExternalStore,
@@ -46,6 +47,7 @@ import {
 // Straight from the generated bindings: `lib/ipc` re-exports the wire types the
 // other screens use, and this one is not on that list yet.
 import type { DependencyReport } from '@/ipc/bindings';
+import { isMacPlatform } from '@/components/AppShell/MPAppShell';
 import { useT } from '@/i18n/I18nProvider';
 import { useProfilesStore } from '@/stores/profilesStore';
 import {
@@ -105,6 +107,8 @@ export function PrintJobScreen({
   onPrint,
 }: PrintJobScreenProps) {
   const t = useT('printJob');
+  // macOS labels the modifier Option (⌥), everywhere else it is Alt.
+  const mac = isMacPlatform();
   const tCommon = useT('common');
 
   // The copies draft lives with the caller when it passes one (App does);
@@ -322,6 +326,8 @@ export function PrintJobScreen({
   // otherwise — derived, never a stale copy taken at mount.
   const copiesText = copiesDraft ?? String(merged.copies);
   const copiesError = !isValidCopies(copiesText);
+  const copiesErrorId = useId();
+  const rangeHintId = useId();
 
   // The page range is DERIVED, never buffered: what the field shows has to be
   // exactly what `toJobSettings` sends (FR-041 wants the profile's value
@@ -402,20 +408,39 @@ export function PrintJobScreen({
       copiesDraft,
     ) === null;
 
-  const remove = (id: string) => setFiles(files.filter((f) => f.id !== id));
+  // NFR-041: keyboard focus must survive list edits. A moved row's DOM node
+  // can be re-inserted (which blurs it), and a removed row takes its focused
+  // button with it, so after each edit we put focus back explicitly.
+  const listRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const focusAfterEdit = useRef<string | null>(null);
+  useEffect(() => {
+    const target = focusAfterEdit.current;
+    if (target === null) return;
+    focusAfterEdit.current = null;
+    (rowRefs.current.get(target) ?? listRef.current)?.focus();
+  }, [files]);
+
+  const remove = (id: string) => {
+    const i = files.findIndex((f) => f.id === id);
+    // Focus the row that takes its place, else the one before, else the list.
+    focusAfterEdit.current = files[i + 1]?.id ?? files[i - 1]?.id ?? '';
+    setFiles(files.filter((f) => f.id !== id));
+  };
   const move = (id: string, dir: -1 | 1) => {
     const i = files.findIndex((f) => f.id === id);
     const j = i + dir;
     if (i < 0 || j < 0 || j >= files.length) return;
     const next = files.slice();
     [next[i], next[j]] = [next[j]!, next[i]!];
+    focusAfterEdit.current = id;
     setFiles(next);
   };
 
   /**
    * Keyboard reordering for a focused row. Alt is the modifier because the bare
-   * arrows belong to the scroll container, and React keeps the same DOM node
-   * for a moved key — so focus follows the row without being re-applied.
+   * arrows belong to the scroll container; focus is put back on the moved row
+   * after the reorder (see `focusAfterEdit`).
    */
   const onRowKeyDown = (e: KeyboardEvent<HTMLDivElement>, id: string) => {
     if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
@@ -601,14 +626,28 @@ export function PrintJobScreen({
                 alignItems: 'center',
               }}
             >
-              <MPKbd>{t('list.reorderKeys')}</MPKbd>
+              <MPKbd
+                aria-label={
+                  mac
+                    ? t('list.reorderKeysSpokenMac')
+                    : t('list.reorderKeysSpoken')
+                }
+              >
+                {mac ? t('list.reorderKeysMac') : t('list.reorderKeys')}
+              </MPKbd>
               <span style={{ fontSize: 10.5, color: 'var(--mp-textDim)' }}>
                 {t('list.reorderHint')}
               </span>
             </div>
           </div>
           <MPCard padding={0}>
-            <div role="list" aria-label={t('list.label')}>
+            <div
+              ref={listRef}
+              role="list"
+              aria-label={t('list.label')}
+              tabIndex={-1}
+              style={{ outline: 'none' }}
+            >
               {files.map((f, i) => (
                 // A focusable list item carrying its own arrow-key handler is
                 // the standard reorderable-list pattern: the row is the thing
@@ -617,6 +656,10 @@ export function PrintJobScreen({
                 /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */
                 <div
                   key={f.id}
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(f.id, el);
+                    else rowRefs.current.delete(f.id);
+                  }}
                   role="listitem"
                   // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
                   tabIndex={0}
@@ -686,12 +729,14 @@ export function PrintJobScreen({
                     icon="chevu"
                     size={22}
                     label={t('list.moveUp', { name: `${f.name}.${f.ext}` })}
+                    disabled={i === 0}
                     onClick={() => move(f.id, -1)}
                   />
                   <MPIconButton
                     icon="chevd"
                     size={22}
                     label={t('list.moveDown', { name: `${f.name}.${f.ext}` })}
+                    disabled={i === files.length - 1}
                     onClick={() => move(f.id, 1)}
                   />
                   <MPIconButton
@@ -757,6 +802,7 @@ export function PrintJobScreen({
 
           <MPSectionLabel>{t('settings.sides')}</MPSectionLabel>
           <MPSegmented
+            aria-label={t('settings.sides')}
             value={merged.duplex}
             onChange={(v) => setOverrides({ ...overrides, duplex: v })}
             options={[
@@ -769,6 +815,7 @@ export function PrintJobScreen({
 
           <MPSectionLabel>{t('settings.color')}</MPSectionLabel>
           <MPSegmented
+            aria-label={t('settings.color')}
             value={merged.color}
             onChange={(v) => setOverrides({ ...overrides, color: v })}
             options={[
@@ -782,6 +829,8 @@ export function PrintJobScreen({
           <MPInput
             fullWidth
             mono
+            aria-label={t('settings.copies')}
+            {...(copiesError ? { 'aria-describedby': copiesErrorId } : {})}
             value={copiesText}
             onChange={(e) => {
               const raw = e.target.value;
@@ -802,6 +851,7 @@ export function PrintJobScreen({
           />
           {copiesError && (
             <div
+              id={copiesErrorId}
               role="alert"
               style={{
                 fontSize: 11,
@@ -873,6 +923,7 @@ export function PrintJobScreen({
 
           <MPSectionLabel>{t('settings.scaling')}</MPSectionLabel>
           <MPSegmented
+            aria-label={t('settings.scaling')}
             value={merged.scaling}
             onChange={(v) => setOverrides({ ...overrides, scaling: v })}
             options={[
@@ -888,6 +939,8 @@ export function PrintJobScreen({
             fullWidth
             mono
             placeholder={t('pageRange.placeholder')}
+            aria-label={t('settings.pageRange')}
+            aria-describedby={rangeHintId}
             value={rangeText}
             onChange={(e) =>
               setOverrides({ ...overrides, range: e.target.value })
@@ -895,6 +948,7 @@ export function PrintJobScreen({
             error={rangeError}
           />
           <div
+            id={rangeHintId}
             {...(rangeError ? { role: 'alert' as const } : {})}
             style={{
               fontSize: 11,

@@ -24,7 +24,10 @@
     "moveDown": "Bajar {{name}}",
     "remove": "Quitar {{name}}",
     "image": "imagen",
-    "pagesUnknown": "páginas desconocidas"
+    "pagesUnknown": "páginas desconocidas",
+    "reorderKeysMac": "⌥ ↑↓",
+    "reorderKeysSpoken": "Alt + flecha arriba o abajo",
+    "reorderKeysSpokenMac": "Opción + flecha arriba o abajo"
   },
   "empty": {
     "desktop": "Aún no hay archivos. Arrastra archivos o carpetas desde el Explorador o el Finder, o usa Añadir archivos.",

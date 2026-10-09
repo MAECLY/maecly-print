@@ -885,6 +885,69 @@ describe('PrintJobScreen', () => {
     const rows = screen.getAllByRole('listitem');
     expect(rows[0]).toHaveTextContent('a.pdf');
     expect(rows[1]).toHaveTextContent('b.pdf');
+    // NFR-041: and those two no-op buttons say so instead of being announced
+    // as working actions.
+    expect(
+      screen.getByRole('button', { name: 'Move a.pdf up' }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Move b.pdf down' }),
+    ).toBeDisabled();
+  });
+
+  it('NFR-041: keeps focus on a row moved down with Alt + arrow, step after step', async () => {
+    mockJob();
+    render(
+      <Harness
+        initial={[
+          uiFile('/docs/a.pdf'),
+          uiFile('/docs/b.pdf'),
+          uiFile('/docs/c.pdf'),
+        ]}
+      />,
+    );
+    const first = screen.getAllByRole('listitem')[0]!;
+    first.focus();
+    fireEvent.keyDown(first, { key: 'ArrowDown', altKey: true });
+    await waitFor(() =>
+      expect(document.activeElement).toHaveTextContent('a.pdf'),
+    );
+    fireEvent.keyDown(document.activeElement!, {
+      key: 'ArrowDown',
+      altKey: true,
+    });
+    await waitFor(() =>
+      expect(screen.getAllByRole('listitem')[2]).toHaveTextContent('a.pdf'),
+    );
+    expect(document.activeElement).toHaveTextContent('a.pdf');
+  });
+
+  it('NFR-041: removing a file moves focus to the next row, not to <body>', async () => {
+    mockJob();
+    render(
+      <Harness initial={[uiFile('/docs/a.pdf'), uiFile('/docs/b.pdf')]} />,
+    );
+    const removeA = screen.getByRole('button', { name: 'Remove a.pdf' });
+    removeA.focus();
+    fireEvent.click(removeA);
+    await waitFor(() =>
+      expect(document.activeElement).toHaveTextContent('b.pdf'),
+    );
+    expect(document.activeElement).toHaveAttribute('role', 'listitem');
+  });
+
+  it('NFR-043: names the copies and page-range fields and the option groups', () => {
+    mockJob();
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
+    expect(
+      screen.getByRole('spinbutton', { name: 'Copies' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('textbox', { name: 'Page range' }),
+    ).toHaveAccessibleDescription();
+    for (const name of ['Sides', 'Color', 'Scaling']) {
+      expect(screen.getByRole('radiogroup', { name })).toBeInTheDocument();
+    }
   });
 
   it('removes a file from the batch', async () => {
