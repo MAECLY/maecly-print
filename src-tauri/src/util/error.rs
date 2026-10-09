@@ -63,6 +63,18 @@ pub enum IpcError {
     #[error("Update check failed: {0}")]
     UpdateCheckFailed(String),
 
+    /// Downloading or installing an update failed (network, disk, installer,
+    /// or a copy of the app that cannot update itself). The message is
+    /// user-facing.
+    #[error("Update install failed: {0}")]
+    UpdateInstallFailed(String),
+
+    /// FR-082: the downloaded update did not carry a valid signature from the
+    /// release key, so it was rejected and **nothing was installed**. Its own
+    /// code so the UI can say exactly that.
+    #[error("Update signature invalid: {0}")]
+    UpdateSignatureInvalid(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }

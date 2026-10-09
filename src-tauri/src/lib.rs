@@ -111,6 +111,10 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
         // FR-072: native notifications. Driven Rust-side only
         // (`ipc::notify::notify_native`), so no JS capability is granted.
         .plugin(tauri_plugin_notification::init())
+        // FR-082/083: signed updates. Rust-side only (`update::install`); the
+        // public key and default endpoint come from `plugins.updater` in
+        // tauri.conf.json.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
@@ -182,8 +186,33 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .run(context())
         .expect("error while running tauri application");
+}
+
+/// The compiled-in app context (config, assets, icons). One function so the
+/// frontend assets are embedded once, however many builders use them.
+fn context() -> tauri::Context<tauri::Wry> {
+    tauri::generate_context!()
+}
+
+/// A windowless Tauri app with only the updater plugin, for the headless
+/// `update install` command: the updater needs an `AppHandle` (package info,
+/// plugin config) but a CLI run must never open the main window.
+///
+/// Must be called on the main thread (the event loop is created here even
+/// though it is never run), which is where `cli::startup` runs.
+pub fn headless_updater_app() -> tauri::Result<tauri::App<tauri::Wry>> {
+    let mut ctx = context();
+    ctx.config_mut().app.windows.clear();
+    #[allow(unused_mut)]
+    let mut app = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .build(ctx)?;
+    // No Dock icon for a command-line run.
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    Ok(app)
 }
 
 /// The single source of truth for the IPC command surface. Used by both the
@@ -232,12 +261,15 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::update::check_for_updates,
             ipc::update::get_update_state,
             ipc::update::set_skipped_update_version,
+            ipc::update::install_update,
+            ipc::update::restart_app,
             cli::pending::take_pending_selections,
         ])
         .events(tauri_specta::collect_events![
             ipc::events::QueueUpdated,
             ipc::events::JobProgressEvent,
             ipc::update::UpdateAvailable,
+            update::install::UpdateDownloadProgress,
             cli::pending::SelectionForwarded
         ])
 }

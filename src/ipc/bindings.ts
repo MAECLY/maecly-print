@@ -568,6 +568,33 @@ async setSkippedUpdateVersion(version: string | null) : Promise<Result<null, Ipc
 }
 },
 /**
+ * FR-084 "install now": download, verify and install the newest release.
+ * 
+ * Only ever runs because the user asked. `allow_major` is FR-087's separate
+ * opt-in for a major version jump; without it such a release is refused
+ * before anything is downloaded. Progress is pushed as
+ * [`UpdateDownloadProgress`]. A tampered or unsigned artifact fails with
+ * [`IpcError::UpdateSignatureInvalid`] and nothing is installed.
+ * 
+ * On Windows a successful install hands over to the per-user installer and
+ * the app exits (the installer restarts it); elsewhere the result says a
+ * restart is required and the UI offers [`restart_app`].
+ */
+async installUpdate(allowMajor: boolean) : Promise<Result<UpdateInstallResult, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("install_update", { allowMajor }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Relaunch the app so an installed update takes effect.
+ */
+async restartApp() : Promise<void> {
+    await TAURI_INVOKE("restart_app");
+},
+/**
  * Drain the selections handed to this instance (command line or a forwarded
  * second launch). Returns them oldest first and empties the store.
  */
@@ -588,12 +615,14 @@ export const events = __makeEvents__<{
 jobProgressEvent: JobProgressEvent,
 queueUpdated: QueueUpdated,
 selectionForwarded: SelectionForwarded,
-updateAvailable: UpdateAvailable
+updateAvailable: UpdateAvailable,
+updateDownloadProgress: UpdateDownloadProgress
 }>({
 jobProgressEvent: "job-progress-event",
 queueUpdated: "queue-updated",
 selectionForwarded: "selection-forwarded",
-updateAvailable: "update-available"
+updateAvailable: "update-available",
+updateDownloadProgress: "update-download-progress"
 })
 
 /** user-defined constants **/
@@ -1019,7 +1048,19 @@ export type IpcError = { code: "FileNotFound"; message: string } |
  * The GitHub-release update check could not complete (repository not
  * configured, network error, rate limit). The message is user-facing.
  */
-{ code: "UpdateCheckFailed"; message: string } | { code: "Internal"; message: string }
+{ code: "UpdateCheckFailed"; message: string } | 
+/**
+ * Downloading or installing an update failed (network, disk, installer,
+ * or a copy of the app that cannot update itself). The message is
+ * user-facing.
+ */
+{ code: "UpdateInstallFailed"; message: string } | 
+/**
+ * FR-082: the downloaded update did not carry a valid signature from the
+ * release key, so it was rejected and **nothing was installed**. Its own
+ * code so the UI can say exactly that.
+ */
+{ code: "UpdateSignatureInvalid"; message: string } | { code: "Internal"; message: string }
 /**
  * One print job: a single input file tracked through the convert → print
  * pipeline. Persisted verbatim in `queue.json`.
@@ -1502,6 +1543,31 @@ export type UpdateCheck = { current: string; latest: string | null; available: b
  * RFC 3339 timestamp of when the check ran.
  */
 checked_at: string }
+/**
+ * Download progress, pushed while an install is running.
+ */
+export type UpdateDownloadProgress = { 
+/**
+ * Bytes received so far.
+ */
+downloaded: number; 
+/**
+ * Total size, when the server sent a `Content-Length`.
+ */
+total: number | null }
+/**
+ * What an install attempt did.
+ */
+export type UpdateInstallResult = { 
+/**
+ * The version that was installed, or `None` when there was nothing newer.
+ */
+installed: string | null; 
+/**
+ * The new version runs only after a restart (macOS). On Windows the
+ * installer restarts the app itself and this process exits.
+ */
+restart_required: boolean }
 /**
  * The little the update flow remembers between runs. Deliberately *not* part of
  * `config.toml`: none of it is a user preference — it is bookkeeping the app

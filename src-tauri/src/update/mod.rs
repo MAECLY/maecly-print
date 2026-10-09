@@ -1,9 +1,10 @@
 //! Update check against the project's GitHub "latest release".
 //!
-//! This is a *check*, not an updater: it asks the GitHub Releases API for the
-//! latest published release, compares its tag to the running version with
-//! semver, and reports whether something newer exists plus a link to it. There
-//! is deliberately no download or install path here — the user follows the link.
+//! This is the *check*: it asks the GitHub Releases API for the latest
+//! published release, compares its tag to the running version with semver, and
+//! reports whether something newer exists plus a link to it. Downloading,
+//! verifying and installing a release is [`install`]'s job, and only ever
+//! happens on an explicit user action.
 //!
 //! Everything except the one network call is a pure function
 //! ([`repo_slug`]/[`parse_release`]/[`is_newer`]/[`evaluate`]) with co-located
@@ -18,6 +19,8 @@
 //! [`run_startup_check_with`] sequences them against an injected state file,
 //! clock and fetcher, and [`run_startup_check`] is the thin wrapper that binds
 //! those three to the real config, the real state file and the network.
+
+pub mod install;
 
 use std::path::{Path, PathBuf};
 

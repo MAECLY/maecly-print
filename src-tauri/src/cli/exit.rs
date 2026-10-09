@@ -88,6 +88,9 @@ pub fn exit_code_for(err: &IpcError) -> ExitCode {
         IpcError::DependencyMissing(_) => ExitCode::Config,
         IpcError::ProfileNotFound(_) => ExitCode::Profile,
         IpcError::UpdateCheckFailed(_) => ExitCode::UpdateCheckFailed,
+        IpcError::UpdateInstallFailed(_) | IpcError::UpdateSignatureInvalid(_) => {
+            ExitCode::UpdateInstallFailed
+        }
         IpcError::JobNotFound(_) | IpcError::InvalidState(_) | IpcError::Internal(_) => {
             ExitCode::Generic
         }

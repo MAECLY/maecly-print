@@ -397,6 +397,14 @@ fn fr_009_every_ipc_error_maps_to_a_stable_code() {
             IpcError::UpdateCheckFailed("offline".into()),
             ExitCode::UpdateCheckFailed,
         ),
+        (
+            IpcError::UpdateInstallFailed("disk full".into()),
+            ExitCode::UpdateInstallFailed,
+        ),
+        (
+            IpcError::UpdateSignatureInvalid("tampered".into()),
+            ExitCode::UpdateInstallFailed,
+        ),
         (IpcError::Internal("boom".into()), ExitCode::Generic),
     ];
     for (err, expected) in cases {

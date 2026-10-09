@@ -1,11 +1,12 @@
-//! Update-check IPC commands.
+//! Update IPC commands.
 //!
 //! [`check_for_updates`] resolves the project's GitHub slug, fetches the latest
 //! release, and folds it against the running version into an [`UpdateCheck`].
-//! There is no download/install here — the frontend surfaces the link and the
-//! user decides. FR-082 (signature verification) and FR-083 (per-user install)
-//! need a signed installer and land with the auto-updater (M4); the UI says so
-//! rather than pretending otherwise.
+//! [`install_update`] is FR-084's "install now": it downloads the signed
+//! artifact named by the release manifest, verifies it (FR-082), installs it
+//! per-user (FR-083) and refuses a major jump without explicit opt-in
+//! (FR-087) — see [`crate::update::install`]. [`restart_app`] finishes the
+//! job on platforms where the new version runs only after a relaunch.
 //!
 //! [`get_update_state`] and [`set_skipped_update_version`] back the FR-084
 //! decision the app *can* honour today: "skip this version". The state itself
@@ -19,6 +20,7 @@
 
 use serde::Serialize;
 
+use crate::update::install::{UpdateDownloadProgress, UpdateInstallResult};
 use crate::update::{self, UpdateCheck, UpdateState};
 use crate::util::error::IpcError;
 
@@ -108,4 +110,47 @@ pub fn set_skipped_update_version(version: Option<String>) -> Result<(), IpcErro
     state
         .save()
         .map_err(|e| IpcError::Internal(format!("could not save the update state: {e}")))
+}
+
+/// FR-084 "install now": download, verify and install the newest release.
+///
+/// Only ever runs because the user asked. `allow_major` is FR-087's separate
+/// opt-in for a major version jump; without it such a release is refused
+/// before anything is downloaded. Progress is pushed as
+/// [`UpdateDownloadProgress`]. A tampered or unsigned artifact fails with
+/// [`IpcError::UpdateSignatureInvalid`] and nothing is installed.
+///
+/// On Windows a successful install hands over to the per-user installer and
+/// the app exits (the installer restarts it); elsewhere the result says a
+/// restart is required and the UI offers [`restart_app`].
+#[tauri::command]
+#[specta::specta]
+pub async fn install_update(
+    app: tauri::AppHandle,
+    allow_major: bool,
+) -> Result<UpdateInstallResult, IpcError> {
+    use tauri_specta::Event;
+
+    let Some(found) = update::install::find_update(&app).await? else {
+        return Ok(UpdateInstallResult {
+            installed: None,
+            restart_required: false,
+        });
+    };
+    let emitter = app.clone();
+    update::install::install(&found, allow_major, move |downloaded, total| {
+        let _ = UpdateDownloadProgress { downloaded, total }.emit(&emitter);
+    })
+    .await
+}
+
+/// Relaunch the app so an installed update takes effect.
+#[tauri::command]
+#[specta::specta]
+pub fn restart_app(app: tauri::AppHandle) {
+    tracing::info!(
+        event = "app_restart_requested",
+        "restarting to finish an update"
+    );
+    app.restart();
 }
