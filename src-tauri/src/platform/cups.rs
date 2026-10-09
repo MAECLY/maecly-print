@@ -72,8 +72,11 @@ fn run_ok_capture(program: &str, args: &[&str]) -> anyhow::Result<()> {
 }
 
 /// Set the CUPS *user* default — writes `~/.cups/lpoptions`, no privileges.
+///
+/// Like every user-triggered spooler action here, failures carry the tool's
+/// own stderr ([`run_ok_capture`]) so the toast can say *why*.
 pub fn set_os_default(name: &str) -> anyhow::Result<()> {
-    run_ok("lpoptions", &["-d", name])
+    run_ok_capture("lpoptions", &["-d", name])
 }
 
 /// Print the branded MaeclyPrint test page, applying the user's configured
@@ -126,7 +129,7 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
     }
     args.push(path);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_ok("lp", &arg_refs)
+    run_ok_capture("lp", &arg_refs)
 }
 
 /// Open the OS "Printers" settings so the user can add one manually.
@@ -326,35 +329,146 @@ fn classify_ippfind(
 }
 
 pub fn discover_printers() -> anyhow::Result<Vec<DiscoveredPrinter>> {
-    // `-T 4` bounds the scan; ippfind prints one URI per match by default.
-    // A failure propagates: the UI renders a scan error, not an empty network.
-    let out = run_ippfind(&["_ipp._tcp", "_ipps._tcp", "-T", "4"])?;
-    // Skip anything already installed (matched loosely by host/service).
+    // `-T 4` bounds the scan. `-x printf …` prints one tab-separated record
+    // per service: URI, the TXT `UUID`, the Bonjour service name and the TXT
+    // `ty` (make and model) — the UUID is what lets us recognise a printer we
+    // already installed under a different URI. A failure propagates: the UI
+    // renders a scan error, not an empty network.
+    let out = run_ippfind(&[
+        "_ipp._tcp",
+        "_ipps._tcp",
+        "-T",
+        "4",
+        "-x",
+        "/usr/bin/printf",
+        "%s\\t%s\\t%s\\t%s\\n",
+        "{service_uri}",
+        "{txt_UUID}",
+        "{service_name}",
+        "{txt_ty}",
+        ";",
+    ])?;
     let installed: Vec<String> = queue_names()
         .iter()
         .filter_map(|n| {
             parse_kv(&lc_run("lpoptions", &["-p", n]).unwrap_or_default()).remove("device-uri")
         })
         .collect();
+    Ok(parse_discovery(&out, &installed))
+}
 
-    let mut seen = std::collections::HashSet::new();
-    let mut out_vec = Vec::new();
-    for uri in out.lines().map(str::trim).filter(|l| l.contains("://")) {
-        if !seen.insert(uri.to_string()) {
+/// One `ippfind` hit, before de-duplication.
+struct Found {
+    uri: String,
+    uuid: String,
+    name: String,
+    model: String,
+}
+
+/// Turn `ippfind` records into the "Scan network" rows, pure for tests.
+///
+/// The same physical printer usually advertises itself several times (once
+/// per `_ipp`/`_ipps` service), and the copy CUPS installed is stored under a
+/// different URI again (`dnssd://Service%20Name._ipps._tcp.local./?uuid=…`). So
+/// devices are keyed by the printer **UUID** when it is advertised, else by the
+/// host without its port, and:
+///
+/// - a device whose UUID, Bonjour service name or host matches an installed
+///   queue's `device-uri` is skipped — it is already set up;
+/// - the `ipp` and `ipps` records of one device collapse into one row, which
+///   prefers `ipps`.
+///
+/// A bare-URI line (no tab fields) still works, keyed by host.
+fn parse_discovery(stdout: &str, installed_uris: &[String]) -> Vec<DiscoveredPrinter> {
+    let installed: Vec<(String, String, String)> = installed_uris
+        .iter()
+        .map(|u| (uri_uuid(u), uri_service_name(u).to_lowercase(), uri_host(u)))
+        .collect();
+
+    let mut rows: Vec<(String, Found)> = Vec::new();
+    for line in stdout.lines() {
+        let mut fields = line.split('\t').map(str::trim);
+        let uri = fields.next().unwrap_or("");
+        if !uri.contains("://") {
             continue;
         }
-        if installed.iter().any(|d| same_device(d, uri)) {
-            continue;
-        }
-        out_vec.push(DiscoveredPrinter {
-            id: uri.to_string(),
-            name: uri_service_name(uri),
-            connection: pretty_conn(Some(uri)),
-            kind: PrinterKind::Mfp,
-            via: format!("mDNS · {}", scheme(uri).to_uppercase()),
+        let found = Found {
+            uri: uri.to_string(),
+            uuid: fields.next().unwrap_or("").to_lowercase(),
+            name: fields.next().unwrap_or("").to_string(),
+            model: fields.next().unwrap_or("").to_string(),
+        };
+        let host = uri_host(uri);
+        let already_installed = installed.iter().any(|(uuid, service, ihost)| {
+            (!found.uuid.is_empty() && *uuid == found.uuid)
+                || (!found.name.is_empty() && *service == found.name.to_lowercase())
+                || (!host.is_empty() && *ihost == host)
         });
+        if already_installed {
+            continue;
+        }
+        let key = if found.uuid.is_empty() {
+            host
+        } else {
+            found.uuid.clone()
+        };
+        match rows.iter_mut().find(|(k, _)| *k == key) {
+            // Same device again: keep the secure transport if this is it.
+            Some((_, kept)) => {
+                if scheme(&found.uri) == "ipps" && scheme(&kept.uri) != "ipps" {
+                    *kept = found;
+                }
+            }
+            None => rows.push((key, found)),
+        }
     }
-    Ok(out_vec)
+
+    rows.into_iter()
+        .map(|(_, f)| {
+            let name = if f.name.is_empty() {
+                strip_port(&uri_service_name(&f.uri)).to_string()
+            } else {
+                f.name
+            };
+            DiscoveredPrinter {
+                kind: infer_kind(&f.model, &name, Some(&f.uri)),
+                connection: pretty_conn(Some(&f.uri)),
+                via: format!("mDNS · {}", scheme(&f.uri).to_uppercase()),
+                id: f.uri,
+                name,
+            }
+        })
+        .collect()
+}
+
+/// The `uuid=` query parameter of a device URI (lowercased), or `""`.
+fn uri_uuid(uri: &str) -> String {
+    uri.split_once('?')
+        .map(|(_, q)| q)
+        .unwrap_or("")
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("uuid="))
+        .unwrap_or("")
+        .to_lowercase()
+}
+
+/// The authority of a URI without port or trailing dot, lowercased — the
+/// "same machine" key for `ipp://Host.local:631/…` vs `ipps://host.local./…`.
+fn uri_host(uri: &str) -> String {
+    let rest = uri.split("://").nth(1).unwrap_or("");
+    let authority = rest.split(['/', '?']).next().unwrap_or("");
+    strip_port(authority).trim_end_matches('.').to_lowercase()
+}
+
+/// `host:631` → `host`; a bracketed IPv6 literal keeps its colons.
+fn strip_port(authority: &str) -> &str {
+    if authority.starts_with('[') {
+        return authority
+            .split_once(']')
+            .map_or(authority, |(h, _)| h)
+            .trim_start_matches('[');
+    }
+    authority.split(':').next().unwrap_or(authority)
 }
 
 // ----------------------------------------------------------------------------
@@ -664,11 +778,6 @@ fn uri_service_name(uri: &str) -> String {
     percent_decode(head.trim_end_matches('.'))
 }
 
-/// Loose match of two device URIs (same scheme-less host/service).
-fn same_device(a: &str, b: &str) -> bool {
-    !uri_service_name(a).is_empty() && uri_service_name(a) == uri_service_name(b)
-}
-
 fn pretty_conn(uri: Option<&str>) -> String {
     let Some(uri) = uri.filter(|u| !u.is_empty()) else {
         return "Local".to_string();
@@ -901,6 +1010,69 @@ mod tests {
         add_printer("MaeclyPrint Test Queue", "socket://127.0.0.1:9100").expect("add should work");
         // Best-effort cleanup of the queue id sanitize_queue_name would produce.
         let _ = run_ok("lpadmin", &["-x", "MaeclyPrint_Test_Queue"]);
+    }
+
+    /// Verbatim `ippfind -x printf` output from the dev Mac: one EPSON
+    /// advertised twice (ipp + ipps) under the same UUID.
+    const IPPFIND_EPSON: &str = "ipp://EPSON7E7F58.local:631/ipp/print\tcfe92100-67c4-11d4-a45f-dccd2f7e7f58\tEPSON L15160 Series\tEPSON L15160 Series\nipps://EPSON7E7F58.local:631/ipp/print\tcfe92100-67c4-11d4-a45f-dccd2f7e7f58\tEPSON L15160 Series\tEPSON L15160 Series\n";
+
+    /// The installed EPSON queue's `device-uri` (a `dnssd://` URI, not the
+    /// `ipp://` one `ippfind` reports): it must still be recognised.
+    #[test]
+    fn fr_regression_scan_skips_a_printer_installed_under_a_dnssd_uri() {
+        let installed = vec![
+            "dnssd://EPSON%20L15160%20Series._ipps._tcp.local./?uuid=cfe92100-67c4-11d4-a45f-dccd2f7e7f58"
+                .to_string(),
+        ];
+        assert!(parse_discovery(IPPFIND_EPSON, &installed).is_empty());
+
+        // Matched by UUID alone (service renamed since install).
+        let renamed = vec![
+            "dnssd://Old%20Name._ipps._tcp.local./?uuid=CFE92100-67C4-11D4-A45F-DCCD2F7E7F58"
+                .to_string(),
+        ];
+        assert!(parse_discovery(IPPFIND_EPSON, &renamed).is_empty());
+
+        // Matched by host alone (installed by IP with another port).
+        let by_host = vec!["ipp://epson7e7f58.local./ipp/print".to_string()];
+        assert!(parse_discovery(IPPFIND_EPSON, &by_host).is_empty());
+    }
+
+    /// ipp + ipps of one device is ONE row, on ipps, named after the service.
+    #[test]
+    fn fr_regression_scan_collapses_ipp_and_ipps_of_one_device() {
+        let rows = parse_discovery(IPPFIND_EPSON, &[]);
+        assert_eq!(rows.len(), 1);
+        let r = &rows[0];
+        assert_eq!(r.id, "ipps://EPSON7E7F58.local:631/ipp/print");
+        assert_eq!(r.name, "EPSON L15160 Series");
+        assert_eq!(r.via, "mDNS · IPPS");
+
+        // Without TXT fields: keyed by host, port stripped from the name.
+        let bare = "ipp://lab.local:631/ipp/print\nipps://lab.local:631/ipp/print\n";
+        let rows = parse_discovery(bare, &[]);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "lab.local");
+        assert!(rows[0].id.starts_with("ipps://"));
+    }
+
+    #[test]
+    fn uri_host_and_uuid_helpers() {
+        assert_eq!(uri_host("ipp://Host.Local.:631/ipp/print"), "host.local");
+        assert_eq!(uri_host("ipp://[fe80::1]:631/ipp"), "fe80::1");
+        assert_eq!(uri_uuid("dnssd://x._ipp._tcp.local./?uuid=ABC&x=1"), "abc");
+        assert_eq!(uri_uuid("ipp://host/ipp"), "");
+    }
+
+    /// Set default and Test page go through this runner so the toast carries
+    /// `lp`'s own reason ("The printer or class does not exist.") instead of
+    /// a bare "exited with exit status: 1".
+    #[test]
+    fn fr_regression_spooler_failures_surface_the_tool_stderr() {
+        let e = run_ok_capture("sh", &["-c", "echo 'lp: no such printer' >&2; exit 1"])
+            .expect_err("a non-zero exit is a failure");
+        assert_eq!(e.to_string(), "lp: no such printer");
+        assert!(run_ok_capture("sh", &["-c", "exit 0"]).is_ok());
     }
 
     #[test]
