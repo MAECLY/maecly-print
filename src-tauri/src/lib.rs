@@ -38,7 +38,7 @@ pub fn run() {
 /// yet be intercepted by the single-instance plugin and forwarded to a running
 /// instance that has to read the very same file. Whichever process ends up
 /// parking the selection is the one that deletes it — here, in `setup`
-/// ([`cli::pending::park_launch_selection`]); there, in the plugin callback
+/// ([`cli::pending::PendingSelections::park_launch`]); there, in the plugin callback
 /// below.
 ///
 /// The single-instance plugin is registered **first**, as its documentation
@@ -72,40 +72,43 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
     #[cfg(debug_assertions)]
     export_bindings(&builder);
 
+    // Created before the builder, not in `setup`: the single-instance plugin
+    // starts listening before our `setup` runs, so a second launch during a
+    // cold start must already have somewhere to land. The callback keeps one
+    // handle, `setup` manages another — one shared store (NFR-014).
+    let pending = cli::pending::PendingSelections::default();
+    let forwarded_into = pending.clone();
+
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            // A second launch already exited by the time this runs; all we get
-            // is its argv. Interpreting it is a pure function of the argv and
-            // the handoff file it names (see `cli::single_instance`), so the
-            // only work here is delivery.
-            if let Some(forwarded) = cli::single_instance::interpret(&argv) {
-                use tauri_specta::Event;
-                let cli::single_instance::Forwarded { selection, handoff } = forwarded;
-                // `try_state`, not `state`: a launch racing our own `setup`
-                // would otherwise panic on the not-yet-managed store.
-                match app.try_state::<cli::pending::PendingSelections>() {
-                    Some(pending) => {
-                        pending.push(selection.clone());
-                        // The selection lives in this process now, so the file
-                        // it travelled in has done its job. Deleting it *here*
-                        // rather than in the launching process is what lets the
-                        // same payload be read twice (NFR-014).
-                        cli::handoff::discard(&handoff);
+        .plugin(tauri_plugin_single_instance::init(
+            move |app, argv, _cwd| {
+                // A second launch already exited by the time this runs; all we get
+                // is its argv. Interpreting it is a pure function of the argv and
+                // the handoff file it names (see `cli::single_instance`), so the
+                // only work here is delivery.
+                if let Some(forwarded) = cli::single_instance::interpret(&argv) {
+                    use tauri_specta::Event;
+                    let cli::single_instance::Forwarded { selection, handoff } = forwarded;
+                    forwarded_into.push(selection.clone());
+                    // The selection lives in this process now, so the file it
+                    // travelled in has done its job. Deleting it *here* rather than
+                    // in the launching process is what lets the same payload be
+                    // read twice (NFR-014).
+                    if let Some(handoff) = &handoff {
+                        cli::handoff::discard(handoff);
                     }
-                    None => tracing::warn!(
-                        event = "selection_dropped_before_setup",
-                        "a forwarded selection arrived before the app finished starting"
-                    ),
+                    // Before `setup` there is no window to ring: the selection
+                    // simply waits for the first drain.
+                    if let Err(e) = cli::pending::SelectionForwarded(selection).emit(app) {
+                        tracing::warn!(event = "selection_forwarded_emit_failed", error = %e);
+                    }
                 }
-                if let Err(e) = cli::pending::SelectionForwarded(selection).emit(app) {
-                    tracing::warn!(event = "selection_forwarded_emit_failed", error = %e);
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
                 }
-            }
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
-        }))
+            },
+        ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         // FR-072: native notifications. Driven Rust-side only
@@ -141,7 +144,8 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
             // Anything the command line handed us waits here until the window
             // has mounted and drains it (`take_pending_selections`); parking it
             // is also what retires the handoff file it arrived in.
-            app.manage(cli::pending::park_launch_selection(selection, handoff));
+            pending.park_launch(selection, handoff);
+            app.manage(pending);
 
             // FR-001: the Finder's Services menu ("Print with MaeclyPrint")
             // reaches the app through this provider, and reaches it in-process

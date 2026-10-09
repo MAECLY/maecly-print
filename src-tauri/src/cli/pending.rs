@@ -14,7 +14,7 @@
 //! and re-delivering it on the next reload would re-print the user's files.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
@@ -22,13 +22,39 @@ use crate::cli::{handoff, Selection};
 use crate::util::error::IpcError;
 
 /// Selections not yet handed to the window, oldest first.
-#[derive(Debug, Default)]
-pub struct PendingSelections(Mutex<Vec<Selection>>);
+///
+/// Cloning shares the store (it is an `Arc` inside). That is what lets the
+/// single-instance callback push into it *before* `setup` has run
+/// `app.manage`: the store is created ahead of the Tauri builder, the callback
+/// holds one handle and the managed state is another, so a selection forwarded
+/// during a cold start is kept instead of dropped (NFR-014).
+#[derive(Debug, Default, Clone)]
+pub struct PendingSelections(Arc<Mutex<Vec<Selection>>>);
 
 impl PendingSelections {
     /// A store already holding `selection` (the launch-time case).
     pub fn with(selection: Option<Selection>) -> Self {
-        Self(Mutex::new(selection.into_iter().collect()))
+        Self(Arc::new(Mutex::new(selection.into_iter().collect())))
+    }
+
+    /// Park the selection this process was launched with, ahead of anything a
+    /// forwarded launch managed to push while we were still starting (it was
+    /// chronologically first), then retire the handoff file it arrived in.
+    ///
+    /// The order of the two steps is the whole point: the file is the only
+    /// copy of the selection until it is in memory here, and it is
+    /// deliberately left on disk by [`crate::cli::selection_from_at`] so that a
+    /// launch which turns out to be forwarded still has something for the
+    /// running instance to read. Only the process that keeps the selection may
+    /// delete it — which is this one, at this moment.
+    pub fn park_launch(&self, selection: Option<Selection>, handoff: Option<PathBuf>) {
+        if let Some(selection) = selection {
+            let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            guard.insert(0, selection);
+        }
+        if let Some(path) = handoff {
+            handoff::discard(&path);
+        }
     }
 
     /// Park a selection for the window.
@@ -47,22 +73,14 @@ impl PendingSelections {
 }
 
 /// Build the store for a GUI launch: park whatever the command line handed us,
-/// then retire the handoff file that selection arrived in.
-///
-/// The two steps belong together and in this order. The file is the only copy
-/// of the selection until it is in memory here, and it is deliberately left on
-/// disk by [`crate::cli::selection_from_at`] so that a launch which turns out
-/// to be forwarded still has something for the running instance to read
-/// (NFR-014). This process may therefore only delete it once it knows it is the
-/// one keeping the selection — which is exactly the moment the store exists.
+/// then retire the handoff file that selection arrived in. See
+/// [`PendingSelections::park_launch`].
 pub fn park_launch_selection(
     selection: Option<Selection>,
     handoff: Option<PathBuf>,
 ) -> PendingSelections {
-    let pending = PendingSelections::with(selection);
-    if let Some(path) = handoff {
-        handoff::discard(&path);
-    }
+    let pending = PendingSelections::default();
+    pending.park_launch(selection, handoff);
     pending
 }
 
@@ -125,6 +143,24 @@ mod tests {
         let store = park_launch_selection(Some(selection("/tmp/a.pdf")), Some(path.clone()));
         assert_eq!(store.drain().len(), 1);
         assert!(!path.exists(), "a parked selection retires its file");
+    }
+
+    /// A second launch forwarded while this one is still cold-starting lands
+    /// in a handle of the store taken before `setup`; it must survive, and
+    /// the launch's own selection (which came first) must still drain first.
+    #[test]
+    fn nfr_014_a_selection_forwarded_before_setup_is_kept_in_order() {
+        let store = PendingSelections::default();
+        let callback_handle = store.clone();
+        callback_handle.push(selection("/tmp/forwarded.pdf"));
+
+        store.park_launch(Some(selection("/tmp/launch.pdf")), None);
+
+        let drained = store.drain();
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[0].paths, vec!["/tmp/launch.pdf"]);
+        assert_eq!(drained[1].paths, vec!["/tmp/forwarded.pdf"]);
+        assert!(callback_handle.drain().is_empty(), "one shared store");
     }
 
     /// A plain launch has nothing to park and nothing to delete.
