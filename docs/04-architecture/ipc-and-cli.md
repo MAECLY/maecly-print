@@ -483,6 +483,11 @@ Both surfaces call the same core; the table names the shared implementation rath
 
 `update install` runs the same core as `install_update`. Without `--yes` it asks on an interactive terminal (`[y/N]`; a major update is named as such, FR-087), exits **2** when there is no terminal to ask, and exits **12** when the answer is not yes. A rejected signature or any other install failure exits **11**. `MAECLYPRINT_UPDATE_ENDPOINT` replaces the manifest URL for local end-to-end tests. With `--json`, stdout is the `UpdateInstallResult` (`{"installed": "0.2.0", "restart_required": true}`, or `"installed": null` when up to date).
 
+On Windows two more rules apply:
+
+- **Refused while the app is open.** The per-user NSIS installer runs in passive mode and closes a running MaeclyPrint without asking. While the app holds its instance lock, `update install` therefore installs nothing and exits **1** (`InvalidState`), pointing at *About → Install update* in the app. macOS and Linux replace the bundle without closing the app, so they do not refuse.
+- **The result is printed at hand-off.** `tauri-plugin-updater` ends the process itself (`std::process::exit`) once the verified installer has been launched, so the result (`{"installed": "0.2.0", "restart_required": false}` / `Installing MaeclyPrint 0.2.0`) is printed and the log is flushed from the updater's before-exit hook, after download and signature verification and just before the installer starts. Exit code 0 then means "verified and handed to the installer", not "installation finished". The installer is told not to relaunch anything: the plugin's default would replay the CLI's own `update install --yes` command line through NSIS `/ARGS`.
+
 ### 3.6 JSON output mode
 
 With `--json`, **stdout carries nothing but the JSON document** (so `| jq` works), and errors go to stderr as `{"error":{"code":…,"message":…}}` — the same `{code, message}` envelope the webview receives, so a script and the UI never see two different names for the same failure.

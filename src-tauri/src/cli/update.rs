@@ -10,6 +10,15 @@
 //! Tauri app because the updater needs an `AppHandle`. Confirmation is the one
 //! CLI-only concern: `--yes` skips it, an interactive terminal is asked, and a
 //! non-interactive run without `--yes` is refused rather than guessed.
+//!
+//! Two Windows-only rules follow from how the installer works there. The
+//! per-user NSIS setup runs in passive mode and closes a running MaeclyPrint
+//! without asking, so `install` refuses while the app is open (it may be
+//! printing) — [`refuse_install_while_app_runs`]. And the updater plugin ends
+//! the process itself (`std::process::exit`) once the installer is launched,
+//! so the result is printed from the hand-off hook ([`Handoff`]) instead of
+//! after `install` returns, and the installer is told not to relaunch the CLI's
+//! own command line.
 
 use crate::cli::args::UpdateCmd;
 use crate::cli::exit::{CliError, ExitCode};
@@ -45,7 +54,7 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: UpdateCmd) -> Result<(), CliErr
             Ok(())
         }
 
-        UpdateCmd::Install { yes } => install(emitter, yes),
+        UpdateCmd::Install { yes } => install(paths, emitter, yes),
 
         UpdateCmd::Channel { channel } => {
             let mut settings = get_app_settings_at(&paths.config)?;
@@ -110,11 +119,78 @@ pub fn is_yes(answer: &str) -> bool {
     )
 }
 
+/// The result of an install that is handing over to the installer, reported
+/// exactly once — from the updater's before-exit hook on Windows (where the
+/// process never returns from `install`), or after `install` returns elsewhere.
+#[derive(Debug, Default)]
+pub struct Handoff {
+    version: std::sync::OnceLock<String>,
+    reported: std::sync::atomic::AtomicBool,
+}
+
+impl Handoff {
+    /// Record the version being installed, once it is known.
+    pub fn set_version(&self, version: &str) {
+        let _ = self.version.set(version.to_string());
+    }
+
+    /// Report the result through `emit` unless that already happened. Nothing
+    /// is reported before the version is known.
+    pub fn report(&self, emit: impl FnOnce(&crate::update::install::UpdateInstallResult)) {
+        use std::sync::atomic::Ordering;
+        let Some(version) = self.version.get() else {
+            return;
+        };
+        if self.reported.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        emit(&crate::update::install::UpdateInstallResult {
+            installed: Some(version.clone()),
+            // Windows: the installer finishes the job and nothing is relaunched
+            // for a command-line run; there is no restart for the user to do.
+            restart_required: !cfg!(windows),
+        });
+    }
+}
+
+/// Refuse `update install` while the app is open, on Windows: the passive
+/// per-user installer closes a running MaeclyPrint without asking, which
+/// would cut off whatever it is printing. Pure; `app_running` comes from the
+/// instance lock ([`crate::cli::instance`]).
+pub fn refuse_install_while_app_runs(windows: bool, app_running: bool) -> Result<(), CliError> {
+    if windows && app_running {
+        return Err(IpcError::InvalidState(
+            "MaeclyPrint is open, and installing an update would close it in the middle of \
+             whatever it is printing — nothing was installed. Update from the app (About → \
+             Install update), or close it and run this again"
+                .to_string(),
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn print_result(emitter: Emitter, result: &crate::update::install::UpdateInstallResult) {
+    emitter.emit(result, || {
+        match (&result.installed, result.restart_required) {
+            (Some(v), true) => format!("Installed MaeclyPrint {v}; restart the app to use it"),
+            (Some(v), false) => format!("Installing MaeclyPrint {v}"),
+            (None, _) => "Nothing to install".to_string(),
+        }
+    });
+}
+
 /// `update install [--yes]`.
-fn install(emitter: Emitter, yes: bool) -> Result<(), CliError> {
+fn install(paths: &Paths, emitter: Emitter, yes: bool) -> Result<(), CliError> {
     use std::io::{IsTerminal, Write};
+    use std::sync::Arc;
 
     use crate::update::install as core;
+
+    refuse_install_while_app_runs(
+        cfg!(windows),
+        crate::cli::instance::is_held(&crate::cli::instance::lock_path_for(&paths.queue)),
+    )?;
 
     let app = crate::headless_updater_app().map_err(|e| {
         CliError::from(IpcError::UpdateInstallFailed(format!(
@@ -123,7 +199,14 @@ fn install(emitter: Emitter, yes: bool) -> Result<(), CliError> {
     })?;
     let handle = app.handle().clone();
 
-    let Some(update) = tauri::async_runtime::block_on(core::find_update(&handle))? else {
+    let handoff = Arc::new(Handoff::default());
+    let hook = Arc::clone(&handoff);
+    let Some(update) = tauri::async_runtime::block_on(core::find_update_with(
+        &handle,
+        core::Relaunch::Nothing,
+        move || hook.report(|result| print_result(emitter, result)),
+    ))?
+    else {
         let none = core::UpdateInstallResult {
             installed: None,
             restart_required: false,
@@ -173,15 +256,12 @@ fn install(emitter: Emitter, yes: bool) -> Result<(), CliError> {
     // (blanket, so no version is pinned) or a typed "yes" to a prompt that
     // named this very version.
     let confirmed = (!yes).then_some(update.version.as_str());
+    handoff.set_version(&update.version);
     let result =
         tauri::async_runtime::block_on(core::install(&update, true, confirmed, |_, _| {}))?;
-    emitter.emit(&result, || {
-        match (&result.installed, result.restart_required) {
-            (Some(v), true) => format!("Installed MaeclyPrint {v}; restart the app to use it"),
-            (Some(v), false) => format!("Installing MaeclyPrint {v}"),
-            (None, _) => "Nothing to install".to_string(),
-        }
-    });
+    // Only reached where the updater returns (not Windows); the hook has not
+    // reported anything then.
+    handoff.report(|_| print_result(emitter, &result));
     Ok(())
 }
 
@@ -262,5 +342,36 @@ mod tests {
         assert_eq!(signature.exit, ExitCode::UpdateInstallFailed);
         let network: CliError = IpcError::UpdateInstallFailed("offline".into()).into();
         assert_eq!(network.exit, ExitCode::UpdateInstallFailed);
+    }
+
+    /// FR-009: on Windows the installer closes a running app without asking,
+    /// so a scripted `update install` refuses while the app is open instead of
+    /// cutting off a print (an `InvalidState` error, exit 1).
+    #[test]
+    fn fr_009_install_refuses_while_the_app_runs_on_windows() {
+        let err = refuse_install_while_app_runs(true, true).unwrap_err();
+        assert_eq!(err.exit, ExitCode::Generic);
+        assert!(err.error.to_string().contains("nothing was installed"));
+        assert!(refuse_install_while_app_runs(true, false).is_ok());
+        // macOS/Linux replace the bundle without closing the app.
+        assert!(refuse_install_while_app_runs(false, true).is_ok());
+    }
+
+    /// FR-010: the result is reported exactly once, whether from the
+    /// updater's before-exit hook (Windows, where the process then exits) or
+    /// after `install` returns — and never before the version is known.
+    #[test]
+    fn fr_010_the_install_result_is_reported_once_from_the_handoff() {
+        let handoff = Handoff::default();
+        let mut seen = Vec::new();
+        handoff.report(|r| seen.push(r.clone()));
+        assert!(seen.is_empty(), "nothing before the version is known");
+
+        handoff.set_version("1.5.0");
+        handoff.report(|r| seen.push(r.clone()));
+        handoff.report(|r| seen.push(r.clone()));
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].installed.as_deref(), Some("1.5.0"));
+        assert_eq!(seen[0].restart_required, !cfg!(windows));
     }
 }

@@ -126,7 +126,7 @@ The state is stamped whenever a check **completed**, including one that found no
 | CLI | `maeclyprint update check [--json]` — the same `evaluate()` over the same feed |
 | CLI | `maeclyprint update channel [stable\|beta\|nightly]` — reads/writes `updater.channel` in `config.toml` |
 | React (About screen) | `commands.installUpdate(allowMajor)`, `commands.restartApp()`; progress via the `update-download-progress` event |
-| CLI | `maeclyprint update install [--yes]` — the same install core; exit 11 on failure, 12 when the prompt is declined |
+| CLI | `maeclyprint update install [--yes]` — the same install core; exit 11 on failure, 12 when the prompt is declined; on Windows refused (exit 1) while the app is open, and the result printed at installer hand-off (see [ipc-and-cli.md](./ipc-and-cli.md#update-install)) |
 
 The wire shape is `UpdateCheck` (`current`, `latest`, `available`, `url`, `notes`, `checked_at`); `url` and `notes` are populated **only** when `available` is true. See [ipc-and-cli.md](./ipc-and-cli.md) §2.2.
 

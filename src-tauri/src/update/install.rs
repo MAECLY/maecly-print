@@ -242,22 +242,53 @@ impl Drop for InstallGuard {
     }
 }
 
-/// Ask the manifest whether a newer, installable release exists.
+/// Ask the manifest whether a newer, installable release exists. For the GUI:
+/// on Windows the installer relaunches the app when it is done.
 pub async fn find_update<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
+) -> Result<Option<tauri_plugin_updater::Update>, IpcError> {
+    find_update_with(app, Relaunch::App, || {}).await
+}
+
+/// What the Windows installer starts once it has installed an update.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Relaunch {
+    /// The GUI, with the arguments it was started with (the plugin default).
+    App,
+    /// Nothing. For the headless CLI: the plugin would otherwise replay the
+    /// CLI's own argv (`update install --yes`) through the installer's
+    /// `/ARGS`, starting a second, invisible update run instead of the app.
+    Nothing,
+}
+
+/// [`find_update`] for a given [`Relaunch`] choice, with `before_exit` run
+/// right before the process hands over to the installer and exits.
+///
+/// On Windows `tauri-plugin-updater` ends `Update::install` with
+/// `std::process::exit(0)`, so code after [`install`] never runs there and
+/// neither do destructors. `before_exit` is the last moment to report a result
+/// (the CLI prints it there), and the log is flushed after it so the buffered
+/// lines describing the install are not lost with the process.
+pub async fn find_update_with<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    relaunch: Relaunch,
+    before_exit: impl Fn() + Send + Sync + 'static,
 ) -> Result<Option<tauri_plugin_updater::Update>, IpcError> {
     let url = endpoint().map_err(IpcError::UpdateInstallFailed)?;
     let updater = app
         .updater_builder()
         .endpoints(vec![url])
         .and_then(|b| {
-            b.on_before_exit(|| {
-                tracing::info!(
-                    event = "update_installer_handoff",
-                    "exiting for the installer"
-                );
-            })
-            .build()
+            b.restart_after_install(relaunch == Relaunch::App)
+                .on_before_exit(move || {
+                    tracing::info!(
+                        event = "update_installer_handoff",
+                        "exiting for the installer"
+                    );
+                    before_exit();
+                    crate::logging::flush();
+                })
+                .build()
         })
         .map_err(|e| classify_error(&e))?;
     updater.check().await.map_err(|e| classify_error(&e))
