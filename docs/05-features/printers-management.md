@@ -39,8 +39,8 @@ Each printer is described by the following fields (`UiPrinter` in `src/types/dom
 
 | Field        | Type                                  | Example                              | Source (M1)            |
 | ------------ | ------------------------------------- | ------------------------------------ | ---------------------- |
-| `id`         | string                                | `hp404`                              | spooler key            |
-| `name`       | string                                | `HP LaserJet Pro M404dn`             | `PrinterInfo.name`     |
+| `id`         | string                                | `hp404`                              | spooler key — **the only value ever spooled to** |
+| `name`       | string                                | `HP LaserJet Pro M404dn`             | `PrinterInfo.name` (display only; accepted as input and resolved to `id` by `ipc::printers::match_installed`) |
 | `type`       | `laser\|mfp\|wide\|label\|virtual`    | `laser`                              | inferred from driver   |
 | `color`      | boolean                               | `false`                              | driver capability      |
 | `duplex`     | boolean                               | `true`                               | driver capability      |
@@ -65,8 +65,8 @@ The IPC `PrinterInfo` ([data-model](../04-architecture/data-model.md)) is the **
 | `status`  | Badge tone | Dot       | Meaning                          |
 | --------- | ---------- | --------- | -------------------------------- |
 | `ready`   | success    | done      | Online, accepting jobs           |
-| `offline` | neutral    | cancelled | Not reachable / powered off      |
-| `error`   | error      | failed    | Jam, door open, hard fault       |
+| `offline` | neutral    | cancelled | Not reachable / powered off, or a queue paused in the OS (CUPS `paused`) |
+| `error`   | error      | failed    | Jam, door open, hard fault (any CUPS `*-error` state reason, or a stopped queue that is not merely paused) |
 | `busy`    | accent     | printing  | Currently printing               |
 
 | `type`    | Label         | Icon    |
@@ -83,8 +83,8 @@ The IPC `PrinterInfo` ([data-model](../04-architecture/data-model.md)) is the **
 - **Defaults for this printer** — default tray and default paper selects (options from `trays`/`papers`). Real jobs use them wherever the job leaves the value open (no tray chosen, paper **Printer default**); a tray or paper the job or its profile names explicitly always wins. Applied identically by the queue, the CLI and the honesty preview.
 - **Route file types here** — extension pills (e.g. `.pdf`, `.jpg`) that default to this printer when no profile overrides. An **add rule** affordance appends a new extension. Cross-references the [context-menu routing](./context-menu-actions.md).
 - **Capabilities** — pills for Duplex, Color/Monochrome, paper-size count, tray count, labelled *queried from driver*. When `duplex` is false, a warning notes that **profiles requesting duplex will pause with `DuplexNotSupported`** on this device rather than fail — consistent with the queue's paused-not-failed policy.
-- **Supply levels** — per-supply bars (CMYK or just black), turning red below 20 %. Hidden when the device reports no supplies.
-- **Input trays** — per-tray rows with loaded media and a fill bar (red below 20 %).
+- **Supply levels** — per-supply bars (CMYK or just black), turning red below 20 %. Hidden when the device reports no supplies. A level the device reports as unknown (IPP `marker-levels` of `-1`/`-2`/`-3`) is omitted rather than drawn as an empty bar.
+- **Input trays** — per-tray rows with loaded media and a fill bar (red below 20 %). Hidden when the driver reports no trays.
 
 ## Actions
 
@@ -100,11 +100,11 @@ The IPC `PrinterInfo` ([data-model](../04-architecture/data-model.md)) is the **
 
 A modal (`AddPrinterModal` in `PrintersScreen.tsx`) with three tabs, plus an **Open printer settings** button in the footer that always defers to the OS pane (`open_printer_settings`) for transports MaeclyPrint can't install itself.
 
-1. **Scan network** — mDNS/Bonjour discovery (`discover_printers`; `ippfind` on macOS/Linux, empty on Windows until WSD lands). Each result has an **Add** button that really installs the queue via `add_printer`, with a per-row inline error and toast on failure.
-2. **By IP address** — manual entry: host/IP, protocol, port, optional queue path, display name. Host and name are validated client-side (`isValidHost` / `buildPrinterUri` in `src/lib/printerAddress.ts`) before the URI is composed and handed to `add_printer`. The protocol list is **platform-dependent**: macOS/Linux offer IPP, IPPS, Raw (JetDirect 9100) and LPD/LPR; **Windows offers IPP/IPPS only** (a note steers raw/LPD/USB to *Open printer settings*).
+1. **Scan network** — mDNS/Bonjour discovery (`discover_printers`; `ippfind` on macOS/Linux, empty on Windows until WSD lands). Results are keyed by the printer's advertised **UUID** (else its host without the port): a printer already installed — matched by UUID, Bonjour service name or host against each queue's `device-uri` — is not offered again, and the `ipp` and `ipps` adverts of one device collapse into a single row on `ipps`, named after the Bonjour service. Each result has an **Add** button that really installs the queue via `add_printer`, with a per-row inline error and toast on failure.
+2. **By IP address** — manual entry: host/IP, protocol, port, optional queue path, display name. Host, port (an integer 1–65535) and name are validated client-side (`isValidHost` / `isValidPort` / `isValidDisplayName` / `buildPrinterUri` in `src/lib/printerAddress.ts`) before the URI is composed and handed to `add_printer`. The protocol list is **platform-dependent**: macOS/Linux offer IPP, IPPS, Raw (JetDirect 9100) and LPD/LPR; **Windows offers IPP/IPPS only** (a note steers raw/LPD/USB to *Open printer settings*).
 3. **From system** — every queue the OS already reports, with a checkbox per printer. Unticking one **soft-disables** it (hides it from MaeclyPrint by adding its id to `prefs.disabled`); the underlying OS print queue is never modified. This is a MaeclyPrint-only preference, not an `lpadmin`/spooler mutation. The print path enforces it: a file-type route or app default naming a disabled printer is skipped as if unset, and a job that still resolves to one (an explicit printer in its profile or request, or a disabled OS default) is **paused** with `printer_disabled` and a message naming the printer — never sent. The CLI refuses it the same way (exit code `Printer`). Enabling the printer again and resuming sends the job there.
 
-`add_printer` selects the install method per platform (see [Per-platform differences](#per-platform-differences)); on failure it surfaces the spooler's own diagnostic (e.g. `lpadmin`'s "Unable to connect to …") verbatim in the toast. It never touches MaeclyPrint preferences — only the OS spooler — and never silently overwrites an existing queue (the derived queue id is de-duplicated first).
+`add_printer` selects the install method per platform (see [Per-platform differences](#per-platform-differences)); on failure it surfaces the spooler's own diagnostic (e.g. `lpadmin`'s "Unable to connect to …") verbatim in the toast. It never touches MaeclyPrint preferences — only the OS spooler — and never silently overwrites an existing queue (the derived queue id is de-duplicated first, **ignoring case**, because CUPS resolves queue names case-insensitively). On CUPS the queue id is derived from the display name the way `lpadmin` requires: every character that is not printable ASCII, and each of space and `/ \ ? ' " # @`, becomes `_`, capped at 127 bytes; the display name itself is kept verbatim as the queue description.
 
 ## Edge states
 
@@ -112,7 +112,7 @@ A modal (`AddPrinterModal` in `PrintersScreen.tsx`) with three tabs, plus an **O
   - **Update references (reassign)** — repoints the missing printer's routes at a chosen ready printer and remaps the app default to it. The missing printer's tray/paper overrides are **dropped, not carried over** — bin and media names are model-specific and don't transfer between devices.
   - **Forget** — removes every reference (routes, overrides, default) to the missing printer without reassigning.
   - **Keep paused** — dismisses the banner for this session only, without touching prefs; it reappears on the next **Rescan**/reload. If several printers are missing, the banner handles them one at a time and notes how many more remain.
-- **Org-managed default** — when `policy.json` pins `default_printer`, a lock note appears and **Set default** is disabled with an explanatory tooltip. The effective default follows the precedence `policy.default_printer ?? prefs.default_printer ?? OS default`. See the enterprise policy notes in the [security model](../04-architecture/security-model.md#43-enterprise-policy-policyjson).
+- **Org-managed default** — when `policy.json` pins `default_printer`, a lock note appears and **Set default** is disabled with an explanatory tooltip. The effective default follows the precedence `policy.default_printer ?? prefs.default_printer ?? OS default`, and that is enforced in the **print path** too, not just on screen: the queue, the CLI and the command preview fold the policy into the app prefs (`ipc::printers::with_policy`) before resolving, so a job with no explicit printer and no file-type route goes to the policy printer. See the enterprise policy notes in the [security model](../04-architecture/security-model.md#43-enterprise-policy-policyjson).
 
 ## Per-platform differences
 

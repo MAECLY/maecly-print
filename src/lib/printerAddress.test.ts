@@ -3,9 +3,42 @@ import { describe, it, expect } from 'vitest';
 import {
   buildPrinterUri,
   DEFAULT_PORTS,
+  isValidDisplayName,
   isValidHost,
+  isValidPort,
   type PrinterProtocol,
 } from './printerAddress';
+
+describe('isValidPort', () => {
+  it.each([
+    ['631', true],
+    ['1', true],
+    ['65535', true],
+    [' 9100 ', true],
+    ['0', false],
+    ['-5', false],
+    ['70000', false],
+    ['631.5', false],
+    ['1e3', false],
+    ['', false],
+    ['abc', false],
+  ])('FR-044: isValidPort(%j) === %s', (input, expected) => {
+    expect(isValidPort(input)).toBe(expected);
+  });
+});
+
+describe('isValidDisplayName', () => {
+  it.each([
+    ["Ana's printer", true],
+    ['Impresora de recepción', true],
+    ['Printer?2', true],
+    ['', false],
+    ['   ', false],
+    ['tab\there', false],
+  ])('FR-044: isValidDisplayName(%j) === %s', (input, expected) => {
+    expect(isValidDisplayName(input)).toBe(expected);
+  });
+});
 
 describe('isValidHost', () => {
   it.each([

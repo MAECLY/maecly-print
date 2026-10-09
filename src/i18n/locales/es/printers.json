@@ -56,6 +56,7 @@
   "toast": {
     "settingDefault": "Estableciendo {{name}} como predeterminada…",
     "defaultSet": "{{name}} ya es la impresora predeterminada",
+    "defaultSetPartial": "{{name}} ya es la predeterminada del sistema, pero MaeclyPrint no pudo guardarla como su predeterminada.",
     "sendingTestPage": "Enviando página de prueba a {{name}}…",
     "testPageSent": "Página de prueba enviada a {{name}}: si no sale nada, revisa la cola de la propia impresora.",
     "removed": "{{name}} ya no se gestiona en MaeclyPrint (sigue instalada en {{os}})",
@@ -167,6 +168,7 @@
     "hostPlaceholder": "10.0.0.41 o impresora.local",
     "protocol": "Protocolo",
     "port": "Puerto",
+    "portInvalid": "El puerto debe ser un número entero entre 1 y 65535.",
     "queuePath": "Ruta de la cola (opcional)",
     "queuePathPlaceholder": "ipp/print",
     "queuePathNone": "ninguna",

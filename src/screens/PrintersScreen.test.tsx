@@ -714,6 +714,82 @@ describe('PrintersScreen', () => {
     expect(calls.some((c) => c.cmd === 'set_printer_prefs')).toBe(false);
   });
 
+  it('FR-044 regression: Keep paused lasts only until the next Rescan', async () => {
+    mockPrinters({ prefs: { routes: { '.pdf': 'GONE' } } });
+    renderScreen(false);
+    await screen.findByText('GONE');
+
+    fireEvent.click(screen.getByText('Keep paused'));
+    await waitFor(() =>
+      expect(screen.queryByText('GONE')).not.toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Rescan/ }));
+    expect(await screen.findByText('GONE')).toBeInTheDocument();
+  });
+
+  it('NFR-033 regression: Set default does not claim success when saving the app default fails', async () => {
+    const calls = mockPrinters({ fail: 'set_printer_prefs' });
+    renderScreen();
+    await screen.findByText(/2 configured/);
+
+    fireEvent.click(screen.getByText('Brother HL-L2350DW'));
+    fireEvent.click(screen.getByText('Set default'));
+
+    expect(
+      await screen.findByText(
+        /could not save it as its own default/,
+        {},
+        { timeout: 3000 },
+      ),
+    ).toBeInTheDocument();
+    expect(calls.some((c) => c.cmd === 'set_default_printer')).toBe(true);
+    expect(screen.queryByText(/is now the default$/)).not.toBeInTheDocument();
+  });
+
+  it('FR-044 regression: hides the Input trays block when the driver reports no trays', async () => {
+    mockPrinters({
+      printers: fixturePrinters.map((p) =>
+        p.id === 'HL_L2350' ? { ...p, trays: [] } : p,
+      ),
+    });
+    renderScreen(false);
+    await screen.findByText(/2 configured/);
+    expect(screen.getByText('Input trays')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Brother HL-L2350DW'));
+    await waitFor(() =>
+      expect(screen.queryByText('Input trays')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('FR-044 regression: rejects an out-of-range port before calling add_printer', async () => {
+    const calls = mockPrinters();
+    renderScreen();
+    await screen.findByText(/2 configured/);
+
+    const dialog = await openAddModal();
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'By IP address' }));
+    fireEvent.change(within(dialog).getByPlaceholderText(/10\.0\.0\.41/), {
+      target: { value: '10.0.0.5' },
+    });
+    const portField = within(dialog).getByDisplayValue('631');
+    const connect = within(dialog).getByRole('button', { name: 'Connect' });
+
+    for (const bad of ['-5', '0', '70000', '631.5']) {
+      fireEvent.change(portField, { target: { value: bad } });
+      expect(connect).toBeDisabled();
+      expect(
+        within(dialog).getByText(/whole number from 1 to 65535/),
+      ).toBeInTheDocument();
+    }
+    fireEvent.click(connect);
+    expect(calls.some((c) => c.cmd === 'add_printer')).toBe(false);
+
+    fireEvent.change(portField, { target: { value: '8631' } });
+    expect(connect).not.toBeDisabled();
+  });
+
   it('NFR-043: the reassign dropdown carries an accessible name', async () => {
     mockPrinters({ prefs: { routes: { '.pdf': 'GONE' } } });
     renderScreen(false);
@@ -742,6 +818,17 @@ describe('PrintersScreen', () => {
 
     // The effective default star follows policy: selecting Brother shows the
     // header default badge.
+    fireEvent.click(screen.getByRole('button', { name: /Brother HL-L2350DW/ }));
+    expect(await screen.findByText('default')).toBeInTheDocument();
+  });
+
+  it('FR-044: a policy.json that names the display name still locks that printer', async () => {
+    mockPrinters({ policy: { default_printer: 'Brother HL-L2350DW' } });
+    renderScreen(false);
+    await screen.findByText(/2 configured/);
+
+    const note = await screen.findByText(/managed by your organization/i);
+    expect(note).toHaveTextContent('Brother HL-L2350DW');
     fireEvent.click(screen.getByRole('button', { name: /Brother HL-L2350DW/ }));
     expect(await screen.findByText('default')).toBeInTheDocument();
   });

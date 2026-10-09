@@ -47,9 +47,12 @@ import {
 import {
   buildPrinterUri,
   DEFAULT_PORTS,
+  isValidDisplayName,
   isValidHost,
+  isValidPort,
   type PrinterProtocol,
 } from '@/lib/printerAddress';
+import { resolvePrinterId } from '@/lib/printerIdentity';
 import type {
   UiDiscoveredPrinter,
   UiPrinter,
@@ -319,6 +322,8 @@ export function PrintersScreen() {
     }
     setPrinters(null);
     setError(null);
+    // "Keep paused" lasts until the next Rescan/reload (spec § Edge states).
+    setDismissedMissing(new Set());
     try {
       const [list, def, p, pol, info] = await Promise.all([
         listPrinters(),
@@ -350,17 +355,21 @@ export function PrintersScreen() {
   // Reset the inline "add rule" input whenever the selected printer changes.
   useEffect(() => setRuleDraft(null), [selectedId]);
 
-  // Persist a prefs change optimistically; reload + toast on failure.
+  // Persist a prefs change optimistically; reload + toast on failure. Resolves
+  // to whether the save landed, so a caller chaining it after an OS action
+  // never reports success for a half-done change.
   const savePrefs = useCallback(
-    async (next: PrinterPrefs, success?: string) => {
+    async (next: PrinterPrefs, success?: string): Promise<boolean> => {
       setPrefs(next);
       try {
         const saved = await setPrinterPrefs(next);
         setPrefs(saved);
         if (success) toast.success(success);
+        return true;
       } catch (e) {
         toast.error(errText(e));
         void load();
+        return false;
       }
     },
     [load],
@@ -446,12 +455,15 @@ export function PrintersScreen() {
   const disabledSet = new Set(prefs.disabled ?? []);
   // Effective default: org policy wins, then the MaeclyPrint app default, then
   // whatever the OS reports.
-  const appDefaultId =
-    policy?.default_printer ?? prefs.default_printer ?? defaultId;
+  // An admin may write the display name in policy.json; resolve it to the
+  // queue id the same way the print path does, so the star lands on the
+  // printer jobs will really use.
+  const policyRef = policy?.default_printer?.trim() || null;
+  const policyId = resolvePrinterId(printers, policyRef) ?? policyRef;
+  const appDefaultId = policyId ?? prefs.default_printer ?? defaultId;
   // When policy pins a default, the app treats it as read-only.
-  const policyLocked = policy?.default_printer != null;
-  const lockedName =
-    printers.find((p) => p.id === policy?.default_printer)?.name ?? null;
+  const policyLocked = policyRef != null;
+  const lockedName = printers.find((p) => p.id === policyId)?.name ?? null;
   const stateOf = (id: string): UiPrinterState =>
     disabledSet.has(id)
       ? 'disabled'
@@ -515,8 +527,19 @@ export function PrintersScreen() {
       // Merge into the LATEST prefs, not the render-time capture: the OS call
       // above can be slow, and whole-object-saving stale prefs would silently
       // revert any concurrent prefs change (routes, disabled, overrides).
-      await savePrefs({ ...prefsRef.current, default_printer: sel.id });
-      toast.success(t('toast.defaultSet', { name: sel.name }), { id });
+      const saved = await savePrefs({
+        ...prefsRef.current,
+        default_printer: sel.id,
+      });
+      if (saved) {
+        toast.success(t('toast.defaultSet', { name: sel.name }), { id });
+      } else {
+        // The OS default changed but MaeclyPrint's did not: say exactly that
+        // (savePrefs already toasted the reason) instead of claiming success.
+        toast.warning(t('toast.defaultSetPartial', { name: sel.name }), {
+          id,
+        });
+      }
     } catch (e) {
       toast.error(errText(e), { id });
     } finally {
@@ -1355,64 +1378,67 @@ export function PrintersScreen() {
                 </Block>
               )}
 
-              <Block label={t('trays.label')}>
-                <MPCard padding={0}>
-                  {sel.trays.map((tray, i) => (
-                    <div
-                      key={tray.name}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        padding: '9px 12px',
-                        borderBottom:
-                          i < sel.trays.length - 1
-                            ? '1px solid var(--mp-border)'
-                            : 'none',
-                      }}
-                    >
-                      <Icon name="file" size={13} color="var(--mp-textDim)" />
-                      <span
-                        style={{ fontSize: 12, fontWeight: 500, width: 64 }}
-                      >
-                        {tray.name}
-                      </span>
-                      <span
-                        className="mp-mono"
+              {/* Hidden, like Supply levels, when the driver reports no trays. */}
+              {sel.trays.length > 0 && (
+                <Block label={t('trays.label')}>
+                  <MPCard padding={0}>
+                    {sel.trays.map((tray, i) => (
+                      <div
+                        key={tray.name}
                         style={{
-                          fontSize: 11,
-                          color: 'var(--mp-textMuted)',
-                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          padding: '9px 12px',
+                          borderBottom:
+                            i < sel.trays.length - 1
+                              ? '1px solid var(--mp-border)'
+                              : 'none',
                         }}
                       >
-                        {tray.paper ?? t('trays.unknownPaper')}
-                      </span>
-                      {tray.level != null && (
-                        <div
+                        <Icon name="file" size={13} color="var(--mp-textDim)" />
+                        <span
+                          style={{ fontSize: 12, fontWeight: 500, width: 64 }}
+                        >
+                          {tray.name}
+                        </span>
+                        <span
+                          className="mp-mono"
                           style={{
-                            width: 46,
-                            height: 5,
-                            background: 'var(--mp-surface3)',
-                            borderRadius: 3,
-                            overflow: 'hidden',
+                            fontSize: 11,
+                            color: 'var(--mp-textMuted)',
+                            flex: 1,
                           }}
                         >
+                          {tray.paper ?? t('trays.unknownPaper')}
+                        </span>
+                        {tray.level != null && (
                           <div
                             style={{
-                              height: '100%',
-                              width: `${tray.level * 100}%`,
-                              background:
-                                tray.level < 0.2
-                                  ? 'var(--mp-error)'
-                                  : 'var(--mp-success)',
+                              width: 46,
+                              height: 5,
+                              background: 'var(--mp-surface3)',
+                              borderRadius: 3,
+                              overflow: 'hidden',
                             }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </MPCard>
-              </Block>
+                          >
+                            <div
+                              style={{
+                                height: '100%',
+                                width: `${tray.level * 100}%`,
+                                background:
+                                  tray.level < 0.2
+                                    ? 'var(--mp-error)'
+                                    : 'var(--mp-success)',
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </MPCard>
+                </Block>
+              )}
             </div>
           </div>
         </div>
@@ -2061,7 +2087,10 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
   // The display name tracks the host until the user types their own.
   const effectiveName = nameEdited ? name : host;
   const hostOk = isValidHost(host);
-  const canConnect = !busy && hostOk && effectiveName.trim() !== '';
+  // Blank means "the protocol's default port"; anything typed must be 1–65535.
+  const portOk = port.trim() === '' || isValidPort(port);
+  const nameOk = isValidDisplayName(effectiveName);
+  const canConnect = !busy && hostOk && portOk && nameOk;
   const hasQueuePath = proto === 'ipp' || proto === 'ipps';
 
   const onProtoChange = (value: string) => {
@@ -2072,10 +2101,8 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
 
   const handleConnect = async () => {
     const finalName = effectiveName.trim();
-    if (!hostOk || !finalName) return;
-    const parsed = Number(port);
-    const portArg =
-      port.trim() !== '' && Number.isFinite(parsed) ? parsed : undefined;
+    if (!hostOk || !portOk || !nameOk) return;
+    const portArg = port.trim() === '' ? undefined : Number(port.trim());
     const uri = buildPrinterUri(proto, host, portArg, queuePath);
     setBusy(true);
     setErrorMsg(null);
@@ -2121,6 +2148,7 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
             type="number"
             value={port}
             onChange={(e) => setPort(e.target.value)}
+            error={!portOk}
           />
         </ModalField>
       </div>
@@ -2173,9 +2201,11 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
             setName(e.target.value);
           }}
           placeholder={t('ip.displayNamePlaceholder')}
+          error={effectiveName !== '' && !nameOk}
         />
       </ModalField>
 
+      {!portOk && <InlineError>{t('ip.portInvalid')}</InlineError>}
       {errorMsg && <InlineError>{errorMsg}</InlineError>}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
