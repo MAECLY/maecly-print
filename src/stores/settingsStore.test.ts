@@ -4,7 +4,10 @@ import { toast } from 'sonner';
 
 import type { AppSettings } from '@/ipc/bindings';
 import { fixtureAppSettings } from '@/test/fixtures';
-import { useSettingsStore } from '@/stores/settingsStore';
+import {
+  resetSettingsWriteQueue,
+  useSettingsStore,
+} from '@/stores/settingsStore';
 
 interface Call {
   cmd: string;
@@ -38,6 +41,7 @@ function mockSettings(opts: MockOpts = {}): Call[] {
 }
 
 function resetStore() {
+  resetSettingsWriteQueue();
   useSettingsStore.setState({
     settings: null,
     status: 'idle',
@@ -316,43 +320,71 @@ describe('settingsStore', () => {
     return deferreds;
   }
 
-  it('latest-wins: a slow success for #1 does not clobber a newer #2', async () => {
+  /** Let queued microtasks (the drain loop's next send) run. */
+  const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+
+  it('serializes saves: a second update is sent only after the first settles', async () => {
     const deferreds = mockDeferredSaves();
     await useSettingsStore.getState().init();
     const S0 = useSettingsStore.getState().settings!;
 
     const next1: AppSettings = {
       ...S0,
-      updater: { ...S0.updater, channel: 'beta' },
+      telemetry: { ...S0.telemetry, crash_reports: true },
     };
     const next2: AppSettings = {
-      ...S0,
-      updater: { ...S0.updater, channel: 'nightly' },
+      ...next1,
+      telemetry: { ...next1.telemetry, anonymous_usage_metrics: true },
     };
 
     const p1 = useSettingsStore.getState().update(next1);
     const p2 = useSettingsStore.getState().update(next2);
-    // Both optimistic writes have landed; #2 is the newest.
-    expect(useSettingsStore.getState().settings?.updater.channel).toBe(
-      'nightly',
-    );
+    await flush();
+    // Only one write is on the wire; #2 waits for it.
+    expect(deferreds).toHaveLength(1);
+    expect(useSettingsStore.getState().settings).toEqual(next2);
 
-    // #2 resolves first (fast), echoing what it was sent.
-    deferreds[1]!.resolve(deferreds[1]!.settings);
-    expect(await p2).toBe(true);
-    expect(useSettingsStore.getState().settings?.updater.channel).toBe(
-      'nightly',
-    );
-
-    // #1 resolves last (slow); its stale success must NOT clobber #2.
     deferreds[0]!.resolve(deferreds[0]!.settings);
     expect(await p1).toBe(true);
-    expect(useSettingsStore.getState().settings?.updater.channel).toBe(
-      'nightly',
-    );
+    // #1's response must not clobber the newer optimistic value.
+    expect(useSettingsStore.getState().settings).toEqual(next2);
+    await flush();
+    expect(deferreds).toHaveLength(2);
+    expect(deferreds[1]!.settings).toEqual(next2);
+
+    deferreds[1]!.resolve(deferreds[1]!.settings);
+    expect(await p2).toBe(true);
+    // The LAST write to reach disk carries the newest value.
+    expect(useSettingsStore.getState().settings).toEqual(next2);
   });
 
-  it('latest-wins: two overlapping failures roll back to the original, not #1', async () => {
+  it('coalesces: updates queued behind an in-flight save collapse into one write of the latest', async () => {
+    const deferreds = mockDeferredSaves();
+    await useSettingsStore.getState().init();
+    const S0 = useSettingsStore.getState().settings!;
+    const withChannel = (
+      c: AppSettings['updater']['channel'],
+    ): AppSettings => ({
+      ...S0,
+      updater: { ...S0.updater, channel: c },
+    });
+
+    const p1 = useSettingsStore.getState().update(withChannel('beta'));
+    const p2 = useSettingsStore.getState().update(withChannel('nightly'));
+    const p3 = useSettingsStore.getState().update(withChannel('stable'));
+    await flush();
+    deferreds[0]!.resolve(deferreds[0]!.settings);
+    await p1;
+    await flush();
+    expect(deferreds).toHaveLength(2);
+    expect(deferreds[1]!.settings.updater.channel).toBe('stable');
+    deferreds[1]!.resolve(deferreds[1]!.settings);
+    expect(await p2).toBe(true);
+    expect(await p3).toBe(true);
+    expect(deferreds).toHaveLength(2);
+  });
+
+  it('two failed overlapping saves roll back to the original, not to #1', async () => {
     const spy = vi.spyOn(toast, 'error').mockReturnValue('id');
     const deferreds = mockDeferredSaves();
     await useSettingsStore.getState().init();
@@ -360,26 +392,77 @@ describe('settingsStore', () => {
 
     const next1: AppSettings = {
       ...S0,
-      app: { ...S0.app, theme: 'dark' },
+      telemetry: { ...S0.telemetry, crash_reports: true },
     };
     const next2: AppSettings = {
-      ...S0,
-      app: { ...S0.app, theme: 'light' },
+      ...next1,
+      telemetry: { ...next1.telemetry, anonymous_usage_metrics: true },
     };
 
     const p1 = useSettingsStore.getState().update(next1);
     const p2 = useSettingsStore.getState().update(next2);
-    expect(useSettingsStore.getState().settings).toEqual(next2);
-
-    // #2 (newest) fails first → unwinds to #1's optimistic value…
-    deferreds[1]!.reject(new Error('boom'));
-    expect(await p2).toBe(false);
-    // …then #1 fails → unwinds to the ORIGINAL persisted S0, not next1.
+    await flush();
     deferreds[0]!.reject(new Error('boom'));
     expect(await p1).toBe(false);
+    await flush();
+    deferreds[1]!.reject(new Error('boom'));
+    expect(await p2).toBe(false);
 
+    // Crash reports were never saved, so the UI must not show them on.
     expect(useSettingsStore.getState().settings).toEqual(S0);
-    expect(useSettingsStore.getState().settings).not.toEqual(next1);
     spy.mockRestore();
+  });
+
+  it('a failure after a successful save rolls back to the server-confirmed value', async () => {
+    const spy = vi.spyOn(toast, 'error').mockReturnValue('id');
+    const deferreds = mockDeferredSaves();
+    await useSettingsStore.getState().init();
+    const S0 = useSettingsStore.getState().settings!;
+
+    const next1: AppSettings = {
+      ...S0,
+      engine: { ...S0.engine, max_concurrent_conversions: 99 },
+    };
+    const clamped: AppSettings = {
+      ...S0,
+      engine: { ...S0.engine, max_concurrent_conversions: 8 },
+    };
+    const next2: AppSettings = {
+      ...next1,
+      app: { ...next1.app, theme: 'dark' },
+    };
+
+    const p1 = useSettingsStore.getState().update(next1);
+    const p2 = useSettingsStore.getState().update(next2);
+    await flush();
+    deferreds[0]!.resolve(clamped);
+    expect(await p1).toBe(true);
+    await flush();
+    deferreds[1]!.reject(new Error('boom'));
+    expect(await p2).toBe(false);
+
+    expect(useSettingsStore.getState().settings).toEqual(clamped);
+    spy.mockRestore();
+  });
+
+  it('syncDefaultProfile also rewrites a queued write, so it cannot revert the default', async () => {
+    const deferreds = mockDeferredSaves();
+    await useSettingsStore.getState().init();
+    const S0 = useSettingsStore.getState().settings!;
+
+    const p1 = useSettingsStore.getState().patch({ app: { theme: 'dark' } });
+    const p2 = useSettingsStore.getState().patch({ app: { theme: 'light' } });
+    useSettingsStore.getState().syncDefaultProfile('builtin-draft');
+    await flush();
+    deferreds[0]!.resolve(deferreds[0]!.settings);
+    await p1;
+    await flush();
+    expect(deferreds[1]!.settings.engine.default_profile).toBe('builtin-draft');
+    deferreds[1]!.resolve(deferreds[1]!.settings);
+    await p2;
+    expect(useSettingsStore.getState().settings?.engine.default_profile).toBe(
+      'builtin-draft',
+    );
+    expect(S0.engine.default_profile).not.toBe('builtin-draft');
   });
 });

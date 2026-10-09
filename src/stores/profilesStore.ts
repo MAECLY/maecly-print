@@ -181,15 +181,7 @@ export const useProfilesStore = create<ProfilesState>()((set, get) => {
         // behind the settings store's back; sync its cached copy IMMEDIATELY
         // (before the refetch, which may throw) or the next whole-section
         // engine update would silently revert the default from a stale cache.
-        const settings = useSettingsStore.getState().settings;
-        if (settings && settings.engine.default_profile !== id) {
-          useSettingsStore.setState({
-            settings: {
-              ...settings,
-              engine: { ...settings.engine, default_profile: id },
-            },
-          });
-        }
+        useSettingsStore.getState().syncDefaultProfile(id);
         // Reload the list last: a refetch failure only affects list freshness,
         // not the already-synced default.
         await refetch();

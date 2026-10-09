@@ -89,7 +89,8 @@ Two switches, **off by default**: crash reports and anonymous usage metrics. The
 The settings store (`src/stores/settingsStore.ts`) is **optimistic with rollback**:
 
 - `update(next)` applies `next` to local state immediately (controls feel instant), calls `set_app_settings`, then reconciles state to whatever the backend saved — so a server-normalized/clamped value is reflected without a second round-trip.
-- On failure it **rolls back** to the previously persisted value and shows an error toast, leaving the UI consistent with disk.
+- On failure it **rolls back** to the last value the backend confirmed (the idle state when the burst of writes began, or the response of a save that succeeded since) and shows an error toast, leaving the UI consistent with disk.
+- Writes are **serialized and coalesced**: at most one `set_app_settings` is in flight. Updates made meanwhile collapse into one pending bundle (each update carries the whole bundle, so the newest already contains the earlier changes), sent when the in-flight write settles. The last write to reach `config.toml` is therefore always the newest value, and only a write that leaves the queue empty reconciles the visible state.
 - `patch(partial)` is the convenience path most controls use: it shallow-merges a per-section patch onto the current settings and persists.
 
 On the backend, `set_app_settings` takes the config lock, loads the full config, **replaces exactly the four wire sections** (keeping `printers` and `schema_version`), validates, and writes atomically. Validation returns `InvalidRequest` naming the offending field, and nothing is written when it fails. Bounds: concurrency `1..=8`, timeout `0` or `10..=3600`, size `1..=4096`, non-empty locale, and a `default_profile` that names a known profile.

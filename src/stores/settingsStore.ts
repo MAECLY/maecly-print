@@ -6,8 +6,16 @@
  * the controls feel instant, then persists it. The backend validates and
  * returns the saved (normalized) value, which we reconcile into state — so a
  * server clamp or serde default is reflected without a second round-trip. A
- * failed save ROLLS BACK to the previous value and surfaces an error toast,
- * leaving the UI consistent with what's actually on disk.
+ * failed save ROLLS BACK to the last value the backend CONFIRMED and surfaces
+ * an error toast, leaving the UI consistent with what's actually on disk.
+ *
+ * Writes are also SERIALIZED: at most one `set_app_settings` is in flight. An
+ * update that arrives meanwhile is parked as the single pending value (a newer
+ * one replaces it — every update carries the whole bundle, so the latest value
+ * already contains the earlier changes) and is sent once the in-flight write
+ * settles. Two concurrent IPC calls would each run on their own blocking task,
+ * and `CONFIG_LOCK` orders the writes but not *which* lands last — so without
+ * this queue an older bundle could win on disk while the UI shows the newer.
  *
  * The store is PURE: it never touches the DOM or localStorage. Appearance
  * (theme/density) also has a localStorage-backed instant-boot cache owned by
@@ -64,9 +72,11 @@ interface SettingsState {
    */
   init: () => Promise<void>;
   /**
-   * Optimistically apply and persist `next`. Resolves `true` when saved (state
-   * reconciled to the server value) or `false` on failure (rolled back, toast
-   * shown).
+   * Optimistically apply and persist `next`. Resolves `true` when the write
+   * carrying it was saved (state reconciled to the server value) or `false`
+   * when it failed (rolled back, toast shown). An update superseded by a newer
+   * one before it was sent resolves with the outcome of that newer write,
+   * which includes it.
    */
   update: (next: AppSettings) => Promise<boolean>;
   /**
@@ -74,6 +84,13 @@ interface SettingsState {
    * settings and persist. Resolves `false` (a no-op) when nothing is loaded.
    */
   patch: (partial: SettingsPatch) => Promise<boolean>;
+  /**
+   * Record a `default_profile` the backend already persisted through another
+   * command (`set_default_profile`). Updates the visible state, the confirmed
+   * baseline a rollback returns to, and any queued write, so none of them can
+   * later put the old default back.
+   */
+  syncDefaultProfile: (id: string) => void;
 }
 
 /** Turn an unknown thrown value into a user-facing message. */
@@ -97,52 +114,125 @@ function merge(base: AppSettings, p: SettingsPatch): AppSettings {
   };
 }
 
-export const useSettingsStore = create<SettingsState>()((set, get) => ({
-  settings: null,
-  status: 'idle',
+/**
+ * The write queue's bookkeeping. Module-level rather than store state because
+ * none of it is rendered; {@link resetSettingsWriteQueue} clears it for tests.
+ */
+interface WriteQueue {
+  /**
+   * The last bundle known to be on disk: the idle state when a burst of writes
+   * starts, then each successful save's response.
+   */
+  confirmed: AppSettings | null;
+  /** True while a `set_app_settings` call is in flight. */
+  inFlight: boolean;
+  /** The newest bundle waiting for the in-flight write to settle. */
+  pending: AppSettings | null;
+  /** Callers whose value is folded into `pending`, resolved with its outcome. */
+  waiters: Array<(ok: boolean) => void>;
+}
 
-  init: async () => {
-    const status = get().status;
-    if (status !== 'idle' && status !== 'error') return;
-    if (!isTauri()) {
-      set({ status: 'unavailable' });
-      return;
-    }
-    set({ status: 'loading', error: undefined });
+const queue: WriteQueue = {
+  confirmed: null,
+  inFlight: false,
+  pending: null,
+  waiters: [],
+};
+
+/** Test hook: forget the confirmed baseline and any queued write. */
+export function resetSettingsWriteQueue(): void {
+  queue.confirmed = null;
+  queue.inFlight = false;
+  queue.pending = null;
+  queue.waiters = [];
+}
+
+export const useSettingsStore = create<SettingsState>()((set, get) => {
+  /**
+   * Drain the queue: send the pending bundle, settle its waiters, repeat until
+   * nothing new arrived meanwhile. Only a write that leaves the queue empty
+   * touches visible state — an older response must never overwrite a newer
+   * optimistic value the user is already looking at.
+   */
+  async function drain(): Promise<void> {
+    queue.inFlight = true;
     try {
-      const settings = await getAppSettings();
-      set({ settings, status: 'ready' });
-    } catch (e) {
-      set({ status: 'error', error: message(e) });
+      while (queue.pending) {
+        const value = queue.pending;
+        const waiters = queue.waiters;
+        queue.pending = null;
+        queue.waiters = [];
+        let ok: boolean;
+        try {
+          const saved = await setAppSettings(value);
+          queue.confirmed = saved;
+          if (!queue.pending) set({ settings: saved });
+          ok = true;
+        } catch (e) {
+          // Nothing queued behind us: unwind to what is really on disk. With a
+          // newer bundle queued, leave the optimistic state alone — that write
+          // decides the final value (and rolls back itself if it fails too).
+          if (!queue.pending) set({ settings: queue.confirmed });
+          toast.error(message(e));
+          ok = false;
+        }
+        for (const w of waiters) w(ok);
+      }
+    } finally {
+      queue.inFlight = false;
     }
-  },
+  }
 
-  update: async (next) => {
-    const prev = get().settings;
-    // Optimistic: reflect the change immediately so controls feel instant.
-    set({ settings: next });
-    try {
-      // The backend validates + normalizes; reconcile to whatever it saved
-      // (e.g. a clamped value) so the UI matches disk exactly.
-      const saved = await setAppSettings(next);
-      // Latest-wins: only reconcile if our optimistic value is still current.
-      // If a newer overlapping update has superseded it, this stale response
-      // must not clobber the newer state — leave it untouched.
-      set((s) => (s.settings === next ? { settings: saved } : {}));
-      return true;
-    } catch (e) {
-      // Roll back to what we captured — but only if ours is still the latest
-      // optimistic value, so we never resurrect a snapshot a newer update
-      // already replaced. The last overlapping failure unwinds to `prev`.
-      set((s) => (s.settings === next ? { settings: prev } : {}));
-      toast.error(message(e));
-      return false;
-    }
-  },
+  return {
+    settings: null,
+    status: 'idle',
 
-  patch: async (partial) => {
-    const cur = get().settings;
-    if (!cur) return false;
-    return get().update(merge(cur, partial));
-  },
-}));
+    init: async () => {
+      const status = get().status;
+      if (status !== 'idle' && status !== 'error') return;
+      if (!isTauri()) {
+        set({ status: 'unavailable' });
+        return;
+      }
+      set({ status: 'loading', error: undefined });
+      try {
+        const settings = await getAppSettings();
+        set({ settings, status: 'ready' });
+      } catch (e) {
+        set({ status: 'error', error: message(e) });
+      }
+    },
+
+    update: (next) => {
+      // With no write in flight the value on screen IS what is on disk (every
+      // drain ends reconciled to a saved or rolled-back value), so it is the
+      // baseline a failure of this burst of writes returns to.
+      if (!queue.inFlight) queue.confirmed = get().settings;
+      // Optimistic: reflect the change immediately so controls feel instant.
+      set({ settings: next });
+      const done = new Promise<boolean>((resolve) => {
+        queue.pending = next;
+        queue.waiters.push(resolve);
+      });
+      if (!queue.inFlight) void drain();
+      return done;
+    },
+
+    patch: async (partial) => {
+      const cur = get().settings;
+      if (!cur) return false;
+      return get().update(merge(cur, partial));
+    },
+
+    syncDefaultProfile: (id) => {
+      const withDefault = (s: AppSettings): AppSettings =>
+        s.engine.default_profile === id
+          ? s
+          : { ...s, engine: { ...s.engine, default_profile: id } };
+      if (queue.confirmed) queue.confirmed = withDefault(queue.confirmed);
+      if (queue.pending) queue.pending = withDefault(queue.pending);
+      const cur = get().settings;
+      if (cur) set({ settings: withDefault(cur) });
+    },
+  };
+});
