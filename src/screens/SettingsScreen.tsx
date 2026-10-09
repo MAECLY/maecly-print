@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import {
   MPInput,
   MPSectionLabel,
@@ -39,7 +39,12 @@ const LOCALE_LABELS: Record<Locale, string> = {
 interface RowProps {
   label: string;
   hint?: string;
-  /** Dim + block interaction on the control (backend not reachable). */
+  /**
+   * Dim the control and make it really unavailable (backend not reachable,
+   * settings still loading): a disabled <fieldset> natively disables every
+   * button, input and select inside, so they leave the tab order, ignore
+   * keys and are announced as unavailable (NFR-041) — not just unclickable.
+   */
   disabled?: boolean;
   children: ReactNode;
 }
@@ -73,13 +78,23 @@ function Row({ label, hint, disabled, children }: RowProps) {
           </div>
         )}
       </div>
-      <div
+      {/* A disabled fieldset takes its controls out of the tab order and
+          announces them as unavailable (NFR-041); `inert` also covers custom
+          widgets that are not form controls, and no pointer gets through. */}
+      <fieldset
+        disabled={disabled}
         ref={inertWhen(disabled ?? false)}
         aria-disabled={disabled ? true : undefined}
-        style={disabled ? { opacity: 0.45, pointerEvents: 'none' } : undefined}
+        style={{
+          border: 'none',
+          margin: 0,
+          padding: 0,
+          minWidth: 0,
+          ...(disabled ? { opacity: 0.45, pointerEvents: 'none' } : {}),
+        }}
       >
         {children}
-      </div>
+      </fieldset>
     </div>
   );
 }
@@ -93,7 +108,7 @@ function Row({ label, hint, disabled, children }: RowProps) {
  * `inert` prop, hence the attribute is set directly.
  */
 function inertWhen(on: boolean) {
-  return (el: HTMLDivElement | null) => {
+  return (el: HTMLElement | null) => {
     if (!el) return;
     if (on) el.setAttribute('inert', '');
     else el.removeAttribute('inert');
@@ -231,6 +246,7 @@ function EngineField({
 }: EngineFieldProps) {
   const [text, setText] = useState(value === undefined ? '' : String(value));
   const [error, setError] = useState(false);
+  const errorId = useId();
 
   useEffect(() => {
     setText(value === undefined ? '' : String(value));
@@ -263,6 +279,8 @@ function EngineField({
       >
         <MPInput
           mono
+          aria-label={label}
+          {...(error ? { 'aria-describedby': errorId } : {})}
           value={text}
           suffix={suffix}
           error={error}
@@ -272,7 +290,11 @@ function EngineField({
           }}
         />
         {error && (
-          <div style={{ fontSize: 11, color: 'var(--mp-error)' }} role="alert">
+          <div
+            id={errorId}
+            style={{ fontSize: 11, color: 'var(--mp-error)' }}
+            role="alert"
+          >
             {errorHint}
           </div>
         )}

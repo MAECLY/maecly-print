@@ -634,6 +634,17 @@ describe('SettingsScreen', () => {
     // Appearance stays enabled offline (local-only, nothing to revert).
     expect(controlOf('Theme').style.pointerEvents).not.toBe('none');
     expect(controlOf('Theme')).not.toHaveAttribute('inert');
+    // NFR-041: a backend row is really disabled — a disabled fieldset takes
+    // its controls out of the tab order and the accessibility tree announces
+    // them as unavailable, rather than only blocking the pointer.
+    expect(controlOf('Crash reports')).toBeDisabled();
+    expect(controlOf('Language')).toBeDisabled();
+    expect(
+      within(controlOf('Crash reports')).getByRole('switch'),
+    ).toBeDisabled();
+    expect(within(controlOf('Language')).getByRole('combobox')).toBeDisabled();
+
+    expect(controlOf('Theme')).not.toBeDisabled();
     fireEvent.click(screen.getByText('Dark'));
     expect(setTheme).toHaveBeenCalledWith('dark');
   });
@@ -669,6 +680,12 @@ describe('SettingsScreen', () => {
     // NFR-041: the keyboard can't reach them either (no Tab + Arrow change).
     expect(controlOf('Theme')).toHaveAttribute('inert');
     expect(controlOf('Density')).toHaveAttribute('inert');
+    expect(controlOf('Theme')).toBeDisabled();
+    expect(controlOf('Density')).toBeDisabled();
+    // …including from the keyboard: the radios are natively disabled.
+    for (const radio of within(controlOf('Theme')).getAllByRole('radio')) {
+      expect(radio).toBeDisabled();
+    }
   });
 
   it('NFR-041: enabled rows carry no inert/aria-disabled once settings load', async () => {
@@ -721,5 +738,17 @@ describe('SettingsScreen', () => {
       name: 'Idioma',
     })) as HTMLSelectElement;
     expect(select.value).toBe('es-ES');
+  });
+
+  it('NFR-041: engine fields are named and their bounds error describes them', async () => {
+    mockSettings();
+    renderSettings();
+    const field = await screen.findByRole('textbox', {
+      name: 'Concurrent conversions',
+    });
+    fireEvent.change(field, { target: { value: '0' } });
+    fireEvent.blur(field);
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAccessibleDescription(/.+/);
   });
 });
