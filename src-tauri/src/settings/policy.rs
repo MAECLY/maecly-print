@@ -16,6 +16,14 @@
 //! `C:\ProgramData` lets any standard user create folders (and own them), so a
 //! `policy.json` there that a user created is ignored — otherwise any user
 //! could impose a "managed" default printer on everyone else on the machine.
+//! The folder holding it must be admin/SYSTEM-owned too: a user who created
+//! `C:\ProgramData\MaeclyPrint` first could otherwise swap files inside it.
+//!
+//! The file is opened **once**, its owner is read from that open handle, and
+//! the content is read from the same handle ([`read_trusted`]). Checking the
+//! path and reading the path separately let a user who controls the folder
+//! show user-written content during the read and put the admin's file back
+//! before the owner check.
 //!
 //! **Debug builds only**, the per-user config dir (`<config_dir>/policy.json`)
 //! is consulted last as a developer/testing fallback; a release build never
@@ -49,18 +57,19 @@ impl PrinterPolicy {
             return policy;
         }
         for path in policy_paths() {
-            let Ok(raw) = std::fs::read_to_string(&path) else {
+            let raw = match read_trusted(&path) {
                 // Missing or unreadable — try the next candidate.
-                continue;
+                PolicyFile::Missing => continue,
+                PolicyFile::Untrusted => {
+                    tracing::warn!(
+                        event = "policy_untrusted",
+                        path = %path.display(),
+                        "ignoring policy.json that a non-administrator could have written"
+                    );
+                    continue;
+                }
+                PolicyFile::Trusted(raw) => raw,
             };
-            if !is_admin_owned(&path) {
-                tracing::warn!(
-                    event = "policy_untrusted",
-                    path = %path.display(),
-                    "ignoring policy.json that a non-administrator could have written"
-                );
-                continue;
-            }
             return match parse_policy(&raw) {
                 Some(policy) => policy,
                 None => {
@@ -140,21 +149,83 @@ fn registry_policy() -> Option<PrinterPolicy> {
     }
 }
 
-/// Whether `path` is a file a standard user could not have written.
+/// What reading one candidate policy file found.
+#[derive(Debug, PartialEq, Eq)]
+enum PolicyFile {
+    /// Absent or unreadable: not a policy.
+    Missing,
+    /// Present, but a standard user could have written it (or its folder).
+    Untrusted,
+    /// The content of a file only an administrator could have written.
+    Trusted(String),
+}
+
+/// Open `path` once, decide trust from the **open handle** (and the folder
+/// that holds it), and read the content from that same handle, so the file
+/// that was checked is the file that was read.
+fn read_trusted(path: &std::path::Path) -> PolicyFile {
+    use std::io::Read as _;
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return PolicyFile::Missing;
+    };
+    if !handle_is_admin_owned(&file) || !folder_is_admin_owned(path) {
+        return PolicyFile::Untrusted;
+    }
+    let mut raw = String::new();
+    match file.read_to_string(&mut raw) {
+        Ok(_) => PolicyFile::Trusted(raw),
+        Err(_) => PolicyFile::Missing,
+    }
+}
+
+/// Whether the open `file` is one a standard user could not have written.
 ///
-/// Windows: the file's owner must be `BUILTIN\Administrators` or `SYSTEM`
-/// (a user who creates a file owns it, and cannot hand ownership to another
-/// principal without privileges a standard user lacks). Elsewhere the system
-/// locations are already root/admin-only, so the location is the check.
-fn is_admin_owned(path: &std::path::Path) -> bool {
+/// Windows: the owner, read from the handle, must be `BUILTIN\Administrators`
+/// or `SYSTEM` (a user who creates a file owns it, and cannot hand ownership
+/// to another principal without privileges a standard user lacks).
+/// Elsewhere the system locations are already root/admin-only, so the
+/// location is the main check; the handle must still be a regular file that
+/// is not world-writable.
+fn handle_is_admin_owned(file: &std::fs::File) -> bool {
     #[cfg(windows)]
     {
-        win::owned_by_admins_or_system(path)
+        win::handle_owned_by_admins_or_system(file)
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
-        let _ = path;
-        true
+        use std::os::unix::fs::PermissionsExt;
+        file.metadata()
+            .map(|m| m.is_file() && m.permissions().mode() & 0o002 == 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = file;
+        false
+    }
+}
+
+/// Whether the folder holding `path` is one a standard user could not have
+/// created or rewritten (same rules as [`handle_is_admin_owned`]).
+fn folder_is_admin_owned(path: &std::path::Path) -> bool {
+    let Some(dir) = path.parent() else {
+        return false;
+    };
+    #[cfg(windows)]
+    {
+        win::owned_by_admins_or_system(dir)
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(dir)
+            .map(|m| m.is_dir() && m.permissions().mode() & 0o002 == 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = dir;
+        false
     }
 }
 
@@ -164,8 +235,10 @@ mod win {
     use std::path::Path;
 
     use windows::core::{w, PCWSTR};
-    use windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
-    use windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HANDLE, HLOCAL, WIN32_ERROR};
+    use windows::Win32::Security::Authorization::{
+        GetNamedSecurityInfoW, GetSecurityInfo, SE_FILE_OBJECT,
+    };
     use windows::Win32::Security::{
         IsWellKnownSid, WinBuiltinAdministratorsSid, WinLocalSystemSid, OWNER_SECURITY_INFORMATION,
         PSECURITY_DESCRIPTOR, PSID,
@@ -230,16 +303,45 @@ mod win {
                 &mut sd,
             )
         };
-        if rc != ERROR_SUCCESS {
-            return false;
-        }
-        let trusted = unsafe {
-            IsWellKnownSid(owner, WinBuiltinAdministratorsSid).as_bool()
-                || IsWellKnownSid(owner, WinLocalSystemSid).as_bool()
+        owner_is_trusted(rc, owner, sd)
+    }
+
+    /// The owner of the object behind the open `file` handle, so the check
+    /// and the read that follows see the same file.
+    pub(super) fn handle_owned_by_admins_or_system(file: &std::fs::File) -> bool {
+        use std::os::windows::io::AsRawHandle;
+        let handle = HANDLE(file.as_raw_handle());
+        let mut owner = PSID::default();
+        let mut sd = PSECURITY_DESCRIPTOR::default();
+        let rc = unsafe {
+            GetSecurityInfo(
+                handle,
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION,
+                Some(&mut owner),
+                None,
+                None,
+                None,
+                Some(&mut sd),
+            )
         };
+        owner_is_trusted(rc, owner, sd)
+    }
+
+    /// Whether a security lookup succeeded and named Administrators or
+    /// SYSTEM as the owner. Frees `sd` either way.
+    fn owner_is_trusted(rc: WIN32_ERROR, owner: PSID, sd: PSECURITY_DESCRIPTOR) -> bool {
+        let trusted = rc == ERROR_SUCCESS
+            && !owner.0.is_null()
+            && unsafe {
+                IsWellKnownSid(owner, WinBuiltinAdministratorsSid).as_bool()
+                    || IsWellKnownSid(owner, WinLocalSystemSid).as_bool()
+            };
         // `owner` points into `sd`, so it is only freed after the check.
-        unsafe {
-            let _ = LocalFree(HLOCAL(sd.0));
+        if !sd.0.is_null() {
+            unsafe {
+                let _ = LocalFree(HLOCAL(sd.0));
+            }
         }
         trusted
     }
@@ -297,11 +399,49 @@ mod tests {
         // CI runners run tests as an administrator, whose files may be owned
         // by the Administrators group; only assert when that is not the case.
         if !win::owned_by_admins_or_system(&path) {
-            assert!(!is_admin_owned(&path));
+            let file = std::fs::File::open(&path).unwrap();
+            assert!(!handle_is_admin_owned(&file));
+            assert_eq!(read_trusted(&path), PolicyFile::Untrusted);
         }
         assert!(!win::owned_by_admins_or_system(
             &dir.path().join("missing.json")
         ));
+    }
+
+    /// The trust decision and the read use one handle: what is returned is the
+    /// content of the file that was checked, and a missing file is not a
+    /// policy.
+    #[cfg(unix)]
+    #[test]
+    fn read_trusted_reads_the_checked_handle() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = dir.path().join("policy.json");
+        assert_eq!(read_trusted(&path), PolicyFile::Missing);
+
+        std::fs::write(&path, r#"{"default_printer":"Front"}"#).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            read_trusted(&path),
+            PolicyFile::Trusted(r#"{"default_printer":"Front"}"#.into())
+        );
+
+        // Anyone could have rewritten a world-writable file or folder.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        assert_eq!(read_trusted(&path), PolicyFile::Untrusted);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert_eq!(read_trusted(&path), PolicyFile::Untrusted);
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // A directory where the file should be is not a policy file.
+        let not_a_file = dir.path().join("dir.json");
+        std::fs::create_dir(&not_a_file).unwrap();
+        assert_ne!(
+            read_trusted(&not_a_file),
+            PolicyFile::Trusted(String::new())
+        );
     }
 
     /// Release builds never consult the per-user fallback.

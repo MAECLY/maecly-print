@@ -183,6 +183,13 @@ An organization can pin a small set of MaeclyPrint behavior with an optional, ad
 
 `%ProgramData%` is not admin-only: its default ACL lets any user create a folder there and own it. A `policy.json` a standard user created is therefore owned by that user and **ignored** (logged as `policy_untrusted`); otherwise any user could impose a "managed" default printer on every other account on the machine. A user cannot assign a file's ownership to Administrators without privileges they do not have.
 
+Two more rules close the gaps around that check:
+
+- **The folder must be admin-owned too.** `%ProgramData%\MaeclyPrint` must itself be owned by Administrators or SYSTEM. A standard user who created that folder first can rename and replace files inside it, so an admin-owned file in a user-owned folder is still ignored. Create the folder as an administrator.
+- **One handle for the check and the read.** The file is opened once. Its owner is read from the open handle (`GetSecurityInfo`), and the content is read from that same handle. If the path were checked and read separately, someone who controls the folder could show their own file during the read and put the admin's file back before the owner check.
+
+On macOS and Linux the location is admin/root-only, so it is the main check. The open handle must also be a regular file that is not world-writable, in a folder that is not world-writable.
+
 The per-user config-dir fallback lets developers and testers exercise the locked state without admin rights. It is compiled into **debug builds only**, so in a release build a user cannot fake a managed state for themselves either.
 
 **Schema** — every field optional, so an empty or partial file still deserializes:
