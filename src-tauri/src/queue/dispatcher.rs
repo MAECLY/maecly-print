@@ -421,6 +421,9 @@ impl JobRunner for EngineRunner {
             Some(p) => p,
             None => resolve_os_default_printer()?,
         };
+        // An explicit request, or the OS default, may still name a printer
+        // the user disabled in MaeclyPrint: that job pauses with the reason.
+        crate::ipc::printers::ensure_enabled(&prefs, &name)?;
         let overrides = prefs.overrides.get(&name).cloned().unwrap_or_default();
         let enumerated = crate::platform::list_printers()
             .ok()
@@ -797,7 +800,7 @@ impl Dispatcher {
             && job
                 .error
                 .as_ref()
-                .is_some_and(|e| e.code == "printer_unavailable");
+                .is_some_and(|e| e.code == "printer_unavailable" || e.code == "printer_disabled");
         stuck_on_printer.then(|| (job.settings.printer.clone(), job.file_name.clone()))
     }
 
@@ -1819,6 +1822,7 @@ fn record_print_failure(job: &mut Job, e: PrintError, post: &mut Post) {
     let (code, terminal) = match &e {
         PrintError::TimedOut { .. } => ("print_timeout", true),
         PrintError::PrinterMissing { .. } | PrintError::NoPrinter => ("printer_unavailable", false),
+        PrintError::PrinterDisabled { .. } => ("printer_disabled", false),
         PrintError::Engine(engine) => return record_failure(job, engine, false, post),
     };
 
@@ -2025,6 +2029,8 @@ mod tests {
         papers: Mutex<Vec<String>>,
         /// Per-printer tray/paper overrides, as the Printers screen stores them.
         overrides: Mutex<HashMap<String, crate::settings::PrinterOverride>>,
+        /// Printers disabled in MaeclyPrint.
+        disabled: Mutex<HashSet<String>>,
     }
 
     impl FakeRunner {
@@ -2046,6 +2052,7 @@ mod tests {
                 resolve_file_names: Mutex::new(Vec::new()),
                 papers: Mutex::new(Vec::new()),
                 overrides: Mutex::new(HashMap::new()),
+                disabled: Mutex::new(HashSet::new()),
             }
         }
     }
@@ -2129,6 +2136,9 @@ mod tests {
                 || self.missing_printers.lock().unwrap().contains(&name)
             {
                 return Err(PrintError::PrinterMissing { printer: name });
+            }
+            if self.disabled.lock().unwrap().contains(&name) {
+                return Err(PrintError::PrinterDisabled { printer: name });
             }
             Ok(ResolvedPrinter {
                 overrides: self
@@ -3505,6 +3515,40 @@ mod tests {
         assert_eq!(sent[1].paper_size, PaperSize::A3);
         // The job keeps what the user asked for; only the spool is filled in.
         assert!(h.job(&open_id).settings.paper_size.is_auto());
+    }
+
+    /// A job aimed at a printer disabled in MaeclyPrint is paused with a
+    /// reason that names it, and is never sent; once the printer is enabled
+    /// again, resuming sends it there.
+    #[tokio::test]
+    async fn fr_a_job_for_a_disabled_printer_pauses_with_the_reason() {
+        let mut h = harness();
+        h.runner.disabled.lock().unwrap().insert("Office".into());
+        let mut j = make_job("a.pdf");
+        j.settings.printer = Some("Office".into());
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+
+        assert_eq!(h.job(&id).state, JobState::Paused);
+        let err = h.job(&id).error.unwrap();
+        assert_eq!(err.code, "printer_disabled");
+        assert!(
+            err.message.contains("Office") && err.message.contains("disabled"),
+            "{err:?}"
+        );
+        assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 0);
+
+        h.runner.disabled.lock().unwrap().clear();
+        h.request(|reply| Cmd::Resume {
+            id: id.clone(),
+            reply,
+        })
+        .await
+        .unwrap();
+        h.run_to_idle();
+        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).printer_resolved.as_deref(), Some("Office"));
     }
 
     // ---- OS job tracking (the print slot) --------------------------------

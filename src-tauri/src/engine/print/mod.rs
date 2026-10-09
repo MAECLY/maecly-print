@@ -69,6 +69,11 @@ pub enum PrintError {
     #[error("no printer is configured — choose a printer first")]
     NoPrinter,
 
+    /// The job resolved to a printer the user disabled in MaeclyPrint. Like a
+    /// missing printer it is user-fixable, so the job is paused, never sent.
+    #[error("printer '{printer}' is disabled in MaeclyPrint — enable it on the Printers screen or choose another printer")]
+    PrinterDisabled { printer: String },
+
     /// Any other engine failure, handled by the ordinary retry policy.
     #[error(transparent)]
     Engine(#[from] EngineError),

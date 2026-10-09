@@ -433,6 +433,9 @@ fn resolve_printer(
                 CliError::printer("no printer is configured; pass --printer or set a default")
             })?,
     };
+    // A printer disabled in MaeclyPrint is refused by name, like the queue does.
+    crate::ipc::printers::ensure_enabled(&prefs, &name)
+        .map_err(|e| CliError::printer(e.to_string()))?;
 
     // A failed or empty enumeration is not evidence of absence (the platform
     // backends are best effort), so it keeps trusting the name and lets the

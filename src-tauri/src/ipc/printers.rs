@@ -208,15 +208,49 @@ pub fn routed_printer(
     file_name_or_ext: &str,
 ) -> Option<String> {
     let key = route_key(file_name_or_ext)?;
-    prefs.routes.get(&key).filter(|p| !p.is_empty()).cloned()
+    prefs
+        .routes
+        .get(&key)
+        .filter(|p| !p.is_empty() && !is_disabled(prefs, p))
+        .cloned()
+}
+
+/// Whether `printer` is disabled in MaeclyPrint (`PrinterPrefs::disabled`).
+/// Disabled printers stay installed in the OS; MaeclyPrint just never sends
+/// them anything.
+pub fn is_disabled(prefs: &crate::settings::PrinterPrefs, printer: &str) -> bool {
+    prefs.disabled.iter().any(|d| d == printer)
+}
+
+/// Refuse `printer` when it is disabled in MaeclyPrint. Called on the printer
+/// a job actually resolved to — an explicit request, or the OS default — since
+/// routing and the app default already skip disabled printers on their own
+/// ([`resolve_app_printer`]).
+pub fn ensure_enabled(
+    prefs: &crate::settings::PrinterPrefs,
+    printer: &str,
+) -> Result<(), crate::engine::print::PrintError> {
+    if is_disabled(prefs, printer) {
+        return Err(crate::engine::print::PrintError::PrinterDisabled {
+            printer: printer.to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// The MaeclyPrint-level printer choice for one input file, in spec order:
 ///
 /// 1. an explicit request (a profile's printer, `--printer`, the Print Job
-///    dropdown) — a deliberate choice always wins;
-/// 2. the file-type routing rule for the input's extension;
-/// 3. the app default printer (`PrinterPrefs::default_printer`).
+///    dropdown) — a deliberate choice always wins, even a disabled printer, so
+///    that the caller can refuse it *by name* ([`ensure_enabled`]) instead of
+///    silently printing somewhere else;
+/// 2. the file-type routing rule for the input's extension, unless it points
+///    at a printer disabled in MaeclyPrint;
+/// 3. the app default printer (`PrinterPrefs::default_printer`), unless it is
+///    disabled.
+///
+/// Routing never picks a disabled printer: a rule or default naming one is
+/// skipped as if it were not set.
 ///
 /// `None` means "nothing at the app level applies" and the caller should fall
 /// back to the **OS** default, which is not this layer's business to read.
@@ -240,7 +274,7 @@ pub fn resolve_app_printer(
     prefs
         .default_printer
         .as_deref()
-        .filter(|p| !p.is_empty())
+        .filter(|p| !p.is_empty() && !is_disabled(prefs, p))
         .map(str::to_string)
 }
 
@@ -405,6 +439,43 @@ mod tests {
             ..PrinterPrefs::default()
         };
         assert_eq!(resolve_app_printer(&prefs, None, "a.pdf"), None);
+    }
+
+    /// A printer disabled in MaeclyPrint is never chosen by routing or as the
+    /// app default; an explicit request for it comes back by name so the
+    /// caller can refuse it with a reason.
+    #[test]
+    fn fr_disabled_printers_are_never_routed_to_and_refused_by_name() {
+        let mut prefs = prefs_with_routes(&[(".pdf", "OFF")]);
+        prefs.default_printer = Some("OFF".into());
+        prefs.disabled = vec!["OFF".into()];
+
+        assert_eq!(routed_printer(&prefs, "a.pdf"), None);
+        assert_eq!(
+            resolve_app_printer(&prefs, None, "a.pdf"),
+            None,
+            "falls to the OS"
+        );
+
+        prefs.default_printer = Some("ON".into());
+        assert_eq!(
+            resolve_app_printer(&prefs, None, "a.pdf").as_deref(),
+            Some("ON"),
+            "a disabled route falls through to the enabled default"
+        );
+
+        // An explicit request is returned as asked — and then refused.
+        assert_eq!(
+            resolve_app_printer(&prefs, Some("OFF"), "a.pdf").as_deref(),
+            Some("OFF")
+        );
+        match ensure_enabled(&prefs, "OFF") {
+            Err(crate::engine::print::PrintError::PrinterDisabled { printer }) => {
+                assert_eq!(printer, "OFF")
+            }
+            other => panic!("expected PrinterDisabled, got {other:?}"),
+        }
+        assert!(ensure_enabled(&prefs, "ON").is_ok());
     }
 
     /// Happy path of the only command in this module with logic of its own:
