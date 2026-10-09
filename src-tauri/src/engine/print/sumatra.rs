@@ -61,8 +61,26 @@ const SUMATRA_PAPERS: [&str; 9] = [
 #[cfg(windows)]
 use std::process::Command;
 
+/// Whether `-print-settings` names a paper size.
+///
+/// A job always carries one ([`JobSettings::paper_size`] is not optional), so
+/// [`PaperToken::FromSettings`] is the normal case. [`PaperToken::Omit`] is for
+/// callers with no paper preference at all — the test page with no per-printer
+/// paper override — where any `paper=` would override the driver's own default
+/// (an A4 page forced onto a Letter-only printer stops it with "load A4").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaperToken {
+    FromSettings,
+    Omit,
+}
+
 /// Build SumatraPDF's `-print-settings` value from `settings`.
 pub fn print_settings_string(settings: &JobSettings) -> String {
+    print_settings_string_with(settings, PaperToken::FromSettings)
+}
+
+/// [`print_settings_string`] with an explicit choice about `paper=`.
+pub fn print_settings_string_with(settings: &JobSettings, paper_choice: PaperToken) -> String {
     let mut parts: Vec<String> = Vec::new();
 
     // Page ranges first, as bare comma-separated tokens (SumatraPDF takes them
@@ -102,9 +120,12 @@ pub fn print_settings_string(settings: &JobSettings) -> String {
 
     // Paper — only a size SumatraPDF can name; `auto` and any other size send
     // nothing (the printer's own setting applies), and
-    // [`unsupported_notes`] says so for the latter.
-    if let Some(paper) = paper_token(&settings.paper_size) {
-        parts.push(format!("paper={paper}"));
+    // [`unsupported_notes`] says so for the latter. A caller with no paper
+    // preference at all ([`PaperToken::Omit`]) sends none either.
+    if paper_choice == PaperToken::FromSettings {
+        if let Some(paper) = paper_token(&settings.paper_size) {
+            parts.push(format!("paper={paper}"));
+        }
     }
 
     // Tray: SumatraPDF takes the driver's own bin name or number. Only emitted
@@ -131,15 +152,62 @@ pub fn print_settings_string(settings: &JobSettings) -> String {
 /// Full SumatraPDF argument vector:
 /// `-print-to <printer> -print-settings <string> -silent -exit-when-done <pdf>`.
 pub fn sumatra_args(printer: &str, settings: &JobSettings, pdf: &Path) -> Vec<String> {
+    sumatra_args_with(printer, settings, pdf, PaperToken::FromSettings)
+}
+
+/// [`sumatra_args`] with an explicit choice about `paper=`.
+pub fn sumatra_args_with(
+    printer: &str,
+    settings: &JobSettings,
+    pdf: &Path,
+    paper_choice: PaperToken,
+) -> Vec<String> {
     vec![
         "-print-to".to_string(),
         printer.to_string(),
         "-print-settings".to_string(),
-        print_settings_string(settings),
+        print_settings_string_with(settings, paper_choice),
         "-silent".to_string(),
         "-exit-when-done".to_string(),
         pdf.to_string_lossy().into_owned(),
     ]
+}
+
+/// Fill in the per-printer default tray (Printers → *Defaults for this
+/// printer*) when the job itself names none.
+///
+/// `docs/05-features/printers-management.md` says those defaults "seed any
+/// profile that targets this printer without an explicit override". A job's
+/// own tray always wins; a blank override is no override. Pure, so the rule is
+/// tested on every host; [`resolve_for_printer`] feeds it the saved value.
+pub fn apply_printer_tray<'a>(
+    settings: &'a JobSettings,
+    printer_tray: Option<&str>,
+) -> std::borrow::Cow<'a, JobSettings> {
+    use std::borrow::Cow;
+    let fallback = printer_tray.map(str::trim).filter(|t| !t.is_empty());
+    match (settings.selected_tray(), fallback) {
+        (None, Some(tray)) => Cow::Owned(JobSettings {
+            tray: Some(tray.to_string()),
+            ..settings.clone()
+        }),
+        _ => Cow::Borrowed(settings),
+    }
+}
+
+/// The settings SumatraPDF is actually given for `printer`: the job's own,
+/// plus the printer's saved default tray when the job names none. Used by both
+/// [`spool`] and the honesty preview, so the preview shows the same `bin=`.
+pub fn resolve_for_printer<'a>(
+    settings: &'a JobSettings,
+    printer: &str,
+) -> std::borrow::Cow<'a, JobSettings> {
+    if settings.selected_tray().is_some() {
+        return std::borrow::Cow::Borrowed(settings);
+    }
+    let prefs = crate::settings::Config::load_or_default().printers;
+    let tray = prefs.overrides.get(printer).and_then(|o| o.tray.clone());
+    apply_printer_tray(settings, tray.as_deref())
 }
 
 /// The bin name to put in `bin=`, or `None` when there is nothing safe to say.
@@ -264,6 +332,9 @@ pub fn locate() -> Result<PathBuf, EngineError> {
 /// or a bin name with a comma in it ([`bin_token`]) — is logged against the job
 /// before spooling, so the job log records what was *not* sent as well as what
 /// was.
+///
+/// The printer's saved default tray is applied when the job names none
+/// ([`resolve_for_printer`]).
 #[cfg(windows)]
 pub fn spool(
     pdf: &Path,
@@ -271,6 +342,28 @@ pub fn spool(
     settings: &JobSettings,
     title: &str,
     timeout: Option<std::time::Duration>,
+) -> Result<super::SpoolOutcome, super::PrintError> {
+    let settings = resolve_for_printer(settings, printer);
+    spool_with(
+        pdf,
+        printer,
+        &settings,
+        title,
+        timeout,
+        PaperToken::FromSettings,
+    )
+}
+
+/// [`spool`] with `settings` taken as final and an explicit `paper=` choice.
+/// For callers that resolved the printer defaults themselves (the test page).
+#[cfg(windows)]
+pub fn spool_with(
+    pdf: &Path,
+    printer: &str,
+    settings: &JobSettings,
+    title: &str,
+    timeout: Option<std::time::Duration>,
+    paper_choice: PaperToken,
 ) -> Result<super::SpoolOutcome, super::PrintError> {
     use std::os::windows::process::CommandExt;
 
@@ -297,7 +390,7 @@ pub fn spool(
     }
 
     let exe = locate()?;
-    let args = sumatra_args(printer, settings, pdf);
+    let args = sumatra_args_with(printer, settings, pdf, paper_choice);
     // SumatraPDF reports no job id, so take the spooler's job list before and
     // after: the new job carrying this file's name is the one to track.
     let before = super::windows::job_ids(printer);
@@ -459,6 +552,45 @@ mod tests {
             print_settings_string(&with(1)),
             "simplex,color,fit,paper=A4"
         );
+    }
+
+    /// The printer's saved default tray reaches `bin=` when the job names no
+    /// tray, and never overrides a tray the job did name.
+    #[test]
+    fn fr_041_printer_default_tray_fills_in_only_when_the_job_has_none() {
+        let none = JobSettings::default();
+        let filled = apply_printer_tray(&none, Some("Manual Feed"));
+        assert_eq!(filled.tray.as_deref(), Some("Manual Feed"));
+        assert!(print_settings_string(&filled).contains("bin=Manual Feed"));
+
+        let own = JobSettings {
+            tray: Some("Tray 2".into()),
+            ..JobSettings::default()
+        };
+        assert_eq!(
+            apply_printer_tray(&own, Some("Manual Feed"))
+                .tray
+                .as_deref(),
+            Some("Tray 2")
+        );
+        // Blank and absent overrides change nothing.
+        assert!(apply_printer_tray(&none, Some("  ")).tray.is_none());
+        assert!(apply_printer_tray(&none, None).tray.is_none());
+    }
+
+    /// With no paper preference at all the token is left out, so the driver's
+    /// own default paper is used instead of a forced A4.
+    #[test]
+    fn paper_token_can_be_omitted() {
+        let s = print_settings_string_with(&JobSettings::default(), PaperToken::Omit);
+        assert_eq!(s, "simplex,color,fit");
+        let args = sumatra_args_with(
+            "P",
+            &JobSettings::default(),
+            Path::new("C:/t.pdf"),
+            PaperToken::Omit,
+        );
+        assert!(!args.iter().any(|a| a.contains("paper=")));
     }
 
     #[test]

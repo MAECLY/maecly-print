@@ -369,6 +369,10 @@ pub fn preview_command(
     #[cfg(windows)]
     {
         let _ = caps;
+        // Same resolution as `sumatra::spool`: the printer's saved default
+        // tray shows up here exactly when it will be sent.
+        let resolved = sumatra::resolve_for_printer(settings, printer);
+        let settings: &JobSettings = &resolved;
         let cmd = format!(
             "SumatraPDF.exe -print-to \"{printer}\" -print-settings \"{}\" -silent -exit-when-done \"{pdf_display}\"",
             sumatra::print_settings_string(settings)
