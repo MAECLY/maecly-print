@@ -22,7 +22,7 @@ Folder expansion, the drop handler, the CLI and the Print Job screen all consult
 
 | Extension(s) | Converter | External program | Final printer (Win / macOS) | Fidelity |
 |---|---|---|---|---|
-| `.pdf` | none: passthrough after a `%PDF-` header check | — | SumatraPDF / `lp` | Excellent (native) |
+| `.pdf` | none: passthrough after a structural check | — | SumatraPDF / `lp` | Excellent (native) |
 | `.jpg` `.jpeg` `.png` `.tif` `.tiff` `.bmp` `.webp` | built-in `image` crate → one-page PDF | — | SumatraPDF / `lp` | Excellent (WebP: good) |
 | `.heic` `.heif` | OS decoder → one-page PDF | macOS: `sips` (built in). Windows: WIC + Microsoft Store *HEIF Image Extensions* | SumatraPDF / `lp` | Excellent |
 | `.docx` `.doc` `.xlsx` `.xls` `.pptx` `.ppt` | LibreOffice headless | `soffice` | SumatraPDF / `lp` | Good (LibreOffice rendering) |
@@ -53,7 +53,7 @@ Nothing is dropped silently (FR-005/FR-059). Folder expansion returns every disc
 
 ### PDF
 
-No conversion: the final printing engine is called directly. `convert_to_pdf` validates the `%PDF-` header (cheap: five bytes) and returns `Ok(None)`, meaning "print the original in place". A mislabelled or truncated file is rejected before it reaches the spooler.
+No conversion: the final printing engine is called directly. `convert_to_pdf` validates the `%PDF-` header, looks for the `%%EOF` marker in the last 8 KiB and, for files up to 100 MB that parse, requires at least one page. Then it returns `Ok(None)`, meaning "print the original in place". A mislabelled, truncated or empty file is rejected before it reaches the spooler.
 
 ```powershell
 # Windows: the real argument vector (engine::print::sumatra)
@@ -66,7 +66,7 @@ lp -d PrinterName -t "job title" -o sides=two-sided-long-edge -o media=A4 -o fit
 ```
 
 **Edge cases:**
-- Corrupt or mislabelled PDFs: rejected by the header check with `ConversionFailed("not a valid PDF")` before spooling.
+- Corrupt or mislabelled PDFs: rejected with `ConversionFailed("not a valid PDF…")` before spooling (no `%PDF-` header, no `%%EOF` marker, or no pages). In the CLI that file fails with exit 8 and the rest of the batch still prints.
 - Very large PDFs: no chunked spooling; we rely on the OS spooler.
 - Encrypted PDFs: *planned*. The app would prompt for a password (CLI: `--password <pwd>`). There is no `--password` flag today, so an encrypted PDF fails at the spooler.
 - Permission-restricted PDFs (no printing flag): *planned*. The app would show an explicit error that suggests `qpdf --decrypt`.

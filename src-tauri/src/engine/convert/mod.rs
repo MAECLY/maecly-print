@@ -7,7 +7,7 @@
 //!
 //! | Route | Extensions | Converter |
 //! |---|---|---|
-//! | [`Route::Passthrough`] | `pdf` | none — `%PDF-` header check, printed in place |
+//! | [`Route::Passthrough`] | `pdf` | none — header, `%%EOF` and page check, printed in place |
 //! | [`Route::Image`] | [`IMAGE_EXTS`] | in-process [`image`] crate |
 //! | [`Route::Heif`] | [`heif::HEIF_EXTS`] | OS decoder: `sips` (macOS) / WIC (Windows) |
 //! | [`Route::Office`] | [`office::OFFICE_EXTS`] | LibreOffice headless |
@@ -237,6 +237,7 @@ pub fn convert_to_pdf(
 
     if route == Route::Passthrough {
         validate_pdf_header(input)?;
+        validate_pdf_body(input)?;
         check_cancel(cancel)?;
         return Ok(None);
     }
@@ -420,6 +421,59 @@ fn validate_pdf_header(input: &Path) -> Result<(), EngineError> {
     }
 }
 
+/// How far from the end a PDF's `%%EOF` marker may sit. The spec puts it in
+/// the last line; writers that append a little padding or a signature after
+/// it stay well inside this.
+const PDF_EOF_WINDOW: u64 = 8 * 1024;
+
+/// A cheap check that a PDF printed in place is a whole document, beyond its
+/// header: a file that only *starts* like a PDF (a truncated download, a
+/// mislabelled file) used to be spooled and reported done while the printer
+/// produced nothing.
+///
+/// Two checks, both conservative so a real document is never refused:
+/// - the `%%EOF` marker must be near the end (a truncated file has none);
+/// - when the file is small enough to parse ([`crate::queue::MAX_PDF_PROBE_BYTES`])
+///   and parses, it must have at least one page. A file `lopdf` cannot parse
+///   is still handed to the spooler, which reads more PDF dialects than it.
+fn validate_pdf_body(input: &Path) -> Result<(), EngineError> {
+    use std::io::{Read, Seek, SeekFrom};
+    let fail = |why: &str| EngineError::ConversionFailed(format!("not a valid PDF: {why}"));
+    let mut file = std::fs::File::open(input).map_err(|e| {
+        EngineError::ConversionFailed(format!("cannot open {}: {e}", input.display()))
+    })?;
+    let size = file
+        .metadata()
+        .map_err(|e| {
+            EngineError::ConversionFailed(format!("cannot read {}: {e}", input.display()))
+        })?
+        .len();
+    let window = size.min(PDF_EOF_WINDOW);
+    let mut tail = Vec::with_capacity(window as usize);
+    file.seek(SeekFrom::End(-(window as i64)))
+        .and_then(|_| file.read_to_end(&mut tail))
+        .map_err(|e| {
+            EngineError::ConversionFailed(format!("cannot read {}: {e}", input.display()))
+        })?;
+    if !tail.windows(5).any(|w| w == b"%%EOF") {
+        return Err(fail(
+            "the file is truncated or damaged (it has no end-of-file marker)",
+        ));
+    }
+    if size <= crate::queue::MAX_PDF_PROBE_BYTES {
+        match lopdf::Document::load(input) {
+            Ok(doc) if doc.get_pages().is_empty() => {
+                return Err(fail("the document has no pages"));
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::debug!(event = "pdf_probe_unparsed", error = %e);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn check_cancel(cancel: &AtomicBool) -> Result<(), EngineError> {
     if cancel.load(Ordering::Relaxed) {
         Err(EngineError::Cancelled)
@@ -532,7 +586,7 @@ mod tests {
     fn pdf_passthrough_returns_none() {
         let dir = tempfile::tempdir().unwrap();
         let pdf = dir.path().join("in.pdf");
-        std::fs::write(&pdf, b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n").unwrap();
+        std::fs::write(&pdf, ONE_PAGE_PDF).unwrap();
         let cancel = AtomicBool::new(false);
         let progress = |_p: f32| {};
         let out = convert_to_pdf(
@@ -546,6 +600,68 @@ mod tests {
         )
         .unwrap();
         assert!(out.is_none(), "a real PDF is printed in place");
+    }
+
+    /// A minimal, complete one-page PDF.
+    const ONE_PAGE_PDF: &[u8] = b"%PDF-1.4\n\
+        1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
+        2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
+        3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]>>endobj\n\
+        trailer<</Root 1 0 R>>\n%%EOF\n";
+
+    /// FR-050: a file that only starts like a PDF is refused before it is
+    /// spooled. `%PDF-1.4 broken` used to be printed in place and reported
+    /// done (exit 0) while nothing came out.
+    #[test]
+    fn fr_050_a_pdf_with_only_a_header_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let cancel = AtomicBool::new(false);
+        let progress = |_p: f32| {};
+        let run = |bytes: &[u8]| {
+            let pdf = dir.path().join("broken.pdf");
+            std::fs::write(&pdf, bytes).unwrap();
+            convert_to_pdf(
+                &pdf,
+                dir.path(),
+                "job",
+                &cancel,
+                &progress,
+                None,
+                &PageSetup::default(),
+            )
+        };
+
+        let err = run(b"%PDF-1.4 broken").unwrap_err();
+        assert!(
+            matches!(&err, EngineError::ConversionFailed(m) if m.contains("truncated")),
+            "{err:?}"
+        );
+
+        // Well formed, but not a single page to print.
+        use lopdf::dictionary;
+        let mut empty = lopdf::Document::with_version("1.5");
+        let pages = empty.new_object_id();
+        empty.set_object(
+            pages,
+            dictionary! { "Type" => "Pages", "Kids" => Vec::<lopdf::Object>::new(), "Count" => 0 },
+        );
+        let catalog = empty.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => lopdf::Object::Reference(pages),
+        });
+        empty.trailer.set("Root", lopdf::Object::Reference(catalog));
+        let mut bytes = Vec::new();
+        empty.save_to(&mut bytes).unwrap();
+        let err = run(&bytes).unwrap_err();
+        assert!(
+            matches!(&err, EngineError::ConversionFailed(m) if m.contains("no pages")),
+            "{err:?}"
+        );
+
+        assert!(
+            run(ONE_PAGE_PDF).unwrap().is_none(),
+            "a real PDF still passes"
+        );
     }
 
     #[test]
