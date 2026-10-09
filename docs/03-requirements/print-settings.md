@@ -16,7 +16,7 @@ A print setting is anything that can be different per job: the printer, paper, d
 | `copies` | int 1–999 | 1 | `copies=N` (only when N > 1) | `-n N` (only when N > 1) | **Shipped** | no |
 | `page_ranges` | string `1-5,10` | all | bare `1-5,10`, prepended, no key | `-o page-ranges=1-5,10` | **Shipped** | no |
 | `paper_size` | enum: A4 / Letter / Legal / A3 | A4 | `paper=A4` | `-o media=A4` | **Shipped** | yes |
-| `orientation` | enum: portrait / landscape / auto | auto | `landscape` / `portrait`; **auto emits nothing** | `-o landscape`; portrait and auto emit nothing | **Shipped** | no |
+| `orientation` | enum: portrait / landscape / auto | auto | `landscape` / `portrait`; **auto emits nothing** | `-o orientation-requested=3` (portrait) / `=4` (landscape); **auto emits nothing** | **Shipped** | no |
 | `scaling` | enum: fit / shrink / none | fit | `fit` / `shrink` / `noscale` | `-o fit-to-page` for fit **and** shrink; none emits nothing | **Shipped** | no |
 | `quality` | enum: draft / normal / high | normal | — | — | **Stored, never applied** | yes |
 | `tray` | string | driver default | — | — | **Stored, never applied** | yes |
@@ -236,7 +236,7 @@ The command is **`lp`**, not `lpr`. Vector: `lp -d <printer> -t <title> <opts…
 | Paper | `-o media=A4 \| Letter \| Legal \| A3` — always emitted |
 | Monochrome | `-o ColorModel=Gray`; **colour emits nothing** (driver default) |
 | Copies | `-n N` — `lp`'s own flag, **not** `-o copies=N`; only when N > 1 |
-| Landscape | `-o landscape`; portrait and auto emit nothing |
+| Orientation | `-o orientation-requested=3` portrait / `=4` landscape; `auto` emits nothing, so each page keeps its own orientation |
 | Fit-to-page | `-o fit-to-page` for both `fit` and `shrink`; `none` emits nothing |
 | Page ranges | `-o page-ranges=1-5,10` |
 | N-up / Collate / Tray / Quality | *not emitted* — CUPS supports `number-up`, `Collate`, `InputSlot` and `print-quality`, but no renderer produces them |

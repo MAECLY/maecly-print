@@ -16,7 +16,7 @@
 //! | paper                | `-o media=A4\|Letter\|Legal\|A3`                      |
 //! | tray                 | `-o InputSlot=<bin> -o media-source=<bin>`            |
 //! | quality              | `-o print-quality=3\|4\|5 -o cupsPrintQuality=…`      |
-//! | orientation landscape| `-o landscape` *(portrait/auto omitted)*              |
+//! | orientation          | `-o orientation-requested=3\|4` *(auto omitted)*      |
 //! | scaling fit/shrink   | `-o fit-to-page` *(none omitted)*                     |
 //! | page ranges          | `-o page-ranges=<r>`                                  |
 //!
@@ -95,10 +95,20 @@ pub fn lp_opts(settings: &JobSettings) -> Vec<String> {
         ppd_quality(settings.quality)
     ));
 
-    // Orientation — only landscape needs a flag.
-    if matches!(settings.orientation, Orientation::Landscape) {
-        opts.push("-o".to_string());
-        opts.push("landscape".to_string());
+    // Orientation — an explicit choice is sent explicitly, in the standard IPP
+    // attribute (3 portrait, 4 landscape): a "portrait" that emitted nothing
+    // would silently inherit a queue whose default is landscape. Only "auto"
+    // says nothing, so each page keeps its own orientation.
+    match settings.orientation {
+        Orientation::Portrait => {
+            opts.push("-o".to_string());
+            opts.push("orientation-requested=3".to_string());
+        }
+        Orientation::Landscape => {
+            opts.push("-o".to_string());
+            opts.push("orientation-requested=4".to_string());
+        }
+        Orientation::Auto => {}
     }
 
     // Scaling — fit and shrink both collapse to CUPS's single fit-to-page.
@@ -466,7 +476,7 @@ mod tests {
                 "-o",
                 "cupsPrintQuality=High",
                 "-o",
-                "landscape",
+                "orientation-requested=4",
                 "-o",
                 "fit-to-page",
                 "-o",
@@ -548,6 +558,30 @@ mod tests {
             !opts.iter().any(|o| o.starts_with("InputSlot=")),
             "{opts:?}"
         );
+    }
+
+    /// Portrait is a choice, not the absence of one: it must reach the queue
+    /// (a queue can default to landscape). Only auto stays silent.
+    #[test]
+    fn orientation_portrait_and_landscape_are_explicit_and_auto_is_silent() {
+        let with = |orientation| {
+            lp_opts(&JobSettings {
+                orientation,
+                ..JobSettings::default()
+            })
+        };
+        assert!(with(Orientation::Portrait)
+            .iter()
+            .any(|o| o == "orientation-requested=3"));
+        assert!(with(Orientation::Landscape)
+            .iter()
+            .any(|o| o == "orientation-requested=4"));
+        let auto = with(Orientation::Auto);
+        assert!(
+            !auto.iter().any(|o| o.starts_with("orientation-requested")),
+            "{auto:?}"
+        );
+        assert!(!auto.iter().any(|o| o == "landscape"), "{auto:?}");
     }
 
     #[test]
