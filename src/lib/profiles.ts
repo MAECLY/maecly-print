@@ -256,6 +256,25 @@ export function findPageRangeOverflow(
   return null;
 }
 
+/** The backend's name limit (`profiles::MAX_NAME_CHARS`), in characters. */
+export const MAX_PROFILE_NAME_CHARS = 100;
+
+/**
+ * A name's length as the backend counts it: Unicode scalar values (Rust's
+ * `chars().count()`), not UTF-16 code units. `'😀'.length` is 2, so counting
+ * code units would reject a name of 60 emoji that the backend accepts — and
+ * then lock every later edit of that profile behind a bogus error.
+ */
+export function profileNameLength(name: string): number {
+  return Array.from(name).length;
+}
+
+/** Cut `s` to at most `max` characters (code points), never inside a pair. */
+function truncateChars(s: string, max: number): string {
+  const chars = Array.from(s);
+  return chars.length <= max ? s : chars.slice(0, max).join('');
+}
+
 /**
  * Validate a profile name for the editor. A name must be non-empty when
  * trimmed, at most 100 characters, and unique (case-insensitive) among
@@ -269,7 +288,8 @@ export function validateProfileName(
 ): string | null {
   const trimmed = name.trim();
   if (trimmed === '') return 'Enter a profile name.';
-  if (trimmed.length > 100) return 'Name must be 100 characters or fewer.';
+  if (profileNameLength(trimmed) > MAX_PROFILE_NAME_CHARS)
+    return 'Name must be 100 characters or fewer.';
   const lower = trimmed.toLowerCase();
   const clash = existing.some(
     (p) => p.id !== selfId && p.name.trim().toLowerCase() === lower,
@@ -281,15 +301,42 @@ export function validateProfileName(
 /**
  * The first of `base`, `"base 2"`, `"base 3"`… whose name is not already taken
  * (case-insensitive) by `existing`. Used to seed new/cloned drafts with a name
- * that already passes {@link validateProfileName}.
+ * that already passes {@link validateProfileName} — including its length rule:
+ * the base is shortened (never the counter) so `"<base> N"` still fits in
+ * {@link MAX_PROFILE_NAME_CHARS}. Cloning a 95-character profile would
+ * otherwise seed a "Copy of …" draft that cannot be saved as is.
  */
 export function nextUniqueName(base: string, existing: UiProfile[]): string {
   const taken = new Set(existing.map((p) => p.name.trim().toLowerCase()));
-  if (!taken.has(base.trim().toLowerCase())) return base;
+  const first = truncateChars(base.trim(), MAX_PROFILE_NAME_CHARS).trimEnd();
+  if (!taken.has(first.toLowerCase())) return first;
   for (let n = 2; ; n++) {
-    const candidate = `${base} ${n}`;
+    const suffix = ` ${n}`;
+    const room = MAX_PROFILE_NAME_CHARS - suffix.length;
+    const candidate = `${truncateChars(first, room).trimEnd()}${suffix}`;
     if (!taken.has(candidate.toLowerCase())) return candidate;
   }
+}
+
+/**
+ * The printer *id* (queue name) a profile's stored printer refers to.
+ *
+ * Profiles must store the id — it is what the spooler needs (`lp -d`,
+ * SumatraPDF `-print-to`); on CUPS the display name (`printer-info`) differs
+ * from it, and a job sent to the display name targets a queue that does not
+ * exist. Older builds of the editor stored the display name, so a value that
+ * matches no id but exactly one printer's name is mapped to that printer's id.
+ * Anything else (the default sentinel, an id, an offline printer) is returned
+ * unchanged.
+ */
+export function resolvePrinterId(
+  value: string,
+  printers: readonly { id: string; name: string }[],
+): string {
+  if (!value || value === DEFAULT_PRINTER) return value;
+  if (printers.some((p) => p.id === value)) return value;
+  const byName = printers.filter((p) => p.name === value);
+  return byName.length === 1 && byName[0] ? byName[0].id : value;
 }
 
 /** UI duplex vocabulary → wire `Duplex`. */

@@ -12,6 +12,8 @@ import {
   DEFAULT_PRINTER,
   isValidCopies,
   isValidPageRange,
+  MAX_PROFILE_NAME_CHARS,
+  profileNameLength,
   validateProfileName,
 } from '@/lib/profiles';
 import type { PrinterChoice } from '@/lib/printerIdentity';
@@ -178,7 +180,7 @@ export function ProfileEditor({
     ? null
     : trimmedName === ''
       ? t('editor.nameEmpty')
-      : trimmedName.length > 100
+      : profileNameLength(trimmedName) > MAX_PROFILE_NAME_CHARS
         ? t('editor.nameTooLong')
         : t('editor.nameTaken');
   const copiesError = !isValidCopies(copiesText);

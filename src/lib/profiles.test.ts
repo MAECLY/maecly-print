@@ -10,6 +10,8 @@ import {
   nextUniqueName,
   paperChoices,
   paperToWire,
+  profileNameLength,
+  resolvePrinterId,
   toJobSettings,
   toWireTray,
   validateProfileName,
@@ -328,5 +330,57 @@ describe('paper sizes beyond the classic four', () => {
       'Env10',
       'A6',
     ]);
+  });
+});
+
+describe('profile name length (matches the backend chars().count())', () => {
+  it('counts code points, not UTF-16 units', () => {
+    expect(profileNameLength('😀😀')).toBe(2);
+    // 60 emoji = 120 UTF-16 units, but only 60 characters to the backend.
+    expect(validateProfileName('😀'.repeat(60), [])).toBeNull();
+    expect(validateProfileName('😀'.repeat(101), [])).toMatch(
+      /100 characters/i,
+    );
+  });
+
+  it('FR-024: a renamed clone of a long name still fits the 100-char limit', () => {
+    const long = 'x'.repeat(100);
+    const name = nextUniqueName(long, [mk({ name: long })]);
+    expect(profileNameLength(name)).toBeLessThanOrEqual(100);
+    expect(name.endsWith(' 2')).toBe(true);
+    expect(validateProfileName(name, [mk({ name: long })])).toBeNull();
+  });
+
+  it('a "Copy of" base over the limit is shortened to a valid name', () => {
+    const name = nextUniqueName(`Copy of ${'y'.repeat(95)}`, []);
+    expect(profileNameLength(name)).toBe(100);
+    expect(validateProfileName(name, [])).toBeNull();
+  });
+
+  it('never splits a surrogate pair when shortening', () => {
+    const base = '😀'.repeat(100);
+    const name = nextUniqueName(base, [mk({ name: base })]);
+    expect(name).toBe(`${'😀'.repeat(98)} 2`);
+  });
+});
+
+describe('resolvePrinterId', () => {
+  const printers = [
+    { id: 'EPSON_L15160_Series', name: 'EPSON L15160 Series' },
+    { id: 'Office', name: 'Office' },
+  ];
+
+  it('FR-023: maps a legacy display name to the queue id', () => {
+    expect(resolvePrinterId('EPSON L15160 Series', printers)).toBe(
+      'EPSON_L15160_Series',
+    );
+  });
+
+  it('keeps ids, the default sentinel and unknown printers as they are', () => {
+    expect(resolvePrinterId('EPSON_L15160_Series', printers)).toBe(
+      'EPSON_L15160_Series',
+    );
+    expect(resolvePrinterId('<default>', printers)).toBe('<default>');
+    expect(resolvePrinterId('Gone printer', printers)).toBe('Gone printer');
   });
 });
