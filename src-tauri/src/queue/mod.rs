@@ -233,20 +233,15 @@ pub fn spawn(app: tauri::AppHandle) -> anyhow::Result<QueueHandle> {
     let emit: Arc<dyn dispatcher::EventSink> = Arc::new(dispatcher::TauriEmit { app });
     let spawner: Arc<dyn dispatcher::BlockingSpawner> = Arc::new(dispatcher::TokioBlockingSpawner);
 
-    // Engine limits are read once at boot; changing them takes effect on the
-    // next start (documented on EngineCfg). `sanitized()` clamps hand-edited
-    // values so a bricked config (0 MB / 1s timeout / 99 workers) can't reach
-    // the dispatcher — every consumer reads through it.
+    // Engine limits are read here at boot and pushed again by
+    // `set_app_settings` whenever they change (`QueueHandle::set_limits`).
+    // `sanitized()` clamps hand-edited values so a bricked config (0 MB / 1s
+    // timeout / 99 workers) can't reach the dispatcher — every consumer reads
+    // through it.
     let engine = crate::settings::Config::load_or_default()
         .engine
         .sanitized();
-    let limits = dispatcher::DispatcherLimits {
-        max_concurrent: engine.max_concurrent_conversions as usize,
-        conversion_timeout: match engine.conversion_timeout_seconds {
-            0 => None,
-            secs => Some(std::time::Duration::from_secs(secs as u64)),
-        },
-    };
+    let limits = dispatcher::DispatcherLimits::from_engine(&engine);
 
     let d = dispatcher::Dispatcher::new(
         state.clone(),

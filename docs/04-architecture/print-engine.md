@@ -329,6 +329,7 @@ The **whole** `[engine]` section is four keys, in `config.toml` (see [data-model
 [engine]
 max_concurrent_conversions = 2   # 1..=8, applied at the next app start
 conversion_timeout_seconds = 60  # 0 disables the timeout
+print_timeout_seconds = 300      # 0 disables it
 max_file_size_mb = 200           # submission ceiling, in MB
 default_profile = "…"            # profile id; omitted → builtin-quick
 ```

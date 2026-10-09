@@ -56,6 +56,12 @@ const LIMITS: EngineLimits = {
     zero: 'disables',
   },
   max_file_size_mb: { min: 1, max: 4096, default: 200, zero: 'default' },
+  print_timeout_seconds: {
+    min: 10,
+    max: 3600,
+    default: 300,
+    zero: 'disables',
+  },
 };
 
 const CONFIG_PATH = '/home/u/.config/MaeclyPrint/config.toml';
@@ -483,6 +489,20 @@ describe('SettingsScreen', () => {
     expect(
       await screen.findByText('Enter 0, or a whole number from 10 to 3600.'),
     ).toBeInTheDocument();
+  });
+
+  it('FR-034: saves the print timeout as its own setting, separate from the conversion timeout', async () => {
+    const calls = mockSettings();
+    renderSettings();
+    await waitReady();
+
+    const input = within(controlOf('Print timeout')).getByRole('textbox');
+    fireEvent.change(input, { target: { value: '600' } });
+    fireEvent.focusOut(input);
+
+    const sent = await savedSettings(calls);
+    expect(sent.engine.print_timeout_seconds).toBe(600);
+    expect(sent.engine.conversion_timeout_seconds).toBe(60);
   });
 
   it('falls back to server-side validation when the backend ships no limits', async () => {

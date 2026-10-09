@@ -90,15 +90,22 @@ use crate::util::error::IpcError;
 /// [`DispatcherLimits::max_concurrent`] (config value clamped to `1..=8`).
 pub(crate) const DEFAULT_MAX_CONCURRENT_CONVERSIONS: usize = 2;
 
-/// Boot-time engine limits handed to the [`Dispatcher`]. Read once from
-/// [`crate::settings::EngineCfg`] when the queue spawns; the running dispatcher
-/// never re-reads them (engine settings apply on the next start).
-#[derive(Debug, Clone, Copy)]
+/// Engine limits handed to the [`Dispatcher`]. Read from
+/// [`crate::settings::EngineCfg`] when the queue spawns, and replaced at run
+/// time by [`Cmd::SetLimits`] whenever the user saves new engine settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DispatcherLimits {
     /// Concurrent conversions allowed (already clamped to `1..=8`).
     pub max_concurrent: usize,
     /// Per-conversion wall-clock timeout; `None` disables it.
     pub conversion_timeout: Option<Duration>,
+    /// Wall-clock budget for one print — spooling plus waiting for the OS job
+    /// to leave the queue
+    /// ([`crate::settings::EngineCfg::print_timeout_seconds`]); `None`
+    /// disables it. Its own knob rather than the conversion budget: a print
+    /// waits on a physical device, which has nothing to do with how long a
+    /// rasterisation may take.
+    pub print_timeout: Option<Duration>,
 }
 
 impl Default for DispatcherLimits {
@@ -106,21 +113,20 @@ impl Default for DispatcherLimits {
         Self {
             max_concurrent: DEFAULT_MAX_CONCURRENT_CONVERSIONS,
             conversion_timeout: None,
+            print_timeout: None,
         }
     }
 }
 
 impl DispatcherLimits {
-    /// Wall-clock ceiling for the print stage.
-    ///
-    /// Both blocking stages are bounded by the one engine timeout the user can
-    /// actually set — [`crate::settings::EngineCfg::conversion_timeout_seconds`]
-    /// (`0` disables both) — rather than the print stage inventing a magic
-    /// constant of its own. Printing is a hand-off to the OS spooler and
-    /// finishes in well under a conversion's budget, so the shared value is a
-    /// ceiling for it, not a target.
-    pub(crate) fn print_timeout(&self) -> Option<Duration> {
-        self.conversion_timeout
+    /// The limits a (sanitized) engine config asks for. `0` disables a timeout.
+    pub(crate) fn from_engine(engine: &crate::settings::EngineCfg) -> Self {
+        let secs = |s: u32| (s > 0).then(|| Duration::from_secs(u64::from(s)));
+        Self {
+            max_concurrent: engine.max_concurrent_conversions.max(1) as usize,
+            conversion_timeout: secs(engine.conversion_timeout_seconds),
+            print_timeout: secs(engine.print_timeout_seconds),
+        }
     }
 }
 
@@ -1176,7 +1182,7 @@ impl Dispatcher {
         // The whole print stage is bounded, so a wedged spooler cannot hold the
         // queue's single print slot forever (the conversion stage has had the
         // equivalent bound since the start — see `Cmd::ConversionTimeout`).
-        let timeout = self.limits.print_timeout();
+        let timeout = self.limits.print_timeout;
         self.spawner.spawn_blocking(Box::new(move || {
             let result = (|| -> Result<PrintOk, PrintError> {
                 let (name, duplex_supported) =
@@ -2406,6 +2412,7 @@ mod tests {
             DispatcherLimits {
                 max_concurrent: 1,
                 conversion_timeout: None,
+                ..DispatcherLimits::default()
             },
         );
         let jobs: Vec<Job> = (0..3).map(|i| make_job(&format!("f{i}.pdf"))).collect();
@@ -2423,6 +2430,7 @@ mod tests {
             DispatcherLimits {
                 max_concurrent: 3,
                 conversion_timeout: None,
+                ..DispatcherLimits::default()
             },
         );
         let jobs: Vec<Job> = (0..4).map(|i| make_job(&format!("f{i}.pdf"))).collect();
@@ -2486,6 +2494,7 @@ mod tests {
             DispatcherLimits {
                 max_concurrent: 2,
                 conversion_timeout: Some(Duration::from_secs(60)),
+                ..DispatcherLimits::default()
             },
         );
         let j = make_job("a.pdf");
@@ -2529,6 +2538,7 @@ mod tests {
             DispatcherLimits {
                 max_concurrent: 2,
                 conversion_timeout: Some(Duration::from_secs(60)),
+                ..DispatcherLimits::default()
             },
         );
         let j = make_job("a.pdf");
@@ -2575,16 +2585,52 @@ mod tests {
 
     // ---- Print timeout (FR-034 / NFR-012) --------------------------------
 
-    /// Harness whose engine limits carry a print budget (the same knob as the
-    /// conversion budget — see [`DispatcherLimits::print_timeout`]).
+    /// Harness whose engine limits carry a print budget.
     fn harness_with_print_timeout(secs: u64) -> Harness {
         harness_with(
             Arc::new(InlineSpawner),
             DispatcherLimits {
-                max_concurrent: 2,
-                conversion_timeout: Some(Duration::from_secs(secs)),
+                print_timeout: Some(Duration::from_secs(secs)),
+                ..DispatcherLimits::default()
             },
         )
+    }
+
+    /// The print budget is its own setting: a conversion budget alone never
+    /// reaches the spooler, and the print budget never bounds a conversion.
+    #[tokio::test]
+    async fn fr_034_print_budget_is_independent_of_the_conversion_budget() {
+        let mut h = harness_with(
+            Arc::new(InlineSpawner),
+            DispatcherLimits {
+                conversion_timeout: Some(Duration::from_secs(60)),
+                print_timeout: None,
+                ..DispatcherLimits::default()
+            },
+        );
+        h.submit(vec![make_job("a.pdf")]);
+        h.run_to_idle();
+        assert_eq!(h.runner.print_timeouts.lock().unwrap().as_slice(), &[None]);
+
+        let mut h = harness_with_print_timeout(300);
+        h.submit(vec![make_job("b.pdf")]);
+        h.run_to_idle();
+        assert_eq!(
+            h.runner.print_timeouts.lock().unwrap().as_slice(),
+            &[Some(Duration::from_secs(300))]
+        );
+    }
+
+    #[test]
+    fn limits_follow_the_engine_settings() {
+        let mut e = crate::settings::EngineCfg::default();
+        e.max_concurrent_conversions = 3;
+        e.conversion_timeout_seconds = 0;
+        e.print_timeout_seconds = 120;
+        let l = DispatcherLimits::from_engine(&e);
+        assert_eq!(l.max_concurrent, 3);
+        assert_eq!(l.conversion_timeout, None, "0 disables it");
+        assert_eq!(l.print_timeout, Some(Duration::from_secs(120)));
     }
 
     #[tokio::test]

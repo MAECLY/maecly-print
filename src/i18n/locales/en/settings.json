@@ -48,6 +48,11 @@
       "hint": "0 disables the timeout. Applies after restart.",
       "suffix": "seconds"
     },
+    "printTimeout": {
+      "label": "Print timeout",
+      "hint": "0 disables it. Counts from sending the file until the printer finishes the job.",
+      "suffix": "seconds"
+    },
     "maxFileSize": {
       "label": "Max file size",
       "hint": "Largest input accepted for printing. Applies immediately.",

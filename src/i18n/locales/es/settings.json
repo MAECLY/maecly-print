@@ -48,6 +48,11 @@
       "hint": "0 desactiva el tiempo límite. Se aplica al reiniciar.",
       "suffix": "segundos"
     },
+    "printTimeout": {
+      "label": "Tiempo máximo de impresión",
+      "hint": "Con 0 no hay límite. Cuenta desde que se envía el archivo hasta que la impresora termina el trabajo.",
+      "suffix": "segundos"
+    },
     "maxFileSize": {
       "label": "Tamaño máximo de archivo",
       "hint": "Archivo de entrada más grande que se acepta para imprimir. Se aplica al instante.",

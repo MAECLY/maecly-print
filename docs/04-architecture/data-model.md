@@ -76,6 +76,7 @@ density = "comfortable"      # "comfortable" | "compact"
 [engine]
 max_concurrent_conversions = 2   # 1..=8; clamped and applied at next app start
 conversion_timeout_seconds = 60  # 0 disables the timeout, else 10..=3600
+print_timeout_seconds = 300      # spool + wait for the OS job; 0 disables, else 10..=3600
 max_file_size_mb           = 200 # 1..=4096; enforced at inspect/submit time
 default_profile = "builtin-quick"  # profile *id*; omitted → builtin-quick
 
@@ -129,6 +130,7 @@ pub enum Density { #[default] Comfortable, Compact }
 pub struct EngineCfg {
     pub max_concurrent_conversions: u32,   // default 2, clamped 1..=8 at boot
     pub conversion_timeout_seconds: u32,   // default 60; 0 disables
+    pub print_timeout_seconds: u32,        // default 300; 0 disables
     pub max_file_size_mb: u32,             // default 200
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_profile: Option<String>,   // profile id; None → builtin-quick

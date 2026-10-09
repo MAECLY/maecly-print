@@ -184,6 +184,11 @@ fn validate_bounds(app: &AppCfg, engine: &EngineCfg) -> Result<(), String> {
             &ENGINE_LIMITS.max_file_size_mb,
             engine.max_file_size_mb,
         ),
+        (
+            "print_timeout_seconds",
+            &ENGINE_LIMITS.print_timeout_seconds,
+            engine.print_timeout_seconds,
+        ),
     ];
     for (field, bounds, value) in checks {
         if !bounds.accepts(value) {
@@ -213,6 +218,7 @@ mod tests {
                 max_concurrent_conversions: max_concurrent,
                 conversion_timeout_seconds: timeout,
                 max_file_size_mb: max_mb,
+                print_timeout_seconds: 300,
                 default_profile: None,
             },
         )
@@ -248,6 +254,20 @@ mod tests {
         assert!(validate_bounds(&a, &e).is_err(), "max_file_size 4097");
         let (a, e) = cfg(2, 60, 200, "   ");
         assert!(validate_bounds(&a, &e).is_err(), "empty locale");
+    }
+
+    #[test]
+    fn fr_034_print_timeout_is_validated_on_write() {
+        let (a, mut e) = cfg(2, 60, 200, "en-US");
+        for ok in [0, 10, 300, 3600] {
+            e.print_timeout_seconds = ok;
+            assert!(validate_bounds(&a, &e).is_ok(), "{ok} is accepted");
+        }
+        for bad in [1, 9, 3601] {
+            e.print_timeout_seconds = bad;
+            let err = validate_bounds(&a, &e).unwrap_err();
+            assert!(err.contains("print_timeout_seconds"), "{err}");
+        }
     }
 
     #[test]

@@ -334,6 +334,7 @@ export const fixtureAppSettings: AppSettings = {
     max_concurrent_conversions: 2,
     conversion_timeout_seconds: 60,
     max_file_size_mb: 200,
+    print_timeout_seconds: 300,
     default_profile: null,
   },
   updater: {

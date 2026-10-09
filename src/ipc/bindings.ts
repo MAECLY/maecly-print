@@ -752,9 +752,10 @@ export type Duplex =
  */
 "short"
 /**
- * Engine/queue tuning knobs. All values take effect on the next app start
- * (the queue reads them once at boot); changing them mid-session does not
- * re-tune the running dispatcher.
+ * Engine/queue tuning knobs. The concurrency cap and both timeouts are pushed
+ * to the running dispatcher when they are saved (`set_app_settings` sends it a
+ * `SetLimits` command), so they apply to the next conversion or print without
+ * a restart; the size ceiling is read on every submit/inspect.
  */
 export type EngineCfg = { 
 /**
@@ -772,6 +773,13 @@ conversion_timeout_seconds: number;
  */
 max_file_size_mb: number; 
 /**
+ * Wall-clock budget for one print, in seconds — from handing the PDF to
+ * the spooler until the OS job leaves the queue; `0` disables it.
+ * `#[serde(default)]` so a `config.toml` written before this knob existed
+ * still loads, with the shipped default.
+ */
+print_timeout_seconds?: number; 
+/**
  * Profile id applied by default in the print dialog. `None` means
  * `builtin-quick`. Must skip-serialize when `None`: `toml` errors trying to
  * serialize a bare `Option::None` value.
@@ -781,7 +789,14 @@ default_profile?: string | null }
  * The bounds of every numeric engine knob, as one bundle. Exposed on the wire
  * so the UI can render and validate the limits without duplicating them.
  */
-export type EngineLimits = { max_concurrent_conversions: Bounds; conversion_timeout_seconds: Bounds; max_file_size_mb: Bounds }
+export type EngineLimits = { max_concurrent_conversions: Bounds; conversion_timeout_seconds: Bounds; max_file_size_mb: Bounds; 
+/**
+ * How long one print may take, from spooling until the OS job leaves the
+ * queue. Separate from the conversion budget: a print waits on paper and a
+ * physical device, so its natural length has nothing to do with how long a
+ * rasterisation may take.
+ */
+print_timeout_seconds: Bounds }
 /**
  * Safety ceiling on one folder expansion. Dropping a disk root must bound the
  * walk rather than wedge the app, so both the number of entries considered and

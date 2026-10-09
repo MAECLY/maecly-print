@@ -227,6 +227,7 @@ export type Bounds        = { min: number; max: number; default: number; zero: Z
 export type EngineLimits  = {
   max_concurrent_conversions: Bounds;
   conversion_timeout_seconds: Bounds;
+  print_timeout_seconds: Bounds;
   max_file_size_mb: Bounds;
 };
 
@@ -236,6 +237,7 @@ export type AppCfg = {
 export type EngineCfg = {
   max_concurrent_conversions: number;
   conversion_timeout_seconds: number;   // 0 disables the timeout
+  print_timeout_seconds?: number;       // 0 disables it; default 300
   max_file_size_mb: number;
   default_profile?: string | null;      // absent → builtin-quick
 };

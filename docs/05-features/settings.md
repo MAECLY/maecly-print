@@ -21,6 +21,7 @@ A single scrolling column (max 760 px) of labelled sections, each a stack of lab
 │ ENGINE                                                                         │
 │   Concurrent conversions   Applies after restart.        [ 2      ] jobs       │
 │   Conversion timeout       0 disables the timeout.       [ 60     ] seconds    │
+│   Print timeout            0 disables it. Counts from…   [ 300    ] seconds    │
 │   Max file size            Largest input accepted…       [ 200    ] MB         │
 │ UPDATES                                                                        │
 │   Channel      [ Stable | Beta | Nightly ]  ⓘ …takes effect when the …(M4).    │
@@ -39,7 +40,7 @@ A single scrolling column (max 760 px) of labelled sections, each a stack of lab
 | Section       | Wire type      | Fields                                                                                   |
 | ------------- | -------------- | ---------------------------------------------------------------------------------------- |
 | `app`         | `AppCfg`       | `locale`, `theme` (`light\|dark\|system`), `launch_minimized`, `density` (`comfortable\|compact`) |
-| `engine`      | `EngineCfg`    | `max_concurrent_conversions`, `conversion_timeout_seconds`, `max_file_size_mb`, `default_profile` |
+| `engine`      | `EngineCfg`    | `max_concurrent_conversions`, `conversion_timeout_seconds`, `print_timeout_seconds`, `max_file_size_mb`, `default_profile` |
 | `updater`     | `UpdaterCfg`   | `channel` (`stable\|beta\|nightly`), `check_on_startup`                                   |
 | `telemetry`   | `TelemetryCfg` | `crash_reports`, `anonymous_usage_metrics`                                                |
 
@@ -62,12 +63,13 @@ A dropdown of every profile from the profiles store; selecting one calls `profil
 
 ### Engine — real, restart-scoped limits
 
-Three numeric fields with **local text state**: typing never persists; the value commits on blur or Enter, and only when it parses to an in-bounds whole number. An out-of-range entry shows an inline error and is **not** sent to the backend.
+Four numeric fields with **local text state**: typing never persists; the value commits on blur or Enter, and only when it parses to an in-bounds whole number. An out-of-range entry shows an inline error and is **not** sent to the backend.
 
 | Field                    | Bounds              | Enforcement                                                                 |
 | ------------------------ | ------------------- | -------------------------------------------------------------------------- |
 | Concurrent conversions   | `1..=8`             | Read once at app start by the dispatcher (clamped `1..=8`). **Applies after restart.** |
 | Conversion timeout       | `0`, or `10..=3600` | `0` disables it; otherwise the dispatcher fails a conversion that overruns with `conversion timed out after {n}s` (terminal, no auto-retry). Read at start. |
+| Print timeout            | `0`, or `10..=3600` (default `300`) | Its own budget, separate from the conversion timeout: it runs from handing the PDF to the spooler until the OS job leaves the queue (see [queue.md](./queue.md)). `0` disables it. When it runs out the job fails with `print_timeout` (terminal, no auto-retry). A `config.toml` written before this field existed loads with the default. |
 | Max file size (MB)       | `1..=4096`          | Enforced live by `inspect_files` and by submission — an oversized file is reported unsupported / rejected. |
 
 These are not cosmetic: `max_file_size_mb` gates the Print Job screen's file inspection and submission immediately, while the concurrency cap and timeout are read once when the queue boots (changing them mid-session does not re-tune the running dispatcher, hence "applies after restart"). The timeout uses the running attempt's cancel flag, guarded by an `Arc::ptr_eq` identity check so a late timer can never fail a *different* attempt.

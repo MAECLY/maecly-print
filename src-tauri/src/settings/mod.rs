@@ -157,6 +157,11 @@ pub struct EngineLimits {
     pub max_concurrent_conversions: Bounds,
     pub conversion_timeout_seconds: Bounds,
     pub max_file_size_mb: Bounds,
+    /// How long one print may take, from spooling until the OS job leaves the
+    /// queue. Separate from the conversion budget: a print waits on paper and a
+    /// physical device, so its natural length has nothing to do with how long a
+    /// rasterisation may take.
+    pub print_timeout_seconds: Bounds,
 }
 
 /// The engine limits. Documented in `docs/05-features/settings.md` § Engine;
@@ -181,6 +186,12 @@ pub const ENGINE_LIMITS: EngineLimits = EngineLimits {
         default: 200,
         zero: ZeroPolicy::FallsBackToDefault,
     },
+    print_timeout_seconds: Bounds {
+        min: 10,
+        max: 3600,
+        default: 300,
+        zero: ZeroPolicy::Disables,
+    },
 };
 
 impl Default for EngineLimits {
@@ -189,9 +200,10 @@ impl Default for EngineLimits {
     }
 }
 
-/// Engine/queue tuning knobs. All values take effect on the next app start
-/// (the queue reads them once at boot); changing them mid-session does not
-/// re-tune the running dispatcher.
+/// Engine/queue tuning knobs. The concurrency cap and both timeouts are pushed
+/// to the running dispatcher when they are saved (`set_app_settings` sends it a
+/// `SetLimits` command), so they apply to the next conversion or print without
+/// a restart; the size ceiling is read on every submit/inspect.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct EngineCfg {
     /// Concurrent conversions the dispatcher may run (clamped to
@@ -202,6 +214,12 @@ pub struct EngineCfg {
     pub conversion_timeout_seconds: u32,
     /// Largest input file accepted for submission/inspection, in megabytes.
     pub max_file_size_mb: u32,
+    /// Wall-clock budget for one print, in seconds — from handing the PDF to
+    /// the spooler until the OS job leaves the queue; `0` disables it.
+    /// `#[serde(default)]` so a `config.toml` written before this knob existed
+    /// still loads, with the shipped default.
+    #[serde(default = "default_print_timeout_seconds")]
+    pub print_timeout_seconds: u32,
     /// Profile id applied by default in the print dialog. `None` means
     /// `builtin-quick`. Must skip-serialize when `None`: `toml` errors trying to
     /// serialize a bare `Option::None` value.
@@ -215,9 +233,14 @@ impl Default for EngineCfg {
             max_concurrent_conversions: ENGINE_LIMITS.max_concurrent_conversions.default,
             conversion_timeout_seconds: ENGINE_LIMITS.conversion_timeout_seconds.default,
             max_file_size_mb: ENGINE_LIMITS.max_file_size_mb.default,
+            print_timeout_seconds: ENGINE_LIMITS.print_timeout_seconds.default,
             default_profile: None,
         }
     }
+}
+
+fn default_print_timeout_seconds() -> u32 {
+    ENGINE_LIMITS.print_timeout_seconds.default
 }
 
 impl EngineCfg {
@@ -247,6 +270,9 @@ impl EngineCfg {
             max_file_size_mb: ENGINE_LIMITS
                 .max_file_size_mb
                 .sanitize(self.max_file_size_mb),
+            print_timeout_seconds: ENGINE_LIMITS
+                .print_timeout_seconds
+                .sanitize(self.print_timeout_seconds),
             default_profile: self.default_profile.clone(),
         }
     }
@@ -773,6 +799,7 @@ mod tests {
             max_concurrent_conversions: mc,
             conversion_timeout_seconds: to,
             max_file_size_mb: mb,
+            print_timeout_seconds: 300,
             default_profile: None,
         };
 
@@ -845,6 +872,38 @@ mod tests {
             .conversion_timeout_seconds
             .accepts(e.conversion_timeout_seconds));
         assert!(ENGINE_LIMITS.max_file_size_mb.accepts(e.max_file_size_mb));
+        assert_eq!(
+            e.print_timeout_seconds,
+            ENGINE_LIMITS.print_timeout_seconds.default
+        );
+        assert!(ENGINE_LIMITS
+            .print_timeout_seconds
+            .accepts(e.print_timeout_seconds));
+    }
+
+    /// The print budget is its own knob: default 300 s, `0` turns it off, and
+    /// `10..=3600` otherwise — and a config written before it existed still
+    /// loads with the default rather than failing to parse.
+    #[test]
+    fn fr_034_print_timeout_is_a_separate_bounded_setting() {
+        let b = ENGINE_LIMITS.print_timeout_seconds;
+        assert_eq!(b.default, 300);
+        assert!(b.accepts(0), "0 disables it");
+        assert!(b.accepts(10) && b.accepts(3600));
+        assert!(!b.accepts(9) && !b.accepts(3601));
+
+        let mut e = EngineCfg::default();
+        e.print_timeout_seconds = 5;
+        assert_eq!(e.sanitized().print_timeout_seconds, 10);
+        e.print_timeout_seconds = 0;
+        assert_eq!(e.sanitized().print_timeout_seconds, 0);
+
+        let old: Config = toml::from_str(
+            "schema_version = 1\n[engine]\nmax_concurrent_conversions = 3\nconversion_timeout_seconds = 60\nmax_file_size_mb = 200\n",
+        )
+        .expect("an engine section without the print budget still parses");
+        assert_eq!(old.engine.print_timeout_seconds, 300);
+        assert_eq!(old.engine.max_concurrent_conversions, 3);
     }
 
     #[test]

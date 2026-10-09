@@ -507,6 +507,16 @@ export function SettingsScreen({
           disabled={backendDisabled}
         />
         <EngineField
+          label={t('engine.printTimeout.label')}
+          hint={t('engine.printTimeout.hint')}
+          suffix={t('engine.printTimeout.suffix')}
+          value={engine?.print_timeout_seconds}
+          bounds={limits?.print_timeout_seconds}
+          errorHint={rangeError(limits?.print_timeout_seconds)}
+          onCommit={(n) => void patch({ engine: { print_timeout_seconds: n } })}
+          disabled={backendDisabled}
+        />
+        <EngineField
           label={t('engine.maxFileSize.label')}
           hint={t('engine.maxFileSize.hint')}
           suffix={t('engine.maxFileSize.suffix')}
