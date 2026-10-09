@@ -64,11 +64,15 @@ pub enum WicStage {
 pub const WINCODEC_COMPONENT_NOT_FOUND: i32 = 0x8898_2F50_u32 as i32;
 /// `WINCODEC_ERR_UNKNOWNIMAGEFORMAT`, the other "no codec" answer.
 pub const WINCODEC_UNKNOWN_IMAGE_FORMAT: i32 = 0x8898_2F07_u32 as i32;
+/// `WINCODEC_ERR_COMPONENTINITIALIZEFAILURE`: Windows 11 registers a HEIF
+/// decoder stub that fails to initialise when the Store codec behind it is
+/// not installed (observed on a clean Windows 11 VM).
+pub const WINCODEC_COMPONENT_INIT_FAILURE: i32 = 0x8898_2F8B_u32 as i32;
 
 /// Turn a WIC failure into the error the queue acts on. Pure.
 ///
-/// - No decoder for the file → the HEIF codec is missing (FR-058), whatever
-///   the stage.
+/// - No decoder for the file, or a decoder stub that cannot initialise → the
+///   HEIF codec is missing (FR-058), whatever the stage.
 /// - The decoder was found but decoding failed, and `hevc_available` says
 ///   there is no HEVC video decoder → *HEVC Video Extensions* is missing: the
 ///   HEIF extension parses the container and hands the pixels to HEVC, so
@@ -83,7 +87,12 @@ pub fn classify_wic_failure(
     detail: &str,
     hevc_available: impl FnOnce() -> bool,
 ) -> EngineError {
-    if code == WINCODEC_COMPONENT_NOT_FOUND || code == WINCODEC_UNKNOWN_IMAGE_FORMAT {
+    if matches!(
+        code,
+        WINCODEC_COMPONENT_NOT_FOUND
+            | WINCODEC_UNKNOWN_IMAGE_FORMAT
+            | WINCODEC_COMPONENT_INIT_FAILURE
+    ) {
         return EngineError::DependencyMissing(WINDOWS_CODEC_MISSING.to_string());
     }
     if stage == WicStage::Decode && !hevc_available() {
@@ -381,10 +390,19 @@ mod tests {
             "{missing_hevc:?}"
         );
         assert!(WINDOWS_HEVC_MISSING.contains("HEVC Video Extensions"));
-        // No decoder at all: the HEIF codec message, at any stage.
+        // No decoder at all, or Windows 11's decoder stub without the Store
+        // codec behind it: the HEIF codec message, at any stage.
         for stage in [WicStage::Open, WicStage::Decode] {
-            let e = classify_wic_failure(stage, WINCODEC_COMPONENT_NOT_FOUND, "x", || true);
-            assert!(matches!(&e, EngineError::DependencyMissing(m) if m == WINDOWS_CODEC_MISSING));
+            for code in [
+                WINCODEC_COMPONENT_NOT_FOUND,
+                WINCODEC_UNKNOWN_IMAGE_FORMAT,
+                WINCODEC_COMPONENT_INIT_FAILURE,
+            ] {
+                let e = classify_wic_failure(stage, code, "x", || true);
+                assert!(
+                    matches!(&e, EngineError::DependencyMissing(m) if m == WINDOWS_CODEC_MISSING)
+                );
+            }
         }
         // HEVC present: a damaged file stays a conversion failure.
         let damaged = classify_wic_failure(WicStage::Decode, -1, "bad data", || true);
