@@ -47,14 +47,22 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
         overflow: 'auto',
         padding: 14,
         display: 'grid',
-        gridTemplateColumns: 'repeat(4,1fr)',
+        // minmax(0, …): a long file name ellipsizes instead of widening its
+        // column past the window at 880 px.
+        gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+        alignItems: 'start',
         gap: 12,
       }}
     >
       {cols.map((c) => (
         <div
           key={c.key}
-          style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            minWidth: 0,
+          }}
         >
           <div
             style={{
@@ -93,6 +101,7 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
               >
                 <FileGlyph ext={j.ext} size={18} />
                 <span
+                  title={j.file}
                   style={{
                     fontSize: 11.5,
                     fontWeight: 500,
