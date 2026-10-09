@@ -4,8 +4,10 @@ import {
   BUILT_IN_PROFILES,
   buildPrintRequest,
   findPageRangeOverflow,
+  findProfileByRef,
   findProfileIn,
   isValidPageRange,
+  printBlocker,
   parsePageRange,
   nextUniqueName,
   paperChoices,
@@ -382,5 +384,63 @@ describe('resolvePrinterId', () => {
     );
     expect(resolvePrinterId('<default>', printers)).toBe('<default>');
     expect(resolvePrinterId('Gone printer', printers)).toBe('Gone printer');
+  });
+});
+
+describe('findProfileByRef', () => {
+  const list = [
+    mk({ id: 'builtin-quick', name: 'Quick', builtin: true, default: true }),
+    mk({ id: 'c1', name: 'Duplex BW' }),
+  ];
+
+  it('FR-001: resolves an id first', () => {
+    expect(findProfileByRef(list, 'c1')?.name).toBe('Duplex BW');
+  });
+
+  it('FR-008: resolves a name, case-insensitively, as the CLI documents', () => {
+    expect(findProfileByRef(list, 'duplex bw')?.id).toBe('c1');
+    expect(findProfileByRef(list, '  Duplex BW ')?.id).toBe('c1');
+  });
+
+  it('names nothing when neither matches (no silent fallback here)', () => {
+    expect(findProfileByRef(list, 'Photo')).toBeUndefined();
+    expect(findProfileByRef(list, null)).toBeUndefined();
+  });
+});
+
+describe('printBlocker', () => {
+  const quick = mk({ id: 'q', copies: 1 });
+  const doc = { name: 'a.pdf', ext: 'pdf', pages: 8 };
+
+  it('FR-042: nothing blocks a valid job', () => {
+    expect(printBlocker([doc], quick, {}, null)).toBeNull();
+  });
+
+  it('blocks an empty job', () => {
+    expect(printBlocker([], quick, {}, null)).toBe('noFiles');
+  });
+
+  it('FR-042: an invalid copies draft blocks even though overrides hold an older valid value', () => {
+    expect(printBlocker([doc], quick, { copies: 120 }, '1200')).toBe('copies');
+    expect(printBlocker([doc], quick, { copies: 12 }, '12')).toBeNull();
+  });
+
+  it('FR-043: a bad or out-of-bounds range blocks', () => {
+    expect(printBlocker([doc], quick, { range: '5-1' }, null)).toBe('range');
+    expect(printBlocker([doc], quick, { range: '9-10' }, null)).toBe('range');
+    // The profile's own saved range counts too.
+    expect(printBlocker([doc], mk({ pageRange: '20' }), {}, null)).toBe(
+      'range',
+    );
+  });
+});
+
+describe('buildPrintRequest hold', () => {
+  it('FR-001: marks a held batch, and leaves the flag off otherwise', () => {
+    const p = mk();
+    expect(buildPrintRequest(['/a.pdf'], p, {}, { hold: true }).hold).toBe(
+      true,
+    );
+    expect('hold' in buildPrintRequest(['/a.pdf'], p, {})).toBe(false);
   });
 });

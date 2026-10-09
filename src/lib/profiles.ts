@@ -148,6 +148,28 @@ export function findProfileIn(
   return profiles[0] ?? BUILT_IN_PROFILES[0]!;
 }
 
+/**
+ * The profile an integration *named*, or `undefined` when it names none we
+ * know. `ref` is an id or a display name — the CLI documents
+ * `--profile <NAME-OR-ID>` and the context-menu payload carries whatever the
+ * integration chose — so an exact id wins, then a case-insensitive name.
+ *
+ * Unlike {@link findProfileIn} there is no fallback: a caller that was asked
+ * for a specific profile has to be able to tell the user it was not found,
+ * instead of printing with a different one in silence.
+ */
+export function findProfileByRef(
+  profiles: UiProfile[],
+  ref: string | null | undefined,
+): UiProfile | undefined {
+  if (ref == null) return undefined;
+  const byId = profiles.find((p) => p.id === ref);
+  if (byId) return byId;
+  const wanted = ref.trim().toLowerCase();
+  if (wanted === '') return undefined;
+  return profiles.find((p) => p.name.trim().toLowerCase() === wanted);
+}
+
 /** Copies must be an integer in `1..=999` (the server is authoritative too). */
 export function isValidCopies(raw: string): boolean {
   const s = raw.trim();
@@ -277,6 +299,33 @@ export function profileNameLength(name: string): number {
 function truncateChars(s: string, max: number): string {
   const chars = Array.from(s);
   return chars.length <= max ? s : chars.slice(0, max).join('');
+}
+
+/** Why a job cannot be printed as it stands, or `null` when it can. */
+export type PrintBlocker = 'noFiles' | 'copies' | 'range';
+
+/**
+ * The single "can this job print?" rule, shared by the Print button and the
+ * Ctrl/⌘+P shortcut so the two can never disagree (FR-042/FR-043).
+ *
+ * `copiesDraft` is what the copies field *shows* when that differs from the
+ * committed override — the overrides only ever receive valid values, so
+ * without the draft a field reading `1200` (invalid) would still print the
+ * `120` committed one keystroke earlier. The range is checked for grammar and
+ * against every PDF's known page count, exactly like the inline error.
+ */
+export function printBlocker(
+  files: readonly RangeCheckable[],
+  profile: UiProfile,
+  overrides: PrintJobOverrides,
+  copiesDraft: string | null,
+): PrintBlocker | null {
+  if (files.length === 0) return 'noFiles';
+  if (copiesDraft !== null && !isValidCopies(copiesDraft)) return 'copies';
+  const range = overrides.range ?? profile.pageRange ?? '';
+  if (!isValidPageRange(range)) return 'range';
+  if (findPageRangeOverflow(range, files) !== null) return 'range';
+  return null;
 }
 
 /**
@@ -410,15 +459,22 @@ export function toJobSettings(
   };
 }
 
-/** Build the full [`PrintRequest`] for `paths` under the given profile/overrides. */
+/**
+ * Build the full [`PrintRequest`] for `paths` under the given profile/overrides.
+ *
+ * `hold` submits the batch with every job paused (the context menu's "add to
+ * the queue"); it is left off the request entirely otherwise.
+ */
 export function buildPrintRequest(
   paths: string[],
   profile: UiProfile,
   overrides: PrintJobOverrides,
+  opts: { hold?: boolean } = {},
 ): PrintRequest {
   return {
     files: paths,
     settings: toJobSettings(profile, overrides),
     profile_name: profile.name,
+    ...(opts.hold ? { hold: true } : {}),
   };
 }
