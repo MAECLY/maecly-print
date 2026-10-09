@@ -88,6 +88,7 @@ pub fn pandoc_args(input: &Path, header: &Path, output: &Path, title: &str) -> V
 /// Convert `input` with Pandoc at `pandoc`, then print the page with the
 /// browser at `browser` into `output`. The whole pipeline shares one
 /// `timeout` budget.
+#[allow(clippy::too_many_arguments)]
 pub fn convert_with(
     pandoc: &Path,
     browser: &Path,
