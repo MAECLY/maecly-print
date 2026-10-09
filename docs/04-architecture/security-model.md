@@ -61,12 +61,13 @@ Signing keys live in macOS Keychain on the macOS runner, fetched from a 1Passwor
 
 See [`auto-updater.md`](./auto-updater.md) for the full flow. The security-relevant summary for the **shipped** build:
 
-- **There is no in-app updater.** `tauri-plugin-updater` is not a dependency and `tauri.conf.json` declares no `endpoints` and no `pubkey`. The app therefore has no code path that turns a network response into an executable, which removes the entire "malicious update payload" class rather than mitigating it.
-- The update path is a read-only `GET` to `api.github.com` for release metadata. The only thing it can influence is a version string, a URL and a markdown blob shown to the user.
+- **The in-app updater installs only signed artifacts, and only on request.** `tauri-plugin-updater` downloads the artifact named by `latest.json` and verifies its minisign signature against the public key compiled in from `tauri.conf.json` (`plugins.updater.pubkey`) before a byte reaches the disk. A tampered artifact fails with `UpdateSignatureInvalid`. Install runs only after an explicit user action (About → Install now, `update install`), a major version needs a second confirmation, and release builds refuse non-`https` endpoints. The private key exists only offline and in the release secret `TAURI_SIGNING_PRIVATE_KEY` ([ADR-0008](../adr/0008-installer-nsis-per-user.md)).
+- **Residual risk.** The manifest itself is not signed. Without `requireSignedVersion` (off until the Tauri CLI records the version in signatures), whoever can serve `latest.json` over the GitHub TLS endpoint could pair a newer version number with an older, genuinely signed artifact, which is a downgrade, not code execution. A leaked private key is the critical case: rotate it and ship the new public key in a release signed with the old one.
+- The update *check* is a read-only `GET` to `api.github.com` for release metadata. The only thing it can influence is a version string, a URL and a markdown blob shown to the user.
 - The URL is not opened automatically. Opening it goes through `open_external`, which enforces HTTPS and an exact-host allow-list (`github.com`, `maecly.com`, `*.maecly.com`; no userinfo, no port, no lookalike suffixes).
 - Integrity of the artifact the user then installs rests on the **installer signature** — Authenticode on Windows, Developer ID + notarization on macOS (§2.1/§2.2) — verified by the OS, not by us.
 
-Minisign/Ed25519 signing of update manifests is **not implemented**. If the plugin path is ever adopted (see [`auto-updater.md`](./auto-updater.md) §8), a key-rotation policy has to be written then; documenting one now would describe keys that do not exist.
+Artifacts are minisign-signed; the manifest is not (see the residual risk above). Key rotation: generate a new pair, ship a release signed with the **old** key that carries the **new** public key, then sign everything after it with the new key.
 
 ## 3. Sandboxing and process boundaries
 

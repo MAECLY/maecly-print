@@ -148,7 +148,7 @@ Everything in this section is **unimplemented**. It is recorded as design intent
 | `.github/workflows/release.yml` | Not written. No tag-triggered pipeline; a `v*` tag currently does nothing. |
 | `.github/workflows/nightly.yml` | Not written. There are no nightly builds and no nightly channel. |
 | Code signing of any kind | No signing step exists anywhere. No EV certificate, no Apple Developer ID, no notarization, no stapling. Artifacts from `ci.yml` are unsigned debug builds. |
-| Updater bundle signing (Tauri Ed25519) | Not configured. `tauri.conf.json` has no `plugins.updater` block and the app does not use `tauri-plugin-updater` — the update path is a *check only*, via the GitHub releases API (`src-tauri/src/update/mod.rs`). |
+| Updater bundle signing in CI | The app side is done: `tauri.conf.json` carries `plugins.updater.pubkey` and `createUpdaterArtifacts`, and the app verifies and installs signed updates (see [Updater signing](#updater-signing)). No workflow signs or publishes them yet. |
 | Artifact publication (Cloudflare R2, channel manifests) | No upload step, no manifest generator, no bucket. |
 | GitHub Release creation | Not automated. |
 | `installers/windows/build.ps1`, `installers/macos/*.sh` | The `installers/` tree contains only `.gitkeep` files. |
@@ -158,9 +158,23 @@ Everything in this section is **unimplemented**. It is recorded as design intent
 | `gitleaks` secret scanning (NFR-027) | Not configured. |
 | Reproducible-build verification (NFR-064) | Not automated. |
 
+### Updater signing
+
+Releases are signed so the installed app can verify an update before installing it (FR-082, [ADR-0008](../adr/0008-installer-nsis-per-user.md)). The key pair is minisign, generated once with `pnpm tauri signer generate`:
+
+- **Public key** — committed, in `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`. Every build embeds it and accepts only artifacts signed by the matching private key.
+- **Private key** — **never committed**. A release build reads it from the `TAURI_SIGNING_PRIVATE_KEY` secret (the key file's contents), plus `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if the key has a password. With both set, `pnpm tauri build` writes a `.sig` next to every updater artifact: the NSIS setup on Windows, `MaeclyPrint.app.tar.gz` on macOS. Keep an offline backup. If the key is lost, installed copies cannot be updated in place. If it leaks, rotate it and ship the new public key through a release signed with the old one.
+- **Manifest** — the release uploads `latest.json` as a release asset: `version`, `notes`, `pub_date`, and a `platforms` map (`windows-x86_64`, `darwin-aarch64`, `darwin-x86_64`) of `{ url, signature }`, where `signature` is the contents of the matching `.sig`. The app reads it from `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json`.
+
+PR and `main` builds have no key and must not get one. With `createUpdaterArtifacts` on, Tauri refuses to bundle without a private key, so `ci.yml` builds with `--config src-tauri/tauri.ci.conf.json`, which turns updater artifacts off for that build only.
+
+To test an update end to end without publishing, serve a `latest.json` and a signed artifact locally, then point a **debug** build at it with `MAECLYPRINT_UPDATE_ENDPOINT=http://127.0.0.1:<port>/latest.json`. Release builds only accept `https`. A copy of the artifact with one byte changed must fail with "failed its signature check and was NOT installed" (exit code 11 from `update install`).
+
+`BUILD_DATE` (About, issue reports) is the build script's run date, re-stamped on every source change. A reproducible release pins it with `SOURCE_DATE_EPOCH`.
+
 ### Required secrets
 
-**None.** `ci.yml` reads no `secrets.*` value; every job runs on the default `GITHUB_TOKEN`. That is a direct consequence of the table above: nothing signs, uploads or publishes. The secret inventory a release pipeline would need (EV signing credentials, Apple certificates and notarization identifiers, the Ed25519 updater key, object-storage keys) is specified in [code-signing.md](./code-signing.md); it should be created when the pipeline that consumes it is written, not before.
+**None** for `ci.yml`. A release pipeline needs `TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if the key has one), as described above. `ci.yml` reads no `secrets.*` value; every job runs on the default `GITHUB_TOKEN`. That is a direct consequence of the table above: nothing signs, uploads or publishes. The secret inventory a release pipeline would need (EV signing credentials, Apple certificates and notarization identifiers, the Ed25519 updater key, object-storage keys) is specified in [code-signing.md](./code-signing.md); it should be created when the pipeline that consumes it is written, not before.
 
 ### Design intent for the release pipeline
 

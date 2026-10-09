@@ -85,8 +85,7 @@ None. M0 is the bootstrap.
 **Still open in M1 after this pass:**
 
 - **No installer** (`installers/` is empty) and **no bundled SumatraPDF** — `scripts/fetch-sumatrapdf.{ps1,sh}` fetch it for development only.
-- The update flow is still **check-only**, against the GitHub `releases/latest` API rather than `updates.maecly.com`. Signature verification (FR-082) and per-user install (FR-083) are M4. The channel selector is persisted but inert.
-- **No native OS notification** (FR-072) — `tauri-plugin-notification` is not a dependency, so toasts only exist while the window is open. No global notification mute either (FR-073).
+- *(2026-10-09)* Signed, per-user **Install now** (FR-082/083/084/087) and **native notifications** (FR-072) have since landed; see [ADR-0008](../adr/0008-installer-nsis-per-user.md). What remains is the release pipeline that signs and publishes artifacts, and per-channel feeds (the channel selector is persisted but inert). There is still no per-profile notification mute (FR-073).
 - The `tray` and `quality` profile fields persist and are editable but are **never sent to a print backend**.
 - The M1 **exit criteria** below are unverified: there is no integration test that prints a known-good PDF and diffs it against a fixture, and no `clippy::panic` gate in CI.
 

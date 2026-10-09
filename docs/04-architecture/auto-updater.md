@@ -1,6 +1,6 @@
-# Update Check
+# Update Check and Install
 
-> **TL;DR** — MaeclyPrint ships an **update *check*, not an updater**. It asks the GitHub Releases API (`https://api.github.com/repos/<owner>/<repo>/releases/latest`) whether a newer tag exists, compares it to the running version with semver precedence, and — if so — hands the user a link to the release page. There is **no download, no install, no signature verification and no `tauri-plugin-updater`** in this build. `updates.maecly.com` does not exist and is not contacted.
+> **TL;DR** — Two steps. The **check** asks the GitHub Releases API (`https://api.github.com/repos/<owner>/<repo>/releases/latest`) whether a newer tag exists and compares it to the running version with semver precedence. The **install** runs only when the user asks for it (About → **Install now**, or `maeclyprint update install`): `tauri-plugin-updater` downloads the artifact named by `latest.json`, verifies its minisign signature against the public key in `tauri.conf.json`, and installs it per-user (§10, [ADR-0008](../adr/0008-installer-nsis-per-user.md)). `updates.maecly.com` does not exist and is not contacted.
 
 ## 0. Status and scope
 
@@ -11,12 +11,14 @@
 | Manual check from the About screen        | ✅            | `check_for_updates` IPC command |
 | Manual check from a script                | ✅            | `maeclyprint update check [--json]` |
 | "Skip this version"                       | ✅            | `set_skipped_update_version`, FR-084 |
-| Download an update                        | ❌            | — |
-| Install / replace the running binary      | ❌            | `maeclyprint update install` exits 11 with an explanation |
-| Signature verification (minisign/Ed25519) | ❌            | nothing is downloaded, so nothing is verified |
+| Download an update                        | ✅            | `update::install::find_update` / `install`, on explicit request only |
+| Install / replace the running binary      | ✅            | `install_update` IPC command, `maeclyprint update install [--yes]` |
+| Signature verification (minisign/Ed25519) | ✅            | `tauri-plugin-updater`, against `plugins.updater.pubkey` |
+| Major version needs explicit opt-in (FR-087) | ✅         | `update::install::is_major_bump` + `allowMajor` / `--yes` |
 | Separate `beta` / `nightly` release feeds | ❌            | the preference is stored; every check hits `releases/latest` |
+| A release pipeline that publishes signed artifacts | ❌   | no `release.yml` yet |
 
-`tauri-plugin-updater` is **not** a dependency (`src-tauri/Cargo.toml`), and `tauri.conf.json` has no `plugins.updater` block, no `endpoints` and no `pubkey`. The sections that described those are gone from this document; see §7 for the open decision this leaves.
+§1–§7 describe the check. §10 describes the install.
 
 ## 1. Why a read-only check
 
@@ -123,7 +125,8 @@ The state is stamped whenever a check **completed**, including one that found no
 | React (About screen) | `commands.checkForUpdates()`, `commands.getUpdateState()`, `commands.setSkippedUpdateVersion(v)`; passive notification via the `update-available` event |
 | CLI | `maeclyprint update check [--json]` — the same `evaluate()` over the same feed |
 | CLI | `maeclyprint update channel [stable\|beta\|nightly]` — reads/writes `updater.channel` in `config.toml` |
-| CLI | `maeclyprint update install [--yes]` — reports exit code 11 with "installing updates is not available in this version" |
+| React (About screen) | `commands.installUpdate(allowMajor)`, `commands.restartApp()`; progress via the `update-download-progress` event |
+| CLI | `maeclyprint update install [--yes]` — the same install core; exit 11 on failure, 12 when the prompt is declined |
 
 The wire shape is `UpdateCheck` (`current`, `latest`, `available`, `url`, `notes`, `checked_at`); `url` and `notes` are populated **only** when `available` is true. See [ipc-and-cli.md](./ipc-and-cli.md) §2.2.
 
@@ -153,14 +156,22 @@ Those are the only two `[updater]` keys `settings::UpdaterCfg` defines. There is
 
 There is no backoff ladder: the 24 h throttle *is* the rate limiter for the automatic path, and the manual path is user-initiated.
 
-## 8. Open decision (needs a human)
+## 8. Relation to ADR-0004
 
-ADR [`0004-auto-updater-tauri-builtin`](../adr/0004-auto-updater-tauri-builtin.md) records the decision to use `tauri-plugin-updater` with a signed manifest on `updates.maecly.com`. **The implementation does not do that**, and this document now describes the implementation. ADRs are not rewritten, they are superseded — so either:
+*Resolved (2026-10-09):* the plugin path from ADR [`0004-auto-updater-tauri-builtin`](../adr/0004-auto-updater-tauri-builtin.md) is implemented, with two differences recorded in [ADR-0008](../adr/0008-installer-nsis-per-user.md). The manifest is a GitHub release asset rather than `updates.maecly.com`, and nothing installs without an explicit user action.
 
-- a new ADR supersedes 0004 and records "read-only check against GitHub Releases" as the standing decision, or
-- the plugin path is actually implemented and this document is rewritten back toward 0004.
+## 10. Installing an update
 
-Until one of those happens, ADR-0004 and this file disagree by design, and that disagreement is the open item — not a doc bug to be patched away. The same applies to the release-pipeline documents that still describe minisign manifest signing.
+`src-tauri/src/update/install.rs` holds the policy, as pure functions with tests. The plugin does the download, signature check and platform install.
+
+1. **Find.** `find_update` builds an updater for the endpoint from `resolve_endpoint`: `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json`, or `MAECLYPRINT_UPDATE_ENDPOINT` when it is set (local end-to-end testing; release builds still refuse plain `http`). No newer version gives `installed: null`.
+2. **Gate.** `install` refuses a major jump (`is_major_bump`) unless `allow_major` is set, which only the About confirmation dialog or the CLI's `--yes` / typed "yes" provide (FR-087). It refuses a binary that is not inside an installed `.app` bundle on macOS (`check_installable_location`), so a dev build never replaces its build directory. One install runs at a time per process.
+3. **Download and verify.** `Update::download` streams the artifact (progress goes out as `update-download-progress`) and verifies the minisign signature against `plugins.updater.pubkey` before returning any bytes. Every signature failure maps to `IpcError::UpdateSignatureInvalid`, whose message says the update was **not** installed and nothing changed (`classify_error`).
+4. **Install.** Windows runs the per-user NSIS setup passively, and the app exits so the installer can restart it. macOS swaps the `.app` in place and returns `restart_required: true`, and About offers **Restart now** (`restart_app`).
+
+The CLI runs the same steps through `headless_updater_app()`, a windowless Tauri app with only the updater plugin, because the plugin needs an `AppHandle`. Each step is logged (`update_install_started`, `update_download_rejected`, `update_installed`).
+
+Signing, the `latest.json` format and the CI setup are in [ci-cd.md § Updater signing](../07-build-and-release/ci-cd.md#updater-signing).
 
 ## 9. Related documents
 

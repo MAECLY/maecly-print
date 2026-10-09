@@ -28,7 +28,7 @@ Commands are declared with `#[tauri::command] #[specta::specta]` and registered 
 
 ### 2.1 Reference table
 
-The table below is the **complete** registered surface — 40 commands, in `collect_commands!` order.
+The table below is the **complete** registered surface — 44 commands, in `collect_commands!` order.
 
 | Command                     | TS binding                                                    | Rust handler                            | Notes |
 | --------------------------- | ------------------------------------------------------------- | --------------------------------------- | ----- |
@@ -36,6 +36,8 @@ The table below is the **complete** registered surface — 40 commands, in `coll
 | `open_logs_folder`          | `openLogsFolder() => null`                                     | `ipc::diag::open_logs_folder`           | Creates the dir, reveals it in Explorer/Finder |
 | `report_issue`              | `reportIssue(text) => null`                                    | `ipc::diag::report_issue`               | Opens a prefilled GitHub new-issue URL (percent-encoded) |
 | `open_external`             | `openExternal(url) => null`                                    | `ipc::diag::open_external`              | HTTPS allow-list: exactly `github.com`, `maecly.com`, `*.maecly.com`; no userinfo, no port |
+| `log_frontend_error`        | `logFrontendError(report) => null`                             | `ipc::diag::log_frontend_error`         | NFR-033: writes a webview error (`source`, `message`, `stack`, each size-bounded) to the log as `event: "frontend_error"`; never fails |
+| `notify_native`             | `notifyNative(title, body) => boolean`                         | `ipc::notify::notify_native`            | FR-072: shows an OS notification only while the main window is unfocused/hidden/minimized and `app.native_notifications` is on; resolves to whether one was shown |
 | `list_printers`             | `listPrinters() => Printer[]`                                  | `ipc::printers::list_printers`          | Rich `Printer` — see [printer-enumeration.md](./printer-enumeration.md) |
 | `default_printer`           | `defaultPrinter() => string \| null`                           | `ipc::printers::default_printer`        | OS-default id |
 | `discover_printers`         | `discoverPrinters() => DiscoveredPrinter[]`                    | `ipc::printers::discover_printers`      | mDNS/Bonjour on macOS (`ippfind`); **returns an empty list on Windows** (WSD/mDNS is a follow-up) |
@@ -68,9 +70,11 @@ The table below is the **complete** registered surface — 40 commands, in `coll
 | `import_profiles`           | `importProfiles(path) => Profile[]`                            | `ipc::profiles::import_profiles`        | Reads a profile file and returns the resulting list |
 | `get_app_settings`          | `getAppSettings() => AppSettings`                              | `ipc::settings::get_app_settings`       | The four wire sections (`app`/`engine`/`updater`/`telemetry`) of `config.toml` plus server-computed `meta`; excludes `printers` + `schema_version` |
 | `set_app_settings`          | `setAppSettings(settings) => AppSettings`                      | `ipc::settings::set_app_settings`       | **Replace-sections** + validate against `ENGINE_LIMITS`; `meta` is ignored on input and recomputed on the way out |
-| `check_for_updates`         | `checkForUpdates() => UpdateCheck`                             | `ipc::update::check_for_updates`        | Read-only GitHub `releases/latest` (semver compare); 404 = no releases; **no download/install** |
+| `check_for_updates`         | `checkForUpdates() => UpdateCheck`                             | `ipc::update::check_for_updates`        | Read-only GitHub `releases/latest` (semver compare); 404 = no releases; installing is `install_update` |
 | `get_update_state`          | `getUpdateState() => UpdateState`                              | `ipc::update::get_update_state`         | `last_check_at` + `skipped_version` from `update-state.json` |
 | `set_skipped_update_version`| `setSkippedUpdateVersion(version) => null`                     | `ipc::update::set_skipped_update_version` | FR-084 "skip this version"; `null` clears it |
+| `install_update`            | `installUpdate(allowMajor) => UpdateInstallResult`             | `ipc::update::install_update`           | FR-082/083/084/087: download from `latest.json`, verify the minisign signature, install per-user. `allowMajor` must be `true` for a major jump. `{ installed: null }` when nothing newer exists. Fails with `UpdateSignatureInvalid` for a bad signature. On Windows the app exits into the installer |
+| `restart_app`               | `restartApp() => null`                                         | `ipc::update::restart_app`              | Relaunches the app after an install that needs it (macOS) |
 | `take_pending_selections`   | `takePendingSelections() => Selection[]`                       | `cli::pending::take_pending_selections` | Drains the selections a shell-extension launch (or a forwarded second launch) parked for the window |
 
 > **Contract decisions worth calling out** (the shipped surface diverges from earlier drafts of this doc):
@@ -310,7 +314,7 @@ pub async fn print_files(
 
 ### 2.4 Events (push from Rust to UI)
 
-All four events derive `tauri_specta::Event` and are collected in `src-tauri/src/lib.rs`. Event *names* are the struct identifiers kebab-cased by the derive; the webview subscribes through the generated `events` object (`events.queueUpdated.listen(…)`), never raw `listen()`.
+All five events derive `tauri_specta::Event` and are collected in `src-tauri/src/lib.rs`. Event *names* are the struct identifiers kebab-cased by the derive; the webview subscribes through the generated `events` object (`events.queueUpdated.listen(…)`), never raw `listen()`.
 
 | Event name            | TS type / payload                              | Emitted by | Notes |
 | --------------------- | ---------------------------------------------- | ---------- | ----- |
@@ -319,7 +323,9 @@ All four events derive `tauri_specta::Event` and are collected in `src-tauri/src
 | `update-available`    | `UpdateAvailable` = `UpdateCheck`              | `lib.rs`'s startup thread, via `update::run_startup_check` | Emitted **only** when the preference is on, the 24 h window elapsed, the release is strictly newer, and it is not the skipped one — receiving it is already the decision to tell the user |
 | `selection-forwarded` | `SelectionForwarded` = `Selection`             | The single-instance plugin callback, and the macOS Finder service | A second launch handed this window a file selection. The payload is informational: the same selection is also parked in the pending store, and the window acts on it by calling `take_pending_selections` — one destructive drain, so a selection can never be honoured twice |
 
-There is no `update-progress` and no `printer-changed` event.
+| `update-download-progress` | `UpdateDownloadProgress` = `{ downloaded, total }` | `install_update`, per received chunk | Bytes so far and the `Content-Length` when known; advisory |
+
+There is no `printer-changed` event.
 
 ### 2.5 Capability declaration
 
@@ -347,7 +353,7 @@ Tauri 2's capability system gates **core and plugin** permissions (window, webvi
 
 ## 3. CLI
 
-> **Status: shipped.** `src-tauri/src/cli/` implements the whole surface below. The one specified-but-unavailable verb is `update install`, which exits with code 11 and says so rather than pretending.
+> **Status: shipped.** `src-tauri/src/cli/` implements the whole surface below, `update install` included.
 
 ### 3.1 Entry point
 
@@ -398,7 +404,7 @@ maeclyprint queue cancel <JOB-ID>
 maeclyprint queue cancel-all
 
 maeclyprint update check
-maeclyprint update install [--yes]      # not available in this version → exit 11
+maeclyprint update install [--yes]      # download, verify, install; --yes skips the prompt
 maeclyprint update channel [stable|beta|nightly]
 
 maeclyprint --version
@@ -459,7 +465,11 @@ Both surfaces call the same core; the table names the shared implementation rath
 | `queue cancel` / `cancel-all` | `queue::persist` + `can_transition`                     | `cancel_job` / `cancel_all` |
 | `update check`              | `update::fetch_latest` + `update::evaluate`               | `check_for_updates` |
 | `update channel`            | `settings::Config` `[updater].channel`                    | `get_app_settings` / `set_app_settings` |
-| `update install`            | — (not implemented; exits 11)                             | — |
+| `update install`            | `update::install::{find_update, install}` through a windowless Tauri app (`headless_updater_app`) | `install_update` |
+
+#### `update install`
+
+`update install` runs the same core as `install_update`. Without `--yes` it asks on an interactive terminal (`[y/N]`; a major update is named as such, FR-087), exits **2** when there is no terminal to ask, and exits **12** when the answer is not yes. A rejected signature or any other install failure exits **11**. `MAECLYPRINT_UPDATE_ENDPOINT` replaces the manifest URL for local end-to-end tests. With `--json`, stdout is the `UpdateInstallResult` (`{"installed": "0.2.0", "restart_required": true}`, or `"installed": null` when up to date).
 
 ### 3.6 JSON output mode
 
@@ -484,7 +494,7 @@ Frozen public surface, defined by `ExitCode` in `src-tauri/src/cli/exit.rs` and 
 | 8    | `ConversionFailed`    | Conversion failed (timeout or converter error). |
 | 9    | `PrintFailed`         | Printing failed — the spooler reported an error, **or the print hop timed out** (it took the job and never finished). |
 | 10   | `UpdateCheckFailed`   | Update check failed (network, rate limit, misconfigured repository). |
-| 11   | `UpdateInstallFailed` | Update install failed. Currently also the code for `update install`, which is unavailable in this version. |
+| 11   | `UpdateInstallFailed` | Update install failed: download, a rejected signature (`UpdateSignatureInvalid`), the installer, or a copy of the app that cannot update itself. |
 | 12   | `Cancelled`           | User cancelled. |
 
 For batches, `ExitCode::worst` returns the highest code among the files, so one failure in fifty is never reported as success.
@@ -508,6 +518,8 @@ pub enum IpcError {
     #[error("Invalid state: {0}")]             InvalidState(String),
     #[error("Profile not found: {0}")]         ProfileNotFound(String),
     #[error("Update check failed: {0}")]       UpdateCheckFailed(String),
+    #[error("Update install failed: {0}")]     UpdateInstallFailed(String),
+    #[error("Update signature invalid: {0}")]  UpdateSignatureInvalid(String),
     #[error("Internal error: {0}")]            Internal(String),
 }
 ```

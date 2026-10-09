@@ -1,6 +1,6 @@
 # About
 
-> **TL;DR** — The **About** screen: app identity and version (authoritative from Rust), an on-demand **Check for updates** that reads the GitHub "latest release" and reports whether a newer one exists (no in-app install yet), a Components card with the real MaeclyPrint / React / Tauri versions and the running OS · arch, the live filesystem paths with an **Open logs folder** button, and a row of allow-listed external links (release notes, license, docs, report an issue, repository).
+> **TL;DR** — The **About** screen: app identity and version (authoritative from Rust), an on-demand **Check for updates** that reads the GitHub "latest release" and reports whether a newer one exists, with **Install now** (signature-verified, per-user), **Remind me later** and **Skip this version**, a Components card with the real MaeclyPrint / React / Tauri versions and the running OS · arch, the live filesystem paths with an **Open logs folder** button, and a row of allow-listed external links (release notes, license, docs, report an issue, repository).
 
 This document is the source of truth for the **content and behavior** of the About screen (`src/screens/AboutScreen.tsx`). The update-check logic lives in `src-tauri/src/update/mod.rs`; the diagnostic/link commands in `src-tauri/src/ipc/diag.rs`. It satisfies FR-110 (an About surface showing version, a license link, and a documentation link).
 
@@ -50,14 +50,29 @@ If the call fails (the expected case in the standalone Vite dev server, which ha
 
 **Check for updates** runs `check_for_updates`, an explicit state machine — `idle` (no card) → `checking` (spinner) → `done` (result card) or `error` (message + Retry). The button is disabled outside the Tauri host.
 
-`check_for_updates` is a **check, not an updater**: it resolves the project's GitHub slug from the crate's `repository`, fetches `releases/latest` via `ureq` (10-second timeout), and folds it against the running version with a semver compare into an `UpdateCheck { current, latest, available, url, notes, checked_at }`. There is deliberately **no download or install** — the user follows the link.
+`check_for_updates` is the **check**: it resolves the project's GitHub slug from the crate's `repository`, fetches `releases/latest` via `ureq` (10-second timeout), and folds it against the running version with a semver compare into an `UpdateCheck { current, latest, available, url, notes, checked_at }`. Nothing is downloaded by a check.
 
 | Result                                   | Card shown                                                                                  |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Newer release (`available: true`)        | Accent "Version {latest} is available" with a **Release notes** button opening `url` (the release page). Copy notes that in-app install arrives with the **auto-updater (M4)**; for now download from the release page. |
+| Newer release (`available: true`)        | Accent "Version {latest} is available", noting that the download is signature-checked and needs no admin rights, with **Install now**, **Release notes** (opens `url`), **Remind me later** and **Skip this version**. |
 | Up to date (`available: false`, a release found) | Success "You're up to date — version {current} · checked {HH:MM}".                    |
 | No releases published (GitHub `404`)     | Treated as a **valid up-to-date state** (`latest: null`, `available: false`) — the up-to-date card. |
 | Network / rate-limit / offline           | Error card with the short user-facing message and a **Retry** button.                       |
+
+### Install now (FR-082, FR-083, FR-084, FR-087)
+
+**Install now** calls `install_update`, which downloads the artifact that `latest.json` names for this platform, verifies its minisign signature against the key in `tauri.conf.json`, and installs it per-user ([ADR-0008](../adr/0008-installer-nsis-per-user.md)). The card shows **Downloading and verifying {version}…** with a percentage from the `update-download-progress` event, then one of:
+
+| Outcome | Card |
+| --- | --- |
+| Installed (macOS) | "{version} is installed — Restart MaeclyPrint to start using it." with **Restart now** (`restart_app`). |
+| Installed (Windows) | Nothing: the app exits into the per-user installer, which restarts it. |
+| Bad signature (`UpdateSignatureInvalid`) | "The downloaded update failed its signature check and was not installed. Nothing on this computer was changed…", with **Open logs folder** and **Release notes**. |
+| Nothing installable (`installed: null`) or any other failure | The reason, with the same two buttons. |
+
+**FR-087:** when `latest` is a major jump from `current` (`1.x` → `2.x`), Install now first opens a `ConfirmDialog` ("Install a major update?"). Only confirming it passes `allowMajor: true`, and the backend refuses a major install without it.
+
+**Skip this version** persists the tag (`set_skipped_update_version`) and the screen opens on "Skipping {version}" with **Undo**. `get_update_state` drops a skip that is at or below the running version, so the line goes away once the user has moved past it.
 
 Rate-limit (`403`/`429`) and transport failures map to friendly strings (`GitHub rate limit reached — try again later`, `could not reach github.com — check your connection`); an unparseable version on either side never spuriously prompts an update. `url` and `notes` are populated only when an update is actually available.
 
@@ -104,7 +119,9 @@ The screen is platform-neutral. The three shell-outs (`open_logs_folder`, `open_
 | UI surface              | IPC command                          | Notes                                                        |
 | ----------------------- | ------------------------------------ | ------------------------------------------------------------ |
 | Identity + paths        | `app_info() => AppInfo`              | Version, build date, config/data/log dirs, os, arch.          |
-| Check for updates       | `check_for_updates() => UpdateCheck` | Read-only GitHub `releases/latest`; 404 = up-to-date; no install. |
+| Check for updates       | `check_for_updates() => UpdateCheck` | Read-only GitHub `releases/latest`; 404 = up-to-date. |
+| Install now / Restart   | `install_update(allowMajor) => UpdateInstallResult`, `restart_app()` | Signed download + per-user install; `update-download-progress` events. |
+| Skip / Undo             | `get_update_state()`, `set_skipped_update_version(v)` | Persisted in `update-state.json`; stale skips are pruned. |
 | Open logs folder        | `open_logs_folder() => void`         | Creates the dir, reveals it in the OS file browser.           |
 | Release notes / License / Docs / repo | `open_external(url) => void`  | HTTPS allow-list (github.com / maecly.com / *.maecly.com).    |
 | Report an issue         | `report_issue(text) => void`         | Prefilled GitHub issue with the environment block.            |
@@ -116,13 +133,13 @@ See [ipc-and-cli.md § diagnostics/update](../04-architecture/ipc-and-cli.md) fo
 - **M0** — front-end only; version and paths were placeholders (superseded).
 - **M1 (current)** — **the About surface is real.** Rust: `src-tauri/src/ipc/diag.rs` (`app_info`, `open_logs_folder`, `report_issue`, `open_external`) + `src-tauri/src/update/mod.rs` / `src-tauri/src/ipc/update.rs` (`check_for_updates`). Frontend: `AboutScreen.tsx`, `src/lib/repo.ts`. The update logic is almost entirely pure functions (`repo_slug` / `parse_release` / `is_newer` / `evaluate`) with co-located tests; only `fetch_latest` touches the network. Frontend coverage: `src/screens/AboutScreen.test.tsx` (FR-110).
 - **Follow-ups**
-  - **Auto-updater install (M4)** — download + relaunch; today the screen only links to the release page.
+  - **Release pipeline** — install works end to end against a signed `latest.json`, but no workflow publishes one yet.
   - **Channel feeds (beta/nightly)** — the configured channel is read but every check hits `releases/latest`; per-channel feeds land with the updater.
   - **Converter tooling versions (M3+)** — surfaced in the Components card once the format converters are bundled.
 
 ## Open questions for v1+
 
 - Should the update card also render the release notes markdown inline, or keep linking out to the release page?
-- Should a background startup check (Settings → *Check on startup*) surface its result here, or only via a notification?
+- Should a background startup check (Settings → *Check on startup*) surface its result here too? Today it raises a toast only, and About finds the same release again on demand; the launch-time result itself is not kept.
 
 These are tracked as design discussions, not commitments.

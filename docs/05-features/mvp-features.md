@@ -121,11 +121,12 @@ Delivered:
 
 - On startup (delayed 30 s) and at most once per 24 h, check for a newer release. The check runs in Rust on a detached thread, so a cold start never waits on the network. The current implementation queries the **GitHub `releases/latest` API**, not `updates.maecly.com` — that manifest host is an M4 deliverable.
 - Manual "Check for updates now" from About.
-- If a newer version is available: an in-app toast and an About-screen banner offering **install (open the release page)**, **defer** (say nothing until the next check window) or **skip this version** (silence exactly that tag; a later release prompts again). The skipped tag is persisted.
+- If a newer version is available: an in-app toast (with the release notes) and an About-screen card offering **Install now**, **defer** (say nothing until the next check window) or **skip this version** (silence exactly that tag; a later release prompts again). The skipped tag is persisted.
+- **Install now** downloads the artifact named by `latest.json`, verifies its signature, installs it per-user and offers a restart ([FR-082](../03-requirements/functional-requirements.md), FR-083). A major version needs a second confirmation (FR-087). The CLI equivalent is `maeclyprint update install [--yes]`. See [ADR-0008](../adr/0008-installer-nsis-per-user.md).
 
 Not delivered — this is the honest part:
 
-- **No download, no signature verification, no in-place install.** The flow is check-only and stops at the release page. The Tauri updater plugin is not a dependency. Signature verification, per-user install and the manifest host are **M4** ([FR-082](../03-requirements/functional-requirements.md), FR-083).
+- **No release pipeline yet.** Nothing publishes signed artifacts or `latest.json`, so until `release.yml` exists, Install now fails with "the release does not offer an update for this platform yet".
 - Channel switching (beta/nightly) is persisted in `config.toml` and shown in Settings, but every channel resolves to the same feed. Real per-channel feeds are v0.6 / M4.
 
 ### 10. Installer

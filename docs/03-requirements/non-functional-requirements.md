@@ -146,7 +146,8 @@ Verified against the tree. Only NFRs whose status is non-obvious or has recently
 | ID | Reality |
 |---|---|
 | **NFR-001 … NFR-008** | No performance or artifact-size measurement of any kind. There is no `benches/` directory, no `criterion`, no RAM assertion, and no installer to measure. |
-| **NFR-021, NFR-022** | Nothing is code-signed and no updater artifact is signed. The updater is a *check only* against the GitHub releases API; the app does not self-install. |
+| **NFR-021** | Nothing is code-signed (no Authenticode, no Developer ID). |
+| **NFR-022** | *Client side met:* the app refuses unsigned or wrongly-signed updates (`UpdateSignatureInvalid`; unit-tested mapping, and checked by hand against a one-byte-tampered artifact served locally). No release pipeline signs and publishes artifacts yet, and the check is not an automated integration test. |
 | **NFR-027** | No gitleaks scan. Vacuously true today — `ci.yml` reads no secrets. |
 | **NFR-040** | No axe-core, no Playwright. WCAG AA is approached through the per-component assertions listed above, not through an automated conformance scan. |
 | **NFR-050** | Neither the ESLint rule nor the (non-existent) Rust attribute is in place; externalisation is enforced by review. |

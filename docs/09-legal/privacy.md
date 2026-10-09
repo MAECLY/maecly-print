@@ -1,6 +1,6 @@
 # Privacy Policy
 
-> **TL;DR.** MaeclyPrint does not collect telemetry, does not phone home, does not transmit your file contents, and does not have user accounts. The only network call it makes by default is an update **check** against the public GitHub Releases API (`api.github.com`) — no download, no identifiers, no payload. **This version transmits nothing else at all: there is no crash reporter and no usage-metrics reporter in the shipped code**, opt-in or otherwise. Logs stay on your machine.
+> **TL;DR.** MaeclyPrint does not collect telemetry, does not phone home, does not transmit your file contents, and does not have user accounts. The only network call it makes by default is an update **check** against the public GitHub Releases API (`api.github.com`) — no download, no identifiers, no payload. An update is downloaded only when you choose **Install now** (or run `maeclyprint update install`). **This version transmits nothing else at all: there is no crash reporter and no usage-metrics reporter in the shipped code**, opt-in or otherwise. Logs stay on your machine.
 
 This document describes what data MaeclyPrint collects, transmits, stores, and shares — which is nearly nothing. It is current as of **2026-07-21** and applies to all installed versions of MaeclyPrint on Windows and macOS.
 
@@ -38,18 +38,24 @@ There is exactly one kind of outbound network call MaeclyPrint makes by default,
 
 ### Update check
 
-- **Endpoint:** `https://api.github.com/repos/<owner>/<repo>/releases/latest`, where `<owner>/<repo>` is this build's own repository, compiled into the binary. If that request returns `404`, one follow-up request to `https://api.github.com/repos/<owner>/<repo>` distinguishes "no releases yet" from "the repository URL in this build is wrong". Those are the only two URLs the app ever requests.
+- **Endpoint:** `https://api.github.com/repos/<owner>/<repo>/releases/latest`, where `<owner>/<repo>` is this build's own repository, compiled into the binary. If that request returns `404`, one follow-up request to `https://api.github.com/repos/<owner>/<repo>` distinguishes "no releases yet" from "the repository URL in this build is wrong". Those are the only two URLs the automatic check requests.
 - **Frequency:** at most once every 24 hours, and only 30 seconds after launch — never during startup. Plus on demand when you press "Check for updates" or run `maeclyprint update check`.
 - **Request payload:** none. It is a plain unauthenticated HTTPS GET. No account, no token, no install id.
 - **Request headers:** `User-Agent: MaeclyPrint/<version>`, plus GitHub's `Accept` and API-version headers. The user agent carries the app version and nothing else — no OS string, no identifiers.
 - **Proxy:** if `HTTPS_PROXY` / `HTTP_PROXY` (or their lowercase forms) are set in your environment, the request goes through that proxy. Nothing else about your environment is read.
-- **What is downloaded:** only the release metadata JSON — a tag name, a link to the release page, and the release notes. **No binary is ever downloaded and nothing is ever installed.** If a newer version exists, the app shows you a link; you install it yourself.
+- **What is downloaded:** only the release metadata JSON — a tag name, a link to the release page, and the release notes. The check never downloads a binary and never installs anything.
 - **What GitHub sees:** whatever any unauthenticated HTTPS request to `api.github.com` exposes — your IP address, the user agent above, and the requested URL. GitHub's privacy policy governs that; we operate no server in this path and therefore keep no logs of it.
 - **What you can disable:** the automatic check, via Settings → Updates (`[updater].check_on_startup`). The on-demand button still works when you want it.
 
+### Installing an update (only when you ask)
+
+- **When:** only after you press **Install now** on the About screen or run `maeclyprint update install`. Nothing is installed automatically, and a major version asks you a second time.
+- **Endpoint:** `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json` (a small manifest), then the installer file it names, both served by GitHub. The request carries the updater's own user agent and no identifiers.
+- **Verification:** the file is checked against MaeclyPrint's release signature before it is installed. A file that fails the check is discarded and nothing on your computer changes.
+
 ### Things this version does **not** do over the network
 
-- It does not download or install updates.
+- It does not download or install updates unless you ask it to (see above).
 - It does not fetch fonts, scripts, styles or images from any CDN — the webview loads only the bundled app, and the one font it uses ships inside the bundle.
 - It does not check for updates of external converters.
 - It does not contact printer manufacturers' cloud services.
