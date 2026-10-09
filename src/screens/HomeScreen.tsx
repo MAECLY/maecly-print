@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 import { Icon, type IconName } from '@/components/Icon';
@@ -17,7 +17,8 @@ import {
   MPTopBar,
 } from '@/components/ui';
 import { useT } from '@/i18n/I18nProvider';
-import { openLogsFolder } from '@/lib/ipc';
+import { cliPrintCommand } from '@/lib/format';
+import { fetchAppInfo, isTauri, openLogsFolder } from '@/lib/ipc';
 import { findProfileIn } from '@/lib/profiles';
 import { useProfilesStore } from '@/stores/profilesStore';
 import { useQueueStore } from '@/stores/queueStore';
@@ -128,9 +129,34 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
 
   // The CLI exists (FR-008), so the card shows the command a user can really
   // run, built around the profile their jobs default to rather than a made-up
-  // name.
+  // name. "Really run" means two things the bare `maeclyprint …` line did not
+  // honour: the executable is named by its full path (nothing puts it on PATH
+  // yet, FR-006), and every argument is quoted for the user's shell, so a
+  // profile called `Costs $HOME` reaches the CLI intact.
+  const [exe, setExe] = useState<{ path: string | null; os?: string }>({
+    path: null,
+  });
+  useEffect(() => {
+    if (!isTauri()) return;
+    let alive = true;
+    fetchAppInfo()
+      .then((info) => {
+        if (alive) setExe({ path: info.executable ?? null, os: info.os });
+      })
+      .catch((e: unknown) => {
+        // The card still works: it falls back to the bare name and says why.
+        console.error('app info for the CLI command failed', e);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const defaultProfile = findProfileIn(profiles, null);
-  const cliCommand = `maeclyprint print --files "*.pdf" --profile "${defaultProfile.name}"`;
+  const cliCommand = cliPrintCommand({
+    executable: exe.path,
+    os: exe.os,
+    profile: defaultProfile.name,
+  });
 
   // Twenty-five extensions do not fit on a drop zone; the copy names the
   // families instead (pinned against `PRINTABLE_EXTENSIONS` by the tests).
@@ -437,6 +463,17 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
                   }}
                 >
                   {cliCommand}
+                </div>
+              )}
+              {q.id === 'cli' && (
+                <div
+                  style={{
+                    fontSize: 10.5,
+                    color: 'var(--mp-textDim)',
+                    marginTop: 4,
+                  }}
+                >
+                  {exe.path ? t('cli.pathNote') : t('cli.noPathNote')}
                 </div>
               )}
             </CardButton>

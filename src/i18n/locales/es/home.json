@@ -25,7 +25,9 @@
   },
   "cli": {
     "copied": "Comando copiado al portapapeles",
-    "copyFailed": "No se pudo acceder al portapapeles: selecciona el comando y cópialo a mano."
+    "copyFailed": "No se pudo acceder al portapapeles: selecciona el comando y cópialo a mano.",
+    "pathNote": "Usa la ruta completa de la aplicación: todavía no está en tu PATH.",
+    "noPathNote": "Todavía no está en tu PATH: sustituye maeclyprint por la ruta completa del ejecutable de la aplicación."
   },
   "recent": {
     "label": "Actividad reciente",

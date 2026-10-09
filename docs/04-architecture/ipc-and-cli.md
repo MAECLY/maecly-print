@@ -32,7 +32,7 @@ The table below is the **complete** registered surface — 44 commands, in `coll
 
 | Command                     | TS binding                                                    | Rust handler                            | Notes |
 | --------------------------- | ------------------------------------------------------------- | --------------------------------------- | ----- |
-| `app_info`                  | `appInfo() => AppInfo`                                        | `ipc::diag::app_info`                   | Version, build date, config/data/log dirs, os, arch, **plus the FR-058 `dependencies` probe** |
+| `app_info`                  | `appInfo() => AppInfo`                                        | `ipc::diag::app_info`                   | Version, build date, config/data/log dirs, os, arch, **plus the FR-058 `dependencies` probe** and the running `executable` (Home's copyable CLI command names it, since nothing puts `maeclyprint` on `PATH`) |
 | `open_logs_folder`          | `openLogsFolder() => null`                                     | `ipc::diag::open_logs_folder`           | Creates the dir, reveals it in Explorer/Finder |
 | `report_issue`              | `reportIssue(text) => null`                                    | `ipc::diag::report_issue`               | Opens a prefilled GitHub new-issue URL (percent-encoded) |
 | `open_external`             | `openExternal(url) => null`                                    | `ipc::diag::open_external`              | HTTPS allow-list: exactly `github.com`, `maecly.com`, `*.maecly.com`; no userinfo, no port |
@@ -288,6 +288,7 @@ export type AppInfo = {
   config_dir: string; log_dir: string; data_dir: string;
   os: string; arch: string;
   dependencies?: DependencyReport[];
+  executable?: string | null;   // full path of the running binary (= the CLI; not on PATH yet)
 };
 
 // --- Shell-extension / second-launch handoff (cli/) ---

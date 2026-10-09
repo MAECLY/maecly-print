@@ -44,6 +44,13 @@ pub struct AppInfo {
     /// which raises no warning.
     #[serde(default)]
     pub dependencies: Vec<DependencyReport>,
+    /// Absolute path of the running executable — which is also the headless
+    /// CLI (FR-008). The installers do not put it on `PATH`, so a command the
+    /// UI offers to copy has to name this path for the paste to work.
+    /// `None` when the OS will not say (the UI then explains the requirement
+    /// instead of offering a command that cannot run).
+    #[serde(default)]
+    pub executable: Option<String>,
 }
 
 #[tauri::command]
@@ -58,6 +65,10 @@ pub fn app_info() -> Result<AppInfo, IpcError> {
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
         dependencies: deps::report_all(),
+        executable: std::env::current_exe()
+            .ok()
+            .map(|p| p.canonicalize().unwrap_or(p))
+            .map(|p| p.to_string_lossy().into_owned()),
     })
 }
 

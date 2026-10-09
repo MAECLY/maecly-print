@@ -26,7 +26,7 @@ import { HomeScreen, PRINTABLE_EXTENSIONS } from './HomeScreen';
 import { shortcutLabel, APP_SHORTCUTS } from '@/components/AppShell/MPAppShell';
 import { BUILT_IN_PROFILES } from '@/lib/profiles';
 import { toUiQueueJob } from '@/lib/ipc';
-import { mkJob } from '@/test/fixtures';
+import { fixtureAppInfo, mkJob } from '@/test/fixtures';
 import { useProfilesStore } from '@/stores/profilesStore';
 import { useQueueStore } from '@/stores/queueStore';
 import type { UiQueueJobView } from '@/lib/ipc';
@@ -189,14 +189,49 @@ describe('HomeScreen', () => {
     const card = screen.getByRole('button', { name: /run from cli/i });
     expect(card).toHaveTextContent('maeclyprint print --files');
     // Built around the profile the app really defaults to.
-    expect(card).toHaveTextContent('--profile "Quick"');
+    expect(card).toHaveTextContent('--profile Quick');
+    // Outside the desktop host the path is unknown, so the card says so.
+    expect(card).toHaveTextContent(/not on your PATH yet/i);
 
     fireEvent.click(card);
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
-    expect(writeText.mock.calls[0]![0]).toMatch(
-      /^maeclyprint print --files ".+" --profile "Quick"$/,
+    expect(writeText.mock.calls[0]![0]).toBe(
+      "maeclyprint print --files '*.pdf' --profile Quick",
     );
     expect(toasts.success).toHaveBeenCalled();
+  });
+
+  it('FR-006/FR-008: in the app, the command names the real executable, quoted', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'app_info') {
+        return {
+          ...fixtureAppInfo,
+          os: 'macos',
+          executable:
+            '/Applications/Maecly Print.app/Contents/MacOS/maeclyprint',
+        };
+      }
+      return null;
+    });
+    useProfilesStore.setState({
+      profiles: BUILT_IN_PROFILES.map((p) =>
+        p.default ? { ...p, name: 'Costs $HOME' } : p,
+      ),
+    });
+    try {
+      renderHome();
+      const card = screen.getByRole('button', { name: /run from cli/i });
+      await vi.waitFor(() =>
+        expect(card).toHaveTextContent(
+          "'/Applications/Maecly Print.app/Contents/MacOS/maeclyprint' print --files '*.pdf' --profile 'Costs $HOME'",
+        ),
+      );
+      expect(card).toHaveTextContent(/full path/i);
+    } finally {
+      clearMocks();
+      delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+      delete (window as unknown as Record<string, unknown>).__TAURI__;
+    }
   });
 
   it('FR-008: a clipboard refusal is reported instead of silently doing nothing', async () => {

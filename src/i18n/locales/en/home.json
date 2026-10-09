@@ -25,7 +25,9 @@
   },
   "cli": {
     "copied": "Command copied to the clipboard",
-    "copyFailed": "Could not reach the clipboard — select the command and copy it manually."
+    "copyFailed": "Could not reach the clipboard — select the command and copy it manually.",
+    "pathNote": "Uses the app's full path — it is not on your PATH yet.",
+    "noPathNote": "Not on your PATH yet: replace maeclyprint with the full path of the app's executable."
   },
   "recent": {
     "label": "Recent activity",

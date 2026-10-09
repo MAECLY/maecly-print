@@ -670,7 +670,15 @@ arch: string;
  * about a version string. Consumers treat an absent list as "not probed",
  * which raises no warning.
  */
-dependencies?: DependencyReport[] }
+dependencies?: DependencyReport[]; 
+/**
+ * Absolute path of the running executable — which is also the headless
+ * CLI (FR-008). The installers do not put it on `PATH`, so a command the
+ * UI offers to copy has to name this path for the paste to work.
+ * `None` when the OS will not say (the UI then explains the requirement
+ * instead of offering a command that cannot run).
+ */
+executable?: string | null }
 /**
  * The subset of [`Config`] exposed to the frontend as one bundle by
  * `get_app_settings` / `set_app_settings`. Deliberately excludes `printers`
