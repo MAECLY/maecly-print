@@ -18,6 +18,11 @@ interface MPSelectProps {
   'aria-label'?: string;
   /** Id of the element naming the dropdown, when a caption is rendered. */
   'aria-labelledby'?: string;
+  /** Id of the hint / error describing the dropdown. */
+  'aria-describedby'?: string | undefined;
+  id?: string | undefined;
+  /** Native disabled: out of the tab order and announced as unavailable. */
+  disabled?: boolean | undefined;
 }
 
 const SIZES = {
@@ -34,6 +39,9 @@ export function MPSelect({
   fullWidth,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
+  'aria-describedby': ariaDescribedBy,
+  id,
+  disabled,
 }: MPSelectProps) {
   const sizes = SIZES[size];
   return (
@@ -47,6 +55,11 @@ export function MPSelect({
       <select
         value={value}
         onChange={onChange}
+        disabled={disabled}
+        {...(id !== undefined ? { id } : {})}
+        {...(ariaDescribedBy !== undefined
+          ? { 'aria-describedby': ariaDescribedBy }
+          : {})}
         {...(ariaLabel !== undefined ? { 'aria-label': ariaLabel } : {})}
         {...(ariaLabelledBy !== undefined
           ? { 'aria-labelledby': ariaLabelledBy }
@@ -64,7 +77,8 @@ export function MPSelect({
           background: 'var(--mp-surface)',
           border: '1px solid var(--mp-border)',
           borderRadius: 6,
-          cursor: 'pointer',
+          cursor: disabled ? 'default' : 'pointer',
+          opacity: disabled ? 0.55 : 1,
           width: fullWidth ? '100%' : 'auto',
         }}
       >

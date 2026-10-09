@@ -18,6 +18,8 @@ interface MPSegmentedProps<T extends string = string> {
   'aria-label'?: string;
   /** Id of the element naming the group (e.g. the row caption). */
   'aria-labelledby'?: string;
+  /** Native disabled on every option: no focus, no change, announced. */
+  disabled?: boolean | undefined;
 }
 
 /**
@@ -33,6 +35,7 @@ export function MPSegmented<T extends string = string>({
   size = 'md',
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
+  disabled = false,
 }: MPSegmentedProps<T>) {
   const h = size === 'sm' ? 24 : size === 'lg' ? 36 : 28;
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -42,6 +45,7 @@ export function MPSegmented<T extends string = string>({
   const tabStop = selected === -1 ? 0 : selected;
 
   const move = (from: number, delta: number) => {
+    if (disabled) return;
     const count = options.length;
     if (count === 0) return;
     const next = (from + delta + count) % count;
@@ -79,6 +83,7 @@ export function MPSegmented<T extends string = string>({
   return (
     <div
       role="radiogroup"
+      {...(disabled ? { 'aria-disabled': true } : {})}
       {...(ariaLabel !== undefined ? { 'aria-label': ariaLabel } : {})}
       {...(ariaLabelledBy !== undefined
         ? { 'aria-labelledby': ariaLabelledBy }
@@ -90,6 +95,7 @@ export function MPSegmented<T extends string = string>({
         background: 'var(--mp-surface2)',
         border: '1px solid var(--mp-border)',
         borderRadius: 7,
+        opacity: disabled ? 0.55 : 1,
       }}
     >
       {options.map((o, i) => {
@@ -101,10 +107,13 @@ export function MPSegmented<T extends string = string>({
             role="radio"
             aria-checked={active}
             tabIndex={i === tabStop ? 0 : -1}
+            disabled={disabled}
             ref={(el) => {
               refs.current[i] = el;
             }}
-            onClick={() => onChange(o.value)}
+            onClick={() => {
+              if (!disabled) onChange(o.value);
+            }}
             onKeyDown={(e) => onKeyDown(e, i)}
             className="mp-focus"
             style={{
@@ -116,7 +125,7 @@ export function MPSegmented<T extends string = string>({
               color: active ? 'var(--mp-text)' : 'var(--mp-textMuted)',
               border: 'none',
               borderRadius: 5,
-              cursor: 'pointer',
+              cursor: disabled ? 'default' : 'pointer',
               boxShadow: active
                 ? '0 1px 2px rgba(0,0,0,0.05), 0 0 0 1px var(--mp-border)'
                 : 'none',

@@ -16,6 +16,8 @@ interface MPSwitchProps {
   'aria-label'?: string;
   /** Id of the element naming the control, when the caption lives elsewhere. */
   'aria-labelledby'?: string;
+  /** Native disabled: out of the tab order, announced, ignores clicks. */
+  disabled?: boolean | undefined;
 }
 
 /**
@@ -37,6 +39,7 @@ export function MPSwitch({
   label,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
+  disabled = false,
 }: MPSwitchProps) {
   const [ring, setRing] = useState(false);
   const onFocus = (e: FocusEvent<HTMLInputElement>) => {
@@ -48,9 +51,10 @@ export function MPSwitch({
         display: 'inline-flex',
         alignItems: 'center',
         gap: 10,
-        cursor: 'pointer',
+        cursor: disabled ? 'default' : 'pointer',
         fontSize: 13,
         position: 'relative',
+        opacity: disabled ? 0.55 : 1,
       }}
     >
       {/*
@@ -63,6 +67,7 @@ export function MPSwitch({
         role="switch"
         checked={checked}
         onChange={onChange}
+        disabled={disabled}
         onFocus={onFocus}
         onBlur={() => setRing(false)}
         {...(ariaLabel !== undefined ? { 'aria-label': ariaLabel } : {})}
