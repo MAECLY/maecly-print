@@ -138,8 +138,8 @@ pub fn build_within(
         used += cost;
         kept.push(path);
     }
-    let truncated_from = (kept.len() < paths.len())
-        .then(|| u32::try_from(paths.len()).unwrap_or(u32::MAX));
+    let truncated_from =
+        (kept.len() < paths.len()).then(|| u32::try_from(paths.len()).unwrap_or(u32::MAX));
     let paths = kept;
 
     Handoff {
@@ -250,13 +250,26 @@ mod tests {
     /// OneDrive paths went over the reader's cap and nothing printed).
     #[test]
     fn fr_003_truncates_by_size_before_the_app_would_refuse_the_file() {
-        let long = format!(r"C:\Users\ana\OneDrive - Empresa\Facturación\{}", "x".repeat(400));
+        let long = format!(
+            r"C:\Users\ana\OneDrive - Empresa\Facturación\{}",
+            "x".repeat(400)
+        );
         let many: Vec<PathBuf> = (0..100)
             .map(|i| PathBuf::from(format!(r"{long}\f{i}.pdf")))
             .collect();
         let budget = ENVELOPE_RESERVE + 10 * 1024;
-        let h = build_within(&many, Action::Queue, None, at("2026-07-20T21:11:03Z"), budget);
-        assert!(!h.paths.is_empty() && h.paths.len() < 100, "{}", h.paths.len());
+        let h = build_within(
+            &many,
+            Action::Queue,
+            None,
+            at("2026-07-20T21:11:03Z"),
+            budget,
+        );
+        assert!(
+            !h.paths.is_empty() && h.paths.len() < 100,
+            "{}",
+            h.paths.len()
+        );
         assert_eq!(h.truncated_from, Some(100));
         let bytes = serde_json::to_vec(&h).unwrap();
         assert!(bytes.len() <= budget, "{} > {budget}", bytes.len());
