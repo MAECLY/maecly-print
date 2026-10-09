@@ -38,17 +38,33 @@ Values may be single-quoted (spaces) or bare (empty); `printer-state` is `3=idle
 
 ## Windows
 
-`EnumPrinters` (level 2 → `PRINTER_INFO_2W`) gives name, `pPortName`, `pDriverName`, `pLocation`, `Attributes` (shared bit), `Status` bitmap, and `cJobs`. `DeviceCapabilities` adds the rest; `GetDefaultPrinter` resolves the default.
+`EnumPrinters` (level 2 → `PRINTER_INFO_2W`) gives name, `pPortName`, `pDriverName`, `pLocation`, `Attributes`, `Status` bitmap, `cJobs` and the default `pDevMode`. `DeviceCapabilities` adds the rest; `GetDefaultPrinter` resolves the default.
+
+**Errors are not "no printers".** The sizing call is expected to fail with `ERROR_INSUFFICIENT_BUFFER`; any other failure is returned. A stopped Print Spooler (`RPC_S_SERVER_UNAVAILABLE`) is reported as "The Windows Print Spooler service is not running", never as an empty list, and the pair of calls is retried when a printer appears between them. The buffer is 8-byte aligned because the records are read in place.
+
+**Status** combines `Status` with `Attributes`:
+
+| State | Source |
+| --- | --- |
+| Offline | `PRINTER_STATUS_OFFLINE`, `NOT_AVAILABLE`, `SERVER_UNKNOWN`, `PAUSED`, or the `PRINTER_ATTRIBUTE_WORK_OFFLINE` attribute ("Use Printer Offline", often with `Status` = 0) |
+| Error | `ERROR`, `PAPER_JAM`, `PAPER_OUT`, `PAPER_PROBLEM`, `NO_TONER`, `DOOR_OPEN`, `USER_INTERVENTION` |
+| Busy | `PRINTING`, `PROCESSING`, `BUSY`, or jobs waiting |
+| Ready | anything else |
+
+A paused queue reads Offline: it accepts jobs but prints none.
 
 | Capability | `DeviceCapabilities` cap |
 | --- | --- |
 | Color | `DC_COLORDEVICE` |
 | Duplex | `DC_DUPLEX` |
-| Paper sizes | `DC_PAPERNAMES` (64-WCHAR entries) |
-| Trays | `DC_BINNAMES` (24-WCHAR entries) |
+| Paper sizes | `DC_PAPERNAMES` (64-WCHAR entries), ids in `DC_PAPERS` |
+| Trays | `DC_BINNAMES` (24-WCHAR entries), ids in `DC_BINS` |
 | Max DPI | `DC_ENUMRESOLUTIONS` (LONG x,y pairs) |
+| Default paper / tray | `pDevMode` `dmPaperSize` / `dmDefaultSource` (when set in `dmFields`), named through the id arrays above |
 
-**`windows` crate gotchas (0.58), discovered via `cargo check --target x86_64-pc-windows-msvc`:** `DeviceCapabilitiesW` and the `DC_*` constants live under `Win32::Storage::Xps` (not `Gdi`); `PRINTER_INFO_2W` needs the `Win32_Security` **and** `Win32_Graphics_Gdi` features; `PRINTER_STATUS_*` / `PRINTER_ATTRIBUTE_*` are plain `u32`; `GetDefaultPrinterW` returns `BOOL`. **Toner/supply levels are not exposed by Win32** (they require SNMP/WMI/IPP) and are left empty. Network **discovery** (WSD/mDNS) still returns an empty list on Windows — `platform::windows::discover_printers` is an explicit `Ok(Vec::new())`, not a stub that fails.
+Driver paper names are **localized** (Spanish Windows lists Letter as "Carta"), so anything that has to understand a paper — the test page — maps the name to its `DMPAPER_*` id through `DC_PAPERS` instead of matching the string.
+
+**`windows` crate gotchas (0.58), discovered via `cargo check --target x86_64-pc-windows-msvc`:** `DeviceCapabilitiesW` and the `DC_*` constants live under `Win32::Storage::Xps` (not `Gdi`); `PRINTER_INFO_2W` needs the `Win32_Security` **and** `Win32_Graphics_Gdi` features; `PRINTER_STATUS_*` / `PRINTER_ATTRIBUTE_*` are plain `u32`; `GetDefaultPrinterW` returns `BOOL`. **Toner/supply levels are not exposed by Win32** (they require SNMP/WMI/IPP) and are left empty. Network **discovery** browses mDNS/DNS-SD for `_ipp._tcp` and `_ipps._tcp` for 4 s with the pure-Rust `mdns-sd` crate (Windows has no `ippfind`). Records become rows in `platform::dnssd` (URI `ipp[s]://<mDNS host>:<port>/<rp>`, kind from the `ty` TXT key), and devices whose queue name, port host or address match an installed printer are hidden. WSD-only devices are not found; Windows' own *Add device* dialog lists them.
 
 ## Cross-platform capability matrix
 
@@ -84,15 +100,16 @@ Rust `Printer` (snake_case, `src-tauri/src/ipc/printers.rs`) → UI `UiPrinter` 
 | --- | --- | --- |
 | Enumerate installed | ✅ | ✅ |
 | Set OS default | ✅ `lpoptions -d` | ✅ `SetDefaultPrinterW` |
-| Print test page | ✅ branded PDF via `lp` | ✅ `printui.dll` |
+| Print test page | ✅ branded PDF via `lp` | ✅ branded PDF via SumatraPDF (`printui.dll` only without the sidecar) |
 | Open the OS printers pane | ✅ | ✅ |
-| Network discovery (scan) | ✅ `ippfind` (mDNS/Bonjour) | ⛔ WSD/mDNS still deferred — returns an empty list |
+| Network discovery (scan) | ✅ `ippfind` (mDNS/Bonjour) | ✅ mDNS (`mdns-sd`); WSD-only devices not listed |
+| Pause / resume / remove / open queue | — (Printers work) | ✅ `SetPrinter` `PRINTER_CONTROL_PAUSE`/`RESUME`, `DeletePrinter`, `printui.dll,PrintUIEntry /o` (`platform::{pause,resume,remove}_printer`, `open_printer_queue`) |
 | **Add a printer (mutates the spooler)** | ✅ **implemented** — `lpadmin` | ✅ **implemented** — PowerShell, IPP/IPPS only |
 
 **Add is shipped, not deferred.** `ipc::printers::add_printer` is wired end to end; the earlier "the commit step is a documented follow-up" note is stale.
 
 - **macOS / Linux** (`platform::cups::add_printer`): the display name is sanitized into a legal CUPS queue id — spaces, `/` and `#` become `_`, the result is capped at 127 characters and falls back to `"printer"` if it sanitizes to nothing — then de-duplicated against the existing queue names. `lpadmin` is invoked with that queue id, the URI, and the user's original text kept as the description. The spooler's own stderr is surfaced verbatim on failure.
-- **Windows** (`platform::windows::add_printer`): only `ipp://` and `ipps://` URIs are accepted; anything else is refused up front with "must be added via system settings". A port is derived from the URI and a PowerShell 5.1 one-liner creates the port and the printer against the Microsoft IPP Class Driver, run with `CREATE_NO_WINDOW`. An access-denied outcome is detected **by HRESULT `0x80070005`** as well as by message text — because that text is localized on non-English Windows — and is turned into actionable guidance ("may require administrator rights; use Open printer settings") rather than a retry, since creating the port needs the same rights.
+- **Windows** (`platform::windows::add_printer`): only `ipp://` and `ipps://` URIs are accepted; anything else is refused up front with "must be added via system settings". The URI becomes the IPP Class Driver's URL (`ipp://h[:p]/path` → `http://h:p/path`, `ipps` → `https`, port 631 when absent) and a PowerShell 5.1 script runs `Add-Printer -Name <queue> -IppURL <url>`, with `CREATE_NO_WINDOW`. The queue name is de-duplicated case-insensitively against the installed queues first (`Name`, `Name_2`, …), as on CUPS. The script switches its output to UTF-8 so localized error text arrives intact, and reports two cases **by exit code** rather than by (localized) message text: access denied (HRESULT `0x80070005` or the `PermissionDenied` category) becomes "may require administrator rights; use Open printer settings", and a Windows build whose `Add-Printer` has no `-IppURL` becomes a pointer to the system dialog. An earlier version pre-created a port with `Add-PrinterPort -Name 'IPP://…'`, which creates a *Local Port* named after the URL (jobs never reached the device) inside a `catch {}` that hid every failure.
 
 Elevation is never requested by the app itself; a machine that requires admin to add a port gets the guidance message instead.
 
@@ -101,7 +118,7 @@ Elevation is never requested by the app itself; a machine that requires admin to
 - Cache driver capabilities (slow network drivers) — for how long, invalidated how?
 - Supply-level polling cadence — on focus, on demand, or a background interval?
 - Windows supply levels — adopt SNMP or IPP (for IPP-Everywhere printers) as a best-effort source?
-- Windows network discovery — WSD, mDNS, or both?
+- Windows network discovery — add WSD next to mDNS?
 - Should `add_printer` on Windows keep shelling out to PowerShell, or move to `AddPrinter`/`AddPortEx` through the `windows` crate?
 
 These are tracked as design discussions, not commitments.

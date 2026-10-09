@@ -110,7 +110,10 @@ If the printer's tray does not have the requested paper, behavior is driver-depe
 
 > **Shipped.** `tray` is on `JobSettings`. `auto` (or blank) emits nothing, so the printer's default bin wins. Any other value is the driver's bin name, passed verbatim: CUPS gets `-o InputSlot=<bin> -o media-source=<bin>`, SumatraPDF gets `bin=<bin>` (a bin name containing a comma is dropped and the drop is logged).
 
-Intended: an identifier for the printer's input bin, queried from the driver — useful for offices with letterhead in tray 2 and plain paper in tray 1.
+An identifier for the printer's input bin, as the driver names it (Windows `DC_BINNAMES`, CUPS `InputSlot`) — useful for offices with letterhead in tray 2 and plain paper in tray 1. A blank name means "the printer's default bin".
+
+- **SumatraPDF (Windows):** `bin=<name>`. When the job names no tray, the printer's saved default tray (Printers → *Defaults for this printer*) is used, as [printers-management](../05-features/printers-management.md) promises; the honesty preview shows the same `bin=`. A name containing a comma cannot be expressed in the comma-separated `-print-settings` list, so it is dropped and logged rather than split into wrong tokens.
+- **CUPS:** `-o InputSlot=<name> -o media-source=<name>` for the job's tray, else the printer's saved default tray (the queue, the CLI and the preview fill it in through `apply_printer_overrides`).
 
 ### `n_up` (pages-per-sheet)
 
@@ -207,7 +210,7 @@ Quick reference for developers writing the renderer:
 Comma-separated keywords inside one quoted string. SumatraPDF is order-independent, but `print_settings_string` emits a **fixed order** so the preview shown in the UI is stable and the output is testable:
 
 ```
-page ranges, duplex, colour, scaling, paper, copies, orientation
+page ranges, duplex, colour, scaling, paper, bin, copies, orientation
 ```
 
 giving, for example:
@@ -227,7 +230,7 @@ Full argument vector: `-print-to <printer> -print-settings <string> -silent -exi
 | Paper size | `paper=A4` (also `Letter`, `Legal`, `A3`, and SumatraPDF's own `A2`, `A5`, `A6`, `tabloid`, `statement`); `auto` emits nothing; any other size cannot be named here, so it is left out and a `:: note:` line in the preview says it is not applied |
 | Copies | `<N>x` (e.g. `3x`), **only when N > 1** — SumatraPDF silently skips the `copies=N` spelling; collation cannot be expressed (preview note) |
 | Orientation | `landscape` / `portrait`; `auto` emits nothing |
-| Tray (bin) | `bin=<name>` when the job (or the printer's override) names one; a name containing a comma cannot be expressed and is left out (logged) |
+| Tray (bin) | `bin=<name>` — the job's tray, else the printer's saved default tray; omitted when there is none or the name contains a comma |
 
 `simplex` and `noscale` are worth noting: the "none" cases are stated explicitly rather than omitted, so every setting the user chose is represented in the string.
 

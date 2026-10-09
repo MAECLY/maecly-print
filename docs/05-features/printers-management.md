@@ -65,8 +65,8 @@ The IPC `PrinterInfo` ([data-model](../04-architecture/data-model.md)) is the **
 | `status`  | Badge tone | Dot       | Meaning                          |
 | --------- | ---------- | --------- | -------------------------------- |
 | `ready`   | success    | done      | Online, accepting jobs           |
-| `offline` | neutral    | cancelled | Not reachable / powered off, or a queue paused in the OS (CUPS `paused`) |
-| `error`   | error      | failed    | Jam, door open, hard fault (any CUPS `*-error` state reason, or a stopped queue that is not merely paused) |
+| `offline` | neutral    | cancelled | Not reachable / powered off, set to "Use Printer Offline", or a queue paused in the OS (CUPS `paused`, a paused Windows queue) — jobs wait, nothing prints |
+| `error`   | error      | failed    | Jam, door open, out of paper/toner, needs a person, hard fault (any CUPS `*-error` state reason, or a stopped queue that is not merely paused) |
 | `busy`    | accent     | printing  | Currently printing               |
 
 | `type`    | Label         | Icon    |
@@ -100,7 +100,7 @@ The IPC `PrinterInfo` ([data-model](../04-architecture/data-model.md)) is the **
 
 A modal (`AddPrinterModal` in `PrintersScreen.tsx`) with three tabs, plus an **Open printer settings** button in the footer that always defers to the OS pane (`open_printer_settings`) for transports MaeclyPrint can't install itself.
 
-1. **Scan network** — mDNS/Bonjour discovery (`discover_printers`; `ippfind` on macOS/Linux, empty on Windows until WSD lands). Results are keyed by the printer's advertised **UUID** (else its host without the port): a printer already installed — matched by UUID, Bonjour service name or host against each queue's `device-uri` — is not offered again, and the `ipp` and `ipps` adverts of one device collapse into a single row on `ipps`, named after the Bonjour service. Each result has an **Add** button that really installs the queue via `add_printer`, with a per-row inline error and toast on failure.
+1. **Scan network** — mDNS/Bonjour discovery (`discover_printers`; `ippfind` on macOS/Linux, an mDNS browse of `_ipp._tcp`/`_ipps._tcp` on Windows; WSD-only devices are not listed). Results are keyed by the printer's advertised **UUID** (else its host without the port): a printer already installed — matched by UUID, Bonjour service name or host against each queue's `device-uri` — is not offered again, and the `ipp` and `ipps` adverts of one device collapse into a single row on `ipps`, named after the Bonjour service. Each result has an **Add** button that really installs the queue via `add_printer`, with a per-row inline error and toast on failure.
 2. **By IP address** — manual entry: host/IP, protocol, port, optional queue path, display name. Host, port (an integer 1–65535) and name are validated client-side (`isValidHost` / `isValidPort` / `isValidDisplayName` / `buildPrinterUri` in `src/lib/printerAddress.ts`) before the URI is composed and handed to `add_printer`. The protocol list is **platform-dependent**: macOS/Linux offer IPP, IPPS, Raw (JetDirect 9100) and LPD/LPR; **Windows offers IPP/IPPS only** (a note steers raw/LPD/USB to *Open printer settings*).
 3. **From system** — every queue the OS already reports, with a checkbox per printer. Unticking one **soft-disables** it (hides it from MaeclyPrint by adding its id to `prefs.disabled`); the underlying OS print queue is never modified. This is a MaeclyPrint-only preference, not an `lpadmin`/spooler mutation. The print path enforces it: a file-type route or app default naming a disabled printer is skipped as if unset, and a job that still resolves to one (an explicit printer in its profile or request, or a disabled OS default) is **paused** with `printer_disabled` and a message naming the printer — never sent. The CLI refuses it the same way (exit code `Printer`). Enabling the printer again and resuming sends the job there.
 
@@ -121,10 +121,10 @@ A modal (`AddPrinterModal` in `PrintersScreen.tsx`) with three tabs, plus an **O
 | Enumeration source | Print Spooler (`EnumPrinters`)           | CUPS (`cupsGetDests`)                    |
 | "From system" tab  | Spooler queues (XPS Writer, Fax, …)      | CUPS destinations                        |
 | Virtual default    | Microsoft Print to PDF                   | Save as PDF                              |
-| Discovery          | **Empty (WSD/mDNS deferred)**            | mDNS/Bonjour via `ippfind`               |
-| Add printer        | `Add-Printer` + **Microsoft IPP Class Driver**; **IPP/IPPS only** (raw/LPD/USB → OS pane); creates the `IPP://` port on demand; needs-admin surfaced as a friendly message | `lpadmin`: **IPP Everywhere** (`-m everywhere`) for ipp/ipps/dnssd, **raw** queue for socket/lpd |
+| Discovery          | mDNS (`mdns-sd`), IPP/IPPS; WSD not yet  | mDNS/Bonjour via `ippfind`               |
+| Add printer        | `Add-Printer -IppURL` + **Microsoft IPP Class Driver**; **IPP/IPPS only** (raw/LPD/USB → OS pane); queue name de-duplicated; needs-admin surfaced as a friendly message | `lpadmin`: **IPP Everywhere** (`-m everywhere`) for ipp/ipps/dnssd, **raw** queue for socket/lpd |
 | Set default        | `SetDefaultPrinterW`                     | `lpoptions -d` (writes `~/.cups/lpoptions`) |
-| Test page          | `rundll32 printui.dll,PrintUIEntry`      | branded MaeclyPrint PDF via `lp`         |
+| Test page          | branded MaeclyPrint PDF via SumatraPDF (paper/tray overrides applied; `printui.dll` fallback) | branded MaeclyPrint PDF via `lp`         |
 | Supply levels      | Not exposed by Win32 (SNMP/WMI/IPP TODO) | `marker-levels` via `lpoptions`          |
 
 macOS support follows [ADR-0007 (Windows first, Mac second)](../adr/0007-windows-first-mac-second.md); the screen is platform-neutral and reads whatever `list_printers` returns. Both add-printer paths avoid flashing a console window and surface the OS tool's own error text in the toast.
@@ -136,7 +136,7 @@ macOS support follows [ADR-0007 (Windows first, Mac second)](../adr/0007-windows
 | Master list + status + capabilities | `list_printers() => Printer[]`   | rich `Printer` (extends `PrinterInfo`) incl. color/duplex/papers/trays/supplies |
 | Default star            | `default_printer() => string \| null`     | OS-default id                      |
 | Rescan                  | re-invoke `list_printers`                 | —                                  |
-| Scan network (add modal)| `discover_printers() => DiscoveredPrinter[]` | macOS mDNS real; Windows empty (deferred) |
+| Scan network (add modal)| `discover_printers() => DiscoveredPrinter[]` | mDNS on both platforms (Windows: `mdns-sd`) |
 | Add printer (network row / IP) | `add_printer(name, uri) => void`   | Installs a real spooler queue; spooler error surfaced verbatim |
 | From-system checkboxes / tray-paper / routes | `get_printer_prefs()` / `set_printer_prefs(prefs)` | MaeclyPrint-only prefs: `disabled`, `overrides`, `routes`, `default_printer` |
 | Set default             | `set_default_printer(name) => void`       | `lpoptions -d` / `SetDefaultPrinterW`; no elevation |
@@ -156,7 +156,7 @@ How the data is sourced per OS — and why fields may be absent — is documente
   - Preferences persistence (`get_printer_prefs` / `set_printer_prefs`): file-type routes, per-printer tray/paper overrides, soft-disabled set, app default.
   - **Add printer** by network discovery and by IP (`add_printer`: `lpadmin` IPP Everywhere/raw on macOS/Linux; Microsoft IPP Class Driver, IPP/IPPS-only on Windows), and **From system** spooler management.
   - **Missing-printer reconciliation** (reassign / forget / keep-paused) and **org-policy default lock** (`get_printer_policy` reading `policy.json`).
-- **Follow-up** — Windows network discovery (WSD/mDNS), Windows supply levels (SNMP/WMI/IPP), and profile-level reconciliation once profiles are wired.
+- **Follow-up** — Windows WSD discovery, Windows supply levels (SNMP/WMI/IPP), and profile-level reconciliation once profiles are wired.
 
 ## Open questions for v1+
 
