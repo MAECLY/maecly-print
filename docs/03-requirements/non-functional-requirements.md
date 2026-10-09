@@ -100,7 +100,7 @@ Each NFR has a stable ID (`NFR-XXX`), a measurable target, and a verification me
 | ID | Requirement | Target | Verification |
 |---|---|---|---|
 | NFR-080 | All log entries MUST be structured (JSONL) with: timestamp (ISO 8601), level, target/module, message, optional fields | `tracing-subscriber` JSON formatter | Unit test on log format |
-| NFR-081 | Logs MUST roll daily and by size; retention bounded | **Met, with a tightened policy**: `logging::Policy` rolls daily *and* at a size ceiling, then sweeps by `retain_days` (14) **and** `retain_files` (7) — whichever bound bites first wins. | `logging` unit tests |
+| NFR-081 | Logs MUST roll daily and by size; retention bounded | **Met, with a tightened policy**: `logging::Policy` rolls daily *and* at a size ceiling, then sweeps by `retain_days` (14) **and** `retain_files` (7) — whichever bound bites first wins. The sweep runs at startup and again on every roll, so a resident instance stays bounded without a restart. | `logging` unit tests |
 | NFR-082 | Sensitive data (file contents, full paths if user opts) MUST never be logged at default level | Log audit at QA | Manual QA |
 | NFR-083 | The system MAY include an opt-in crash reporter (Sentry-compatible) disabled by default | Documented in Settings | Privacy doc |
 
@@ -139,7 +139,7 @@ Verified against the tree. Only NFRs whose status is non-obvious or has recently
 | **NFR-044** | Semantics rather than styling: `ConfirmDialog` announces title and body through `role="dialog"`, `Switch` exposes switch semantics with its checked state, `Checkbox` exposes checkbox semantics named by its label, `Kbd` renders a real `<kbd>` with no interactive role. Screen-reader smoke testing remains manual. |
 | **NFR-045** | State is never carried by colour alone: `Segmented` exposes selection through `aria-checked`, `Checkbox` reports indeterminate as `mixed`. |
 | **NFR-071** | `src-tauri/src/platform/{windows.rs, cups.rs, macos/}`. |
-| **NFR-081** | `logging::Policy` — daily + size roll, swept by `retain_days` (14) and `retain_files` (7), whichever bites first. |
+| **NFR-081** | `logging::Policy` — daily + size roll, swept at startup and on every roll by `retain_days` (14) and `retain_files` (7), whichever bites first. |
 
 ### Not met, or unverified
 

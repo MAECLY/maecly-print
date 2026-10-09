@@ -228,7 +228,7 @@ Nothing is collected, because nothing is transmitted. In particular the app neve
 
 Local-only. Files are named `maeclyprint-<UTC date>.jsonl` (and `maeclyprint-<date>.<n>.jsonl` for each size roll within one day) under `%LOCALAPPDATA%\MaeclyPrint\logs\` (Windows) or `~/Library/Logs/MaeclyPrint/` (macOS). The user can delete them at any time, and the About screen has a button that reveals the folder.
 
-Rotation and retention are implemented by `logging::RollingJsonl`, not by `tracing-appender`'s rolling appender (which only rotates on a clock boundary and never deletes): the current file rolls when the **UTC date changes or it passes 10 MB, whichever comes first**, and a sweep at startup deletes anything older than **14 days** and then keeps only the **7 newest** files. Both bounds apply; whichever bites first wins. There is no `[logging]` section in `config.toml` — these are the whole policy.
+Rotation and retention are implemented by `logging::RollingJsonl`, not by `tracing-appender`'s rolling appender (which only rotates on a clock boundary and never deletes): the current file rolls when the **UTC date changes or it passes 10 MB, whichever comes first**, and a sweep at startup and on every roll deletes anything older than **14 days** and then keeps only the **7 newest** files. Both bounds apply; whichever bites first wins. There is no `[logging]` section in `config.toml` — these are the whole policy.
 
 Logs are **never** uploaded. There is no "send logs to maintainers" upload path in this version; `report_issue` opens a prefilled GitHub issue in the browser with an environment block, and the user pastes whatever they choose.
 

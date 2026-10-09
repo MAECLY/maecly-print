@@ -18,9 +18,11 @@
 //! documented daily name is what a user finds unless a single day is unusually
 //! chatty.
 //!
-//! The sweep runs once at startup ([`sweep`]): it deletes anything older than
-//! [`Policy::retain_days`] and then keeps only the newest
-//! [`Policy::retain_files`]. Both bounds apply — whichever bites first wins.
+//! The sweep ([`sweep`]) runs at startup **and on every roll** — a resident
+//! instance can stay up for weeks, so retention cannot wait for a relaunch. It
+//! deletes anything older than [`Policy::retain_days`] and then keeps only the
+//! newest [`Policy::retain_files`]. Both bounds apply — whichever bites first
+//! wins.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
@@ -50,7 +52,7 @@ const FILE_SUFFIX: &str = ".jsonl";
 pub struct Policy {
     /// Size at which the current file rolls to the next part (NFR-081: 10 MB).
     pub max_bytes: u64,
-    /// Files older than this many days are swept at startup
+    /// Files older than this many days are swept at startup and on every roll
     /// (`data-model.md` §5.2: 14).
     pub retain_days: u16,
     /// Newest files kept after the age sweep (NFR-081: 7).
@@ -250,6 +252,14 @@ impl RollingJsonl {
                 _ => 1,
             };
             self.open = Some(self.open_part(&today, start_part)?);
+            // NFR-081: the app is resident (it waits for context-menu
+            // hand-offs), so a startup-only sweep let a long session pile up
+            // parts and stale days until the next launch. Every roll re-applies
+            // the policy. It runs *after* the new part is open so the file we
+            // are about to write is the newest one and can never be dropped.
+            // Deliberately silent: this is the log writer itself, and emitting
+            // a tracing event from inside it would re-enter it.
+            sweep(&self.dir, (self.clock)(), &self.policy);
         }
         Ok(self.open.as_mut().expect("just opened"))
     }
@@ -480,6 +490,51 @@ mod tests {
                 "maeclyprint-2026-07-20.jsonl",
             ]
         );
+    }
+
+    /// A resident app never restarts, so retention must not depend on a launch:
+    /// every roll (size or date) re-applies the policy.
+    #[test]
+    fn nfr_081_writer_sweeps_on_every_roll_not_only_at_startup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy = Policy {
+            max_bytes: 10,
+            retain_days: 14,
+            retain_files: 2,
+        };
+        let now = Arc::new(Mutex::new(date("2026-07-01")));
+        let clock_src = now.clone();
+        // Old files left by an earlier run, already past the age bound by the
+        // time the date below advances.
+        touch(tmp.path(), "maeclyprint-2026-06-01.jsonl");
+        let mut w = RollingJsonl::with_clock(
+            tmp.path().to_path_buf(),
+            policy,
+            Box::new(move || *clock_src.lock().unwrap()),
+        );
+
+        // Ten size rolls in one long-running session.
+        for _ in 0..10 {
+            w.write_all(b"0123456789").unwrap();
+        }
+        w.flush().unwrap();
+        assert_eq!(
+            names(tmp.path()).len(),
+            2,
+            "the count bound holds while the app keeps running: {:?}",
+            names(tmp.path())
+        );
+
+        // Three weeks later, without a restart: the date roll sweeps too.
+        *now.lock().unwrap() = date("2026-07-22");
+        w.write_all(b"later\n").unwrap();
+        w.flush().unwrap();
+        let left = names(tmp.path());
+        assert!(
+            left.iter().all(|n| n.as_str() >= "maeclyprint-2026-07-08"),
+            "nothing older than retain_days survives a date roll: {left:?}"
+        );
+        assert!(left.contains(&"maeclyprint-2026-07-22.jsonl".to_string()));
     }
 
     #[test]

@@ -408,7 +408,7 @@ Rotation and retention are implemented by **`logging::RollingJsonl`**, not by `t
 `RollingJsonl` is a plain `Write`, so the JSON layer and the non-blocking writer are wired exactly as they would be otherwise. It does both halves of the requirement:
 
 - **Roll** when the **UTC date changes or the file passes `max_bytes` (10 MB), whichever comes first.** The day's first file is `maeclyprint-<date>.jsonl`; each size roll after it is `maeclyprint-<date>.<n>.jsonl` (n ≥ 2). So the documented daily name is what a user finds unless a single day is unusually chatty.
-- **Sweep**, once at startup, *before* the writer opens today's file — so a file about to be appended to can never be counted among the ones to drop. It deletes anything older than `retain_days` (**14**) and then keeps only the newest `retain_files` (**7**). **Both** bounds apply; whichever bites first wins.
+- **Sweep** at startup, *before* the writer opens today's file, and again **after every roll** (the app is resident and can run for weeks, so retention cannot wait for a relaunch). The roll-time sweep runs once the new part is open, so the file about to be appended to is always the newest and is never dropped. It deletes anything older than `retain_days` (**14**) and then keeps only the newest `retain_files` (**7**). **Both** bounds apply; whichever bites first wins.
 
 Dates are **UTC** for both file names and the retention cutoff, so a machine crossing a timezone or a DST boundary never re-opens yesterday's file.
 
