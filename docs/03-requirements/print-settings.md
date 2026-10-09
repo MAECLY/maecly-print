@@ -13,7 +13,7 @@ A print setting is anything that can be different per job: the printer, paper, d
 | `printer` | string | system default | `-print-to "<name>"` | `-d <name>` | **Shipped** | no |
 | `duplex` | enum: none / long / short | **none** | `simplex` / `duplex` / `duplexshort` | `-o sides=one-sided \| two-sided-long-edge \| two-sided-short-edge` | **Shipped** | yes (printer must support) |
 | `color_mode` | enum: color / monochrome | color | `color` / `monochrome` | `-o ColorModel=Gray` for mono; colour sends `-o ColorModel=RGB` **only when the printer lists `RGB`**, else nothing (driver default) | **Shipped** | yes |
-| `copies` | int 1–999 | 1 | `copies=N` (only when N > 1) | `-n N` (only when N > 1) | **Shipped** | no |
+| `copies` | int 1–999 | 1 | `<N>x`, e.g. `3x` (only when N > 1) | `-n N` (only when N > 1) | **Shipped** | no |
 | `page_ranges` | string `1-5,10` | all | bare `1-5,10`, prepended, no key | `-o page-ranges=1-5,10` | **Shipped** | no |
 | `paper_size` | string: any size the printer reports (`A4`, `Letter`, `A6`, `4x6`, `Tabloid`…), or `auto` | A4 | `paper=<A2…A6, letter, legal, tabloid, statement>`; any other size is **not applied** and the preview says so; `auto` emits nothing | `-o media=<the printer's own keyword>`; `auto` emits nothing | **Shipped** | yes — validated against the printer's list when it reports one (`unsupported_setting` pause otherwise) |
 | `orientation` | enum: portrait / landscape / auto | auto | `landscape` / `portrait`; **auto emits nothing** | `-o orientation-requested=3` (portrait) / `=4` (landscape); **auto emits nothing** | **Shipped** | no |
@@ -69,7 +69,7 @@ There is no `auto` value. On CUPS, `color` emits no flag at all — the driver's
 
 ### `copies` and `collate`
 
-`copies` is validated as `1..=999` by `JobSettings::validate` and sets the number of copies of the **whole job**. It is only emitted when greater than 1 (`copies=N` for SumatraPDF, `-n N` for `lp`).
+`copies` is validated as `1..=999` by `JobSettings::validate` and sets the number of copies of the **whole job**. It is only emitted when greater than 1 (`<N>x` for SumatraPDF, `-n N` for `lp`).
 
 `collate` is on `JobSettings` and on profiles (default `true`), set from the Print Job **Collate copies** switch or `--collate` / `--no-collate`:
 
@@ -213,7 +213,7 @@ page ranges, duplex, colour, scaling, paper, copies, orientation
 giving, for example:
 
 ```
-"1-5,duplex,monochrome,fit,paper=A4,copies=2,landscape"
+"1-5,duplex,monochrome,fit,paper=A4,2x,landscape"
 ```
 
 Full argument vector: `-print-to <printer> -print-settings <string> -silent -exit-when-done <pdf>`.
@@ -225,7 +225,7 @@ Full argument vector: `-print-to <printer> -print-settings <string> -silent -exi
 | Colour / monochrome | `color` / `monochrome` — always emitted |
 | Scaling fit / shrink / none | `fit` / `shrink` / `noscale` — always emitted |
 | Paper size | `paper=A4` (also `Letter`, `Legal`, `A3`, and SumatraPDF's own `A2`, `A5`, `A6`, `tabloid`, `statement`); `auto` emits nothing; any other size cannot be named here, so it is left out and a `:: note:` line in the preview says it is not applied |
-| Copies | `copies=N`, **only when N > 1**; collation cannot be expressed (preview note) |
+| Copies | `<N>x` (e.g. `3x`), **only when N > 1** — SumatraPDF silently skips the `copies=N` spelling; collation cannot be expressed (preview note) |
 | Orientation | `landscape` / `portrait`; `auto` emits nothing |
 | Tray (bin) | `bin=<name>` when the job (or the printer's override) names one; a name containing a comma cannot be expressed and is left out (logged) |
 

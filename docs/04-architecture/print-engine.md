@@ -61,7 +61,7 @@ Detection is by **extension**, lowercased. There is no magic-byte fallback: `inf
 ```
 SumatraPDF.exe ^
   -print-to "HP LaserJet Pro M404dn" ^
-  -print-settings "1-5,duplex,monochrome,fit,paper=A4,copies=2" ^
+  -print-settings "1-5,duplex,monochrome,fit,paper=A4,2x" ^
   -silent ^
   -exit-when-done ^
   "%LOCALAPPDATA%\MaeclyPrint\cache\conversions\<job-id>.pdf"
@@ -74,7 +74,7 @@ The `-print-settings` value is a comma-separated keyword list MaeclyPrint emits 
 3. **colour** — `color` / `monochrome`.
 4. **scaling** — `fit` / `shrink` / `noscale`.
 5. **paper** — `paper=A4` / `paper=Letter` / `paper=Legal` / `paper=A3`.
-6. **copies** — `copies=<n>`, only when > 1.
+6. **copies** — `<n>x` (e.g. `3x`), only when > 1. SumatraPDF silently skips an unknown `copies=<n>` token.
 7. **orientation** — `landscape` / `portrait`; `auto` emits nothing.
 
 Defaults serialise to `simplex,color,fit,paper=A4`. Translation from the wire `JobSettings` lives in `engine/print/sumatra.rs`, and the same builder feeds the UI's honesty preview so what the user sees is exactly what runs. The child is spawned with the console window suppressed; SumatraPDF prints synchronously and reports no spooler job id.

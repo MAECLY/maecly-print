@@ -14,13 +14,15 @@
 //! | scaling fit/shrink/none| `fit` / `shrink` / `noscale`              |
 //! | paper                 | `paper=<A2…A6\|letter\|legal\|tabloid\|statement>` |
 //! | tray                  | `bin=<bin name or number>`                 |
-//! | copies > 1            | `copies=<n>`                               |
+//! | copies > 1            | `<n>x` (e.g. `3x`)                         |
 //! | orientation land/port | `landscape` / `portrait` *(auto omitted)*  |
 //! | **quality**           | **not expressible — see below**            |
 //!
 //! The doc table lists only `duplex`/`duplexshort`; SumatraPDF also accepts
 //! `simplex` and `noscale`, which we use for the "none" cases so every setting
-//! is stated explicitly. Copies use the doc's `copies=N` (not the older `Nx`).
+//! is stated explicitly. Copies use `<n>x`, the only spelling SumatraPDF's
+//! parser accepts; an unknown token such as `copies=N` is skipped without a
+//! warning, which is how an earlier version printed one copy of everything.
 //!
 //! ## The quality gap
 //!
@@ -111,8 +113,10 @@ pub fn print_settings_string(settings: &JobSettings) -> String {
         parts.push(format!("bin={tray}"));
     }
 
+    // SumatraPDF spells copies `<n>x` (`3x`). It silently skips tokens it does
+    // not know, so the `copies=N` spelling some docs use prints one copy.
     if settings.copies > 1 {
-        parts.push(format!("copies={}", settings.copies));
+        parts.push(format!("{}x", settings.copies));
     }
 
     match settings.orientation {
@@ -353,7 +357,7 @@ mod tests {
         };
         assert_eq!(
             print_settings_string(&settings),
-            "1-5,10,duplex,monochrome,noscale,paper=A3,bin=Drawer 1,copies=2,landscape"
+            "1-5,10,duplex,monochrome,noscale,paper=A3,bin=Drawer 1,2x,landscape"
         );
     }
 
@@ -434,6 +438,27 @@ mod tests {
             .iter()
             .any(|n| n.contains("uncollated") && n.contains("NOT applied")));
         assert!(!print_settings_string(&with(3, false)).contains("collate"));
+    }
+
+    /// FR-041: SumatraPDF's `-print-settings` only understands copies as
+    /// `<n>x`; it skips an unknown `copies=N` token without a word, which
+    /// printed exactly one copy whatever the user asked for.
+    #[test]
+    fn fr_041_copies_use_sumatras_nx_token() {
+        let with = |copies| JobSettings {
+            copies,
+            ..JobSettings::default()
+        };
+        assert_eq!(
+            print_settings_string(&with(3)),
+            "simplex,color,fit,paper=A4,3x"
+        );
+        assert!(!print_settings_string(&with(3)).contains("copies"));
+        // One copy is the default and is not stated at all.
+        assert_eq!(
+            print_settings_string(&with(1)),
+            "simplex,color,fit,paper=A4"
+        );
     }
 
     #[test]
