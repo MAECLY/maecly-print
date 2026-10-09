@@ -62,6 +62,34 @@ describe('OnboardingFlow', () => {
     expect(onComplete).toHaveBeenCalledTimes(2);
   });
 
+  it('FR-111/NFR-044: is a labelled modal dialog that takes the focus', () => {
+    render(<OnboardingFlow onComplete={vi.fn()} />);
+    const dialog = screen.getByRole('dialog', {
+      name: /welcome to maeclyprint/i,
+    });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByRole('button', { name: /continue/i })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    expect(screen.getByRole('button', { name: /continue/i })).toHaveFocus();
+  });
+
+  it('NFR-041: Escape skips the tour, and Tab stays inside it', () => {
+    const onComplete = vi.fn();
+    render(<OnboardingFlow onComplete={onComplete} />);
+    const skip = screen.getByRole('button', { name: /skip/i });
+    const next = screen.getByRole('button', { name: /continue/i });
+
+    // Tab from the last control wraps to the first, never into the app.
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(skip).toHaveFocus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(next).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
   it('NFR-041: announces which step is showing', () => {
     render(<OnboardingFlow onComplete={vi.fn()} />);
     expect(screen.getByRole('status')).toHaveAccessibleName('Step 1 of 5');
