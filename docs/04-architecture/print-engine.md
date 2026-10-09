@@ -121,11 +121,15 @@ msedge.exe ^
   --user-data-dir="%TEMP%\maeclyprint-convert-<job>-XXXX\browser" ^
   --no-first-run --no-default-browser-check --disable-extensions ^
   --disable-background-networking --disable-sync --mute-audio ^
+  --proxy-server=127.0.0.1:9 "--proxy-bypass-list=<-loopback>" ^
+  "--host-resolver-rules=MAP * ~NOTFOUND" ^
+  --force-webrtc-ip-handling-policy=disable_non_proxied_udp --disable-quic ^
+  --disable-remote-fonts --disable-features=NetworkPrediction ^
   --print-to-pdf="%TEMP%\maeclyprint-convert-<job>-XXXX\out.pdf" ^
   "file:///C:/Users/.../page.html"
 ```
 
-(`engine::convert::html`.) No `--no-sandbox`: the browser's sandbox stays on. The browser is located through `engine::deps` (bundled → configured → `PATH` → install dirs), with `msedge.exe` before `chrome.exe` on Windows and Edge, Chrome, then Chromium on macOS. A private `--user-data-dir` keeps the user's browser and profile out of it.
+(`engine::convert::html`.) No `--no-sandbox`: the browser's sandbox stays on. The browser is located through `engine::deps` (bundled → configured → `PATH` → install dirs), with `msedge.exe` before `chrome.exe` on Windows and Edge, Chrome, then Chromium on macOS. A private `--user-data-dir` keeps the user's browser and profile out of it. The page gets **no network** (`html::SANDBOX_ARGS`): requests go to a dead proxy on loopback, `localhost` included, host names do not resolve, and WebRTC cannot use UDP around the proxy. JavaScript stays on, because `--blink-settings=scriptEnabled=false` hangs headless `--print-to-pdf`. See [supported-formats.md](../03-requirements/supported-formats.md#html) for the reasoning and the remaining Windows UNC gap.
 
 The step ends when the PDF is **complete**, not when the browser exits. Chrome 156 on macOS writes the PDF in about a second and then never exits. `pdf_is_complete` waits for the `%%EOF` trailer and a size that did not change between two polls, and then the browser tree is killed.
 
@@ -134,11 +138,12 @@ If no browser is found, the job pauses with *"Microsoft Edge or Google Chrome is
 ### 3.5 Pandoc
 
 ```
-pandoc --from=markdown --to=html5 --standalone --metadata=pagetitle:notes ^
+pandoc --from=markdown-raw_html-raw_attribute --to=html5 --standalone --sandbox ^
+       --lua-filter=<scratch>\local-images.lua --metadata=pagetitle:notes ^
        --include-in-header=<scratch>\head.html --output=<scratch>\page.html "notes.md"
 ```
 
-(`engine::convert::markdown`.) This is always Markdown → HTML → the §3.4 browser step. There is no wkhtmltopdf or TeX path, so no TeX install is needed. The injected header carries a print stylesheet and `<base href>` set to the Markdown file's folder, so relative images resolve. Pandoc and the browser share one timeout budget, and a Pandoc failure stops the pipeline before the browser starts.
+(`engine::convert::markdown`.) This is always Markdown → HTML → the §3.4 browser step. There is no wkhtmltopdf or TeX path, so no TeX install is needed. The injected header carries a Content-Security-Policy (no script, plugins, frames or connections), a print stylesheet and `<base href>` set to the Markdown file's folder, so relative images resolve. Raw HTML is printed as text, and the `local-images.lua` filter turns any image that is not on the local disk (remote, protocol-relative or UNC) into its alt text. Pandoc and the browser share one timeout budget, and a Pandoc failure stops the pipeline before the browser starts.
 
 ### 3.6 CUPS `lp` (macOS / Linux, shipped)
 

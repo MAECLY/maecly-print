@@ -492,6 +492,113 @@ fn fr_056_real_markdown_goes_through_pandoc_and_the_browser() {
     assert_eq!(first_page_size(&pdf), (595, 842));
 }
 
+/// A printed page reaches no network, loopback included: its stylesheet, its
+/// image, a script `fetch` and a WebSocket all point at a local listener that
+/// must never see a connection.
+#[test]
+fn fr_055_real_html_reaches_no_network() {
+    if tool_or_skip(Dependency::Chromium, "html-sandbox").is_none() {
+        return;
+    }
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let dir = tempfile::tempdir().unwrap();
+    let html = dir.path().join("hostile.html");
+    std::fs::write(
+        &html,
+        format!(
+            "<!doctype html><html><head><meta charset=utf-8>\
+             <link rel=stylesheet href=\"http://localhost:{port}/x.css\"></head>\
+             <body><p>static</p>\
+             <img src=\"http://127.0.0.1:{port}/beacon.png\">\
+             <script>fetch('http://127.0.0.1:{port}/fetch').catch(() => {{}});\
+             try {{ new WebSocket('ws://127.0.0.1:{port}/ws'); }} catch (e) {{}}</script>\
+             </body></html>"
+        ),
+    )
+    .unwrap();
+    let pdf = convert_real(&html, &dir.path().join("cache"), "real-html-sandbox");
+    assert_eq!(pages_of(&pdf), 1);
+    match listener.accept() {
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+        other => panic!("the page reached the network: {other:?}"),
+    }
+}
+
+/// Raw HTML in a Markdown file is printed as text, never run or loaded, and
+/// only images on the local disk survive; remote and UNC ones become their
+/// alt text.
+#[test]
+fn fr_056_real_markdown_drops_raw_html_and_non_local_images() {
+    let Some(pandoc) = tool_or_skip(Dependency::Pandoc, "md-sandbox") else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let md = dir.path().join("README.md");
+    std::fs::write(
+        &md,
+        "# Title\n\n\
+         <script>document.write('ran')</script>\n\n\
+         <iframe src=\"file:///etc/passwd\"></iframe>\n\n\
+         `<b>raw</b>`{=html}\n\n\
+         ![keep-rel](pic.png) ![keep-abs](file:///tmp/x.png) \
+         ![keep-data](data:image/png;base64,AA==)\n\n\
+         ![drop-http](http://example.com/x.png) ![drop-proto](//attacker/s/x.png)\n\n\
+         ![drop-unc](\\\\\\\\attacker\\\\s\\\\x.png) ![drop-host](file://attacker/x.png)\n\n\
+         ![drop-four](file:////attacker/x.png)\n",
+    )
+    .unwrap();
+    let work = WorkDir::new("md-sandbox").unwrap();
+    let header = work.path().join("head.html");
+    std::fs::write(&header, markdown::head_fragment(dir.path())).unwrap();
+    let filter = work.path().join("local-images.lua");
+    std::fs::write(&filter, markdown::LOCAL_IMAGES_LUA).unwrap();
+    let page = work.path().join("page.html");
+    let mut cmd = std::process::Command::new(&pandoc);
+    cmd.args(markdown::pandoc_args(
+        &md, &header, &filter, &page, "README",
+    ));
+    let cancel = AtomicBool::new(false);
+    process::run_bounded(
+        cmd,
+        "Pandoc",
+        &cancel,
+        REAL_TIMEOUT,
+        &work.path().join("log"),
+    )
+    .unwrap();
+    let html = std::fs::read_to_string(&page).unwrap();
+    let body = &html[html.find("<body").expect("standalone page")..];
+
+    assert!(!body.contains("<script"), "{body}");
+    assert!(!body.contains("<iframe"), "{body}");
+    assert!(!body.contains("<b>raw"), "{body}");
+    assert!(
+        body.contains("&lt;script&gt;"),
+        "raw HTML stays visible as text: {body}"
+    );
+    // The injected header (CSP, base URL, print CSS) still reaches the page.
+    assert!(html.contains("<base href="), "{html}");
+    assert!(html.contains("script-src 'none'"), "{html}");
+    for keep in ["keep-rel", "keep-abs", "keep-data"] {
+        assert!(body.contains(&format!("alt=\"{keep}\"")), "{keep}: {body}");
+    }
+    for drop in [
+        "drop-http",
+        "drop-proto",
+        "drop-unc",
+        "drop-host",
+        "drop-four",
+    ] {
+        assert!(!body.contains(&format!("alt=\"{drop}\"")), "{drop}: {body}");
+        assert!(body.contains(drop), "{drop} keeps its alt text: {body}");
+    }
+    assert!(!body.contains("attacker"), "{body}");
+    assert!(!body.contains("example.com"), "{body}");
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn fr_052_real_heic_made_by_sips_converts_to_one_page() {

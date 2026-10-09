@@ -2,10 +2,25 @@
 //! (FR-056).
 //!
 //! ```text
-//! pandoc --from=markdown --to=html5 --standalone
+//! pandoc --from=markdown-raw_html-raw_attribute --to=html5 --standalone
+//!        --sandbox --lua-filter=<work>/local-images.lua
 //!        --metadata=pagetitle:<name> --include-in-header=<work>/head.html
 //!        --output=<work>/page.html <input.md>
 //! ```
+//!
+//! A Markdown file is text, and printing it must not turn it into active
+//! content. Raw HTML (`<script>`, `<iframe src=file:///…>`, `<img
+//! src=\\host\share>`) is not passed through: with `raw_html` and
+//! `raw_attribute` off, Pandoc prints such markup as literal text.
+//! `--sandbox` keeps Pandoc itself from reading anything but the files named
+//! on its command line or fetching anything over the network. The Lua filter
+//! ([`LOCAL_IMAGES_LUA`]) keeps only images that load from the local disk;
+//! a remote or UNC image (`//host/share/x.png`, which Windows would resolve
+//! over SMB and so hand the user's NTLM hash to that host) becomes its alt
+//! text. The injected header adds a Content-Security-Policy that forbids
+//! scripts, plugins and frames, so nothing can run even if a future Pandoc
+//! emitted markup we did not expect, and the browser step runs without
+//! network ([`super::html::SANDBOX_ARGS`]).
 //!
 //! Why not `pandoc -o out.pdf`: Pandoc's PDF output needs a LaTeX distribution
 //! (or wkhtmltopdf), a multi-gigabyte dependency for the user to install. The
@@ -53,9 +68,14 @@ fn attr_escape(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
-/// The `<head>` fragment injected by Pandoc: base URL + stylesheet, plus the
-/// job's paper size when it names one (the browser would otherwise lay the
-/// page out on US Letter). Pure.
+/// Content-Security-Policy for the generated page: a Markdown document has
+/// no business running script, embedding plugins or framing other pages.
+const PAGE_CSP: &str = "script-src 'none'; object-src 'none'; frame-src 'none'; \
+                        worker-src 'none'; connect-src 'none'; form-action 'none'";
+
+/// The `<head>` fragment injected by Pandoc: CSP + base URL + stylesheet,
+/// plus the job's paper size when it names one (the browser would otherwise
+/// lay the page out on US Letter). Pure.
 pub fn head_fragment(source_dir: &Path, page: &PageSetup) -> String {
     let mut base = file_url(source_dir);
     if !base.ends_with('/') {
@@ -67,17 +87,49 @@ pub fn head_fragment(source_dir: &Path, page: &PageSetup) -> String {
         .map(|size| format!("@page {{ size: {size}; }}\n"))
         .unwrap_or_default();
     format!(
-        "<base href=\"{}\">\n<style>\n{PRINT_CSS}{size}</style>\n",
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"{PAGE_CSP}\">\n\
+         <base href=\"{}\">\n<style>\n{PRINT_CSS}{size}</style>\n",
         attr_escape(&base)
     )
 }
 
+/// Pandoc Lua filter: an image whose source is not on the local disk is
+/// replaced by its alt text. Local means a relative path, a drive path
+/// (`C:\x.png`), `file:///…` with no host, or a `data:` URI; a
+/// protocol-relative or UNC source (`//host/x`, `\\host\x`,
+/// `file://host/x`, `file:////host/x`) and any other scheme are not.
+pub const LOCAL_IMAGES_LUA: &str = r#"
+local function is_local(src)
+  local lower = src:lower()
+  if lower:sub(1, 5) == 'data:' then return true end
+  if src:match('^[/\\][/\\]') then return false end
+  if src:match('^%a:[/\\]') then return true end
+  local scheme = src:match('^(%a[%w+.-]*):')
+  if scheme == nil then return true end
+  if scheme:lower() ~= 'file' then return false end
+  return lower:match('^file:///') ~= nil and lower:match('^file:///[/\\]') == nil
+end
+
+function Image(img)
+  if is_local(img.src) then return nil end
+  return img.caption
+end
+"#;
+
 /// Pandoc's argument vector. Pure.
-pub fn pandoc_args(input: &Path, header: &Path, output: &Path, title: &str) -> Vec<String> {
+pub fn pandoc_args(
+    input: &Path,
+    header: &Path,
+    filter: &Path,
+    output: &Path,
+    title: &str,
+) -> Vec<String> {
     vec![
-        "--from=markdown".to_string(),
+        "--from=markdown-raw_html-raw_attribute".to_string(),
         "--to=html5".to_string(),
         "--standalone".to_string(),
+        "--sandbox".to_string(),
+        format!("--lua-filter={}", filter.display()),
         format!("--metadata=pagetitle:{title}"),
         format!("--include-in-header={}", header.display()),
         format!("--output={}", output.display()),
@@ -102,9 +154,12 @@ pub fn convert_with(
     let started = std::time::Instant::now();
     let source_dir = input.parent().unwrap_or_else(|| Path::new("."));
     let header = work.path().join("head.html");
-    std::fs::write(&header, head_fragment(source_dir, page_setup)).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot prepare the conversion folder: {e}"))
-    })?;
+    let filter = work.path().join("local-images.lua");
+    std::fs::write(&header, head_fragment(source_dir, page_setup))
+        .and_then(|()| std::fs::write(&filter, LOCAL_IMAGES_LUA))
+        .map_err(|e| {
+            EngineError::ConversionFailed(format!("cannot prepare the conversion folder: {e}"))
+        })?;
     let page = work.path().join("page.html");
     let title = input
         .file_stem()
@@ -112,7 +167,7 @@ pub fn convert_with(
         .unwrap_or_else(|| "document".to_string());
 
     let mut cmd = Command::new(pandoc);
-    cmd.args(pandoc_args(input, &header, &page, &title))
+    cmd.args(pandoc_args(input, &header, &filter, &page, &title))
         .current_dir(work.path());
     let log = work.path().join("pandoc.log");
     run_bounded(cmd, "Pandoc", cancel, timeout, &log)?;
@@ -149,15 +204,18 @@ mod tests {
         let args = pandoc_args(
             Path::new("/docs/notes.md"),
             Path::new("/w/head.html"),
+            Path::new("/w/local-images.lua"),
             Path::new("/w/page.html"),
             "notes",
         );
         assert_eq!(
             args,
             [
-                "--from=markdown",
+                "--from=markdown-raw_html-raw_attribute",
                 "--to=html5",
                 "--standalone",
+                "--sandbox",
+                "--lua-filter=/w/local-images.lua",
                 "--metadata=pagetitle:notes",
                 "--include-in-header=/w/head.html",
                 "--output=/w/page.html",
@@ -176,6 +234,10 @@ mod tests {
         let head = head_fragment(Path::new(dir), &PageSetup::default());
         assert!(head.contains(&format!("<base href=\"{base}\">")), "{head}");
         assert!(head.contains("@page"));
+        assert!(
+            head.contains("Content-Security-Policy") && head.contains("script-src 'none'"),
+            "{head}"
+        );
         assert!(!head.contains("size: 210mm"));
 
         let a4 = PageSetup {

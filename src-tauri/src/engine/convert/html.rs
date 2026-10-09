@@ -16,9 +16,24 @@
 //!   some Chrome builds (156 on macOS, at least) write the file in a second
 //!   and then idle forever. [`pdf_is_complete`] waits for the `%%EOF`
 //!   trailer and a stable size, then the browser tree is killed.
-//! - Network fetches the page itself asks for are not blocked: the
-//!   output must match what the browser shows. Remote `http(s)://` *inputs*
-//!   are not accepted — only local files reach this converter.
+//! - The page gets **no network**. A file someone sent the user must not
+//!   phone home (IP address, "opened at" timing, a tracking pixel) just
+//!   because it was printed, so every `http(s)`/`ws` request goes to a proxy
+//!   on a closed local port (`127.0.0.1:9`, loopback included, so
+//!   `localhost` services are not reachable either), host names never
+//!   resolve, WebRTC may not send UDP around the proxy, and web fonts are
+//!   not downloaded ([`SANDBOX_ARGS`]). Local files (`file://` stylesheets
+//!   and images next to the page) still load, so a saved page prints the way
+//!   it looks offline. Remote `http(s)://` *inputs* are not accepted — only
+//!   local files reach this converter.
+//! - JavaScript stays **on** for HTML files. Chrome's only per-run switch
+//!   for it (`--blink-settings=scriptEnabled=false`) makes headless
+//!   `--print-to-pdf` hang without writing anything (Chrome 154, verified),
+//!   and a saved page that draws its content with script would print blank.
+//!   With the network gone a script has nowhere to send what it sees, and
+//!   Chrome's file-origin rules already stop a `file://` page from reading
+//!   other local files. Markdown pages carry no script at all (see
+//!   [`super::markdown`]).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -37,8 +52,10 @@ pub const HTML_EXTS: &[&str] = &["html", "htm"];
 /// Both spellings of "no header/footer" are passed: Chrome ≥ 112 understands
 /// `--no-pdf-header-footer`, older builds `--print-to-pdf-no-header`, and each
 /// ignores the flag it does not know.
+///
+/// [`SANDBOX_ARGS`] turn networking off; see the module docs.
 pub fn browser_args(user_data_dir: &Path, output: &Path, page_url: &str) -> Vec<String> {
-    vec![
+    let mut args = vec![
         "--headless".to_string(),
         "--disable-gpu".to_string(),
         "--no-pdf-header-footer".to_string(),
@@ -50,10 +67,35 @@ pub fn browser_args(user_data_dir: &Path, output: &Path, page_url: &str) -> Vec<
         "--disable-background-networking".to_string(),
         "--disable-sync".to_string(),
         "--mute-audio".to_string(),
-        format!("--print-to-pdf={}", output.display()),
-        page_url.to_string(),
-    ]
+    ];
+    args.extend(SANDBOX_ARGS.iter().map(|a| a.to_string()));
+    args.push(format!("--print-to-pdf={}", output.display()));
+    args.push(page_url.to_string());
+    args
 }
+
+/// The flags that keep a printed page from reaching the network (module docs).
+///
+/// - All proxied traffic goes to the discard port on loopback, where nothing
+///   listens, and `<-loopback>` removes Chrome's implicit "never proxy
+///   localhost" rule so local services are refused the same way.
+/// - `MAP * ~NOTFOUND` makes every host name fail to resolve, so not even a
+///   DNS lookup leaks the page's links (the proxy's address is an IP literal
+///   and needs no lookup).
+/// - WebRTC is the one API that can send UDP straight to an IP address
+///   around a proxy; `disable_non_proxied_udp` closes that, and QUIC is off
+///   so nothing tries HTTP/3 outside the proxy either.
+/// - Web fonts are a fetch the proxy would refuse anyway; turning them off
+///   avoids waiting on them, as does turning off preconnect/prefetch.
+pub const SANDBOX_ARGS: &[&str] = &[
+    "--proxy-server=127.0.0.1:9",
+    "--proxy-bypass-list=<-loopback>",
+    "--host-resolver-rules=MAP * ~NOTFOUND",
+    "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+    "--disable-quic",
+    "--disable-remote-fonts",
+    "--disable-features=NetworkPrediction",
+];
 
 /// Render the local HTML file `page` with the browser at `browser` into
 /// `output`, on the paper `setup` names.
@@ -222,6 +264,29 @@ mod tests {
         assert!(args.contains(&"--user-data-dir=/w/browser".to_string()));
         assert!(args.contains(&"--print-to-pdf=/w/out.pdf".to_string()));
         assert_eq!(args.last().unwrap(), "file:///docs/a%20b.html");
+    }
+
+    /// A printed page reaches no network (loopback included), whatever it
+    /// asks for.
+    #[test]
+    fn fr_055_browser_runs_without_network() {
+        let args = browser_args(Path::new("/w/b"), Path::new("/w/o.pdf"), "file:///p.html");
+        for flag in [
+            "--proxy-server=127.0.0.1:9",
+            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+            "--proxy-bypass-list=<-loopback>",
+            "--host-resolver-rules=MAP * ~NOTFOUND",
+            "--disable-remote-fonts",
+        ] {
+            assert!(args.contains(&flag.to_string()), "{flag}: {args:?}");
+        }
+        // This switch makes headless --print-to-pdf hang (module docs).
+        assert!(
+            !args.iter().any(|a| a.contains("scriptEnabled")),
+            "{args:?}"
+        );
+        // The page URL stays the last argument, after every switch.
+        assert_eq!(args.last().unwrap(), "file:///p.html");
     }
 
     #[test]

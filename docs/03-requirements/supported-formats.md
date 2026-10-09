@@ -109,6 +109,10 @@ LibreOffice is located at `/Applications/LibreOffice.app/Contents/MacOS/soffice`
 <browser> --headless --disable-gpu --no-pdf-header-footer --print-to-pdf-no-header \
           --user-data-dir=<scratch>/browser --no-first-run --no-default-browser-check \
           --disable-extensions --disable-background-networking --disable-sync --mute-audio \
+          --proxy-server=127.0.0.1:9 --proxy-bypass-list='<-loopback>' \
+          --host-resolver-rules='MAP * ~NOTFOUND' \
+          --force-webrtc-ip-handling-policy=disable_non_proxied_udp --disable-quic \
+          --disable-remote-fonts --disable-features=NetworkPrediction \
           --print-to-pdf=<scratch>/out.pdf file:///path/to/page.html
 ```
 
@@ -116,16 +120,26 @@ LibreOffice is located at `/Applications/LibreOffice.app/Contents/MacOS/soffice`
 - **Private browser profile.** The user's open browser and its profile are never touched.
 - **The finished PDF ends the step.** Some Chrome builds (seen with Chrome 156 on macOS) write the PDF in about a second and then never exit. The step therefore ends once the PDF has its `%%EOF` trailer and its size has stopped changing between polls. The browser tree is then killed.
 - **The job's paper.** The browser lays pages out on US Letter unless the page sets a size, so an A4 job used to get Letter pages (clipped on the right at actual size). When the job names a paper (`A4`, `Letter`, `Legal`, `A3`, `A5`, `A6`, `B4`, `B5`, `Tabloid`, `Executive`, `4x6`-style inch sizes or CUPS `w<pt>h<pt>` keywords), the browser loads a copy of the page from the scratch folder that starts with `<style>@page { size: <w> <h>; }</style>` (landscape swaps the two) and, if the page has none, a `<base href>` to its own folder so relative links still resolve. The user's file is never changed, and a size the page sets itself still wins. Paper `auto` (printer default) and sizes MaeclyPrint cannot measure keep the browser default. A UTF-16 page is printed as is.
-- **Scripts run** as they would in the browser. Only local files reach this converter; remote `http(s)://` inputs are not accepted. `@media print` styles are respected.
+- **No network.** A printed file must not report back to whoever sent it (IP address, when it was opened, a tracking pixel). Every `http(s)`/`ws` request goes to a proxy on a closed local port, and that includes `localhost`, so local services cannot be reached either. Host names do not resolve, WebRTC cannot send UDP around the proxy, and web fonts are not downloaded. Local files such as stylesheets and images next to the page still load, so a saved page prints the way it looks offline. Only local files reach this converter; remote `http(s)://` inputs are not accepted. `@media print` styles are respected.
+- **Scripts run** as they would in the browser. Chrome's only per-run switch to disable them (`--blink-settings=scriptEnabled=false`) makes headless `--print-to-pdf` hang without output (Chrome 154), and a page that draws its content with script would otherwise print blank. Without a network a script has nowhere to send what it sees, and Chrome's file-origin rules stop a `file://` page from reading other local files.
+- **Known gap (Windows):** an HTML file that references a UNC path (`<img src="\\host\share\x.png">` or `file://host/…`) makes Windows contact that host over SMB. The proxy does not cover `file://`, and a page's own markup is printed as written. Markdown is protected (see below); for HTML, only print files you trust.
 
 ### Markdown
 
 `engine::convert::markdown` uses Pandoc to produce HTML, then the HTML step above. Pandoc's own PDF output would need a LaTeX distribution, a multi-gigabyte install:
 
 ```bash
-pandoc --from=markdown --to=html5 --standalone --metadata=pagetitle:<name> \
+pandoc --from=markdown-raw_html-raw_attribute --to=html5 --standalone --sandbox \
+       --lua-filter=<scratch>/local-images.lua --metadata=pagetitle:<name> \
        --include-in-header=<scratch>/head.html --output=<scratch>/page.html <input.md>
 ```
+
+A Markdown file is text, and printing it must not make it active content:
+
+- **Raw HTML is printed as text.** `<script>`, `<iframe>`, `<img src=…>` and `{=html}` blocks are not passed through to the page.
+- **Only local images load.** The Lua filter keeps relative paths, drive paths, `file:///…` and `data:` images. A remote, protocol-relative or UNC image (`http://…`, `//host/…`, `\\host\…`, `file://host/…`) is replaced by its alt text. On Windows a UNC image would otherwise hand the user's NTLM credentials to that host over SMB.
+- **`--sandbox`** limits Pandoc to the files named on its command line, with no network.
+- **A Content-Security-Policy** in the injected header forbids scripts, plugins, frames and connections. The browser step then runs with no network, as above.
 
 The injected header carries `<base href="file:///<folder of the .md>/">`, so relative image links resolve against the Markdown file's folder. It also carries a small print stylesheet (margins, readable type, code blocks, tables) and the job's paper size as an `@page` rule, under the same rules as HTML above. The Pandoc and browser steps share one timeout budget. Pandoc is located on `PATH`, in `/opt/homebrew/bin` or `/usr/local/bin` on macOS, and in `%LOCALAPPDATA%\Pandoc` or `%ProgramFiles%\Pandoc` on Windows. TeX math is passed through as text.
 
