@@ -54,7 +54,7 @@ A job moves through the pipeline `Queued → Converting → Converted → Printi
 | `failed`     | Recent  | Terminal error after retries; `error` carries a code + message. |
 | `cancelled`  | Recent  | User cancelled (terminal).                                   |
 
-Terminal states are `done`, `failed`, `cancelled`. A job paused by shutdown recovery carries the `interrupted_by_shutdown` error code and renders as *"Interrupted by shutdown · resume to continue"* rather than a hard failure.
+Terminal states are `done`, `failed`, `cancelled`. A job paused by shutdown recovery carries the `interrupted_by_shutdown` error code and renders as *"Interrupted by shutdown · resume to continue"* rather than a hard failure. A job that was already in the system print queue when the app closed is not paused: see *Persistence* below.
 
 ## Dispatcher semantics (what the UI reflects)
 
@@ -73,7 +73,7 @@ Full state-machine and retry details are in the [data model](../04-architecture/
 
 ## Persistence & recovery
 
-The queue is persisted to `queue.json` (atomic write on every transition), capped at the 200 most-recent terminal jobs. On launch, any job left `converting`/`printing` when the app closed is moved to `paused` with `interrupted_by_shutdown`, and orphaned cache PDFs are swept. See [data model §4](../04-architecture/data-model.md#4-queuejson--live-print-queue).
+The queue is persisted to `queue.json` (atomic write on every transition), capped at the 200 most-recent terminal jobs. On launch, any job left `converting`, or `printing` but not yet handed to the spooler, is moved to `paused` with `interrupted_by_shutdown`, and orphaned cache PDFs are swept. A `printing` job the spooler had already accepted (it has its OS job id) stays `printing`. It takes the print slot again and is followed in the OS queue to `done`, `cancelled` or `failed`, so quitting or updating mid-print never prints it twice. `maeclyprint queue cancel` on such a job, with the app closed, also cancels the OS job. See [data model §4](../04-architecture/data-model.md#4-queuejson--live-print-queue).
 
 ## Actions
 

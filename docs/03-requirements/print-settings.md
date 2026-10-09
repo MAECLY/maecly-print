@@ -6,7 +6,7 @@ A print setting is anything that can be different per job: the printer, paper, d
 
 ## Quick reference table
 
-`JobSettings` (`src-tauri/src/queue/job.rs`) is the authoritative struct: `printer`, `duplex`, `color_mode`, `copies`, `paper_size`, `orientation`, `scaling`, `page_ranges`, `quality`, `tray`. Anything not in it does not reach the engine.
+`JobSettings` (`src-tauri/src/queue/job.rs`) is the authoritative struct: `printer`, `duplex`, `color_mode`, `copies`, `paper_size`, `orientation`, `scaling`, `page_ranges`, `quality`, `tray`, `collate`. Anything not in it does not reach the engine.
 
 | Setting | Type | Default | SumatraPDF (Win) | CUPS `lp` (macOS) | Status | Driver-dependent? |
 |---|---|---|---|---|---|---|

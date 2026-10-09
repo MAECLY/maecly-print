@@ -496,10 +496,10 @@ Frozen public surface, defined by `ExitCode` in `src-tauri/src/cli/exit.rs` and 
 | Code | Name                  | Meaning |
 | ---- | --------------------- | ------- |
 | 0    | `Success`             | All requested operations succeeded. |
-| 1    | `Generic`             | Generic error (catchall). Also where `JobNotFound` / `InvalidState` / `Internal` land — they have no dedicated code. |
+| 1    | `Generic`             | Generic error (catchall). Also where `JobNotFound` / `InvalidState` / `Internal` land — they have no dedicated code (except the reasons below that name one). |
 | 2    | `Usage`               | Invalid command-line usage. Every clap failure except `--help`/`--version`, which exit 0. |
-| 3    | `Config`              | Configuration error — unreadable/invalid `config.toml`, **or a missing external dependency** (`lp`, SumatraPDF): that is an environment fault, not a usage one. |
-| 4    | `Profile`             | Profile not found / invalid. |
+| 3    | `Config`              | Configuration error — unreadable/invalid `config.toml` (reason `config_corrupt`: `print` refuses to run on one rather than fall back to defaults, and the config writers such as `profiles set-default` and `update channel` refuse to overwrite one), **or a missing external dependency** (`lp`, SumatraPDF): that is an environment fault, not a usage one. |
+| 4    | `Profile`             | Profile not found / invalid, including an unreadable `profiles.toml` (reasons `profiles_corrupt`, `profiles_invalid_entries`). |
 | 5    | `Printer`             | Printer not found / invalid — including **a setting the driver refuses** (`UnsupportedSetting`: the flag was legal, the device is the problem) and "no printer configured at all". |
 | 6    | `FileNotFound`        | One or more files not found / unreadable. |
 | 7    | `UnsupportedFile`     | One or more files unsupported. |

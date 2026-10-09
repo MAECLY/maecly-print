@@ -345,7 +345,7 @@ States (`state` enum, lowercase):
 - `printing` — handed to the OS spooler and not yet finished there (exactly one job prints at a time). `os_job_id` carries the spooler's id while the dispatcher follows it; `progress.phase` is `printing`, `held` (the OS queue is holding it) or `stopped` (the printer needs attention).
 - `done` — the OS job completed or left the queue (terminal); the cache PDF is deleted.
 - `failed` — terminal error after retries; details in `error`.
-- `paused` — user-paused, interrupted by shutdown, or stopped on a user-fixable error (`unsupported_setting` / `dependency_missing`); resumable, **not** auto-retried.
+- `paused` — user-paused, interrupted by shutdown (before the spooler accepted it), or stopped on a user-fixable error (`unsupported_setting` / `dependency_missing` / `printer_unavailable` / `printer_disabled`); resumable, **not** auto-retried.
 - `cancelled` — user cancelled (terminal).
 
 Transient conversion/print failures do not go straight to `paused`: the dispatcher retries them (up to 3 attempts, 1 s then 5 s backoff) by returning the job to `queued` (re-convert) or `converted` (re-print, cache kept), and only marks `failed` once attempts are exhausted. The full state machine (`can_transition`) and retry policy live in `src-tauri/src/queue/{job,dispatcher}.rs` and the [print engine](./print-engine.md).
@@ -372,7 +372,7 @@ fn write_queue(path: &Path, q: &Queue) -> std::io::Result<()> {
 
 ### 4.3 Load, recovery, and history cap
 
-On launch the core loads `queue.json` and runs shutdown recovery before serving the queue: any job left `converting` or `printing` when the app last closed is moved to `paused` with `error.code = "interrupted_by_shutdown"` and its transient progress cleared. Such a job is surfaced as resumable rather than failed; resuming it clears the error and resets its attempt count. The recovered state is immediately re-persisted (so it survives an immediate re-crash), and orphaned cache PDFs — files in `<cache_dir>/conversions` that no live job's `cache_pdf` references — are swept.
+On launch the core loads `queue.json` and runs shutdown recovery before serving the queue: any job left `converting` or `printing` when the app last closed is moved to `paused` with `error.code = "interrupted_by_shutdown"` and its transient progress cleared. The exception is a `printing` job the spooler had already accepted (`os_job_id` and `printer_resolved` set): it stays `printing`, and the dispatcher re-attaches the print slot to it and polls its OS job, because resuming it would print a second copy. At most one such job exists (one print slot). Such a job is surfaced as resumable rather than failed; resuming it clears the error and resets its attempt count. The recovered state is immediately re-persisted (so it survives an immediate re-crash), and orphaned cache PDFs — files in `<cache_dir>/conversions` that no live job's `cache_pdf` references — are swept.
 
 **Corruption / forward-incompatibility.** A missing file loads as an empty queue with no side effects. An unreadable file, invalid JSON, or a `schema_version` greater than this build supports is renamed to `queue.json.bak` (best-effort), logged, and replaced with an empty queue — the file is taken whole or discarded whole, never partial-loaded.
 

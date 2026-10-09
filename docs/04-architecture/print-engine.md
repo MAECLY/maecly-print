@@ -290,7 +290,9 @@ Rows marked **(target)** are not implemented yet; the rest are shipped behaviour
 | No printer configured at all | printer resolution at dispatch | `PrintFailed` → CLI exit **5** | GUI pauses the job so the user can pick another; CLI fails immediately |
 | Named printer not installed | printer resolution at dispatch | `PrintFailed` → CLI exit **5** | Same split as above |
 | Spooler rejected the job | non-zero exit / stderr from `lp`/SumatraPDF | `PrintFailed` (CLI exit **9**) | Retryable; the spooler's own text is surfaced verbatim |
-| App was killed mid-job | recovery at next start (`queue::persist::recover`) | error code `"interrupted_by_shutdown"` | Job is `paused` and treated as **resumable**, not failed |
+| App was killed mid-job | recovery at next start (`queue::persist::recover`) | error code `"interrupted_by_shutdown"` | Job is `paused` and treated as **resumable**, not failed. A job already in the OS queue (it has its OS job id) stays `printing` and is tracked to its end instead, so it is never spooled twice |
+| Unreadable `config.toml` in a CLI `print` run | `Config::load_reporting` | `Internal` / `config_corrupt` → CLI exit **3** | Nothing is printed; the GUI keeps degrading to defaults with a banner |
+| Converter outlives the conversion timeout | the converter's own bound in `process::run_until`, or the dispatcher's timer | `conversion_timeout` | Terminal, like the dispatcher's own timeout; never retried |
 | User cancellation | `cancel_job` / `cancel_all` | — | Job `cancelled` (terminal); a terminal job refuses cancellation with `InvalidState` |
 | Converter binary not found (LibreOffice, browser, Pandoc, Windows HEIF codec) | `engine::deps` resolution before the conversion starts; WIC's "no decoder" result | `DependencyMissing` (CLI exit **3**) | Job paused with the FR-058 remediation (what is blocked and where to download it) |
 | Converter exit ≠ 0, or exit 0 without a PDF (e.g. a password-protected document) | child exit status, then a `%PDF-` check of the expected output | `ConversionFailed`, quoting the converter's stderr | Retryable, like any conversion failure |
