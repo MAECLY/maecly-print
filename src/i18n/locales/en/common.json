@@ -30,7 +30,11 @@
     "sending_one": "Sending {{count}} file to printer…",
     "sending_other": "Sending {{count}} files to printer…",
     "queued_one": "{{count}} job queued",
-    "queued_other": "{{count}} jobs queued"
+    "queued_other": "{{count}} jobs queued",
+    "held_one": "{{count}} job added to the queue, paused — start it from the Queue screen",
+    "held_other": "{{count}} jobs added to the queue, paused — start them from the Queue screen",
+    "nothingPrintable": "Nothing in that selection can be printed.",
+    "unknownProfile": "No profile is called “{{name}}” — the default profile was used instead."
   },
   "errorBoundary": {
     "title": "The app hit an unexpected error",

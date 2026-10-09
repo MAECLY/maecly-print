@@ -51,14 +51,16 @@
     "label": "Keyboard shortcuts",
     "hint": "These work from any screen, except while you are typing in a field.",
     "newJob": "Start a new print job",
-    "printFolder": "Print a folder",
+    "printFolder": "Add a folder to the job",
     "print": "Print the current job",
     "switchProfile": "Switch to the next profile",
     "openQueue": "Open the queue",
-    "cancel": "Cancel the job being printed",
+    "cancel": "Cancel the current or next job",
     "printNeedsFiles": "Add files to the job first, then print.",
     "nothingToCancel": "No job is printing or waiting right now.",
-    "profileSwitched": "Profile: {{name}}"
+    "profileSwitched": "Profile: {{name}}",
+    "printBlocked": "Fix the highlighted setting first — this job cannot be printed as it is.",
+    "printWaitsForFolder": "Still reading a folder — print once its files are in the job."
   },
   "cancelConfirm": {
     "title": "Cancel this job?",

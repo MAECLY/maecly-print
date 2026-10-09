@@ -30,7 +30,11 @@
     "sending_one": "Enviando {{count}} archivo a la impresora…",
     "sending_other": "Enviando {{count}} archivos a la impresora…",
     "queued_one": "{{count}} trabajo en cola",
-    "queued_other": "{{count}} trabajos en cola"
+    "queued_other": "{{count}} trabajos en cola",
+    "held_one": "{{count}} trabajo añadido a la cola, en pausa: inícialo desde la pantalla Cola",
+    "held_other": "{{count}} trabajos añadidos a la cola, en pausa: inícialos desde la pantalla Cola",
+    "nothingPrintable": "No hay nada imprimible en esa selección.",
+    "unknownProfile": "No hay ningún perfil llamado «{{name}}»: se ha usado el perfil por defecto."
   },
   "errorBoundary": {
     "title": "La aplicación ha encontrado un error inesperado",

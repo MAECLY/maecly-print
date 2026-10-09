@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 
 import { MPSidebar, type ScreenId } from '@/components/AppShell/MPSidebar';
@@ -9,25 +9,32 @@ import { useDensity, useTheme, type ResolvedTheme } from '@/lib/theme';
 import {
   BUILT_IN_PROFILES,
   buildPrintRequest,
+  findProfileByRef,
   findProfileIn,
+  printBlocker,
 } from '@/lib/profiles';
 import {
   isTauri,
   openExternal,
   openLogsFolder,
-  pauseQueue,
   printFiles,
   takePendingSelections,
   type Selection,
 } from '@/lib/ipc';
 import { logError } from '@/lib/errorLog';
-import { addPathsToJob } from '@/lib/jobFiles';
+import {
+  addPathsToJob,
+  clearPendingFolders,
+  getExpandingCount,
+  resolveSelectionFiles,
+  subscribeExpanding,
+} from '@/lib/jobFiles';
 import { events } from '@/ipc/bindings';
 import { useProfilesStore } from '@/stores/profilesStore';
 import { setQueueNavigator, useQueueStore } from '@/stores/queueStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useT } from '@/i18n/I18nProvider';
-import type { UiFile } from '@/types/domain';
+import type { UiFile, UiProfile } from '@/types/domain';
 
 import { HomeScreen, PRINTABLE_EXTENSIONS } from '@/screens/HomeScreen';
 import {
@@ -51,6 +58,28 @@ const ONBOARD_KEY = 'maeclyprint:onboarding-complete';
  * finds the same release on demand (the launch-time result itself is not kept).
  */
 const UPDATE_TOAST_MS = 15_000;
+
+/**
+ * The profile list once it is authoritative: kicks off the (idempotent) load
+ * if nobody has, and waits out one already in flight. Whatever it settles on —
+ * the backend's list, or the store's built-in fallback after an error — is
+ * returned.
+ */
+async function settledProfiles(): Promise<UiProfile[]> {
+  const store = useProfilesStore;
+  if (store.getState().status === 'idle') void store.getState().init();
+  if (store.getState().status === 'loading') {
+    await new Promise<void>((resolve) => {
+      const unsubscribe = store.subscribe((s) => {
+        if (s.status !== 'loading') {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+  }
+  return store.getState().profiles;
+}
 
 function readOnboardingDone() {
   try {
@@ -79,10 +108,41 @@ function App() {
   const [files, setFiles] = useState<UiFile[]>([]);
   const [profileChoice, setProfileChoice] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<PrintJobOverrides>({});
+  // What the copies field shows while it differs from the committed value
+  // (see PrintJobScreen). Lives here so Ctrl/⌘+P refuses the same invalid
+  // entry the Print button does.
+  const [copiesDraft, setCopiesDraft] = useState<string | null>(null);
   const profiles = useProfilesStore((s) => s.profiles);
   const profilesStatus = useProfilesStore((s) => s.status);
   const initProfiles = useProfilesStore((s) => s.init);
-  const effectiveProfileId = findProfileIn(profiles, profileChoice).id;
+  const effectiveProfile = findProfileIn(profiles, profileChoice);
+  const effectiveProfileId = effectiveProfile.id;
+
+  // The job as of the last render, for async code that must not act on the
+  // stale list its closure captured (a submit that resolves after more files
+  // arrived, the "added N files" counts).
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  const currentPaths = () => new Set(filesRef.current.map((f) => f.path));
+
+  // Folder walks still running: the job is still growing.
+  const expanding = useSyncExternalStore(subscribeExpanding, getExpandingCount);
+
+  /** Forget this job's per-invocation tweaks (FR-040: they never stick). */
+  const resetJobSettings = () => {
+    setOverrides({});
+    setCopiesDraft(null);
+  };
+
+  /**
+   * Point the job at a profile — from the dropdown, Ctrl/⌘+K or a selection.
+   * A new profile is a new starting point (FR-041), so the overrides made
+   * against the previous one go with it.
+   */
+  const chooseProfile = (id: string | null) => {
+    setProfileChoice(id);
+    resetJobSettings();
+  };
 
   // Queue state (jobs live in the queue store; App owns only the view toggle)
   const [queueView, setQueueView] = useState<QueueView>('list');
@@ -172,7 +232,7 @@ function App() {
         getCurrentWebview().onDragDropEvent((event) => {
           if (event.payload.type !== 'drop') return;
           if (activeRef.current === 'job') return;
-          void addPathsToJob(event.payload.paths, setFiles);
+          void addPathsToJob(event.payload.paths, setFiles, currentPaths);
           setActive('job');
         }),
       )
@@ -254,34 +314,27 @@ function App() {
   const submittingRef = useRef(false);
 
   /**
-   * Spool `list` as one batch and move to the Queue.
+   * Spool the interactive job (the Print button and Ctrl/⌘+P) as one batch.
    *
-   * Takes the files explicitly rather than reading the `files` state so a
-   * context-menu selection can print the batch it just ingested, without
-   * waiting for a render to make it readable here (FR-001).
-   *
-   * `hold` covers the context menu's "add to the queue" entry: the files must
-   * land in the queue *without starting*, so the queue is paused first. That is
-   * a deliberate global pause — the user asked for a queue they will start
-   * themselves, and the Queue screen's start button is where they do it. The
-   * pause is awaited inside the try, so a queue we failed to stop means the
-   * batch is not submitted at all: printing something the user only asked to
-   * enqueue is the one outcome worth erroring out over.
+   * On success only the files that were *sent* leave the job: a file added
+   * while print_files was in flight (a late folder walk, a drop) stays for the
+   * next batch instead of vanishing unprinted. The per-job overrides go too —
+   * they were tweaks for this job, and carrying them silently into the next
+   * one (or into a context-menu print) is how 10 copies of the wrong pages
+   * reach the wrong printer. When nothing is left, unanswered folder
+   * questions from this job are dropped with it.
    */
-  const submitFiles = async (
-    list: UiFile[],
-    profileId: string | null,
-    hold: boolean,
-  ) => {
+  const printJob = async () => {
     if (!isTauri()) {
       toast.error(t('errors.desktopOnly'));
       return;
     }
+    const list = filesRef.current;
     if (list.length === 0 || submittingRef.current) return;
     submittingRef.current = true;
     const profileObj = findProfileIn(
       useProfilesStore.getState().profiles,
-      profileId,
+      profileChoice,
     );
     const req = buildPrintRequest(
       list.map((f) => f.path),
@@ -290,14 +343,16 @@ function App() {
     );
     const id = toast.loading(t('print.sending', { count: list.length }));
     try {
-      if (hold) await pauseQueue();
       const batch = await printFiles(req);
-      const n = batch.job_ids.length;
-      toast.success(t('print.queued', { count: n }), {
+      toast.success(t('print.queued', { count: batch.job_ids.length }), {
         id,
         description: profileObj.name,
       });
-      setFiles([]);
+      const sent = new Set(req.files);
+      const remaining = filesRef.current.filter((f) => !sent.has(f.path));
+      setFiles((cur) => cur.filter((f) => !sent.has(f.path)));
+      resetJobSettings();
+      if (remaining.length === 0) clearPendingFolders();
       setActive('queue');
     } catch (e) {
       // Keep the files so the user can fix and resubmit. NFR-033: the error
@@ -319,44 +374,93 @@ function App() {
     }
   };
 
-  const handlePrint = () => submitFiles(files, profileChoice, false);
+  /**
+   * Spool a context-menu selection that prints (or queues) right away.
+   *
+   * Deliberately independent of the interactive job: it never reads or
+   * clears the files the user is composing on the Print Job screen, and it
+   * prints with the profile exactly as saved — no leftover overrides from an
+   * earlier job. `hold` (the "add to the queue" entry) submits the batch with
+   * every job paused, so only *this* batch waits for the user; the rest of the
+   * queue keeps running.
+   */
+  const submitSelection = async (
+    list: UiFile[],
+    profileObj: UiProfile,
+    hold: boolean,
+  ) => {
+    if (!isTauri()) {
+      toast.error(t('errors.desktopOnly'));
+      return;
+    }
+    const req = buildPrintRequest(
+      list.map((f) => f.path),
+      profileObj,
+      {},
+      { hold },
+    );
+    const id = toast.loading(t('print.sending', { count: list.length }));
+    try {
+      const batch = await printFiles(req);
+      const count = batch.job_ids.length;
+      toast.success(
+        hold ? t('print.held', { count }) : t('print.queued', { count }),
+        { id, description: profileObj.name },
+      );
+      setActive('queue');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e), { id });
+    }
+  };
 
   /**
    * Act on one selection the OS context menu handed us (FR-001/FR-003).
    *
-   * The paths go through the same `addPathsToJob` pipeline a drop or the file
-   * picker uses — same inspection, same refusal toasts, same FR-004 folder
-   * question — so a right-click behaves exactly like dragging the selection in.
-   * What the integration additionally says is `action`:
-   *
-   * - `configure` — open the Print Job screen and let the user decide;
+   * - `configure` — open the Print Job screen with the files added through
+   *   the same pipeline a drop uses (same inspection, refusal toasts and
+   *   FR-004 folder question), and let the user decide;
    * - `print-default` — print straight away with the requested (or default)
    *   profile, which is the whole point of the "Print with MaeclyPrint" entry;
    * - `queue` — enqueue without starting, for review in the Queue screen.
    *
-   * Either way the app lands on the job screen first, so a selection whose
-   * folders still need the recurse-or-not answer has somewhere to ask it — and
-   * nothing is printed when the selection resolved to no printable file.
+   * The last two never pass through the interactive job: folders are walked
+   * top-level without a question (nobody is looking at a dialog), and the
+   * batch is exactly the selection. A profile the integration named — by id
+   * or by name, as `--profile <NAME-OR-ID>` allows — that matches nothing is
+   * said out loud before the default is used.
    */
   const applySelection = async (selection: Selection) => {
     if (selection.paths.length === 0) return;
-    setActive('job');
-    // An id the profile list does not know falls back to the app default
-    // inside `findProfileIn`, so an integration naming a deleted profile
-    // still prints.
-    if (selection.profile_id) setProfileChoice(selection.profile_id);
-    const added = await addPathsToJob(selection.paths, setFiles);
-    if (selection.action === 'configure' || added.length === 0) return;
-    await submitFiles(
-      added,
-      selection.profile_id,
+    // A selection can arrive before the profile list has loaded (it is
+    // drained right at launch); resolving against the static built-ins would
+    // call a real custom profile "unknown".
+    const profiles = await settledProfiles();
+    const named = findProfileByRef(profiles, selection.profile_id);
+    if (selection.profile_id && !named) {
+      toast.warning(t('print.unknownProfile', { name: selection.profile_id }));
+    }
+
+    if (selection.action === 'configure') {
+      setActive('job');
+      if (named) chooseProfile(named.id);
+      await addPathsToJob(selection.paths, setFiles, currentPaths);
+      return;
+    }
+
+    const files = await resolveSelectionFiles(selection.paths);
+    if (files.length === 0) {
+      toast.info(t('print.nothingPrintable'));
+      return;
+    }
+    await submitSelection(
+      files,
+      named ?? findProfileIn(profiles, null),
       selection.action === 'queue',
     );
   };
 
   // Kept in a ref so the subscription below can stay mounted for the life of
-  // the window while still calling the current closure (which reads `overrides`
-  // and the profile list).
+  // the window while still calling the current closure.
   const applySelectionRef = useRef(applySelection);
   applySelectionRef.current = applySelection;
 
@@ -374,15 +478,21 @@ function App() {
   // is what makes a hot selection impossible to act on twice (once from the
   // event, once from the next drain) and impossible to miss.
   //
+  // Every drain is chained onto the previous one, so selections are handled
+  // strictly one after another even when the doorbell rings while an earlier
+  // selection is still being inspected or submitted — two overlapping drains
+  // used to race, and the loser was dropped without a word.
+  //
   // Subscribing *before* the first drain closes the other side of that race: a
   // selection parked between the two is picked up by the drain, and one parked
   // after it rings the doorbell we are already listening to.
+  const drainChain = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
 
-    const drain = async () => {
+    const drainOnce = async () => {
       let selections: Selection[];
       try {
         selections = await takePendingSelections();
@@ -392,27 +502,34 @@ function App() {
       }
       // Deliberately not guarded by `cancelled`: the backend has already
       // handed these over, so dropping them here would lose the user's files
-      // for good. Serial, so two selections cannot interleave their ingestion.
+      // for good.
       for (const selection of selections) {
-        await applySelectionRef.current(selection);
+        try {
+          await applySelectionRef.current(selection);
+        } catch (e) {
+          console.error('a context-menu selection failed', e);
+        }
       }
+    };
+    const drain = () => {
+      drainChain.current = drainChain.current.then(drainOnce);
     };
 
     events.selectionForwarded
-      .listen(() => void drain())
+      .listen(() => drain())
       .then((un) => {
         if (cancelled) {
           un();
           return;
         }
         unlisten = un;
-        void drain();
+        drain();
       })
       .catch((e: unknown) => {
         logError('app.selection-forwarded-listener', e);
         // A launch-time selection is still waiting; a missing subscription
         // only costs us the hot ones.
-        void drain();
+        drain();
       });
 
     return () => {
@@ -449,7 +566,11 @@ function App() {
           });
       if (!picked) return;
       setActive('job');
-      await addPathsToJob(Array.isArray(picked) ? picked : [picked], setFiles);
+      await addPathsToJob(
+        Array.isArray(picked) ? picked : [picked],
+        setFiles,
+        currentPaths,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
@@ -461,7 +582,7 @@ function App() {
     const index = profiles.findIndex((p) => p.id === effectiveProfileId);
     // `-1` (the current profile vanished) restarts at the first entry.
     const next = profiles[(index + 1) % profiles.length] ?? profiles[0]!;
-    setProfileChoice(next.id);
+    chooseProfile(next.id);
     toast.info(tHome('shortcuts.profileSwitched', { name: next.name }));
   };
 
@@ -496,12 +617,30 @@ function App() {
       newJob: () => setActive('job'),
       printFolder: () => void pickPaths(true),
       print: () => {
-        if (files.length === 0) {
+        // The same rule the Print button applies (FR-042/FR-043): a field
+        // showing an invalid value must never print an older valid one.
+        const blocker = printBlocker(
+          files.map((f) => ({
+            name: `${f.name}.${f.ext}`,
+            ext: f.ext,
+            pages: f.pages,
+          })),
+          effectiveProfile,
+          overrides,
+          copiesDraft,
+        );
+        if (blocker !== null || expanding > 0) {
           setActive('job');
-          toast.info(tHome('shortcuts.printNeedsFiles'));
+          toast.info(
+            blocker === 'noFiles'
+              ? tHome('shortcuts.printNeedsFiles')
+              : blocker !== null
+                ? tHome('shortcuts.printBlocked')
+                : tHome('shortcuts.printWaitsForFolder'),
+          );
           return;
         }
-        void handlePrint();
+        void printJob();
       },
       switchProfile,
       openQueue: () => setActive('queue'),
@@ -542,11 +681,13 @@ function App() {
                 files={files}
                 setFiles={setFiles}
                 profile={effectiveProfileId}
-                setProfile={setProfileChoice}
+                setProfile={chooseProfile}
                 overrides={overrides}
                 setOverrides={setOverrides}
+                copiesDraft={copiesDraft}
+                setCopiesDraft={setCopiesDraft}
                 density={density}
-                onPrint={handlePrint}
+                onPrint={() => void printJob()}
               />
             )}
             {active === 'queue' && (

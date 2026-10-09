@@ -129,9 +129,16 @@ export function useAppShortcuts(
 ): void {
   const latest = useRef(handlers);
   latest.current = handlers;
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
   useEffect(() => {
-    if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      // The webview's own Ctrl/⌘+P (WebView2 keeps browser accelerators on)
+      // would print the app's UI. It is swallowed *always* — while typing in
+      // a field and while a modal owns the keyboard too — even when our own
+      // print shortcut stands down.
+      if (isPrintChord(e)) e.preventDefault();
+      if (!enabledRef.current) return;
       const id = matchShortcut(e);
       if (!id) return;
       const run = latest.current[id];
@@ -141,7 +148,13 @@ export function useAppShortcuts(
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [enabled]);
+  }, []);
+}
+
+/** Platform-mod + P, with or without other keys held, repeats included. */
+function isPrintChord(e: KeyboardEvent): boolean {
+  const mod = isMacPlatform() ? e.metaKey : e.ctrlKey;
+  return mod && e.key.toLowerCase() === 'p';
 }
 
 // ---------------------------------------------------------------------------

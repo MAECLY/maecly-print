@@ -51,14 +51,16 @@
     "label": "Atajos de teclado",
     "hint": "Funcionan desde cualquier pantalla, salvo mientras escribes en un campo.",
     "newJob": "Empezar un trabajo de impresión",
-    "printFolder": "Imprimir una carpeta",
+    "printFolder": "Añadir una carpeta al trabajo",
     "print": "Imprimir el trabajo actual",
     "switchProfile": "Cambiar al siguiente perfil",
     "openQueue": "Abrir la cola",
-    "cancel": "Cancelar el trabajo en curso",
+    "cancel": "Cancelar el trabajo en curso o el siguiente",
     "printNeedsFiles": "Añade archivos al trabajo antes de imprimir.",
     "nothingToCancel": "Ahora mismo no hay ningún trabajo imprimiéndose ni esperando.",
-    "profileSwitched": "Perfil: {{name}}"
+    "profileSwitched": "Perfil: {{name}}",
+    "printBlocked": "Corrige primero el ajuste marcado: el trabajo no se puede imprimir así.",
+    "printWaitsForFolder": "Aún se está leyendo una carpeta: imprime cuando sus archivos estén en el trabajo."
   },
   "cancelConfirm": {
     "title": "¿Cancelar este trabajo?",

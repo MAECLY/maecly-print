@@ -330,7 +330,12 @@ describe('App', () => {
             return drained;
           }
           case 'inspect_files':
-            return [REPORT];
+            // Every path is a printable PDF named after itself.
+            return ((args as { paths: string[] }).paths ?? []).map((p) => ({
+              ...REPORT,
+              path: p,
+              name: p.split('/').pop() ?? p,
+            }));
           case 'print_files':
             return { batch_id: 'b1', job_ids: ['j1'] };
           case 'list_profiles':
@@ -346,7 +351,9 @@ describe('App', () => {
       return {
         calls,
         park: (selections: unknown[]) => {
-          parked = selections;
+          // Appends, like the backend store: a second launch never erases a
+          // selection that is still waiting to be drained.
+          parked = [...parked, ...selections];
         },
       };
     }
@@ -422,13 +429,92 @@ describe('App', () => {
       await waitFor(() =>
         expect(calls.some((c) => c.cmd === 'print_files')).toBe(true),
       );
-      // The queue is stopped *before* the batch goes in, so nothing can start
-      // printing in between.
+      // Only this batch is held (its jobs land paused); the rest of the queue
+      // keeps running, so the global pause is never touched.
+      const req = calls.find((c) => c.cmd === 'print_files')!.args.req as {
+        hold?: boolean;
+      };
+      expect(req.hold).toBe(true);
+      expect(calls.some((c) => c.cmd === 'pause_queue')).toBe(false);
+    });
+
+    it('FR-001: a print-now selection leaves the job the user was composing alone', async () => {
+      const { calls, park } = mockSelections();
+      render(<App />);
+      await waitFor(() => expect(webview.handler).not.toBeNull());
+      // The user stages a file on the Print Job screen and sets 5 copies…
+      await act(async () => {
+        webview.handler!({
+          payload: { type: 'drop', paths: ['/tmp/Staged.pdf'] },
+        });
+      });
+      const copies = await screen.findByDisplayValue('1');
+      fireEvent.change(copies, { target: { value: '5' } });
+
+      // …then right-clicks another file and picks "Print with MaeclyPrint".
+      park([selection('print-default')]);
+      ringDoorbell();
+      await waitFor(() =>
+        expect(calls.some((c) => c.cmd === 'print_files')).toBe(true),
+      );
+      const req = calls.find((c) => c.cmd === 'print_files')!.args.req as {
+        files: string[];
+        settings: { copies: number };
+      };
+      // Exactly the selection, with the profile as saved — not the job's
+      // leftover overrides.
+      expect(req.files).toEqual(['/tmp/Report.pdf']);
+      expect(req.settings.copies).toBe(1);
+
+      // The staged file is still there for the user.
+      fireEvent.click(screen.getByRole('button', { name: /print job/i }));
       expect(
-        calls
-          .map((c) => c.cmd)
-          .filter((c) => c === 'pause_queue' || c === 'print_files'),
-      ).toEqual(['pause_queue', 'print_files']);
+        (await screen.findAllByRole('button', { name: /Staged\.pdf/ })).length,
+      ).toBeGreaterThan(0);
+    });
+
+    it('FR-008: a profile named by name (not id) is honoured', async () => {
+      const { calls, park } = mockSelections();
+      park([selection('print-default', 'contracts DUPLEX')]);
+      render(<App />);
+      await waitFor(() =>
+        expect(calls.some((c) => c.cmd === 'print_files')).toBe(true),
+      );
+      const req = calls.find((c) => c.cmd === 'print_files')!.args.req as {
+        profile_name: string;
+      };
+      expect(req.profile_name).toBe('Contracts duplex');
+    });
+
+    it('FR-001: an unknown profile is reported, then the default is used', async () => {
+      const { calls, park } = mockSelections();
+      park([selection('print-default', 'Nope')]);
+      render(<App />);
+      expect(
+        await screen.findByText(/No profile is called “Nope”/),
+      ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(calls.some((c) => c.cmd === 'print_files')).toBe(true),
+      );
+    });
+
+    it('NFR-014: selections that arrive back to back are all printed, in order', async () => {
+      const { calls, park } = mockSelections();
+      render(<App />);
+      await waitFor(() =>
+        expect(eventMock.registry.selectionForwarded.size).toBe(1),
+      );
+      park([selection('print-default')]);
+      ringDoorbell();
+      park([selection('queue')]);
+      ringDoorbell();
+      await waitFor(() =>
+        expect(calls.filter((c) => c.cmd === 'print_files')).toHaveLength(2),
+      );
+      const reqs = calls
+        .filter((c) => c.cmd === 'print_files')
+        .map((c) => c.args.req as { hold?: boolean });
+      expect(reqs.map((r) => r.hold === true)).toEqual([false, true]);
     });
 
     it('does nothing at all when no selection was handed to this window', async () => {
@@ -683,6 +769,41 @@ describe('App', () => {
       );
     });
 
+    it('FR-042: Ctrl/⌘+P refuses a job whose copies field is invalid', async () => {
+      const calls = recordShell();
+      render(<App />);
+      await waitFor(() => expect(webview.handler).not.toBeNull());
+      await act(async () => {
+        webview.handler!({
+          payload: { type: 'drop', paths: ['/tmp/Report.pdf'] },
+        });
+      });
+      const copies = await screen.findByDisplayValue('1');
+      // Typed one keystroke at a time: 120 is valid and gets committed, 1200
+      // is not — the shortcut must not print the stale 120.
+      fireEvent.change(copies, { target: { value: '120' } });
+      fireEvent.change(copies, { target: { value: '1200' } });
+      press('p');
+      expect(
+        await screen.findByText(/cannot be printed as it is/i),
+      ).toBeInTheDocument();
+      expect(calls.some((c) => c.cmd === 'print_files')).toBe(false);
+    });
+
+    it('FR-041: Ctrl/⌘+K shows the new profile’s copies and drops old overrides', async () => {
+      recordShell();
+      render(<App />);
+      press('n');
+      const copies = await screen.findByDisplayValue('1');
+      fireEvent.change(copies, { target: { value: '7' } });
+      expect(screen.getByDisplayValue('7')).toBeInTheDocument();
+      press('k');
+      // The next profile's own value, not the override made against Quick.
+      await waitFor(() =>
+        expect(screen.queryByDisplayValue('7')).not.toBeInTheDocument(),
+      );
+    });
+
     it('NFR-034: printing with an empty job opens it instead of spooling nothing', async () => {
       const calls = recordShell();
       render(<App />);
@@ -748,6 +869,24 @@ describe('App', () => {
       press('j', input);
       expect(screen.queryByText(/No jobs in the queue/i)).toBeNull();
       expect(input).toBeInTheDocument();
+    });
+
+    it('NFR-034: Ctrl/⌘+P never reaches the webview, even while typing', async () => {
+      recordShell();
+      render(<App />);
+      press('n');
+      const input = await screen.findByPlaceholderText(/1-5/i);
+      const event = new KeyboardEvent('keydown', {
+        key: 'p',
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: !shortcutLabel('newJob').startsWith('⌘'),
+        metaKey: shortcutLabel('newJob').startsWith('⌘'),
+      });
+      input.dispatchEvent(event);
+      // Our print stands down in a field, but the browser's print dialog of
+      // the app's own UI must not open either.
+      expect(event.defaultPrevented).toBe(true);
     });
 
     it('regression: a bare keypress (no modifier) never triggers a shortcut', async () => {

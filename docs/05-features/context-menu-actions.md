@@ -64,6 +64,13 @@ The icon column above is illustrative; final iconography lives in the design ass
 - **Action:** enqueues the files using the default profile but does **not** start printing yet. The user can review the queue and start it manually.
 - **Use case:** the user wants to compose a large batch from multiple folders before sending it.
 
+### How the app handles each action (implementation)
+
+- The integration hands over `action` (`configure` / `print-default` / `queue`) and an optional `profile_id`, which may be a profile **id or name** (as `--profile <NAME-OR-ID>` allows); the app matches the id first, then the name case-insensitively, and says so in a toast when neither matches before falling back to the default profile.
+- `print-default` and `queue` never touch the Print Job screen's list or its overrides: the selection is resolved on its own (folders walked top-level, no question) and printed with the profile exactly as saved.
+- `queue` submits the batch with `hold: true`: every job of **that batch** is enqueued `paused` for the user to resume from the Queue screen; the global queue pause is not touched, so other batches keep printing.
+- Selections are processed strictly one at a time, in arrival order.
+
 ### Open MaeclyPrint
 
 - **When shown:** always; also in the background context menu (right-click on empty Explorer space).

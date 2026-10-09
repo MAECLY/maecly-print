@@ -75,7 +75,8 @@ A profile provides the baseline; the controls below it are per-invocation overri
 | **Page range** | e.g. `1-5,10` (blank = all)             | `page_ranges` (`null` when blank)                |
 
 - **Profiles are backend-persisted** (`list_profiles` / `profiles.toml`, see [profiles-management](./profiles-management.md)), with `BUILT_IN_PROFILES` in `src/lib/profiles.ts` as the static fallback when the backend is unreachable. A profile only seeds the panel — the overrides are the real source of truth and win over it; `profile_name` rides along purely for the log/UI.
-- **Copies** is buffered locally so an out-of-range keystroke shows an inline error instead of being silently clamped; only a valid value flows into the request (`isValidCopies`).
+- **Changing the profile resets the overrides** (FR-041): from the dropdown, from Ctrl/⌘+K or from a context-menu selection, the new profile's own values are what the panel shows and what is sent — overrides made against the previous profile never linger behind a dropdown that names another one. Overrides are also dropped after a successful print: they were tweaks for that job.
+- **Copies** shows a *draft* only while the field differs from the committed value (an invalid entry, or one mid-edit); otherwise it shows the effective value, so a profile change from anywhere is reflected immediately. An out-of-range entry shows an inline error instead of being silently clamped; only a valid value flows into the request (`isValidCopies`). The draft lives in `App`, so the Ctrl/⌘+P shortcut refuses the same invalid entry the Print button does (one shared rule, `printBlocker`).
 - **Page range** is validated client-side against a mirror of the engine grammar (`isValidPageRange`) so the Print button reflects intent; the backend re-validates authoritatively (`engine::pagerange::parse`). Ranges apply to PDFs and to converted documents (pages of the converted PDF); images ignore them.
 - **Printer** options come from `list_printers` with MaeclyPrint-disabled queues filtered out (via `get_printer_prefs`).
 - **Paper** lists the sizes the selected printer reports (`Printer.papers`), so photo, envelope and other sizes can be chosen; a size the printer does not list pauses the job (`unsupported_setting`) instead of being substituted silently. **Printer default** sends no size, so the printer's override from the Printers screen (or its own default) applies.
@@ -88,7 +89,13 @@ The preview covers **every file**, not just the first: each file is resolved the
 
 ## Submitting
 
-**Print {n}** builds a `PrintRequest { files, settings, profile_name }` (`buildPrintRequest`) and calls `print_files`, which validates and fans the batch out into one job per file (see [queue.md](./queue.md)). On success the app toasts and navigates to the Queue; a validation error (empty list, bad copies/range, missing/unsupported file) surfaces as an error toast and nothing is enqueued.
+**Print {n}** (or Ctrl/⌘+P, which applies exactly the same `printBlocker` rule and is refused with a toast while a field is invalid) builds a `PrintRequest { files, settings, profile_name }` (`buildPrintRequest`) and calls `print_files`, which validates and fans the batch out into one job per file (see [queue.md](./queue.md)). On success the app toasts and navigates to the Queue, and **only the files that were sent** leave the list: anything added while the request was in flight (a late folder walk, a drop) stays for the next batch. When the list ends up empty, unanswered folder questions go with it. A validation error (empty list, bad copies/range, missing/unsupported file) surfaces as an error toast and nothing is enqueued.
+
+While a folder is being read (FR-004) a loading toast names it and Print stays disabled, so a batch can never be spooled without the files still arriving. The "Added N files" toast counts only files that were new to the job.
+
+A file whose page count is unknown (a PDF above the probe ceiling or one that will not parse) is labelled "pages unknown" — never "image" — and the top-bar total then reads "at least N pages".
+
+**Context-menu selections that print immediately** ("Print with MaeclyPrint", "Add to print queue") do not go through this screen's list at all: their files are resolved on their own (every folder walked top-level, no question), printed with the named profile exactly as saved (no overrides), and the job the user was composing here is left untouched. "Add to print queue" submits the batch with `hold: true`, so its jobs land paused while the rest of the queue keeps running. Selections are handled strictly in order, one at a time.
 
 ## Actions
 
