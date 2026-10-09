@@ -105,6 +105,14 @@ jobs:
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+      # Windows on ARM is a supported target (the dev VM is Windows 11 ARM);
+      # x64 runners cannot run its tests, but a type-check catches anything
+      # that only breaks on aarch64.
+      - name: cargo check (aarch64-pc-windows-msvc)
+        run: |
+          rustup target add aarch64-pc-windows-msvc
+          cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-pc-windows-msvc --all-targets
+
       # Belt-and-braces net for the one case the test cannot see (a filtered
       # run that never regenerates): the working tree must be unchanged.
       - name: Verify generated bindings are committed
@@ -189,7 +197,8 @@ jobs:
           PID=$!
           started=0
           for _ in $(seq 1 60); do
-            if grep -qs app_started "$LOGDIR"/maeclyprint.jsonl* 2>/dev/null; then
+            # logging/mod.rs writes maeclyprint-YYYY-MM-DD.jsonl (plus .N rolls).
+            if grep -qs app_started "$LOGDIR"/maeclyprint-*.jsonl 2>/dev/null; then
               started=1; break
             fi
             sleep 1
@@ -325,29 +334,33 @@ jobs:
         # Releases are built signed (see docs/07-build-and-release/ci-cd.md).
         run: pnpm tauri build --debug --config src-tauri/tauri.ci.conf.json
 
-      # Confirm the packaged binary actually boots: launch it against an
-      # isolated APPDATA/LOCALAPPDATA and poll the log for the startup events
-      # the backend emits (app_started, then main_window_resolved). Catches
-      # missing runtime deps / startup panics a compile-only build would miss.
+      # Confirm the packaged binary actually boots: launch it and poll the log
+      # for the startup events the backend emits (app_started, then
+      # main_window_resolved). Catches missing runtime deps / startup panics a
+      # compile-only build would miss.
+      #
+      # The log directory is the real per-user one. Overriding APPDATA /
+      # LOCALAPPDATA does not sandbox it: `directories` resolves known folders
+      # through SHGetKnownFolderPath, which ignores those variables. A fresh
+      # runner has no earlier log, and the check is scoped to lines written
+      # after this launch started.
       - name: Smoke launch (Windows)
         shell: pwsh
         run: |
           $exe = "src-tauri/target/debug/maeclyprint.exe"
           if (-not (Test-Path $exe)) { throw "Built binary not found at $exe" }
 
-          # Sandbox config/data/logs so we poll a fresh log directory.
-          $sandbox = Join-Path $env:RUNNER_TEMP "mp-smoke"
-          New-Item -ItemType Directory -Force -Path $sandbox | Out-Null
-          $env:APPDATA = $sandbox
-          $env:LOCALAPPDATA = $sandbox
-
+          $logDir = Join-Path $env:LOCALAPPDATA "Maecly\MaeclyPrint\data\logs"
+          $since = Get-Date
           $p = Start-Process -FilePath $exe -PassThru
           $started = $false
           $windowOk = $false
           try {
             $deadline = (Get-Date).AddSeconds(60)
             while ((Get-Date) -lt $deadline) {
-              $logs = Get-ChildItem -Path $sandbox -Recurse -Filter "maeclyprint.jsonl*" -ErrorAction SilentlyContinue
+              # logging/mod.rs writes maeclyprint-YYYY-MM-DD.jsonl (plus .N rolls).
+              $logs = Get-ChildItem -Path $logDir -Filter "maeclyprint-*.jsonl" -ErrorAction SilentlyContinue |
+                      Where-Object { $_.LastWriteTime -ge $since }
               if ($logs) {
                 $text = ($logs | Get-Content -Raw -ErrorAction SilentlyContinue) -join "`n"
                 if ($text -match "app_started") { $started = $true }
@@ -364,12 +377,26 @@ jobs:
           if (-not $windowOk) { throw "Timed out: no 'main_window_resolved' log line within 60s" }
           Write-Host "Smoke launch OK - app_started + main_window_resolved observed"
 
+      # FR-009: the console front end is what scripts call, because shells do
+      # not wait for the GUI-subsystem app. It must exist next to the app and
+      # hand its exit code to the shell.
+      - name: Smoke CLI exit codes (Windows)
+        shell: pwsh
+        run: |
+          $cli = "src-tauri/target/debug/maeclyprint-cli.exe"
+          if (-not (Test-Path $cli)) { throw "Console CLI not found at $cli" }
+          & $cli --version
+          if ($LASTEXITCODE -ne 0) { throw "--version exited with $LASTEXITCODE" }
+          & $cli frobnicate 2>$null
+          if ($LASTEXITCODE -ne 2) { throw "a usage error exited with $LASTEXITCODE, expected 2" }
+          Write-Host "Console CLI OK - exit codes reach the shell"
+
       - name: Upload smoke log (Windows)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: windows-smoke-log
-          path: ${{ runner.temp }}/mp-smoke/**/maeclyprint.jsonl*
+          path: ~/AppData/Local/Maecly/MaeclyPrint/data/logs/maeclyprint-*.jsonl
           if-no-files-found: ignore
           retention-days: 7
 

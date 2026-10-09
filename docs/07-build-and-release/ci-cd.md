@@ -50,9 +50,12 @@ Cargo registry, git db and `src-tauri/target/` are cached on `hashFiles('src-tau
 1. `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
 2. `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
 3. `cargo test --manifest-path src-tauri/Cargo.toml`
-4. **Bindings drift gate**: `git diff --exit-code -- src/ipc/bindings.ts`
+4. `cargo check --target aarch64-pc-windows-msvc --all-targets` — Windows on ARM is type-checked; an x64 runner cannot run its tests
+5. **Bindings drift gate**: `git diff --exit-code -- src/ipc/bindings.ts`
 
-Step 3 is itself the primary drift gate — `tests/ipc_surface.rs` regenerates `src/ipc/bindings.ts` from the tauri-specta command surface and fails when the committed copy is stale. Step 4 is belt-and-braces for the one case the test cannot see: a filtered run that never regenerated anything. Its failure message tells you exactly what to do (`UPDATE_BINDINGS=1 cargo test …` and commit the result).
+Step 3 runs on Windows only because `src-tauri/build.rs` links the Common-Controls v6 manifest into **every** artifact (`/MANIFEST:EMBED /MANIFESTINPUT:windows-app-manifest.xml`), test harnesses included. With Tauri's default (a manifest resource linked into `[[bin]]` targets only) the lib's test binary died with `STATUS_ENTRYPOINT_NOT_FOUND` (0xc0000139) before running a test, and no `#[cfg(windows)]` test had ever run in CI.
+
+`cargo test` is itself the primary drift gate — `tests/ipc_surface.rs` regenerates `src/ipc/bindings.ts` from the tauri-specta command surface and fails when the committed copy is stale. Step 5 is belt-and-braces for the one case the test cannot see: a filtered run that never regenerated anything. Its failure message tells you exactly what to do (`UPDATE_BINDINGS=1 cargo test …` and commit the result).
 
 ### `macos` — macos-latest, blocking
 
@@ -61,7 +64,7 @@ The lane that covers what Windows CI structurally cannot: the CUPS backend (`pla
 clippy → `cargo test` → the same bindings gate → `pnpm test`. Then two **advisory** steps (`continue-on-error: true`):
 
 - `pnpm tauri build --debug`
-- **Smoke launch (macOS)**: run `src-tauri/target/debug/maeclyprint`, poll `~/Library/Logs/MaeclyPrint/maeclyprint.jsonl*` for `app_started`, 60 s deadline, then kill it.
+- **Smoke launch (macOS)**: run `src-tauri/target/debug/maeclyprint`, poll `~/Library/Logs/MaeclyPrint/maeclyprint-*.jsonl` (the name `logging/mod.rs` writes) for `app_started`, 60 s deadline, then kill it.
 
 Both are best-effort because WKWebView has no WebDriver and a headless runner has no guaranteed window server.
 
@@ -91,9 +94,9 @@ cargo test --manifest-path src-tauri/Cargo.toml -- --ignored
 
 `pnpm tauri build --debug`, then **Smoke launch (Windows)**, which is the strictest GUI assertion in the pipeline and *does* gate:
 
-- Sandboxes `APPDATA` and `LOCALAPPDATA` into `$RUNNER_TEMP/mp-smoke` so a fresh log directory is polled.
-- Starts the binary and polls `maeclyprint.jsonl*` for **both** `app_started` and `main_window_resolved`, 60 s deadline.
+- Starts the binary and polls the real log directory, `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\maeclyprint-*.jsonl` (only files written after the launch), for **both** `app_started` and `main_window_resolved`, 60 s deadline. Overriding `APPDATA`/`LOCALAPPDATA` does not sandbox it — `directories` resolves known folders through `SHGetKnownFolderPath`, which ignores those variables — which is why an earlier version of this step could never pass.
 - Throws if either never appears; the process is killed in a `finally` block either way.
+- **Smoke CLI exit codes (Windows)**: `maeclyprint-cli.exe --version` must exit 0 and `maeclyprint-cli.exe frobnicate` must exit 2 as seen by the shell (FR-009).
 - On failure uploads `windows-smoke-log`.
 
 This catches missing runtime dependencies and startup panics that a compile-only build would sail past.
