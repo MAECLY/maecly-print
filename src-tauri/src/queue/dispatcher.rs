@@ -778,6 +778,11 @@ impl Dispatcher {
                     job.error = None;
                     job.finished_at = None;
                     job.progress = None;
+                    // A retry is a new run: its duration starts now (the
+                    // scheduler stamps `started_at` again), and the printer the
+                    // failed run resolved to is not necessarily this run's.
+                    job.started_at = None;
+                    job.printer_resolved = None;
                     Ok(())
                 }
             }
@@ -2317,6 +2322,39 @@ mod tests {
         h.run_to_idle();
         assert_eq!(h.job(&id).state, JobState::Done);
         assert_eq!(h.job(&id).attempts, 0);
+    }
+
+    /// A retry is a fresh run: the Timeline must not measure it from the failed
+    /// attempt hours earlier, and the printer of the old run is not this one's.
+    #[tokio::test]
+    async fn retry_starts_a_fresh_clock_and_forgets_the_old_printer() {
+        let mut h = harness_with(
+            Arc::new(DeferredSpawner::default()),
+            DispatcherLimits::default(),
+        );
+        let mut j = make_job("a.pdf");
+        let id = j.id.clone();
+        j.state = JobState::Failed;
+        j.started_at = Some("2026-01-01T10:00:00Z".to_string());
+        j.finished_at = Some("2026-01-01T10:00:05Z".to_string());
+        j.printer_resolved = Some("Old Office".to_string());
+        j.error = Some(JobError::new("print_failed", "boom"));
+        h.state.write().unwrap().jobs.push(j);
+
+        h.request(|reply| Cmd::Retry {
+            id: id.clone(),
+            reply,
+        })
+        .await
+        .unwrap();
+
+        let job = h.job(&id);
+        assert_ne!(
+            job.started_at.as_deref(),
+            Some("2026-01-01T10:00:00Z"),
+            "the retry restarts the clock"
+        );
+        assert!(job.printer_resolved.is_none());
     }
 
     #[tokio::test]
