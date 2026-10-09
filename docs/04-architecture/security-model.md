@@ -173,15 +173,17 @@ The one exception is **uninstalling the WebView2 Runtime** — but we don't ship
 
 An organization can pin a small set of MaeclyPrint behavior with an optional, admin-managed `policy.json`. The app **reads it but never writes it** — it is intentionally an inbound-only control, so a compromised or misbehaving webview cannot alter organization settings. Today it carries a single field, the enforced default printer. Implemented in `src-tauri/src/settings/policy.rs`; surfaced to the UI via the `get_printer_policy` IPC command.
 
-**Locations** (first hit wins — the machine-wide system path is checked before the per-user fallback):
+**Sources** (first hit wins). The UI calls the result *managed by your organization*, so a source is only believed when a standard user could not have written it:
 
-| Platform | System path (admin-writable, preferred)                | Fallback (dev/testing)                     |
-| -------- | ------------------------------------------------------ | ------------------------------------------ |
-| Windows  | `%ProgramData%\MaeclyPrint\policy.json`                | `<user config dir>\MaeclyPrint\policy.json` |
+| Platform | Sources, most authoritative first | Fallback (debug builds only) |
+| -------- | --------------------------------- | ---------------------------- |
+| Windows  | Registry `HKLM\SOFTWARE\Policies\Maecly\MaeclyPrint`, value `DefaultPrinter` (REG_SZ — Group Policy friendly); then `%ProgramData%\MaeclyPrint\policy.json`, **only if the file's owner is `BUILTIN\Administrators` or `SYSTEM`** | `<user config dir>\policy.json` |
 | macOS    | `/Library/Application Support/MaeclyPrint/policy.json` | `~/Library/Application Support/MaeclyPrint/policy.json` |
-| Linux    | `/etc/maeclyprint/policy.json`                         | `<XDG config dir>/maeclyprint/policy.json` |
+| Linux    | `/etc/maeclyprint/policy.json` | `<XDG config dir>/maeclyprint/policy.json` |
 
-The per-user config-dir fallback exists so developers and testers can exercise the locked state without machine-wide admin rights; in a real deployment the admin owns the system path.
+`%ProgramData%` is not admin-only: its default ACL lets any user create a folder there and own it. A `policy.json` a standard user created is therefore owned by that user and **ignored** (logged as `policy_untrusted`); otherwise any user could impose a "managed" default printer on every other account on the machine. A user cannot assign a file's ownership to Administrators without privileges they do not have.
+
+The per-user config-dir fallback lets developers and testers exercise the locked state without admin rights. It is compiled into **debug builds only**, so in a release build a user cannot fake a managed state for themselves either.
 
 **Schema** — every field optional, so an empty or partial file still deserializes:
 

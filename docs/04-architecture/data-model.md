@@ -21,7 +21,7 @@ Note the **`conversions/` subdirectory** — converted PDFs are not written dire
 
 We do not write under `%PROGRAMFILES%` or `/Applications` after install — the user does not need admin rights at any time after setup, and uninstall does not orphan user-state.
 
-Unlike every file above, `policy.json` is **read-only to MaeclyPrint**: an administrator provisions it and the app only ever reads it. The machine-wide system path (above) is preferred; a per-user copy at `<config dir>/policy.json` is honored as a dev/testing fallback. Its schema, precedence, and malformed-file behavior are documented in [security-model.md §4.3](./security-model.md#43-enterprise-policy-policyjson); the shape is a single optional field, `{ "default_printer": "<printer id>" }`.
+Unlike every file above, `policy.json` is **read-only to MaeclyPrint**: an administrator provisions it and the app only ever reads it. On Windows the registry policy `HKLM\SOFTWARE\Policies\Maecly\MaeclyPrint` (`DefaultPrinter`) wins, and the `%ProgramData%` file is honored only when Administrators or SYSTEM own it; a per-user copy at `<config dir>/policy.json` is honored in debug builds only. Its schema, precedence, and malformed-file behavior are documented in [security-model.md §4.3](./security-model.md#43-enterprise-policy-policyjson); the shape is a single optional field, `{ "default_printer": "<printer id>" }`.
 
 These paths are computed by the `directories` crate (XDG-conformant on Linux, `KnownFolderId` on Windows, `~/Library/...` on macOS) wrapped in a `paths` module that is the only place hardcoded names appear.
 

@@ -156,12 +156,16 @@ windows = { version = "0.58", features = [
   "Win32_Graphics_Imaging",
   "Win32_Graphics_Printing",
   "Win32_Security",
+  # Owner check on the machine policy file (GetNamedSecurityInfoW).
+  "Win32_Security_Authorization",
   # CONOUT$ for the headless CLI's console attach (cli::console).
   "Win32_Storage_FileSystem",
   "Win32_Storage_Xps",
   "Win32_System_Com",
   # AttachConsole / GetStdHandle / SetStdHandle (cli::console).
   "Win32_System_Console",
+  # HKLM\SOFTWARE\Policies\Maecly\MaeclyPrint (settings::policy).
+  "Win32_System_Registry",
 ] }
 # Network printer discovery on Windows: a pure-Rust mDNS/DNS-SD browser for
 # `_ipp._tcp` / `_ipps._tcp` (macOS uses CUPS' own `ippfind`). No async
