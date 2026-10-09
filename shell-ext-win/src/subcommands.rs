@@ -1,7 +1,7 @@
 //! The sub-menu: leaf commands and the enumerator that hands them out.
 //!
-//! The shape is constrained by two documented platform limits, both of which
-//! contradict `docs/.../context-menu-actions.md` as written:
+//! The shape is constrained by two documented platform limits (see
+//! `docs/05-features/context-menu-actions.md`):
 //!
 //! * `IExplorerCommand::EnumSubCommands` — *"Subcommands which themselves have
 //!   subcommands are not supported by Windows Explorer."* So the per-profile

@@ -15,8 +15,8 @@
 //!   rest), enforced by [`MAX_MENU_ITEMS`] and asserted in the tests;
 //! * the Windows 11 top-level menu does **not** support a submenu inside a
 //!   submenu, so the per-profile entries are flat, not a nested
-//!   "Print with profile ▸". This is a deliberate departure from
-//!   `docs/.../context-menu-actions.md`, which describes the nested shape.
+//!   "Print with profile ▸", as `docs/05-features/context-menu-actions.md`
+//!   describes.
 //!
 //! Portable and unit-testable on any host; nothing here touches Win32.
 
