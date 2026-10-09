@@ -111,14 +111,21 @@ pub fn run_until(
             "{label} failed ({status}){}",
             stderr_suffix(stderr_log)
         ))),
-        Err(Stopped::Cancelled) => Err(EngineError::Cancelled),
-        Err(Stopped::TimedOut) => Err(EngineError::ConversionTimedOut(format!(
+        Err(stopped) => Err(stopped_error(stopped, label, timeout)),
+    }
+}
+
+/// The error a child stopped early becomes. Pure.
+pub fn stopped_error(stopped: Stopped, label: &str, timeout: Option<Duration>) -> EngineError {
+    match stopped {
+        Stopped::Cancelled => EngineError::Cancelled,
+        Stopped::TimedOut => EngineError::ConversionTimedOut(format!(
             "{label} did not finish within {}s and was stopped",
             timeout.map(|t| t.as_secs()).unwrap_or(0)
-        ))),
-        Err(Stopped::WaitFailed(e)) => Err(EngineError::ConversionFailed(format!(
+        )),
+        Stopped::WaitFailed(e) => EngineError::ConversionFailed(format!(
             "could not wait for {label} to finish ({e}); it was stopped"
-        ))),
+        )),
     }
 }
 
@@ -221,25 +228,57 @@ fn kill_tree(child: &mut Child) {
 
 /// `": <last bytes of stderr>"`, or nothing when the log is empty/unreadable.
 fn stderr_suffix(log: &Path) -> String {
+    let tail = log_tail(log, STDERR_TAIL);
+    if tail.is_empty() {
+        String::new()
+    } else {
+        format!(": {tail}")
+    }
+}
+
+/// Lines converters print on every run that say nothing about *this* failure:
+/// Fontconfig's cache warnings (six of them on a stock LibreOffice) and GTK /
+/// GLib / accessibility-bus chatter. Quoting them would bury the one line the
+/// user needs ("Error: source file could not be loaded").
+fn is_noise(line: &str) -> bool {
+    let line = line.trim();
+    line.is_empty()
+        || line.starts_with("Fontconfig warning")
+        || line.starts_with("Fontconfig error")
+        || [
+            "Gtk-WARNING",
+            "Gdk-WARNING",
+            "GLib-GIO-WARNING",
+            "dbind-WARNING",
+        ]
+        .iter()
+        .any(|tag| line.contains(tag))
+}
+
+/// The last `max` bytes of a converter's log with the known noise removed
+/// ([`is_noise`]), lines joined by a space. Empty when the log is missing or
+/// holds nothing but noise.
+pub(crate) fn log_tail(log: &Path, max: usize) -> String {
     let Ok(bytes) = std::fs::read(log) else {
         return String::new();
     };
     let text = String::from_utf8_lossy(&bytes);
-    let text = text.trim();
-    if text.is_empty() {
-        return String::new();
-    }
-    let tail = if text.len() > STDERR_TAIL {
+    let text = text
+        .lines()
+        .filter(|l| !is_noise(l))
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join(" ");
+    if text.len() > max {
         // Cut on a char boundary at or after the byte offset.
-        let mut start = text.len() - STDERR_TAIL;
+        let mut start = text.len() - max;
         while !text.is_char_boundary(start) {
             start += 1;
         }
-        &text[start..]
+        text[start..].to_string()
     } else {
         text
-    };
-    format!(": {tail}")
+    }
 }
 
 #[cfg(all(test, unix))]
@@ -278,6 +317,59 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    /// A converter's failure message quotes what it said, minus the noise it
+    /// prints on every run: a corrupt DOCX used to report six Fontconfig
+    /// warnings ahead of LibreOffice's one meaningful line.
+    #[test]
+    fn fr_053_failure_detail_drops_converter_noise() {
+        let dir = tempfile::tempdir().unwrap();
+        let cancel = AtomicBool::new(false);
+        let script = "for i in 1 2 3 4 5 6; do \
+              echo 'Fontconfig warning: no <cachedir> elements found. Check configuration.' >&2; \
+            done; \
+            echo '(soffice:1): Gtk-WARNING **: cannot open display' >&2; \
+            echo 'Error: source file could not be loaded' >&2; exit 1";
+        let err = run_bounded(
+            sh(script),
+            "LibreOffice",
+            &cancel,
+            None,
+            &dir.path().join("e"),
+        )
+        .unwrap_err();
+        let EngineError::ConversionFailed(m) = err else {
+            panic!("unexpected {err:?}");
+        };
+        assert!(
+            m.ends_with(": Error: source file could not be loaded"),
+            "{m}"
+        );
+        assert!(!m.contains("Fontconfig"), "{m}");
+        assert!(!m.contains("Gtk-WARNING"), "{m}");
+    }
+
+    /// An OS error while waiting is not a timeout and must not read like one
+    /// ("did not finish within 0s").
+    #[test]
+    fn a_failed_wait_is_reported_with_its_cause_not_as_a_timeout() {
+        let err = stopped_error(
+            Stopped::WaitFailed("Interrupted system call".to_string()),
+            "Pandoc",
+            None,
+        );
+        match err {
+            EngineError::ConversionFailed(m) => {
+                assert!(m.contains("Interrupted system call"), "{m}");
+                assert!(!m.contains("did not finish"), "{m}");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert!(matches!(
+            stopped_error(Stopped::TimedOut, "Pandoc", Some(Duration::from_secs(9))),
+            EngineError::ConversionTimedOut(m) if m.contains("9s")
+        ));
     }
 
     #[test]

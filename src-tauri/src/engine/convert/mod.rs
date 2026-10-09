@@ -251,10 +251,7 @@ pub(crate) fn take_output(
     log: &Path,
 ) -> Result<(), EngineError> {
     if validate_pdf_header(produced).is_err() {
-        let log = std::fs::read_to_string(log).unwrap_or_default();
-        let log = log.trim();
-        let skip = log.chars().count().saturating_sub(400);
-        let detail: String = log.chars().skip(skip).collect();
+        let detail = process::log_tail(log, 400);
         return Err(EngineError::ConversionFailed(if detail.is_empty() {
             format!("{label} could not convert this file to PDF")
         } else {
