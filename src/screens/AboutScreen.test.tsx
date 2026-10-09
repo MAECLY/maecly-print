@@ -68,6 +68,8 @@ interface MockOpts {
   update?: unknown;
   /** When set, `check_for_updates` throws with this message. */
   updateError?: string;
+  /** When set, `check_for_updates` returns this command-level IpcError. */
+  updateIpcError?: Record<string, unknown>;
   /** Version already recorded as skipped in the persisted update state. */
   skippedVersion?: string | null;
   /** Return value for `install_update`. */
@@ -95,6 +97,9 @@ function mockAbout(opts: MockOpts = {}): Call[] {
       }
       if (cmd === 'check_for_updates') {
         if (opts.updateError) throw new Error(opts.updateError);
+        // A plain object is what a command-returned IpcError looks like on the
+        // raw invoke path (the bindings turn it into the error branch).
+        if (opts.updateIpcError) throw opts.updateIpcError;
         return opts.update ?? fixtureUpdateCheckUpToDate;
       }
       if (cmd === 'install_update') {
@@ -611,6 +616,31 @@ describe('AboutScreen', () => {
     // …and none of the English originals leaked through.
     expect(screen.queryByText('Check for updates')).toBeNull();
     expect(screen.queryByText('Report an issue')).toBeNull();
+  });
+
+  it('FR-092/NFR-044: a failed check is announced, in Spanish, from its stable reason', async () => {
+    settingsState.settings = {
+      ...fixtureAppSettings,
+      app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+    };
+    mockAbout({
+      updateIpcError: {
+        code: 'UpdateCheckFailed',
+        reason: 'offline',
+        message: 'could not reach github.com — check your connection',
+      },
+    });
+    renderTranslatedAbout();
+    await waitForAppInfo();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /buscar actualizaciones/i }),
+    );
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(
+      'No se pudo conectar con github.com. Comprueba tu conexión.',
+    );
+    expect(screen.queryByText(/check your connection/)).toBeNull();
   });
 
   it('FR-092: translates the update-available card, including its aria-label', async () => {

@@ -435,304 +435,324 @@ export function AboutScreen() {
           )}
         </div>
 
-        {update.kind === 'deferred' && (
-          <div
-            style={{
-              fontSize: 11.5,
-              color: 'var(--mp-textMuted)',
-              marginBottom: 24,
-            }}
-          >
-            {t('updates.deferred')}
-          </div>
-        )}
-
-        {update.kind === 'skipped' && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              fontSize: 11.5,
-              color: 'var(--mp-textMuted)',
-              marginBottom: 24,
-            }}
-          >
-            <span>{t('updates.skipped', { version: update.version })}</span>
-            <MPButton
-              variant="ghost"
-              size="sm"
-              onClick={() => void unskipVersion()}
-            >
-              {t('updates.undoSkip')}
-            </MPButton>
-          </div>
-        )}
-
-        {update.kind === 'done' && !update.check.available && (
-          <>
-            <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
-            <MPCard padding={14} style={{ marginBottom: 24 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    background: 'var(--mp-successSoft)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Icon name="check" size={16} color="var(--mp-success)" />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>
-                    {t('updates.upToDate.title')}
-                  </div>
-                  <div
-                    className="mp-mono"
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--mp-textDim)',
-                      marginTop: 2,
-                    }}
-                  >
-                    {t('updates.upToDate.detail', {
-                      version: update.check.current,
-                      time: formatClock(update.check.checked_at),
-                    })}
-                  </div>
-                </div>
-              </div>
-            </MPCard>
-          </>
-        )}
-
-        {update.kind === 'done' && update.check.available && (
-          <>
-            <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
-            <MPCard
-              padding={14}
+        {/* NFR-044: the result of a check (up to date, available, failed,
+            deferred, skipped) or of an install replaces the card in place,
+            so announce it. */}
+        <div aria-live="polite">
+          {update.kind === 'deferred' && (
+            <div
               style={{
+                fontSize: 11.5,
+                color: 'var(--mp-textMuted)',
                 marginBottom: 24,
-                background: 'var(--mp-accentSoft)',
-                borderColor: 'var(--mp-accent)',
               }}
             >
-              <div
-                role="group"
-                aria-label={t('updates.available.group')}
-                style={{ display: 'flex', alignItems: 'center', gap: 12 }}
+              {t('updates.deferred')}
+            </div>
+          )}
+
+          {update.kind === 'skipped' && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 11.5,
+                color: 'var(--mp-textMuted)',
+                marginBottom: 24,
+              }}
+            >
+              <span>{t('updates.skipped', { version: update.version })}</span>
+              <MPButton
+                variant="ghost"
+                size="sm"
+                onClick={() => void unskipVersion()}
               >
-                <div
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    background: 'var(--mp-surface)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Icon name="download" size={16} color="var(--mp-accent)" />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>
-                    {t('updates.available.title', {
-                      version: update.check.latest ?? UNKNOWN_VERSION,
-                    })}
-                  </div>
+                {t('updates.undoSkip')}
+              </MPButton>
+            </div>
+          )}
+
+          {update.kind === 'done' && !update.check.available && (
+            <>
+              <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
+              <MPCard padding={14} style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div
                     style={{
-                      fontSize: 11.5,
-                      color: 'var(--mp-textMuted)',
-                      marginTop: 2,
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      background: 'var(--mp-successSoft)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                     }}
                   >
-                    {t('updates.available.detail', {
-                      current: update.check.current,
-                    })}{' '}
-                    {/* FR-082/FR-083: signature-checked, per-user install. */}
-                    {t('updates.available.verifiedNote')}
+                    <Icon name="check" size={16} color="var(--mp-success)" />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>
+                      {t('updates.upToDate.title')}
+                    </div>
+                    <div
+                      className="mp-mono"
+                      style={{
+                        fontSize: 11,
+                        color: 'var(--mp-textDim)',
+                        marginTop: 2,
+                      }}
+                    >
+                      {t('updates.upToDate.detail', {
+                        version: update.check.current,
+                        time: formatClock(update.check.checked_at),
+                      })}
+                    </div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              </MPCard>
+            </>
+          )}
+
+          {update.kind === 'done' && update.check.available && (
+            <>
+              <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
+              <MPCard
+                padding={14}
+                style={{
+                  marginBottom: 24,
+                  background: 'var(--mp-accentSoft)',
+                  borderColor: 'var(--mp-accent)',
+                }}
+              >
+                <div
+                  role="group"
+                  aria-label={t('updates.available.group')}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12 }}
+                >
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      background: 'var(--mp-surface)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Icon name="download" size={16} color="var(--mp-accent)" />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>
+                      {t('updates.available.title', {
+                        version: update.check.latest ?? UNKNOWN_VERSION,
+                      })}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        color: 'var(--mp-textMuted)',
+                        marginTop: 2,
+                      }}
+                    >
+                      {t('updates.available.detail', {
+                        current: update.check.current,
+                      })}{' '}
+                      {/* FR-082/FR-083: signature-checked, per-user install. */}
+                      {t('updates.available.verifiedNote')}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                    <MPButton
+                      variant="primary"
+                      size="sm"
+                      icon="download"
+                      onClick={() => requestInstall(update.check)}
+                    >
+                      {t('updates.available.install')}
+                    </MPButton>
+                    <MPButton
+                      variant="secondary"
+                      size="sm"
+                      icon="page"
+                      onClick={() =>
+                        void open(update.check.url ?? RELEASES_URL)
+                      }
+                    >
+                      {t('updates.available.releaseNotes')}
+                    </MPButton>
+                    {/* FR-084 "defer": session-scoped on purpose — the card comes
+                      back next launch, which is what "remind me later" means. */}
+                    <MPButton
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setUpdate({ kind: 'deferred' })}
+                    >
+                      {t('updates.available.remindLater')}
+                    </MPButton>
+                    {/* FR-084 "skip this version": persisted, so it survives a
+                      restart. Only this release is silenced. Skipping needs a
+                      version to name, so it is offered only when the check
+                      reported one. */}
+                    <SkipVersionButton
+                      version={update.check.latest}
+                      label={t('updates.available.skipVersion')}
+                      onSkip={skipVersion}
+                    />
+                  </div>
+                </div>
+              </MPCard>
+            </>
+          )}
+
+          {update.kind === 'installing' && (
+            <>
+              <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
+              <MPCard padding={14} style={{ marginBottom: 24 }}>
+                <div
+                  role="status"
+                  style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+                >
+                  <Icon name="download" size={16} color="var(--mp-accent)" />
+                  <div style={{ flex: 1, fontSize: 12.5 }}>
+                    {t('updates.install.installing', {
+                      version: update.version,
+                    })}
+                  </div>
+                  {update.percent !== null && (
+                    <span
+                      className="mp-mono"
+                      style={{ fontSize: 11.5, color: 'var(--mp-textMuted)' }}
+                    >
+                      {t('updates.install.progress', {
+                        percent: update.percent,
+                      })}
+                    </span>
+                  )}
+                </div>
+              </MPCard>
+            </>
+          )}
+
+          {update.kind === 'installed' && (
+            <>
+              <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
+              <MPCard padding={14} style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Icon name="check" size={16} color="var(--mp-success)" />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>
+                      {t('updates.install.restartTitle', {
+                        version: update.version,
+                      })}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        color: 'var(--mp-textMuted)',
+                        marginTop: 2,
+                      }}
+                    >
+                      {t('updates.install.restartDetail')}
+                    </div>
+                  </div>
                   <MPButton
                     variant="primary"
                     size="sm"
-                    icon="download"
-                    onClick={() => requestInstall(update.check)}
+                    icon="rotate"
+                    onClick={() => void restart()}
                   >
-                    {t('updates.available.install')}
+                    {t('updates.install.restart')}
+                  </MPButton>
+                </div>
+              </MPCard>
+            </>
+          )}
+
+          {update.kind === 'installError' && (
+            <>
+              <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
+              <MPCard
+                padding={14}
+                style={{
+                  marginBottom: 24,
+                  background: 'var(--mp-errorSoft)',
+                  borderColor: 'var(--mp-error)',
+                }}
+              >
+                <div
+                  role="alert"
+                  style={{ display: 'flex', alignItems: 'center', gap: 12 }}
+                >
+                  <Icon name="alert" size={16} color="var(--mp-error)" />
+                  <div
+                    style={{
+                      flex: 1,
+                      fontSize: 12.5,
+                      color: 'var(--mp-error)',
+                    }}
+                  >
+                    {update.message}
+                  </div>
+                  {/* NFR-033: the install is logged step by step. */}
+                  <MPButton
+                    variant="secondary"
+                    size="sm"
+                    icon="folder"
+                    onClick={() => void revealLogs()}
+                  >
+                    {t('paths.openLogs')}
                   </MPButton>
                   <MPButton
                     variant="secondary"
                     size="sm"
                     icon="page"
-                    onClick={() => void open(update.check.url ?? RELEASES_URL)}
+                    onClick={() => void open(RELEASES_URL)}
                   >
-                    {t('updates.available.releaseNotes')}
+                    {t('links.releaseNotes')}
                   </MPButton>
-                  {/* FR-084 "defer": session-scoped on purpose — the card comes
-                      back next launch, which is what "remind me later" means. */}
+                </div>
+              </MPCard>
+            </>
+          )}
+
+          {update.kind === 'error' && (
+            <>
+              <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
+              <MPCard
+                padding={14}
+                style={{
+                  marginBottom: 24,
+                  background: 'var(--mp-errorSoft)',
+                  borderColor: 'var(--mp-error)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <Icon name="alert" size={16} color="var(--mp-error)" />
+                  <div
+                    role="alert"
+                    style={{
+                      flex: 1,
+                      fontSize: 12.5,
+                      color: 'var(--mp-error)',
+                    }}
+                  >
+                    {update.message}
+                  </div>
                   <MPButton
                     variant="secondary"
                     size="sm"
-                    onClick={() => setUpdate({ kind: 'deferred' })}
+                    icon="rotate"
+                    onClick={() => void runCheck()}
                   >
-                    {t('updates.available.remindLater')}
+                    {t('updates.retry')}
                   </MPButton>
-                  {/* FR-084 "skip this version": persisted, so it survives a
-                      restart. Only this release is silenced. Skipping needs a
-                      version to name, so it is offered only when the check
-                      reported one. */}
-                  <SkipVersionButton
-                    version={update.check.latest}
-                    label={t('updates.available.skipVersion')}
-                    onSkip={skipVersion}
-                  />
                 </div>
-              </div>
-            </MPCard>
-          </>
-        )}
-
-        {update.kind === 'installing' && (
-          <>
-            <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
-            <MPCard padding={14} style={{ marginBottom: 24 }}>
-              <div
-                role="status"
-                style={{ display: 'flex', alignItems: 'center', gap: 10 }}
-              >
-                <Icon name="download" size={16} color="var(--mp-accent)" />
-                <div style={{ flex: 1, fontSize: 12.5 }}>
-                  {t('updates.install.installing', { version: update.version })}
-                </div>
-                {update.percent !== null && (
-                  <span
-                    className="mp-mono"
-                    style={{ fontSize: 11.5, color: 'var(--mp-textMuted)' }}
-                  >
-                    {t('updates.install.progress', { percent: update.percent })}
-                  </span>
-                )}
-              </div>
-            </MPCard>
-          </>
-        )}
-
-        {update.kind === 'installed' && (
-          <>
-            <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
-            <MPCard padding={14} style={{ marginBottom: 24 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Icon name="check" size={16} color="var(--mp-success)" />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>
-                    {t('updates.install.restartTitle', {
-                      version: update.version,
-                    })}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 11.5,
-                      color: 'var(--mp-textMuted)',
-                      marginTop: 2,
-                    }}
-                  >
-                    {t('updates.install.restartDetail')}
-                  </div>
-                </div>
-                <MPButton
-                  variant="primary"
-                  size="sm"
-                  icon="rotate"
-                  onClick={() => void restart()}
-                >
-                  {t('updates.install.restart')}
-                </MPButton>
-              </div>
-            </MPCard>
-          </>
-        )}
-
-        {update.kind === 'installError' && (
-          <>
-            <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
-            <MPCard
-              padding={14}
-              style={{
-                marginBottom: 24,
-                background: 'var(--mp-errorSoft)',
-                borderColor: 'var(--mp-error)',
-              }}
-            >
-              <div
-                role="alert"
-                style={{ display: 'flex', alignItems: 'center', gap: 12 }}
-              >
-                <Icon name="alert" size={16} color="var(--mp-error)" />
-                <div
-                  style={{ flex: 1, fontSize: 12.5, color: 'var(--mp-error)' }}
-                >
-                  {update.message}
-                </div>
-                {/* NFR-033: the install is logged step by step. */}
-                <MPButton
-                  variant="secondary"
-                  size="sm"
-                  icon="folder"
-                  onClick={() => void revealLogs()}
-                >
-                  {t('paths.openLogs')}
-                </MPButton>
-                <MPButton
-                  variant="secondary"
-                  size="sm"
-                  icon="page"
-                  onClick={() => void open(RELEASES_URL)}
-                >
-                  {t('links.releaseNotes')}
-                </MPButton>
-              </div>
-            </MPCard>
-          </>
-        )}
-
-        {update.kind === 'error' && (
-          <>
-            <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
-            <MPCard
-              padding={14}
-              style={{
-                marginBottom: 24,
-                background: 'var(--mp-errorSoft)',
-                borderColor: 'var(--mp-error)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Icon name="alert" size={16} color="var(--mp-error)" />
-                <div
-                  style={{ flex: 1, fontSize: 12.5, color: 'var(--mp-error)' }}
-                >
-                  {update.message}
-                </div>
-                <MPButton
-                  variant="secondary"
-                  size="sm"
-                  icon="rotate"
-                  onClick={() => void runCheck()}
-                >
-                  {t('updates.retry')}
-                </MPButton>
-              </div>
-            </MPCard>
-          </>
-        )}
+              </MPCard>
+            </>
+          )}
+        </div>
 
         <MPSectionLabel>{t('sections.components')}</MPSectionLabel>
         <MPCard padding={0} style={{ marginBottom: 12 }}>
