@@ -385,6 +385,27 @@ describe('PrintersScreen', () => {
     );
   });
 
+  it('NFR-041: the add-printer dialog takes focus, closes on Escape and gives focus back', async () => {
+    mockPrinters({ discovered: [] });
+    renderScreen(false);
+    await screen.findByText(/2 configured/);
+    const trigger = screen.getByText('Add printer').closest('button')!;
+    trigger.focus();
+
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Add a printer',
+    });
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    expect(document.activeElement).toHaveAttribute('role', 'tab');
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+    expect(trigger).toHaveFocus();
+  });
+
   it('FR-044: discovers network printers in the add-printer modal', async () => {
     mockPrinters();
     renderScreen(false);

@@ -2,6 +2,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   type KeyboardEvent,
@@ -10,6 +11,8 @@ import {
 
 import { CenteredNotice } from '@/components/CenteredNotice';
 import { ConfirmDialog, type ConfirmState } from '@/components/ConfirmDialog';
+import { ModalOverlay } from '@/components/Modal';
+import { useModalFocus } from '@/components/useModal';
 import { Icon, type IconName } from '@/components/Icon';
 import {
   MPBadge,
@@ -1690,24 +1693,23 @@ function AddPrinterModal({
   const t = useT('printers');
   const tab: AddTab =
     mode === 'add-ip' ? 'ip' : mode === 'add-system' ? 'system' : 'network';
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
+  // NFR-041/NFR-044: focus moves onto the selected tab, Tab stays inside,
+  // Escape closes, and focus returns to "Add a printer" afterwards.
+  useModalFocus(dialogRef, {
+    onEscape: () => onMode('default'),
+    initialFocusSelector: '[role="tab"][aria-selected="true"]',
+  });
 
   return (
-    <div
-      style={{
-        position: 'absolute',
-        inset: 0,
-        background: 'rgba(20,18,14,0.42)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 40,
-        backdropFilter: 'blur(2px)',
-      }}
-    >
+    <ModalOverlay>
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={t('modal.title')}
+        aria-labelledby={titleId}
         className="mp-scroll"
         style={{
           width: 480,
@@ -1728,7 +1730,7 @@ function AddPrinterModal({
             borderBottom: '1px solid var(--mp-border)',
           }}
         >
-          <div style={{ fontSize: 14, fontWeight: 600 }}>
+          <div id={titleId} style={{ fontSize: 14, fontWeight: 600 }}>
             {t('modal.title')}
           </div>
           <MPIconButton
@@ -1793,7 +1795,7 @@ function AddPrinterModal({
           </MPButton>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }
 
