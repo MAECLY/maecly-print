@@ -167,6 +167,12 @@ describe('I18nProvider', () => {
               default: 200,
               zero: 'default',
             },
+            print_timeout_seconds: {
+              min: 10,
+              max: 3600,
+              default: 300,
+              zero: 'disables',
+            },
           },
         },
       },
