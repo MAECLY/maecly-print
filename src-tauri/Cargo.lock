@@ -2512,6 +2512,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "ureq",
+ "url",
  "uuid",
  "wait-timeout",
  "walkdir",

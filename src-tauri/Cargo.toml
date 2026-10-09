@@ -65,6 +65,9 @@ semver = "1"
 ureq = { version = "2.12", features = ["json"] }
 # Percent-encode the prefilled "report issue" GitHub URL query.
 percent-encoding = "2.3"
+# WHATWG URL parsing for the open_external allow-list, so the host we check is
+# the host the browser will actually visit (already in the tree via tauri).
+url = "2.5"
 
 # --- Typed IPC bindings (frontend ↔ Rust) ---
 # Pinned exact versions: tauri-specta is pre-release; semver wildcards risk drift.

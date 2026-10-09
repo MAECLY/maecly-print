@@ -225,23 +225,37 @@ fn issue_url(
 }
 
 /// Whether `url` is an allow-listed external link: HTTPS to exactly
-/// `github.com`, `maecly.com`, or any `*.maecly.com` subdomain. The host is
-/// parsed by hand (rather than pulling in a URL crate) and any `userinfo@` or
-/// `:port` in the authority is rejected, so tricks like
-/// `https://github.com@evil.example` or `https://github.com.evil.com` do not
-/// slip through. Pure, for testing.
-fn allowed_external(url: &str) -> bool {
-    let Some(rest) = url.strip_prefix("https://") else {
-        return false;
-    };
-    // The authority is everything up to the first path/query/fragment marker.
-    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..end];
-    // A bare host only: no userinfo and no port.
-    if authority.contains('@') || authority.contains(':') {
+/// `github.com`, `maecly.com`, or any `*.maecly.com` subdomain.
+///
+/// The URL is parsed with the WHATWG-compliant `url` crate, so the host we
+/// compare is the host a browser would visit. Hand-parsing the authority was
+/// not enough: browsers treat `\` as a path separator for `https`, so
+/// `https://evil.example\.maecly.com/` looks like a `*.maecly.com` authority
+/// to a naive split but visits `evil.example`. Belt and braces, any backslash,
+/// whitespace or control character is rejected before parsing, as are
+/// userinfo (`https://github.com@evil.example`) and explicit ports. Pure, for
+/// testing.
+fn allowed_external(raw: &str) -> bool {
+    if raw
+        .chars()
+        .any(|c| c == '\\' || c.is_whitespace() || c.is_control())
+    {
         return false;
     }
-    let host = authority.to_ascii_lowercase();
+    let Ok(parsed) = url::Url::parse(raw) else {
+        return false;
+    };
+    if parsed.scheme() != "https"
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.port().is_some()
+    {
+        return false;
+    }
+    let Some(url::Host::Domain(host)) = parsed.host() else {
+        return false;
+    };
+    // The parser already lower-cases and IDNA-normalises the host.
     host == "github.com" || host == "maecly.com" || host.ends_with(".maecly.com")
 }
 
@@ -363,5 +377,22 @@ mod tests {
         assert!(!allowed_external(
             "https://raw.githubusercontent.com/MAECLY"
         ));
+    }
+
+    #[test]
+    fn allowed_external_rejects_backslash_and_whitespace_authority_tricks() {
+        // Browsers read `\` as `/` for https, so this visits evil.example.
+        assert!(!allowed_external("https://evil.example\\.maecly.com/"));
+        assert!(!allowed_external("https://evil.example\\@github.com/"));
+        assert!(!allowed_external("https://github.com/\\evil"));
+        // Whitespace and control characters never reach the opener.
+        assert!(!allowed_external("https://github.com /x"));
+        assert!(!allowed_external("https://github.com\t.evil.example/"));
+        assert!(!allowed_external("https://github.com\n"));
+        assert!(!allowed_external(" https://github.com"));
+        assert!(!allowed_external("https://github.com:8443/"));
+        // IP literals are never project hosts.
+        assert!(!allowed_external("https://127.0.0.1/"));
+        assert!(!allowed_external("https://[::1]/"));
     }
 }
