@@ -60,7 +60,7 @@
     "namePlaceholder": "Nombre del perfil",
     "trayPlaceholder": "auto",
     "rangePlaceholder": "p. ej. 1-5,10",
-    "rangeHint": "Solo se aplica a los PDF; déjalo vacío para imprimir todas las páginas.",
+    "rangeHint": "Se aplica a los PDF y documentos; déjalo vacío para imprimir todas las páginas.",
     "rangeError": "Usa números de página como 1-5,10 (los intervalos deben ir de menor a mayor).",
     "copiesError": "Escribe un número entero del 1 al 999.",
     "nameEmpty": "Escribe un nombre para el perfil.",

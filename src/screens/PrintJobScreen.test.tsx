@@ -870,7 +870,9 @@ describe('PrintJobScreen', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('Archivos de este trabajo')).toBeInTheDocument();
     expect(screen.getByText(/1 archivo · 3 páginas/)).toBeInTheDocument();
-    expect(screen.getByText(/Solo se aplica a los PDF/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Se aplica a los PDF y documentos/),
+    ).toBeInTheDocument();
   });
 
   // -- smoke -------------------------------------------------------------

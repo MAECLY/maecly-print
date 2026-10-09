@@ -95,7 +95,7 @@
     "placeholder": "e.g. 1-5,10",
     "syntaxError": "Use page numbers like 1-5,10 (ranges must ascend).",
     "outOfBounds": "“{{name}}” only has {{pages}} pages.",
-    "hint": "Applies to PDFs only — images ignore the range."
+    "hint": "Applies to PDFs and documents — images ignore the range."
   },
   "preview": {
     "title": "Resolved command"

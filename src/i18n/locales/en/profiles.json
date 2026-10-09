@@ -60,7 +60,7 @@
     "namePlaceholder": "Profile name",
     "trayPlaceholder": "auto",
     "rangePlaceholder": "e.g. 1-5,10",
-    "rangeHint": "Applies to PDFs only — leave blank for all pages.",
+    "rangeHint": "Applies to PDFs and documents — leave blank for all pages.",
     "rangeError": "Use page numbers like 1-5,10 (ranges must ascend).",
     "copiesError": "Enter a whole number from 1 to 999.",
     "nameEmpty": "Enter a profile name.",

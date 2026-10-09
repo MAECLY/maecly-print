@@ -230,7 +230,9 @@ export interface RangeCheckable {
  *
  * Two narrowings, both matching the backend exactly:
  * - **PDFs only** — the engine drops the range for images (they are one page),
- *   so an image must never invalidate a range it will not receive.
+ *   so an image must never invalidate a range it will not receive. Documents
+ *   that are converted first (DOCX, HTML, …) do take the range, but their page
+ *   count only exists after conversion, so they cannot be bounded here.
  * - **Known page counts only** — `pages` is `null`/absent for PDFs too large or
  *   too broken to probe; an unmeasurable document cannot be bounded.
  *

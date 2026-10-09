@@ -95,7 +95,7 @@
     "placeholder": "p. ej. 1-5,10",
     "syntaxError": "Usa números de página como 1-5,10 (los intervalos deben ir en orden ascendente).",
     "outOfBounds": "«{{name}}» solo tiene {{pages}} páginas.",
-    "hint": "Solo se aplica a los PDF: las imágenes ignoran el intervalo."
+    "hint": "Se aplica a los PDF y documentos: las imágenes ignoran el intervalo."
   },
   "preview": {
     "title": "Comando resuelto"
