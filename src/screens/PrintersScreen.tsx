@@ -581,17 +581,54 @@ export function PrintersScreen() {
     });
   };
 
-  const handleToggleDisabled = async (disable: boolean) => {
+  const setDisabled = async (disable: boolean) => {
     const next = new Set(disabledSet);
     if (disable) next.add(sel.id);
     else next.delete(sel.id);
     const removed = os
       ? t('toast.removed', { name: sel.name, os: OS_LABEL[os] })
       : t('toast.removedUnknownOs', { name: sel.name });
+    const saved: PrinterPrefs = { ...prefsRef.current, disabled: [...next] };
+    // A removed printer cannot be MaeclyPrint's default: the backend would
+    // skip it anyway, so clear it rather than leave a star on a dead entry.
+    if (disable && saved.default_printer === sel.id) {
+      saved.default_printer = null;
+    }
     await savePrefs(
-      { ...prefs, disabled: [...next] },
+      saved,
       disable ? removed : t('toast.restored', { name: sel.name }),
     );
+  };
+
+  /**
+   * Remove (soft-disable) or restore the selected printer. Removing a printer
+   * jobs currently land on — MaeclyPrint's default, the system default, or a
+   * file-type route target — first says where those jobs will go instead.
+   */
+  const handleToggleDisabled = async (disable: boolean) => {
+    if (!disable) return setDisabled(false);
+    const isAppDefault = prefs.default_printer === sel.id;
+    // Jobs on "System default" end up on the OS default when MaeclyPrint has
+    // no default of its own (or when that default is the one going away).
+    const isOsFallback =
+      defaultId === sel.id && (!prefs.default_printer || isAppDefault);
+    const consequences = [
+      isAppDefault ? t('confirm.removeAppDefault') : null,
+      selRoutes.length > 0
+        ? t('confirm.removeRoutes', {
+            count: selRoutes.length,
+            exts: selRoutes.join(', '),
+          })
+        : null,
+      isOsFallback ? t('confirm.removeOsDefault') : null,
+    ].filter((x): x is string => x !== null);
+    if (consequences.length === 0) return setDisabled(true);
+    setConfirmState({
+      title: t('confirm.removeTitle', { name: sel.name }),
+      message: consequences.join(' '),
+      confirmLabel: t('confirm.removeConfirm'),
+      run: () => setDisabled(true),
+    });
   };
 
   /**
@@ -1274,6 +1311,18 @@ export function PrintersScreen() {
                 >
                   {t('routes.hint')}
                 </div>
+                {isDisabled && selRoutes.length > 0 && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--mp-warn)',
+                      marginTop: 6,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {t('routes.skippedWhileRemoved')}
+                  </div>
+                )}
               </Block>
             </div>
 

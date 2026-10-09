@@ -584,6 +584,22 @@ describe('PrintJobScreen', () => {
     expect(screen.queryByRole('note')).toBeNull();
   });
 
+  it('FR-044: warns when System default resolves to a printer removed from MaeclyPrint', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'list_printers')
+        return [{ ...printerRow('EPSON', 'EPSON L15160'), is_default: true }];
+      if (cmd === 'get_printer_prefs') return { disabled: ['EPSON'] };
+      if (cmd === 'list_profiles') return fixtureProfiles;
+      if (cmd === 'take_pending_selections') return [];
+      return null;
+    });
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
+
+    expect(await screen.findByRole('note')).toHaveTextContent(
+      'System default is EPSON L15160, which is removed from MaeclyPrint',
+    );
+  });
+
   it('FR-044: keeps a stored printer selectable even when it is not installed', async () => {
     // A profile saved against an offline (or pre-id) printer must not snap
     // silently to the system default.

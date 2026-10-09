@@ -94,7 +94,7 @@ The IPC `PrinterInfo` ([data-model](../04-architecture/data-model.md)) is the **
 | **Add printer** | top bar / list   | Opens the add-printer modal (below).                                        |
 | **Test page**   | detail header    | Sends a built-in test page to the selected printer.                         |
 | **Set default** | detail header    | Marks the selected printer as the system default (disabled if already default, and overridden by org policy — see [edge states](#edge-states)). |
-| **Remove**      | detail header    | Stops managing the printer in MaeclyPrint. **Hidden for `virtual` printers** (e.g. Microsoft Print to PDF). |
+| **Remove**      | detail header    | Stops managing the printer in MaeclyPrint. **Hidden for `virtual` printers** (e.g. Microsoft Print to PDF). When jobs currently land on it — MaeclyPrint's default, a file-type route target, or the OS default that *System default* falls back to — an in-app dialog says where they go instead before anything is saved; confirming also clears the app default if it pointed there. Routes are kept and flagged as skipped while it is removed, and Print Job warns when *System default* resolves to a removed printer. |
 
 ## Add-printer flows
 

@@ -55,7 +55,13 @@
   "confirm": {
     "testPageTitle": "Enviar página de prueba",
     "testPageMessage": "¿Enviar una página de prueba a {{name}}? Se imprimirá en papel.",
-    "testPageConfirm": "Enviar página de prueba"
+    "testPageConfirm": "Enviar página de prueba",
+    "removeTitle": "¿Quitar {{name}} de MaeclyPrint?",
+    "removeAppDefault": "Es la impresora predeterminada de MaeclyPrint: ese ajuste se borrará.",
+    "removeRoutes_one": "Los archivos {{exts}} se envían a ella; mientras esté quitada, irán a la impresora predeterminada.",
+    "removeRoutes_other": "Los archivos {{exts}} se envían a ella; mientras esté quitada, irán a la impresora predeterminada.",
+    "removeOsDefault": "También es la impresora predeterminada del sistema, así que los trabajos con «Predeterminada del sistema» no se imprimirán hasta que elijas otra impresora predeterminada.",
+    "removeConfirm": "Quitar"
   },
   "toast": {
     "settingDefault": "Estableciendo {{name}} como predeterminada…",
@@ -120,7 +126,8 @@
     "addRule": "añadir regla",
     "placeholder": ".ext",
     "removeRule": "Quitar la regla {{ext}}",
-    "hint": "Los archivos con estas extensiones se imprimirán en esta impresora salvo que un perfil indique otra."
+    "hint": "Los archivos con estas extensiones se imprimirán en esta impresora salvo que un perfil indique otra.",
+    "skippedWhileRemoved": "Estas reglas no se aplican mientras la impresora esté quitada: esos archivos van a la impresora predeterminada."
   },
   "capabilities": {
     "label": "Capacidades",

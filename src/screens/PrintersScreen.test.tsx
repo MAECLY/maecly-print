@@ -206,6 +206,9 @@ describe('PrintersScreen', () => {
     await screen.findByText(/2 configured/);
 
     fireEvent.click(screen.getByText(/^Remove$/));
+    // It is the system default, so removing it is confirmed first.
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove' }));
     // Persisted with the printer in the disabled list.
     await waitFor(() => {
       const save = calls.find((c) => c.cmd === 'set_printer_prefs');
@@ -294,7 +297,60 @@ describe('PrintersScreen', () => {
     await screen.findByText(/2 configured/);
 
     fireEvent.click(screen.getByText(/^Remove$/));
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', {
+        name: 'Remove',
+      }),
+    );
     expect(await screen.findByText(/boom/)).toBeInTheDocument();
+  });
+
+  it('FR-044: removing the printer jobs land on says where they go first', async () => {
+    const calls = mockPrinters({
+      prefs: { default_printer: 'HL_L2350', routes: { '.pdf': 'HL_L2350' } },
+    });
+    renderScreen();
+    await screen.findByText(/2 configured/);
+    fireEvent.click(screen.getByRole('button', { name: /Brother HL-L2350DW/ }));
+
+    fireEvent.click(await screen.findByText(/^Remove$/));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(
+      'Remove Brother HL-L2350DW from MaeclyPrint?',
+    );
+    expect(dialog).toHaveTextContent(/MaeclyPrint's default printer/);
+    expect(dialog).toHaveTextContent(/Files of type \.pdf are routed to it/);
+    // Nothing is written until the user confirms.
+    expect(calls.some((c) => c.cmd === 'set_printer_prefs')).toBe(false);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => {
+      const saved = lastSaved(calls) as {
+        disabled: string[];
+        default_printer: string | null;
+      };
+      expect(saved.disabled).toContain('HL_L2350');
+      expect(saved.default_printer).toBeNull();
+    });
+    // The routes stay, flagged as skipped while it is removed.
+    expect(
+      await screen.findByText(
+        /These rules are skipped while the printer is removed/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('FR-044: a printer nothing depends on is removed without a question', async () => {
+    const calls = mockPrinters();
+    renderScreen();
+    await screen.findByText(/2 configured/);
+    fireEvent.click(screen.getByRole('button', { name: /Brother HL-L2350DW/ }));
+
+    fireEvent.click(await screen.findByText(/^Remove$/));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() =>
+      expect(lastSaved(calls)?.disabled).toContain('HL_L2350'),
+    );
   });
 
   // -- per-printer defaults ----------------------------------------------

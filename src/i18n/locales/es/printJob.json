@@ -126,6 +126,7 @@
   },
   "capability": {
     "noDuplex": "{{name}} no puede imprimir a doble cara: el trabajo quedará en pausa hasta que elijas Una cara u otra impresora.",
-    "noColor": "{{name}} solo imprime en blanco y negro: las páginas en color saldrán en gris."
+    "noColor": "{{name}} solo imprime en blanco y negro: las páginas en color saldrán en gris.",
+    "systemDefaultRemoved": "La predeterminada del sistema es {{name}}, que está quitada de MaeclyPrint: elige una impresora, o los archivos que no se envíen a otra por su tipo no se imprimirán."
   }
 }

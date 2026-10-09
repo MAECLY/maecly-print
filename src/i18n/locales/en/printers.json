@@ -55,7 +55,13 @@
   "confirm": {
     "testPageTitle": "Send test page",
     "testPageMessage": "Send a test page to {{name}}? It will print on paper.",
-    "testPageConfirm": "Send test page"
+    "testPageConfirm": "Send test page",
+    "removeTitle": "Remove {{name}} from MaeclyPrint?",
+    "removeAppDefault": "It is MaeclyPrint's default printer: that setting will be cleared.",
+    "removeRoutes_one": "Files of type {{exts}} are routed to it; while it is removed they go to the default printer instead.",
+    "removeRoutes_other": "Files of type {{exts}} are routed to it; while it is removed they go to the default printer instead.",
+    "removeOsDefault": "It is also the system's default printer, so jobs left on System default will not print until you choose another default printer.",
+    "removeConfirm": "Remove"
   },
   "toast": {
     "settingDefault": "Setting {{name}} as default…",
@@ -120,7 +126,8 @@
     "addRule": "add rule",
     "placeholder": ".ext",
     "removeRule": "Remove {{ext}} rule",
-    "hint": "Files with these extensions default to this printer when no profile overrides it."
+    "hint": "Files with these extensions default to this printer when no profile overrides it.",
+    "skippedWhileRemoved": "These rules are skipped while the printer is removed: those files go to the default printer."
   },
   "capabilities": {
     "label": "Capabilities",

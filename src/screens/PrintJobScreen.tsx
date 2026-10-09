@@ -46,6 +46,7 @@ import {
   isTauri,
   listPrinters,
   previewCommand,
+  type PrinterPrefs,
 } from '@/lib/ipc';
 // Straight from the generated bindings: `lib/ipc` re-exports the wire types the
 // other screens use, and this one is not on that list yet.
@@ -179,17 +180,34 @@ export function PrintJobScreen({
       duplex: boolean;
     }[]
   >([]);
+  // "System default" falls back to the OS default printer when MaeclyPrint
+  // has no usable default of its own. If that printer was removed from
+  // MaeclyPrint the job is refused at print time, so name it here.
+  const [removedSystemDefault, setRemovedSystemDefault] = useState<
+    string | null
+  >(null);
   useEffect(() => {
     if (!isTauri()) return;
     let alive = true;
     Promise.all([
       listPrinters(),
-      getPrinterPrefs().catch(() => ({ disabled: [] as string[] })),
+      getPrinterPrefs().catch((): PrinterPrefs => ({})),
     ])
       .then(([ps, prefs]) => {
         primePrinterNames(ps);
         if (!alive) return;
         const disabled = new Set(prefs.disabled ?? []);
+        const appDefault = prefs.default_printer ?? null;
+        const appDefaultUsable =
+          appDefault !== null &&
+          !disabled.has(appDefault) &&
+          ps.some((p) => p.id === appDefault);
+        const osDefault = ps.find((p) => p.isDefault);
+        setRemovedSystemDefault(
+          !appDefaultUsable && osDefault && disabled.has(osDefault.id)
+            ? osDefault.name
+            : null,
+        );
         setPrinters(
           ps
             .filter((p) => !disabled.has(p.id))
@@ -883,6 +901,13 @@ export function PrintJobScreen({
             }
             options={printerOptions}
           />
+          {currentPrinter === DEFAULT_PRINTER && removedSystemDefault && (
+            <CapabilityNote>
+              {t('capability.systemDefaultRemoved', {
+                name: removedSystemDefault,
+              })}
+            </CapabilityNote>
+          )}
           <div style={{ height: 14 }} />
 
           <MPSectionLabel>{t('settings.sides')}</MPSectionLabel>
