@@ -67,7 +67,7 @@ Settings not exposed in MVP: n-up, collate, watermark, separator pages, custom p
   - **Photo Color** — system default printer, color, simplex, none scaling, A4, portrait, high quality
 - User can create unlimited custom profiles.
 - One profile is marked **Default** for context menu invocations.
-- Profiles persist in `%APPDATA%\MaeclyPrint\profiles.toml` (atomic writes).
+- Profiles persist in `%APPDATA%\Maecly\MaeclyPrint\config\profiles.toml` (atomic writes).
 
 ### 5. GUI
 
@@ -106,7 +106,7 @@ Delivered, and slightly wider than this list: the five subcommand roots are `pri
 - Persistent queue (`queue.json`) survives crashes and restarts.
 - Concurrent **conversions**: configurable 1–8 (default 2), clamped in both the IPC command and the settings loader, and read into the dispatcher at app start. Spooling itself is sequential.
 - Automatic retry: the initial attempt plus 3 retries with exponential backoff (1s, 5s, 25s) before marking failed.
-- Structured JSONL logs in `%LOCALAPPDATA%\MaeclyPrint\logs\`, size-capped with rotation and retention.
+- Structured JSONL logs in `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\`, size-capped with rotation and retention.
 
 ### 8. Notifications
 

@@ -203,7 +203,7 @@ $env:RUST_LOG = "maeclyprint=debug,tauri=info,ureq=warn"
 pnpm tauri dev
 ```
 
-(The HTTP client is `ureq`, not `reqwest`.) The app also writes structured JSONL to its log directory — `%LOCALAPPDATA%\MaeclyPrint\logs\` on Windows, `~/Library/Logs/MaeclyPrint/` on macOS. About → "Open logs folder" reveals the live path.
+(The HTTP client is `ureq`, not `reqwest`.) The app also writes structured JSONL to its log directory — `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\` on Windows, `~/Library/Logs/MaeclyPrint/` on macOS. About → "Open logs folder" reveals the live path.
 
 Module-specific filters: `maeclyprint::engine=trace` for very detailed output from the engine module.
 

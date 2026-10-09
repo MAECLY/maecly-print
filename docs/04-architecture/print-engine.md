@@ -64,7 +64,7 @@ SumatraPDF.exe ^
   -print-settings "1-5,duplex,monochrome,fit,paper=A4,2x" ^
   -silent ^
   -exit-when-done ^
-  "%LOCALAPPDATA%\MaeclyPrint\cache\conversions\<job-id>.pdf"
+  "%LOCALAPPDATA%\Maecly\MaeclyPrint\cache\conversions\<job-id>.pdf"
 ```
 
 The `-print-settings` value is a comma-separated keyword list MaeclyPrint emits in a fixed order (SumatraPDF is itself order-independent; the fixed order keeps the honesty preview stable):
@@ -151,7 +151,7 @@ lp -d "OfficeJet_Pro" \
    -o media=A4 \
    -o fit-to-page \
    -o page-ranges=1-5 \
-   "~/Library/Caches/MaeclyPrint/conversions/<job-id>.pdf"
+   "~/Library/Caches/com.Maecly.MaeclyPrint/conversions/<job-id>.pdf"
 ```
 
 Flag mapping (`engine/print/cups.rs`), in the exact order `lp_args` emits them:
@@ -210,7 +210,7 @@ The job is then followed until it leaves the queue (`engine::print::job_state`):
            v
 +--------------------+
 | 4. Conversion pool |  Up to N parallel converters via rayon.
-|    (parallel)      |  Each writes to %LOCALAPPDATA%\MaeclyPrint\cache\<job>.pdf
+|    (parallel)      |  Each writes to %LOCALAPPDATA%\Maecly\MaeclyPrint\cache\<job>.pdf
 +----------+---------+
            |
            v
@@ -254,7 +254,7 @@ The router is **not** a MIME-keyed trait-object factory. `engine::convert::conve
 
 ### 4.2 PDF caching
 
-Converted PDFs land in a `conversions/` subdirectory of the OS cache directory — `%LOCALAPPDATA%\MaeclyPrint\conversions\<job-id>.pdf` on Windows, `~/Library/Caches/MaeclyPrint/conversions/<job-id>.pdf` on macOS (`queue::spawn` resolves `paths::cache_dir().join("conversions")`). The cache:
+Converted PDFs land in a `conversions/` subdirectory of the OS cache directory — `%LOCALAPPDATA%\Maecly\MaeclyPrint\cache\conversions\<job-id>.pdf` on Windows, `~/Library/Caches/com.Maecly.MaeclyPrint/conversions/<job-id>.pdf` on macOS (`queue::spawn` resolves `paths::cache_dir().join("conversions")`). The cache:
 
 - Is **not** keyed on file content; each job gets its own cache file. This avoids spurious "is the file modified?" decisions.
 - Holds nothing for a PDF input: a PDF passes through and is printed in place, so no cache file is produced at all.

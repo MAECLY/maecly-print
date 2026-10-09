@@ -133,7 +133,7 @@ See [non-functional-requirements.md](./non-functional-requirements.md#internatio
 
 | ID | Requirement | Priority | MVP | Status |
 |---|---|---|---|---|
-| FR-100 | The system MUST persist configuration in human-readable TOML files at OS-appropriate locations (`%APPDATA%\MaeclyPrint\` on Windows, `~/Library/Application Support/MaeclyPrint/` on macOS). | MUST | yes | **Done** — `config.toml` and `profiles.toml` via `util::paths`; covered by `tests/settings_persist.rs::fr_100_*`. |
+| FR-100 | The system MUST persist configuration in human-readable TOML files at OS-appropriate locations (`%APPDATA%\Maecly\MaeclyPrint\config\` on Windows, `~/Library/Application Support/com.Maecly.MaeclyPrint/` on macOS). | MUST | yes | **Done** — `config.toml` and `profiles.toml` via `util::paths`; covered by `tests/settings_persist.rs::fr_100_*`. |
 | FR-101 | The system MUST gracefully handle a missing or corrupt config file by falling back to defaults and surfacing a recoverable error. | MUST | yes | **Done** — `fr_101_*`. |
 | FR-102 | All config writes MUST be atomic (write to temp + rename). | MUST | yes | **Done** — `fr_102_atomic_write`. |
 | FR-103 | The system MUST embed a `schema_version` field in every persisted file and migrate old schemas forward when loading. | MUST | yes | **Partial** — `schema_version` is embedded in `config.toml`, `profiles.toml` and `queue.json` and is validated on load (`fr_103_schema_version_embedded`). There is no forward-migration path yet, because there is only one schema version; the requirement's second clause is untested until there is a second. |
@@ -145,7 +145,7 @@ See [non-functional-requirements.md](./non-functional-requirements.md#internatio
 | FR-110 | The GUI MUST include an **About** dialog showing version, license link, and a link to the documentation site. | MUST | yes | **Done** — version and build date from the build, honest component versions read from the real manifests, filesystem paths with open-logs, and allow-listed external links. A test fails the build if About claims a dependency the project does not have. |
 | FR-111 | The GUI MUST include a **First Run** wizard that explains the context menu integration and creates a desktop shortcut on opt-in. | SHOULD | yes | **Partial** — a five-step onboarding flow exists (welcome, printers, CLI, profiles, ready) and is deliberately limited to things this build actually does. It therefore does **not** explain the context menu (unregistered) and does **not** offer a desktop shortcut (no installer). Both clauses of this requirement are unmet; the wizard's honesty is the reason. |
 | FR-112 | The CLI MUST support `--help` for every subcommand. | MUST | yes | **Done** — `clap`-derived help on every subcommand and sub-verb, pinned by `tests/cli_contract.rs`. |
-| FR-113 | The system MUST log to a user-accessible file (`%LOCALAPPDATA%\MaeclyPrint\logs\app.log`) with rotation. | MUST | yes | **Done** — size-capped rotation with retention, rather than `tracing-appender`'s clock-boundary rolling, plus an open-logs-folder action in About. |
+| FR-113 | The system MUST log to a user-accessible file (`%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\maeclyprint-YYYY-MM-DD.jsonl`) with rotation. | MUST | yes | **Done** — size-capped rotation with retention, rather than `tracing-appender`'s clock-boundary rolling, plus an open-logs-folder action in About. |
 
 ---
 

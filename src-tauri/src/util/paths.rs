@@ -1,9 +1,16 @@
 //! Filesystem path resolution.
 //!
 //! Centralizes every hardcoded directory name so the rest of the codebase
-//! never spells out "MaeclyPrint" or "Maecly". On Windows this resolves to
-//! `%APPDATA%\MaeclyPrint\` (config), `%LOCALAPPDATA%\MaeclyPrint\` (data,
-//! cache, logs); on macOS it follows the `~/Library/...` convention.
+//! never spells out "MaeclyPrint" or "Maecly". The layout is whatever
+//! `directories::ProjectDirs::from("com", "Maecly", "MaeclyPrint")` gives, and
+//! the shell extension resolves the same way, so it must not drift:
+//!
+//! | Dir    | Windows                                  | macOS                                            |
+//! | ------ | ---------------------------------------- | ------------------------------------------------ |
+//! | config | `%APPDATA%\Maecly\MaeclyPrint\config\`     | `~/Library/Application Support/com.Maecly.MaeclyPrint/` |
+//! | data   | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\`  | `~/Library/Application Support/com.Maecly.MaeclyPrint/` |
+//! | cache  | `%LOCALAPPDATA%\Maecly\MaeclyPrint\cache\` | `~/Library/Caches/com.Maecly.MaeclyPrint/`        |
+//! | logs   | `<data>\logs\`                            | `~/Library/Logs/MaeclyPrint/`                     |
 //!
 //! See `docs/04-architecture/data-model.md` §1 for the full table.
 //!
@@ -25,28 +32,28 @@ fn dirs() -> ProjectDirs {
 }
 
 /// Where `config.toml` and `profiles.toml` live.
-/// Windows: `%APPDATA%\MaeclyPrint\`
-/// macOS:   `~/Library/Application Support/MaeclyPrint/`
+/// Windows: `%APPDATA%\Maecly\MaeclyPrint\config\`
+/// macOS:   `~/Library/Application Support/com.Maecly.MaeclyPrint/`
 pub fn config_dir() -> PathBuf {
     dirs().config_dir().to_path_buf()
 }
 
 /// Where `queue.json` and other live state live.
-/// Windows: `%LOCALAPPDATA%\MaeclyPrint\`
-/// macOS:   `~/Library/Application Support/MaeclyPrint/`
+/// Windows: `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\`
+/// macOS:   `~/Library/Application Support/com.Maecly.MaeclyPrint/`
 pub fn data_dir() -> PathBuf {
     dirs().data_local_dir().to_path_buf()
 }
 
-/// Where converted PDFs and updater staging live.
-/// Windows: `%LOCALAPPDATA%\MaeclyPrint\`
-/// macOS:   `~/Library/Caches/MaeclyPrint/`
+/// Where converted PDFs live (`conversions/`).
+/// Windows: `%LOCALAPPDATA%\Maecly\MaeclyPrint\cache\`
+/// macOS:   `~/Library/Caches/com.Maecly.MaeclyPrint/`
 pub fn cache_dir() -> PathBuf {
     dirs().cache_dir().to_path_buf()
 }
 
 /// Where rotating JSONL logs are written.
-/// Windows: `%LOCALAPPDATA%\MaeclyPrint\logs\`
+/// Windows: `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\`
 /// macOS:   `~/Library/Logs/MaeclyPrint/`
 pub fn log_dir() -> PathBuf {
     #[cfg(target_os = "macos")]

@@ -111,10 +111,10 @@ Note: several scope lines below are framed Windows-first, but the enumeration/pr
 - Rust backend modules: `engine::router`, `engine::pdf`, `printer::windows`, `queue`, `profiles`, `cli`.
 - SumatraPDF integration: bundled binary in `src-tauri/resources/`, invoked via `Command` with structured args.
 - CLI: `maeclyprint print <files…> --printer <name> --profile <id>` parsed with `clap`.
-- TOML profiles: load from `%APPDATA%\MaeclyPrint\profiles\*.toml`, schema documented and versioned.
+- TOML profiles: load from `%APPDATA%\Maecly\MaeclyPrint\config\profiles\*.toml`, schema documented and versioned.
 - GUI: bare-bones React pages for Profiles list, Queue view, Settings (printer picker).
 - Print queue: Tokio task that processes jobs sequentially, reports progress over Tauri IPC.
-- Logging: `tracing` with file rotation under `%LOCALAPPDATA%\MaeclyPrint\logs\`.
+- Logging: `tracing` with file rotation under `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\`.
 
 ### Deliverables
 
@@ -190,7 +190,7 @@ Note: several scope lines below are framed Windows-first, but the enumeration/pr
 
 - Shell extension passes Microsoft's [Shell Extension Best Practices](https://learn.microsoft.com/windows/win32/shell/shell-extension-handlers) audit (no UI on background threads, no `MessageBox` from handler, no blocking I/O > 50 ms).
 - Installer is reproducible: building twice from the same commit produces byte-identical `.exe`.
-- Uninstaller deregisters MSIX, removes all registry entries, deletes install directory and `%LOCALAPPDATA%\MaeclyPrint`.
+- Uninstaller deregisters MSIX, removes all registry entries, deletes install directory and `%LOCALAPPDATA%\Maecly\MaeclyPrint`.
 
 ### Risks
 

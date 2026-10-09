@@ -91,7 +91,7 @@ Mitigations:
 
 Runs as the user; not elevated. Has read/write access to:
 
-- `%APPDATA%\MaeclyPrint\` and `%LOCALAPPDATA%\MaeclyPrint\`.
+- `%APPDATA%\Maecly\MaeclyPrint\` and `%LOCALAPPDATA%\Maecly\MaeclyPrint\`.
 - The user's documents (because we are spawned by the user; no extra access).
 
 Does **not**:
@@ -166,7 +166,7 @@ The one exception is **uninstalling the WebView2 Runtime** — but we don't ship
 ### 4.2 macOS
 
 - App installs to `/Applications` (user can drag-drop without admin if not present).
-- All state in `~/Library/Application Support/MaeclyPrint/` and friends.
+- All state in `~/Library/Application Support/com.Maecly.MaeclyPrint/` and friends.
 - Finder Sync Extension requires the user to enable it in System Settings — explicit consent.
 
 ### 4.3 Enterprise policy (`policy.json`)
@@ -178,7 +178,7 @@ An organization can pin a small set of MaeclyPrint behavior with an optional, ad
 | Platform | Sources, most authoritative first | Fallback (debug builds only) |
 | -------- | --------------------------------- | ---------------------------- |
 | Windows  | Registry `HKLM\SOFTWARE\Policies\Maecly\MaeclyPrint`, value `DefaultPrinter` (REG_SZ — Group Policy friendly); then `%ProgramData%\MaeclyPrint\policy.json`, **only if the file's owner is `BUILTIN\Administrators` or `SYSTEM`** | `<user config dir>\policy.json` |
-| macOS    | `/Library/Application Support/MaeclyPrint/policy.json` | `~/Library/Application Support/MaeclyPrint/policy.json` |
+| macOS    | `/Library/Application Support/MaeclyPrint/policy.json` | `~/Library/Application Support/com.Maecly.MaeclyPrint/policy.json` |
 | Linux    | `/etc/maeclyprint/policy.json` | `<XDG config dir>/maeclyprint/policy.json` |
 
 `%ProgramData%` is not admin-only: its default ACL lets any user create a folder there and own it. A `policy.json` a standard user created is therefore owned by that user and **ignored** (logged as `policy_untrusted`); otherwise any user could impose a "managed" default printer on every other account on the machine. A user cannot assign a file's ownership to Administrators without privileges they do not have.
@@ -229,7 +229,7 @@ Nothing is collected, because nothing is transmitted. In particular the app neve
 
 ### 6.2 Logs
 
-Local-only. Files are named `maeclyprint-<UTC date>.jsonl` (and `maeclyprint-<date>.<n>.jsonl` for each size roll within one day) under `%LOCALAPPDATA%\MaeclyPrint\logs\` (Windows) or `~/Library/Logs/MaeclyPrint/` (macOS). The user can delete them at any time, and the About screen has a button that reveals the folder.
+Local-only. Files are named `maeclyprint-<UTC date>.jsonl` (and `maeclyprint-<date>.<n>.jsonl` for each size roll within one day) under `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\` (Windows) or `~/Library/Logs/MaeclyPrint/` (macOS). The user can delete them at any time, and the About screen has a button that reveals the folder.
 
 Rotation and retention are implemented by `logging::RollingJsonl`, not by `tracing-appender`'s rolling appender (which only rotates on a clock boundary and never deletes): the current file rolls when the **UTC date changes or it passes 10 MB, whichever comes first**, and a sweep at startup and on every roll deletes anything older than **14 days** and then keeps only the **7 newest** files. Both bounds apply; whichever bites first wins. There is no `[logging]` section in `config.toml` — these are the whole policy.
 

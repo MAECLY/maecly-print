@@ -6,18 +6,18 @@
 
 | File                                | Windows                                                          | macOS                                                          |
 | ----------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------- |
-| Config                              | `%APPDATA%\MaeclyPrint\config.toml`                              | `~/Library/Application Support/MaeclyPrint/config.toml`        |
-| Profiles                            | `%APPDATA%\MaeclyPrint\profiles.toml`                            | `~/Library/Application Support/MaeclyPrint/profiles.toml`      |
-| Queue (live state)                  | `%LOCALAPPDATA%\MaeclyPrint\queue.json`                          | `~/Library/Application Support/MaeclyPrint/queue.json`         |
-| Update bookkeeping                  | `%LOCALAPPDATA%\MaeclyPrint\update-state.json`                   | `~/Library/Application Support/MaeclyPrint/update-state.json`  |
-| Shell-extension handoff             | `%LOCALAPPDATA%\MaeclyPrint\handoff\`                            | `~/Library/Application Support/MaeclyPrint/handoff/`           |
-| Logs (see §5.2 for rotation)        | `%LOCALAPPDATA%\MaeclyPrint\logs\maeclyprint-YYYY-MM-DD.jsonl`   | `~/Library/Logs/MaeclyPrint/maeclyprint-YYYY-MM-DD.jsonl`      |
-| Cache (converted PDFs)              | `%LOCALAPPDATA%\MaeclyPrint\conversions\<job-id>.pdf`            | `~/Library/Caches/MaeclyPrint/conversions/<job-id>.pdf`        |
+| Config                              | `%APPDATA%\Maecly\MaeclyPrint\config\config.toml`                              | `~/Library/Application Support/com.Maecly.MaeclyPrint/config.toml`        |
+| Profiles                            | `%APPDATA%\Maecly\MaeclyPrint\config\profiles.toml`                            | `~/Library/Application Support/com.Maecly.MaeclyPrint/profiles.toml`      |
+| Queue (live state)                  | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\queue.json`                          | `~/Library/Application Support/com.Maecly.MaeclyPrint/queue.json`         |
+| Update bookkeeping                  | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\update-state.json`                   | `~/Library/Application Support/com.Maecly.MaeclyPrint/update-state.json`  |
+| Shell-extension handoff             | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\handoff\`                            | `~/Library/Application Support/com.Maecly.MaeclyPrint/handoff/`           |
+| Logs (see §5.2 for rotation)        | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\maeclyprint-YYYY-MM-DD.jsonl`   | `~/Library/Logs/MaeclyPrint/maeclyprint-YYYY-MM-DD.jsonl`      |
+| Cache (converted PDFs)              | `%LOCALAPPDATA%\Maecly\MaeclyPrint\cache\conversions\<job-id>.pdf`            | `~/Library/Caches/com.Maecly.MaeclyPrint/conversions/<job-id>.pdf`        |
 | Enterprise policy (**read-only**)   | `%ProgramData%\MaeclyPrint\policy.json`                          | `/Library/Application Support/MaeclyPrint/policy.json`         |
 
 Note the **`conversions/` subdirectory** — converted PDFs are not written directly into the cache root. There is no updater staging directory, because nothing is ever downloaded (see [auto-updater.md](./auto-updater.md)).
 
-`update-state.json` and `handoff/` live under the **data** directory, alongside `queue.json`, because all three are live machine-managed state rather than user configuration. On Windows the data and cache directories both resolve to `%LOCALAPPDATA%\MaeclyPrint\`, which is why several rows above share a prefix; on macOS they are genuinely different trees.
+`update-state.json` and `handoff/` live under the **data** directory, alongside `queue.json`, because all three are live machine-managed state rather than user configuration. On Windows the data and cache directories are the `data\` and `cache\` subfolders of `%LOCALAPPDATA%\Maecly\MaeclyPrint\`, and config is the `config\` subfolder of the roaming `%APPDATA%\Maecly\MaeclyPrint\`; on macOS config and data share `com.Maecly.MaeclyPrint` under Application Support and the cache is a separate tree. The layout is `directories::ProjectDirs::from("com", "Maecly", "MaeclyPrint")`, which the shell extension uses too.
 
 We do not write under `%PROGRAMFILES%` or `/Applications` after install — the user does not need admin rights at any time after setup, and uninstall does not orphan user-state.
 

@@ -364,17 +364,22 @@ After install:
 User data lives separately:
 
 ```
-%APPDATA%\MaeclyPrint\
+%APPDATA%\Maecly\MaeclyPrint\config\
 ├── config.toml       # App settings (FR-100..103)
 └── profiles.toml     # ALL custom profiles, as [[profile]] entries — one file,
                       #   not a directory of per-profile files
 
-%LOCALAPPDATA%\MaeclyPrint\
-├── queue.json        # The persisted queue (NFR-010: survives a crash)
-└── logs\
-    ├── maeclyprint.2026-05-03.jsonl
-    └── (rolls daily AND at a size ceiling; retained 14 days / 7 files,
-         whichever bound bites first — see src-tauri/src/logging/mod.rs)
+%LOCALAPPDATA%\Maecly\MaeclyPrint\
+├── data\
+│   ├── queue.json        # The persisted queue (NFR-010: survives a crash)
+│   ├── shell-menu.json   # Explorer menu labels + profile rows (written by the app)
+│   ├── handoff\          # Short-lived context-menu selections
+│   └── logs\
+│       ├── maeclyprint-2026-05-03.jsonl
+│       └── (rolls daily AND at a size ceiling; retained 14 days / 7 files,
+│            whichever bound bites first — see src-tauri/src/logging/mod.rs)
+└── cache\
+    └── conversions\      # Converted PDFs, swept by the app
 ```
 
 This separation matters: install-area is read-only after install (we never write there at runtime); user-area is everything that survives uninstall unless the user opts in to wipe.
@@ -430,7 +435,7 @@ When the user runs the uninstaller (`unins000.exe`):
 3. **Unregister shell extension DLL:** `regsvr32 /u shell_ext_win.dll` (no-op if Inno Setup's `regserver` flag wasn't used, but defensive).
 4. **Delete registry entries:** all `HKCU\Software\Classes\` entries listed in `[Registry]` (Inno Setup handles via `uninsdeletekey`).
 5. **Delete install directory:** Inno Setup default behavior.
-6. **Prompt for user data:** ask whether to delete `%APPDATA%\MaeclyPrint` and `%LOCALAPPDATA%\MaeclyPrint`. Default is **no** (preserve user data).
+6. **Prompt for user data:** ask whether to delete `%APPDATA%\Maecly\MaeclyPrint` and `%LOCALAPPDATA%\Maecly\MaeclyPrint`. Default is **no** (preserve user data).
 7. **Refresh shell:** broadcast `WM_SETTINGCHANGE` so File Explorer re-reads context menu registrations.
 
 After a clean uninstall (with user data wiped), `regedit` and `Process Monitor` should find zero MaeclyPrint references. **This is not tested anywhere.** There is no installer test job in `ci.yml`, and there cannot be one until an installer exists; today it is a manual QA item on the release checklist.

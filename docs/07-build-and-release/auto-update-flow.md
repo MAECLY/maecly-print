@@ -313,7 +313,7 @@ Behavior on switch:
 - **Switching upward** (stable → beta → nightly): immediate. Next check pulls from the new channel's manifest. If the new channel has a higher version, the update prompt appears.
 - **Switching downward** (nightly → beta → stable): the app warns: "Switching to Stable will not downgrade your current version. You will receive Stable updates only when a Stable version >= your current version is released." The app remembers the channel choice and applies it from the next check.
 
-Channel preference is stored in the user-area config (`%APPDATA%\MaeclyPrint\settings.toml` on Windows, `~/Library/Application Support/MaeclyPrint/settings.toml` on macOS), separate from app install. So uninstalling and reinstalling preserves the channel choice if the user keeps their data.
+Channel preference is stored in the user-area config (`%APPDATA%\Maecly\MaeclyPrint\config\settings.toml` on Windows, `~/Library/Application Support/com.Maecly.MaeclyPrint/settings.toml` on macOS), separate from app install. So uninstalling and reinstalling preserves the channel choice if the user keeps their data.
 
 ## Failure modes
 

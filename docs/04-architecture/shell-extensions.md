@@ -121,7 +121,7 @@ Notes:
 - We use `IShellItem::GetDisplayName(SIGDN_FILESYSPATH)` which gives a real absolute path, not a virtual or library-virtualized name.
 - The DLL **never reads file content**. It only handles paths.
 - The DLL does not allocate large buffers in the Explorer process beyond the path JSON.
-- Errors are returned as HRESULTs; Explorer surfaces them as a balloon, but we also write a single-line crash report into `%LOCALAPPDATA%\MaeclyPrint\logs\shellext.log`.
+- Errors are returned as HRESULTs; Explorer surfaces them as a balloon, but we also write a single-line crash report into `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\shellext.log`.
 
 ### 2.2 Sparse MSIX package
 
@@ -458,7 +458,7 @@ automatable.
 
 ## 5. Logging and diagnostics
 
-The DLL logs only to `%LOCALAPPDATA%\MaeclyPrint\logs\shellext.log`, one line per invocation:
+The DLL logs only to `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\shellext.log`, one line per invocation:
 
 ```
 2026-05-03T12:34:56Z INVOKE files=12 transport=args ok=true exe=...\MaeclyPrint.exe

@@ -43,7 +43,7 @@ Use the **Bug report** issue template. Include:
 - OS version (Windows 10 22H2, macOS 14.4, etc.).
 - Reproduction steps. Be specific. "It doesn't work" is not a reproduction.
 - Expected vs actual behavior.
-- Logs from `%LOCALAPPDATA%\MaeclyPrint\logs\` (Windows) or `~/Library/Logs/MaeclyPrint/` (macOS). Redact filenames if sensitive.
+- Logs from `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\` (Windows) or `~/Library/Logs/MaeclyPrint/` (macOS). Redact filenames if sensitive.
 - Screenshots if it's a UI issue.
 
 ### Feature requests
