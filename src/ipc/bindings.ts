@@ -107,8 +107,9 @@ async defaultPrinter() : Promise<Result<string | null, IpcError>> {
 }
 },
 /**
- * Best-effort network discovery of not-yet-installed printers (mDNS/Bonjour
- * on Unix; empty on Windows until WSD lands).
+ * Best-effort network discovery of not-yet-installed printers: mDNS/Bonjour
+ * through `ippfind` on Unix, and an in-process mDNS browse of IPP/IPPS on
+ * Windows (WSD-only devices are not listed).
  */
 async discoverPrinters() : Promise<Result<DiscoveredPrinter[], IpcError>> {
     try {

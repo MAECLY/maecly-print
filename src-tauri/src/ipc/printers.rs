@@ -111,8 +111,9 @@ pub async fn default_printer() -> Result<Option<String>, IpcError> {
     run_blocking(crate::platform::default_printer).await
 }
 
-/// Best-effort network discovery of not-yet-installed printers (mDNS/Bonjour
-/// on Unix; empty on Windows until WSD lands).
+/// Best-effort network discovery of not-yet-installed printers: mDNS/Bonjour
+/// through `ippfind` on Unix, and an in-process mDNS browse of IPP/IPPS on
+/// Windows (WSD-only devices are not listed).
 #[tauri::command]
 #[specta::specta]
 pub async fn discover_printers() -> Result<Vec<DiscoveredPrinter>, IpcError> {

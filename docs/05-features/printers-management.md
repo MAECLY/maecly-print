@@ -140,7 +140,7 @@ macOS support follows [ADR-0007 (Windows first, Mac second)](../adr/0007-windows
 | Add printer (network row / IP) | `add_printer(name, uri) => void`   | Installs a real spooler queue; spooler error surfaced verbatim |
 | From-system checkboxes / tray-paper / routes | `get_printer_prefs()` / `set_printer_prefs(prefs)` | MaeclyPrint-only prefs: `disabled`, `overrides`, `routes`, `default_printer` |
 | Set default             | `set_default_printer(name) => void`       | `lpoptions -d` / `SetDefaultPrinterW`; no elevation |
-| Test page               | `print_test_page(name) => void`           | Branded PDF via `lp` / `printui.dll` |
+| Test page               | `print_test_page(name) => void`           | Branded PDF via `lp` / SumatraPDF (`printui.dll` fallback) |
 | Open printer settings   | `open_printer_settings() => void`         | Defers to the OS Printers pane     |
 | Org default lock        | `get_printer_policy() => PrinterPolicy`    | Reads `policy.json`; default when absent/malformed |
 
@@ -151,7 +151,7 @@ How the data is sourced per OS — and why fields may be absent — is documente
 - **M0** — front-end only, mock-data faithful port (superseded).
 - **M1 (current)** — **the full Printers surface is real, no mock data.** Rust: `src-tauri/src/ipc/printers.rs` + `src-tauri/src/platform/{cups,windows}.rs` + `src-tauri/src/settings/{mod,policy}.rs`. Frontend: the wrappers in `src/lib/ipc.ts`, consumed by `PrintersScreen.tsx` (loading / empty / unavailable states) and the Print Job printer dropdown. Implemented end-to-end:
   - Enumeration + capabilities (macOS supplies/papers/trays via CUPS; Windows via `DeviceCapabilities`) and OS default detection.
-  - **Set default** (`lpoptions -d` / `SetDefaultPrinterW`) and **Test page** (branded PDF via `lp` / Windows `printui.dll`) — both are live spooler actions, not local stubs.
+  - **Set default** (`lpoptions -d` / `SetDefaultPrinterW`) and **Test page** (branded PDF via `lp` / SumatraPDF on Windows, `printui.dll` only without the sidecar) — both are live spooler actions, not local stubs.
   - **Remove / Restore** as a MaeclyPrint-level soft-disable (OS queue untouched), **hidden for virtual printers**.
   - Preferences persistence (`get_printer_prefs` / `set_printer_prefs`): file-type routes, per-printer tray/paper overrides, soft-disabled set, app default.
   - **Add printer** by network discovery and by IP (`add_printer`: `lpadmin` IPP Everywhere/raw on macOS/Linux; Microsoft IPP Class Driver, IPP/IPPS-only on Windows), and **From system** spooler management.
