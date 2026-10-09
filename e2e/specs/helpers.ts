@@ -7,7 +7,11 @@ import { $, browser } from '@wdio/globals';
  * if onboarding was already completed.
  */
 export async function dismissOnboarding(): Promise<void> {
-  const skip = await $('button=Skip');
+  // Either language: on the first launch the UI follows the OS language
+  // (FR-093), so on a Spanish Windows the button reads "Omitir" until
+  // `forceEnglishUi` has run.
+  let skip = await $('button=Skip');
+  if (!(await skip.isExisting())) skip = await $('button=Omitir');
   if (await skip.isExisting()) {
     await skip.click();
     // Wait for the overlay to tear down before interacting with the shell.
@@ -73,4 +77,24 @@ export async function restoreDefaultSettings(): Promise<void> {
     // Reported, not thrown: the test's own verdict must survive the cleanup.
     console.warn('could not restore the default settings:', error);
   }
+}
+
+/**
+ * Switch the UI to English, whatever language it starts in.
+ *
+ * Every spec finds controls by their English labels, but the first launch
+ * picks the OS language (FR-093) and a developer's machine may already hold a
+ * Spanish `config.toml`. Without this the whole suite fails on a non-English
+ * Windows, each lookup burning its full timeout. Runs once per session from
+ * the wdio `before` hook. The Spanish labels are `onboarding.skip` and
+ * `nav.settings` in `src/i18n/locales/es/home.json`.
+ */
+export async function forceEnglishUi(): Promise<void> {
+  await dismissOnboarding();
+  let settings = await $('button*=Settings');
+  if (!(await settings.isExisting())) settings = await $('button*=Ajustes');
+  await settings.waitForClickable({ timeout: 10_000 });
+  await settings.click();
+  await selectLanguage('en-US');
+  await $('button*=Settings').waitForExist({ timeout: 10_000 });
 }

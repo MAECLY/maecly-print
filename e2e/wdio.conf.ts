@@ -92,6 +92,13 @@ export const config: WebdriverIO.Config = {
     });
   },
 
+  // Every spec addresses controls by their English labels; switch the UI to
+  // English first so a Spanish host (or config) does not fail the suite.
+  before: async () => {
+    const { forceEnglishUi } = await import('./specs/helpers.js');
+    await forceEnglishUi();
+  },
+
   // Capture a screenshot into e2e/artifacts/ for any failing test, so a CI
   // failure has a visual to triage from (uploaded as an artifact).
   afterTest: async (test, _context, { passed }) => {
