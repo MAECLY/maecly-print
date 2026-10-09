@@ -54,7 +54,8 @@
 //!   paused by shutdown recovery (`interrupted_by_shutdown`) also has its
 //!   `attempts` reset so it gets a clean run.
 //! - Resume of a job paused with `printer_unavailable` **re-resolves the
-//!   printer first** (`plan_printer_fix`). If the pinned printer is back, the
+//!   printer first** (`plan_printer_fix`, on the blocking pool — it reads the OS
+//!   printer list). If the pinned printer is back, the
 //!   job resumes onto it; if it is still gone but preferences now point
 //!   somewhere usable — which is what the Printers screen's "Update references"
 //!   reconciliation edits — the pin is dropped so dispatch follows them; and if
@@ -219,6 +220,12 @@ pub(crate) enum Cmd {
     },
     Resume {
         id: String,
+        reply: oneshot::Sender<Result<(), IpcError>>,
+    },
+    /// The off-loop printer re-resolution for a [`Cmd::Resume`] finished.
+    ResumePlanned {
+        id: String,
+        fix: Result<PrinterFix, IpcError>,
         reply: oneshot::Sender<Result<(), IpcError>>,
     },
     Retry {
@@ -491,7 +498,7 @@ struct Post {
 /// [`Dispatcher::plan_printer_fix`]. The fourth outcome — nothing usable at all
 /// — is not a variant: it is an [`IpcError::InvalidState`] carrying what the
 /// user has to fix, so resume *refuses* instead of quietly re-pausing.
-enum PrinterFix {
+pub(crate) enum PrinterFix {
     /// Not a printer problem; resume as usual.
     NotNeeded,
     /// The job's own printer resolves again.
@@ -625,8 +632,9 @@ impl Dispatcher {
             Cmd::Pause { id, reply } => {
                 let _ = reply.send(self.on_pause(&id));
             }
-            Cmd::Resume { id, reply } => {
-                let _ = reply.send(self.on_resume(&id));
+            Cmd::Resume { id, reply } => self.on_resume_request(id, reply),
+            Cmd::ResumePlanned { id, fix, reply } => {
+                let _ = reply.send(fix.and_then(|fix| self.on_resume(&id, fix)));
             }
             Cmd::Retry { id, reply } => {
                 let _ = reply.send(self.on_retry(&id));
@@ -761,73 +769,47 @@ impl Dispatcher {
         result
     }
 
-    /// Decide what resuming `id` should do about its printer, *before* the
-    /// state is touched.
-    ///
-    /// Only jobs paused with `printer_unavailable` are re-resolved; everything
-    /// else resumes unchanged. The check runs outside the state lock because
-    /// resolution reads the OS printer list, and the write guard is shared with
-    /// [`QueueHandle::snapshot`](crate::queue::QueueHandle::snapshot).
-    ///
-    /// The resolution asked for is the *same* one dispatch will do
-    /// ([`JobRunner::resolve_printer`]), so a resume can never succeed here and
-    /// then fail there for the same reason.
-    fn plan_printer_fix(&self, id: &str) -> Result<PrinterFix, IpcError> {
-        let (requested, file_name) = {
-            let st = self.state.read().unwrap();
-            let Some(job) = st.jobs.iter().find(|j| j.id == id) else {
-                return Ok(PrinterFix::NotNeeded); // `on_resume` reports it
-            };
-            let stuck_on_printer = job.state == JobState::Paused
-                && job
-                    .error
-                    .as_ref()
-                    .is_some_and(|e| e.code == "printer_unavailable");
-            if !stuck_on_printer {
-                return Ok(PrinterFix::NotNeeded);
-            }
-            (job.settings.printer.clone(), job.file_name.clone())
-        };
-
-        // The printer came back (reinstalled, renamed back, spooler restarted).
-        if self
-            .runner
-            .resolve_printer(requested.as_deref(), &file_name)
-            .is_ok()
-        {
-            return Ok(PrinterFix::Unchanged);
-        }
-
-        let Some(missing) = requested else {
-            // Nothing was pinned, so there is simply no printer to print on.
-            return Err(IpcError::InvalidState(
-                "no printer is configured — add one, or set a default on the Printers screen, then resume this job".to_string(),
-            ));
-        };
-
-        // The job is pinned to a printer the OS no longer has. Ask what the
-        // *preferences* now say for this file (routing rule, then app default,
-        // then the OS default) — which is exactly what the Printers screen's
-        // "Update references" reconciliation edits.
-        match self.runner.resolve_printer(None, &file_name) {
-            Ok((replacement, _)) => Ok(PrinterFix::Unpin {
-                missing,
-                replacement,
-            }),
-            Err(_) => Err(IpcError::InvalidState(format!(
-                "printer '{missing}' is still not installed and nothing else is configured — reinstall it, or reassign it on the Printers screen, then resume this job"
-            ))),
-        }
+    /// The printer question resuming `id` has to answer first, if any: the
+    /// job's pinned printer and file name when it is paused because its
+    /// printer could not be used. Everything else resumes unchanged.
+    fn printer_question(&self, id: &str) -> Option<(Option<String>, String)> {
+        let st = self.state.read().unwrap();
+        let job = st.jobs.iter().find(|j| j.id == id)?;
+        let stuck_on_printer = job.state == JobState::Paused
+            && job
+                .error
+                .as_ref()
+                .is_some_and(|e| e.code == "printer_unavailable");
+        stuck_on_printer.then(|| (job.settings.printer.clone(), job.file_name.clone()))
     }
 
-    fn on_resume(&mut self, id: &str) -> Result<(), IpcError> {
-        // A job paused with `printer_unavailable` used to resume straight back
-        // into the same failure with no way out: its printer was pinned in
-        // `settings.printer`, that queue was gone, and nothing could re-point
-        // it. Resuming now re-runs the real resolution first, so it either
-        // succeeds, follows the reconciled preferences, or says why not.
-        let fix = self.plan_printer_fix(id)?;
+    /// Resume `id`. A job stuck on its printer needs the printer re-resolved
+    /// first, which reads the OS printer list (`lpstat`, the spooler) and can
+    /// take seconds with slow network printers — so that runs on the blocking
+    /// pool and comes back as [`Cmd::ResumePlanned`], instead of stalling every
+    /// other command and completion behind it on this loop.
+    fn on_resume_request(&mut self, id: String, reply: oneshot::Sender<Result<(), IpcError>>) {
+        let Some((requested, file_name)) = self.printer_question(&id) else {
+            let _ = reply.send(self.on_resume(&id, PrinterFix::NotNeeded));
+            return;
+        };
+        let runner = self.runner.clone();
+        let tx = self.self_tx.clone();
+        self.spawner.spawn_blocking(Box::new(move || {
+            let fix = plan_printer_fix(&*runner, requested, &file_name);
+            let _ = tx.send(Cmd::ResumePlanned { id, fix, reply });
+        }));
+    }
 
+    /// Apply a resume once its printer question (if any) is answered.
+    ///
+    /// A job paused with `printer_unavailable` used to resume straight back
+    /// into the same failure with no way out: its printer was pinned in
+    /// `settings.printer`, that queue was gone, and nothing could re-point it.
+    /// Resuming now re-runs the real resolution first ([`plan_printer_fix`]),
+    /// so it either succeeds, follows the reconciled preferences, or says why
+    /// not.
+    fn on_resume(&mut self, id: &str, fix: PrinterFix) -> Result<(), IpcError> {
         let mut post = Post::default();
         let result = {
             let mut st = self.state.write().unwrap();
@@ -1547,6 +1529,49 @@ fn cancel_job_in_place(
     job.state = JobState::Cancelled;
     job.finished_at = Some(now_rfc3339());
     job.progress = None;
+}
+
+/// Decide what resuming a job stuck on its printer should do. `requested` is
+/// the job's pinned printer, `file_name` its input (for routing rules).
+///
+/// The resolution asked for is the *same* one dispatch will do
+/// ([`JobRunner::resolve_printer`]), so a resume can never succeed here and
+/// then fail there for the same reason. Blocking (it reads the OS printer
+/// list), so it runs on the blocking pool — see
+/// [`Dispatcher::on_resume_request`].
+fn plan_printer_fix(
+    runner: &dyn JobRunner,
+    requested: Option<String>,
+    file_name: &str,
+) -> Result<PrinterFix, IpcError> {
+    // The printer came back (reinstalled, renamed back, spooler restarted).
+    if runner
+        .resolve_printer(requested.as_deref(), file_name)
+        .is_ok()
+    {
+        return Ok(PrinterFix::Unchanged);
+    }
+
+    let Some(missing) = requested else {
+        // Nothing was pinned, so there is simply no printer to print on.
+        return Err(IpcError::InvalidState(
+            "no printer is configured — add one, or set a default on the Printers screen, then resume this job".to_string(),
+        ));
+    };
+
+    // The job is pinned to a printer the OS no longer has. Ask what the
+    // *preferences* now say for this file (routing rule, then app default,
+    // then the OS default) — which is exactly what the Printers screen's
+    // "Update references" reconciliation edits.
+    match runner.resolve_printer(None, file_name) {
+        Ok((replacement, _)) => Ok(PrinterFix::Unpin {
+            missing,
+            replacement,
+        }),
+        Err(_) => Err(IpcError::InvalidState(format!(
+            "printer '{missing}' is still not installed and nothing else is configured — reinstall it, or reassign it on the Printers screen, then resume this job"
+        ))),
+    }
 }
 
 /// Free the print slot if `job` (just cancelled) was waiting on an OS job:
@@ -3351,6 +3376,39 @@ mod tests {
             ["report.pdf"],
             "the job's file name must reach printer resolution for a .pdf rule to apply"
         );
+    }
+
+    /// Re-resolving a printer reads the OS printer list, which can take
+    /// seconds. It must not run on the dispatcher loop, where it would stall
+    /// every other command and completion until it returned.
+    #[tokio::test]
+    async fn resume_resolves_the_printer_off_the_dispatcher_loop() {
+        let spawner = Arc::new(DeferredSpawner::default());
+        let mut h = harness_with(spawner.clone(), DispatcherLimits::default());
+        let mut j = make_job("a.pdf");
+        j.state = JobState::Paused;
+        j.error = Some(JobError::new("printer_unavailable", "gone"));
+        let id = j.id.clone();
+        h.state.write().unwrap().jobs.push(j);
+
+        let (rtx, mut rrx) = oneshot::channel();
+        h.tx.send(Cmd::Resume {
+            id: id.clone(),
+            reply: rtx,
+        })
+        .unwrap();
+        h.step();
+        assert!(
+            h.runner.resolve_file_names.lock().unwrap().is_empty(),
+            "no printer lookup on the loop"
+        );
+        assert!(rrx.try_recv().is_err(), "the reply waits for the lookup");
+        assert_eq!(h.job(&id).state, JobState::Paused);
+
+        spawner.run_next(); // the lookup, on the blocking pool
+        h.run_to_idle();
+        assert!(rrx.try_recv().unwrap().is_ok());
+        assert_ne!(h.job(&id).state, JobState::Paused);
     }
 
     // ---- OS job tracking (the print slot) --------------------------------
