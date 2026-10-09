@@ -35,24 +35,38 @@ export function formatFinished(
 /** Which shell a copied command line is written for. */
 export type ShellFlavor = 'posix' | 'powershell';
 
-/** Characters that need no quoting in either shell. */
-const SHELL_SAFE = /^[A-Za-z0-9_\-./=:@%+,]+$/;
+/** Characters that need no quoting in a POSIX shell. */
+const POSIX_SAFE = /^[A-Za-z0-9_\-./=:@%+,]+$/;
+
+/**
+ * Characters inert in PowerShell argument mode. Narrower than POSIX on
+ * purpose: `@` splats, `,` builds an array, `%` and `+` can start expressions.
+ */
+const POWERSHELL_SAFE = /^[A-Za-z0-9_\-./=:\\]+$/;
+
+/**
+ * Every character PowerShell accepts as a single-quote delimiter: the ASCII
+ * apostrophe and the typographic U+2018, U+2019, U+201A and U+201B. Matches
+ * `POWERSHELL_QUOTES` in `src-tauri/src/engine/print/mod.rs`.
+ */
+const POWERSHELL_QUOTES = /['‘’‚‛]/g;
 
 /**
  * Quote one argument so the shell hands it to the program verbatim.
  *
  * Single quotes in both flavours, because they are the only ones that turn
  * expansion off entirely (`$HOME`, backticks, globs): POSIX escapes an inner
- * `'` as `'\''`, PowerShell doubles it. A shell-safe word is left bare so the
- * common case stays readable.
+ * `'` as `'\''`, PowerShell doubles every quote character it recognises,
+ * typographic ones included (otherwise `’; calc; ’` closes the string). A
+ * shell-safe word is left bare so the common case stays readable.
  */
 export function quoteShellArg(arg: string, flavor: ShellFlavor): string {
-  if (SHELL_SAFE.test(arg)) return arg;
-  const inner =
-    flavor === 'powershell'
-      ? arg.replace(/'/g, "''")
-      : arg.replace(/'/g, `'\\''`);
-  return `'${inner}'`;
+  if (flavor === 'powershell') {
+    if (POWERSHELL_SAFE.test(arg)) return arg;
+    return `'${arg.replace(POWERSHELL_QUOTES, (q) => q + q)}'`;
+  }
+  if (POSIX_SAFE.test(arg)) return arg;
+  return `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
 /**

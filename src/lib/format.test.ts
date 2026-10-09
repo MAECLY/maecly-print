@@ -40,6 +40,24 @@ describe('quoteShellArg', () => {
     expect(quoteShellArg(`Bob's`, 'powershell')).toBe(`'Bob''s'`);
     expect(quoteShellArg('Costs $HOME', 'powershell')).toBe(`'Costs $HOME'`);
   });
+
+  it('FR-008: doubles the typographic single quotes PowerShell also accepts', () => {
+    expect(quoteShellArg('a\u2019;calc;\u2019', 'powershell')).toBe(
+      "'a\u2019\u2019;calc;\u2019\u2019'",
+    );
+    for (const q of ['\u2018', '\u2019', '\u201A', '\u201B']) {
+      expect(quoteShellArg(q, 'powershell')).toBe(`'${q}${q}'`);
+    }
+  });
+
+  it('FR-008: quotes PowerShell splatting, array and expression characters', () => {
+    for (const s of ['@args', 'a,b', '%x%', '1+1']) {
+      expect(quoteShellArg(s, 'powershell')).toBe(`'${s}'`);
+    }
+    expect(quoteShellArg('C:\\Tools\\maeclyprint.exe', 'powershell')).toBe(
+      'C:\\Tools\\maeclyprint.exe',
+    );
+  });
 });
 
 describe('cliPrintCommand', () => {
