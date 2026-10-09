@@ -6,7 +6,7 @@ authors = ["Maecly maintainers"]
 license = "GPL-3.0-only"
 repository = "https://github.com/MAECLY/maecly-print"
 edition = "2021"
-rust-version = "1.78"
+rust-version = "1.89"
 
 [lib]
 name = "maeclyprint_lib"

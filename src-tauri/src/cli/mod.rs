@@ -35,6 +35,7 @@ pub mod console;
 pub mod exit;
 pub mod files;
 pub mod handoff;
+pub mod instance;
 pub mod output;
 pub mod pending;
 pub mod print;

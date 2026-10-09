@@ -162,6 +162,20 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
                 "MaeclyPrint started"
             );
 
+            // Tell the headless CLI that the live queue is in this process'
+            // memory (see `cli::instance`): `maeclyprint queue cancel` then
+            // refuses instead of editing a file we are about to overwrite. The
+            // lock is held for the process lifetime by managing it; the OS
+            // releases it however the process ends. Failing to take it only
+            // costs the CLI that warning, so it is logged, not fatal.
+            match cli::instance::claim(&util::paths::data_dir().join(cli::instance::LOCK_FILE)) {
+                Ok(Some(lock)) => {
+                    app.manage(lock);
+                }
+                Ok(None) => tracing::warn!(event = "instance_lock_already_held"),
+                Err(e) => tracing::warn!(event = "instance_lock_failed", error = %e),
+            }
+
             // Boot the print queue: recover persisted state and start the
             // dispatcher, then expose the handle to the IPC commands.
             let queue = queue::spawn(app.handle().clone())

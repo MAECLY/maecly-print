@@ -6,13 +6,14 @@
 //!
 //! What this deliberately does *not* do is reach into a running app. A live
 //! instance owns its queue in memory and rewrites `queue.json` on every
-//! transition, so a cancel issued here while the app is open would simply be
-//! overwritten by the next transition — the writes are atomic, so nothing is
-//! corrupted, but nothing is achieved either. The offline path is what makes
-//! `queue status` useful in a script and `queue cancel` useful on a queue left
-//! behind by a closed app; cancelling inside a *running* app is the UI's job
-//! (and, for a forwarded invocation, the single-instance path in
-//! [`crate::cli::single_instance`]).
+//! transition, so a cancel written here while the app is open would be
+//! overwritten by the next transition — and reported as a success while the
+//! job kept printing. So `cancel` / `cancel-all` first check the app's
+//! instance lock ([`crate::cli::instance`]) and, when the app is running,
+//! **fail** (exit 1, `InvalidState`) without touching the file. The offline
+//! path is what makes `queue status` useful in a script (it reads what the app
+//! persists) and `queue cancel` useful on a queue left behind by a closed app;
+//! cancelling inside a *running* app is the UI's job.
 
 use std::path::Path;
 
@@ -40,6 +41,7 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
             Ok(())
         }
         QueueCmd::Cancel { id } => {
+            refuse_while_app_runs(&paths.queue)?;
             let mut snapshot = persist::load(&paths.queue);
             let job = snapshot
                 .jobs
@@ -57,6 +59,9 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
             job.progress = None;
             job.finished_at = Some(now_rfc3339());
 
+            // Again right before the write: an app that started while we were
+            // reading now owns the file, and our snapshot is already stale.
+            refuse_while_app_runs(&paths.queue)?;
             save(&paths.queue, &snapshot)?;
             emitter.emit(&serde_json::json!({ "cancelled": [id.clone()] }), || {
                 format!("Cancelled job {id}")
@@ -64,6 +69,7 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
             Ok(())
         }
         QueueCmd::CancelAll => {
+            refuse_while_app_runs(&paths.queue)?;
             let mut snapshot = persist::load(&paths.queue);
             let finished_at = now_rfc3339();
             let mut cancelled = Vec::new();
@@ -75,6 +81,7 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
                     cancelled.push(job.id.clone());
                 }
             }
+            refuse_while_app_runs(&paths.queue)?;
             save(&paths.queue, &snapshot)?;
             let count = cancelled.len();
             emitter.emit(&serde_json::json!({ "cancelled": cancelled }), || {
@@ -96,6 +103,23 @@ fn watch_queue(path: &Path, emitter: Emitter, mut last: QueueSnapshot) {
             last = snapshot;
         }
     }
+}
+
+/// Refuse to edit `queue.json` while the app is open (see
+/// [`crate::cli::instance`]). The running app owns the live queue: a cancel
+/// written to the file would be reported as done while the job kept printing,
+/// and the stale snapshot we would write could drop jobs the app saved in the
+/// meantime. Failing loudly, with nothing changed, is the honest answer.
+fn refuse_while_app_runs(queue_json: &Path) -> Result<(), CliError> {
+    if crate::cli::instance::is_held(&crate::cli::instance::lock_path_for(queue_json)) {
+        return Err(IpcError::InvalidState(
+            "MaeclyPrint is open and owns the live queue, so nothing was changed — \
+             cancel from its Queue screen, or close the app and run this again"
+                .to_string(),
+        )
+        .into());
+    }
+    Ok(())
 }
 
 fn save(path: &Path, snapshot: &QueueSnapshot) -> Result<(), CliError> {
@@ -216,6 +240,39 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(err.error, IpcError::InvalidState(_)));
+    }
+
+    /// With the app open, the live queue lives in its memory: editing
+    /// `queue.json` would report a cancel that never happens. The CLI must
+    /// refuse — non-zero, and without touching the file.
+    #[test]
+    fn fr_009_cancel_while_the_app_runs_fails_and_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = queue_paths(dir.path());
+        persist::save(&paths.queue, &snapshot_with(&[JobState::Queued])).unwrap();
+        let _app = crate::cli::instance::claim(&crate::cli::instance::lock_path_for(&paths.queue))
+            .unwrap()
+            .expect("the test plays the running app");
+
+        let err = run(
+            &paths,
+            Emitter::new(true),
+            QueueCmd::Cancel {
+                id: "job-0".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err.error, IpcError::InvalidState(_)));
+        assert_ne!(err.exit, crate::cli::exit::ExitCode::Success);
+
+        let err = run(&paths, Emitter::new(true), QueueCmd::CancelAll).unwrap_err();
+        assert!(matches!(err.error, IpcError::InvalidState(_)));
+
+        assert_eq!(
+            persist::load(&paths.queue).jobs[0].state,
+            JobState::Queued,
+            "nothing may be written behind the running app's back"
+        );
     }
 
     #[test]
