@@ -170,8 +170,11 @@ fn install(emitter: Emitter, yes: bool) -> Result<(), CliError> {
         );
     }
     // Reaching this point *is* the explicit opt-in FR-087 asks for: `--yes`
-    // or a typed "yes" to a prompt that named the major jump.
-    let result = tauri::async_runtime::block_on(core::install(&update, true, |_, _| {}))?;
+    // (blanket, so no version is pinned) or a typed "yes" to a prompt that
+    // named this very version.
+    let confirmed = (!yes).then_some(update.version.as_str());
+    let result =
+        tauri::async_runtime::block_on(core::install(&update, true, confirmed, |_, _| {}))?;
     emitter.emit(&result, || {
         match (&result.installed, result.restart_required) {
             (Some(v), true) => format!("Installed MaeclyPrint {v}; restart the app to use it"),

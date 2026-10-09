@@ -273,7 +273,9 @@ export function AboutScreen() {
   async function runInstall(version: string, allowMajor: boolean) {
     setUpdate({ kind: 'installing', version, percent: null });
     try {
-      const result = await installUpdate(allowMajor);
+      // The version on screen is the one confirmed; a different major in the
+      // manifest is refused rather than installed on this confirmation.
+      const result = await installUpdate(allowMajor, version);
       if (result.installed === null) {
         setUpdate({
           kind: 'installError',

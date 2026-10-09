@@ -532,6 +532,8 @@ describe('AboutScreen', () => {
     await waitFor(() => {
       const install = calls.find((c) => c.cmd === 'install_update');
       expect(install?.args.allowMajor).toBe(true);
+      // The confirmation is bound to the version it named.
+      expect(install?.args.confirmedVersion).toBe('9.9.9');
     });
   });
 

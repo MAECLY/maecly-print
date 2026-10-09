@@ -572,7 +572,10 @@ async setSkippedUpdateVersion(version: string | null) : Promise<Result<null, Ipc
  * 
  * Only ever runs because the user asked. `allow_major` is FR-087's separate
  * opt-in for a major version jump; without it such a release is refused
- * before anything is downloaded. Progress is pushed as
+ * before anything is downloaded. `confirmed_version` is the release the user
+ * confirmed: a major jump to any *other* version (the manifest now names a
+ * newer one) is refused with `major_update_changed` instead of installed on
+ * the strength of a confirmation that was not for it. Progress is pushed as
  * [`UpdateDownloadProgress`]. A tampered or unsigned artifact fails with
  * [`IpcError::UpdateSignatureInvalid`] and nothing is installed.
  * 
@@ -580,9 +583,9 @@ async setSkippedUpdateVersion(version: string | null) : Promise<Result<null, Ipc
  * the app exits (the installer restarts it); elsewhere the result says a
  * restart is required and the UI offers [`restart_app`].
  */
-async installUpdate(allowMajor: boolean) : Promise<Result<UpdateInstallResult, IpcError>> {
+async installUpdate(allowMajor: boolean, confirmedVersion: string | null) : Promise<Result<UpdateInstallResult, IpcError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("install_update", { allowMajor }) };
+    return { status: "ok", data: await TAURI_INVOKE("install_update", { allowMajor, confirmedVersion }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

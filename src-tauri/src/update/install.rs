@@ -79,6 +79,53 @@ pub fn is_major_bump(current: &str, candidate: &str) -> bool {
     }
 }
 
+/// FR-087's gate, pure: may `candidate` be installed over `current`?
+///
+/// - A major jump needs `allow_major`.
+/// - A major jump also has to be the version the user confirmed. The About
+///   screen asks about the release the GitHub API named, then the install
+///   reads the update manifest again; if that now names another version (a
+///   newer major published in between, or a manifest that differs from the
+///   API), the confirmation was not for it. `confirmed` is that version, or
+///   `None` where the opt-in is blanket (the CLI's `--yes`).
+///
+/// A minor or patch update needs no confirmation, so its version is not
+/// compared: a manifest that runs ahead of the API must not block it.
+pub fn check_confirmation(
+    current: &str,
+    candidate: &str,
+    allow_major: bool,
+    confirmed: Option<&str>,
+) -> Result<(), IpcError> {
+    if !is_major_bump(current, candidate) {
+        return Ok(());
+    }
+    if !allow_major {
+        return Err(IpcError::localized(
+            IpcErrorCode::InvalidRequest,
+            "major_update_unconfirmed",
+            format!(
+                "{candidate} is a major update from {current}; it is only installed after you confirm it explicitly"
+            ),
+        )
+        .with_param("version", candidate)
+        .with_param("current", current));
+    }
+    let bare = |v: &str| v.trim().trim_start_matches(['v', 'V']).to_string();
+    match confirmed {
+        Some(confirmed) if bare(confirmed) != bare(candidate) => Err(IpcError::localized(
+            IpcErrorCode::InvalidRequest,
+            "major_update_changed",
+            format!(
+                "you confirmed {confirmed}, but the update available now is {candidate}; check for updates again and confirm that version"
+            ),
+        )
+        .with_param("version", candidate)
+        .with_param("confirmed", confirmed)),
+        _ => Ok(()),
+    }
+}
+
 /// Refuse to install over something that is not an installed copy of the app.
 /// Pure (`os` is `std::env::consts::OS`).
 ///
@@ -219,13 +266,15 @@ pub async fn find_update<R: tauri::Runtime>(
 /// Download, verify and install `update`, reporting progress through
 /// `on_progress(downloaded, total)`.
 ///
-/// `allow_major` is FR-087's explicit opt-in; without it a major bump is
-/// refused before a single byte is downloaded. On Windows a successful install
-/// hands over to the installer and **this process exits**; elsewhere the
-/// function returns and the caller offers a restart.
+/// `allow_major` is FR-087's explicit opt-in and `confirmed` the version it
+/// was given for ([`check_confirmation`]); a major bump that fails either is
+/// refused before a single byte is downloaded. On Windows a successful
+/// install hands over to the installer and **this process exits**; elsewhere
+/// the function returns and the caller offers a restart.
 pub async fn install<F>(
     update: &tauri_plugin_updater::Update,
     allow_major: bool,
+    confirmed: Option<&str>,
     mut on_progress: F,
 ) -> Result<UpdateInstallResult, IpcError>
 where
@@ -233,18 +282,12 @@ where
 {
     let _guard = InstallGuard::acquire()?;
 
-    if is_major_bump(&update.current_version, &update.version) && !allow_major {
-        return Err(IpcError::localized(
-            IpcErrorCode::InvalidRequest,
-            "major_update_unconfirmed",
-            format!(
-                "{} is a major update from {}; it is only installed after you confirm it explicitly",
-                update.version, update.current_version
-            ),
-        )
-        .with_param("version", &update.version)
-        .with_param("current", &update.current_version));
-    }
+    check_confirmation(
+        &update.current_version,
+        &update.version,
+        allow_major,
+        confirmed,
+    )?;
 
     let exe = std::env::current_exe()
         .map_err(|e| IpcError::UpdateInstallFailed(format!("cannot locate the app: {e}")))?;
@@ -323,6 +366,30 @@ mod tests {
         assert!(is_major_bump("v0.4.0", "1.0.0"));
         // When in doubt, ask.
         assert!(is_major_bump("1.0.0", "nightly"));
+    }
+
+    /// FR-087: the second confirmation belongs to the version it named. A
+    /// newer major (or a manifest that disagrees with the API) installs only
+    /// after its own confirmation.
+    #[test]
+    fn fr_087_a_major_confirmation_covers_only_the_confirmed_version() {
+        // Confirmed exactly what is offered (either spelling): fine.
+        assert!(check_confirmation("1.4.0", "2.0.0", true, Some("2.0.0")).is_ok());
+        assert!(check_confirmation("1.4.0", "2.0.0", true, Some("v2.0.0")).is_ok());
+
+        // The user said yes to 2.0.0; 3.0.0 is what the manifest names now.
+        let err = check_confirmation("1.4.0", "3.0.0", true, Some("2.0.0")).unwrap_err();
+        assert_eq!(err.reason(), Some("major_update_changed"));
+
+        // No opt-in at all.
+        let err = check_confirmation("1.4.0", "2.0.0", false, None).unwrap_err();
+        assert_eq!(err.reason(), Some("major_update_unconfirmed"));
+
+        // The CLI's `--yes` is a blanket opt-in.
+        assert!(check_confirmation("1.4.0", "3.0.0", true, None).is_ok());
+
+        // A minor update needs no confirmation, whatever was on screen.
+        assert!(check_confirmation("1.4.0", "1.5.1", false, Some("1.5.0")).is_ok());
     }
 
     #[test]

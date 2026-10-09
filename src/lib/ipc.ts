@@ -142,14 +142,17 @@ export function ipcErrorCode(e: unknown): string | undefined {
 
 /**
  * FR-084 "install now": download, verify (FR-082) and install (FR-083) the
- * newest release. `allowMajor` is FR-087's explicit opt-in for a major jump.
+ * newest release. `allowMajor` is FR-087's explicit opt-in for a major jump,
+ * and `confirmedVersion` the release it was given for: the backend refuses a
+ * major jump to any other version (`major_update_changed`).
  * On Windows the app exits into the installer and this never resolves.
  */
 export async function installUpdate(
   allowMajor: boolean,
+  confirmedVersion: string | null,
 ): Promise<UpdateInstallResult> {
   if (!isTauri()) throw noHost();
-  return unwrap(commands.installUpdate(allowMajor));
+  return unwrap(commands.installUpdate(allowMajor, confirmedVersion));
 }
 
 /** Relaunch the app so an installed update takes effect. */

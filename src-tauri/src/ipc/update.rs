@@ -120,7 +120,10 @@ pub fn set_skipped_update_version(version: Option<String>) -> Result<(), IpcErro
 ///
 /// Only ever runs because the user asked. `allow_major` is FR-087's separate
 /// opt-in for a major version jump; without it such a release is refused
-/// before anything is downloaded. Progress is pushed as
+/// before anything is downloaded. `confirmed_version` is the release the user
+/// confirmed: a major jump to any *other* version (the manifest now names a
+/// newer one) is refused with `major_update_changed` instead of installed on
+/// the strength of a confirmation that was not for it. Progress is pushed as
 /// [`UpdateDownloadProgress`]. A tampered or unsigned artifact fails with
 /// [`IpcError::UpdateSignatureInvalid`] and nothing is installed.
 ///
@@ -132,6 +135,7 @@ pub fn set_skipped_update_version(version: Option<String>) -> Result<(), IpcErro
 pub async fn install_update(
     app: tauri::AppHandle,
     allow_major: bool,
+    confirmed_version: Option<String>,
 ) -> Result<UpdateInstallResult, IpcError> {
     use tauri_specta::Event;
 
@@ -142,9 +146,14 @@ pub async fn install_update(
         });
     };
     let emitter = app.clone();
-    update::install::install(&found, allow_major, move |downloaded, total| {
-        let _ = UpdateDownloadProgress { downloaded, total }.emit(&emitter);
-    })
+    update::install::install(
+        &found,
+        allow_major,
+        confirmed_version.as_deref(),
+        move |downloaded, total| {
+            let _ = UpdateDownloadProgress { downloaded, total }.emit(&emitter);
+        },
+    )
     .await
 }
 
