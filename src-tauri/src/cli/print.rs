@@ -33,6 +33,33 @@ use crate::profiles::{Profile, ProfileDuplex};
 use crate::queue::job::{Duplex, JobError, JobSettings};
 use crate::util::error::IpcError;
 
+/// `config.toml` for a print run, refusing one that exists but cannot be read.
+///
+/// The GUI's read paths degrade to defaults and flag the file
+/// ([`crate::settings::Config::load_reporting`]) because a window still has to
+/// render. A headless print has nobody watching a banner, and acting on the
+/// defaults would quietly drop the user's disabled printers, routing rules and
+/// per-printer overrides, so it stops with the documented exit 3 (`Config`)
+/// instead. A *missing* file is the normal first-run case and loads as the
+/// defaults.
+pub(crate) fn load_config(path: &Path) -> Result<crate::settings::Config, CliError> {
+    let load = crate::settings::Config::load_reporting(path);
+    if load.unreadable {
+        return Err(CliError::new(
+            ExitCode::Config,
+            IpcError::localized(
+                crate::util::error::IpcErrorCode::Internal,
+                "config_corrupt",
+                format!(
+                    "{} could not be read — fix or remove it; nothing was printed",
+                    path.display()
+                ),
+            ),
+        ));
+    }
+    Ok(load.config)
+}
+
 /// What happened to one file.
 #[derive(Debug, Clone, Serialize)]
 pub struct FileOutcome {
@@ -70,11 +97,14 @@ pub struct PrintReport {
 /// the same all-or-nothing acceptance the GUI has. Once the batch is accepted,
 /// each file's outcome is recorded and the worst code wins.
 pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode, CliError> {
+    // One read of `config.toml` for the whole run. A file that exists but
+    // cannot be parsed stops the run with exit 3 (`Config`): printing on the
+    // defaults would ignore the user's disabled printers, routes and
+    // per-printer overrides without a word.
+    let config = load_config(&paths.config)?;
     // Engine limits come from the same (sanitized) config the queue reads at
     // boot, so a headless run accepts exactly the files the app would.
-    let engine = crate::settings::Config::load_from(&paths.config)
-        .engine
-        .sanitized();
+    let engine = config.engine.clone().sanitized();
 
     let inputs = collect_inputs(&args)?;
     let expanded = files::expand_inputs(&inputs, engine.max_file_size_mb)?;
@@ -101,10 +131,10 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| file.clone());
-            let (printer, caps) = resolve_printer(paths, settings.printer.as_deref(), &name)?;
+            let (printer, caps) = resolve_printer(&config, settings.printer.as_deref(), &name)?;
             // The printer's own tray/paper defaults fill what the job leaves
             // open, as in the queue; the check is against what will be sent.
-            let over = crate::settings::Config::load_from(&paths.config)
+            let over = config
                 .printers
                 .overrides
                 .get(&printer)
@@ -123,12 +153,10 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
         Some(_) => "<per file type>".to_string(),
         None => String::new(),
     };
-    // The spool wait is a print, so it is bounded by the print budget, not the
-    // conversion one (the two used to share a knob).
-    let timeout = match engine.print_timeout_seconds {
-        0 => None,
-        secs => Some(std::time::Duration::from_secs(u64::from(secs))),
-    };
+    // Two budgets, exactly as the queue uses them: the converter is bounded by
+    // the conversion timeout, the spool wait by the print timeout. `0`
+    // disables either.
+    let timeouts = Timeouts::from_engine(&engine);
 
     // Private, self-deleting conversion cache — see the module docs.
     let cache = tempfile::Builder::new()
@@ -156,7 +184,7 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
             &target,
             &caps,
             &effective,
-            timeout,
+            timeouts,
         );
         batch.record(file, target, outcome);
     }
@@ -252,6 +280,30 @@ fn check_ranges(settings: &JobSettings, files: &[String]) -> Result<(), CliError
         .map_err(|e| CliError::from(IpcError::InvalidRequest(e)))
 }
 
+/// The two wall-clock budgets of a headless print, read from `[engine]`.
+///
+/// They are separate knobs in the app (`conversion_timeout_seconds` bounds a
+/// converter, `print_timeout_seconds` the spooler), and the CLI must honour
+/// both the same way: bounding a LibreOffice run with the print budget killed
+/// conversions the user had allowed to take longer, and left them unbounded
+/// whenever the print budget was disabled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Timeouts {
+    pub conversion: Option<std::time::Duration>,
+    pub print: Option<std::time::Duration>,
+}
+
+impl Timeouts {
+    /// The budgets a (sanitized) engine config asks for; `0` disables one.
+    pub fn from_engine(engine: &crate::settings::EngineCfg) -> Self {
+        let secs = |s: u32| (s > 0).then(|| std::time::Duration::from_secs(u64::from(s)));
+        Self {
+            conversion: secs(engine.conversion_timeout_seconds),
+            print: secs(engine.print_timeout_seconds),
+        }
+    }
+}
+
 /// Convert one file (PDFs print in place) and hand it to the spooler.
 ///
 /// "Done" means the OS accepted the job, not that paper came out: no spooler
@@ -264,7 +316,7 @@ fn print_one(
     printer: &str,
     caps: &crate::engine::print::PrinterCaps,
     settings: &JobSettings,
-    timeout: Option<std::time::Duration>,
+    timeouts: Timeouts,
 ) -> Result<Option<String>, CliError> {
     // The CLI has no cancel channel (Ctrl-C kills the process), so the flag the
     // engine polls is always false here.
@@ -275,7 +327,7 @@ fn print_one(
         job_id,
         &cancel,
         &|_| {},
-        timeout,
+        timeouts.conversion,
     )?;
 
     let pdf = converted.unwrap_or_else(|| input.to_path_buf());
@@ -288,7 +340,8 @@ fn print_one(
     // exactly as the dispatcher does — an image would otherwise spool empty.
     let settings =
         crate::engine::print::effective_settings(settings, &crate::engine::extension_of(input));
-    let outcome = crate::engine::print::spool(&pdf, printer, &settings, caps, &title, timeout)?;
+    let outcome =
+        crate::engine::print::spool(&pdf, printer, &settings, caps, &title, timeouts.print)?;
     // The basename (`title`), never the absolute path (NFR-082).
     tracing::info!(event = "cli_job_printed", file = %title, printer = %printer);
     Ok(outcome.os_job_id)
@@ -424,7 +477,7 @@ fn accept_files(files: &[String], max_mb: u32) -> Result<Vec<String>, CliError> 
 /// job for the user to pick a replacement, the CLI has no one to ask and says
 /// so immediately.
 fn resolve_printer(
-    paths: &Paths,
+    config: &crate::settings::Config,
     requested: Option<&str>,
     file_name: &str,
 ) -> Result<(String, crate::engine::print::PrinterCaps), CliError> {
@@ -432,7 +485,7 @@ fn resolve_printer(
     // rule, then the default (org policy, else app) — one definition, in
     // `ipc::printers`.
     let prefs = crate::ipc::printers::with_policy(
-        crate::settings::Config::load_from(&paths.config).printers,
+        config.printers.clone(),
         &crate::settings::PrinterPolicy::load(),
     );
     let name = match crate::ipc::printers::resolve_app_printer(&prefs, requested, file_name) {
@@ -625,6 +678,70 @@ mod tests {
                 .exit,
             ExitCode::Usage
         );
+    }
+
+    /// FR-009 / FR-101: a `config.toml` that exists but does not parse used to
+    /// be replaced by the defaults without a word, so a printer the user had
+    /// disabled could be printed to and routing rules were ignored. The run now
+    /// stops with exit 3 before anything is spooled.
+    #[test]
+    fn fr_009_a_corrupt_config_stops_the_print_run_with_exit_3() {
+        use clap::Parser;
+
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths {
+            config: dir.path().join("config.toml"),
+            profiles: dir.path().join("profiles.toml"),
+            queue: dir.path().join("queue.json"),
+        };
+        std::fs::write(&paths.config, "schema_version = = broken\n").unwrap();
+        let pdf = one_page_pdf(dir.path(), "doc.pdf");
+
+        let cli = crate::cli::args::Cli::try_parse_from([
+            "maeclyprint",
+            "print",
+            "--printer",
+            "Nowhere",
+            "--files",
+            pdf.to_str().unwrap(),
+        ])
+        .unwrap();
+        let Some(crate::cli::args::Command::Print(args)) = cli.command else {
+            panic!("expected print");
+        };
+        let err = run(&paths, Emitter::new(true), args).unwrap_err();
+        assert_eq!(err.exit, ExitCode::Config);
+        assert_eq!(err.error.reason(), Some("config_corrupt"));
+
+        // A missing file is the ordinary first run, not an error.
+        std::fs::remove_file(&paths.config).unwrap();
+        assert!(load_config(&paths.config).is_ok());
+    }
+
+    /// FR-034 / NFR-012: the converter is bounded by the conversion budget and
+    /// the spool by the print budget, as in the queue. The CLI used to bound
+    /// both with the print budget.
+    #[test]
+    fn fr_034_cli_conversions_use_the_conversion_timeout() {
+        use std::time::Duration;
+        let engine = crate::settings::EngineCfg {
+            conversion_timeout_seconds: 600,
+            print_timeout_seconds: 300,
+            ..Default::default()
+        };
+        let t = Timeouts::from_engine(&engine);
+        assert_eq!(t.conversion, Some(Duration::from_secs(600)));
+        assert_eq!(t.print, Some(Duration::from_secs(300)));
+
+        // Disabling one budget leaves the other in force.
+        let engine = crate::settings::EngineCfg {
+            conversion_timeout_seconds: 60,
+            print_timeout_seconds: 0,
+            ..Default::default()
+        };
+        let t = Timeouts::from_engine(&engine);
+        assert_eq!(t.conversion, Some(Duration::from_secs(60)));
+        assert_eq!(t.print, None);
     }
 
     #[test]

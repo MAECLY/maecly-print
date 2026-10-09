@@ -75,9 +75,22 @@ impl ExitCode {
 ///   out to (CUPS `lp`, SumatraPDF). That is an environment/configuration
 ///   fault, so it maps to [`ExitCode::Config`].
 ///
+/// - A corrupt `config.toml` (reason `config_corrupt`) arrives in the
+///   `Internal` family, but the documented table gives it its own code:
+///   [`ExitCode::Config`]. A corrupt `profiles.toml` (`profiles_corrupt`,
+///   `profiles_invalid_entries`) is likewise an invalid profile store,
+///   [`ExitCode::Profile`].
+///
 /// [`IpcError::JobNotFound`] / [`IpcError::InvalidState`] have no dedicated
 /// code in the documented table and fall back to [`ExitCode::Generic`].
 pub fn exit_code_for(err: &IpcError) -> ExitCode {
+    // A handful of stable reasons name a documented code more precisely than
+    // their family does.
+    match err.reason() {
+        Some("config_corrupt") => return ExitCode::Config,
+        Some("profiles_corrupt" | "profiles_invalid_entries") => return ExitCode::Profile,
+        _ => {}
+    }
     // Keyed on the stable family code, so a localized error (same family,
     // extra `reason`) exits exactly like its plain counterpart.
     match err.code() {
@@ -184,6 +197,26 @@ mod tests {
         assert_eq!(
             ExitCode::Success.worst(ExitCode::Success),
             ExitCode::Success
+        );
+    }
+
+    /// FR-009 / ipc-and-cli.md §3.7: exit 3 is "unreadable/invalid
+    /// `config.toml`". The refusal travels in the `Internal` family, so the
+    /// mapping has to look at its reason, or a script checking for 3 never
+    /// sees it.
+    #[test]
+    fn fr_009_a_corrupt_config_exits_with_the_config_code() {
+        let config = crate::settings::config_corrupt_error();
+        assert_eq!(CliError::from(config).exit, ExitCode::Config);
+
+        let profiles =
+            IpcError::localized(IpcErrorCode::Internal, "profiles_corrupt", "unreadable");
+        assert_eq!(CliError::from(profiles).exit, ExitCode::Profile);
+
+        // Any other internal failure stays generic.
+        assert_eq!(
+            CliError::from(IpcError::Internal("boom".into())).exit,
+            ExitCode::Generic
         );
     }
 
