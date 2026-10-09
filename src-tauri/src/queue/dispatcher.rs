@@ -1200,10 +1200,13 @@ impl Dispatcher {
                 if job.state == JobState::Converting {
                     flag.store(true, Ordering::Relaxed);
                     job.state = JobState::Failed;
-                    job.error = Some(JobError::new(
-                        "conversion_timeout",
-                        format!("conversion timed out after {timeout_secs}s"),
-                    ));
+                    job.error = Some(
+                        JobError::new(
+                            "conversion_timeout",
+                            format!("conversion timed out after {timeout_secs}s"),
+                        )
+                        .with_param("secs", timeout_secs),
+                    );
                     job.finished_at = Some(now_rfc3339());
                     job.progress = None;
                     if let Some(c) = job.cache_pdf.take() {
@@ -1893,12 +1896,15 @@ fn fail_print_timeout(job: &mut Job, budget: Option<Duration>, post: &mut Post) 
     job.state = JobState::Failed;
     job.finished_at = Some(now_rfc3339());
     job.progress = None;
-    job.error = Some(JobError::new(
-        "print_timeout",
-        format!(
-            "the printer did not finish within {secs}s — the job is still in the system print queue; check the printer before retrying"
-        ),
-    ));
+    job.error = Some(
+        JobError::new(
+            "print_timeout",
+            format!(
+                "the printer did not finish within {secs}s — the job is still in the system print queue; check the printer before retrying"
+            ),
+        )
+        .with_param("secs", secs),
+    );
     if let Some(c) = job.cache_pdf.take() {
         post.delete_cache.push(c);
     }
@@ -1984,7 +1990,17 @@ fn record_print_failure(job: &mut Job, e: PrintError, post: &mut Post) {
         PrintError::Engine(engine) => return record_failure(job, engine, false, post),
     };
 
-    job.error = Some(JobError::new(code, e.to_string()));
+    let error = JobError::new(code, e.to_string());
+    job.error = Some(match &e {
+        PrintError::TimedOut { seconds } => {
+            error.with_reason("spooler").with_param("secs", seconds)
+        }
+        PrintError::PrinterMissing { printer } | PrintError::PrinterDisabled { printer } => {
+            error.with_param("printer", printer)
+        }
+        PrintError::NoPrinter => error.with_reason("no_printer"),
+        PrintError::Engine(_) => error,
+    });
     job.progress = None;
     if terminal {
         job.state = JobState::Failed;
@@ -2139,7 +2155,9 @@ fn converted_page_count(pdf: &Path) -> Option<u32> {
     crate::queue::probe_pages(pdf, "pdf", bytes)
 }
 
-/// Map an [`EngineError`] to a persisted [`JobError`] with a stable code.
+/// Map an [`EngineError`] to a persisted [`JobError`] with a stable code, plus
+/// the reason and params the UI needs to say it in the user's language
+/// (FR-092). `detail` is the tool's own (English) output, interpolated as is.
 fn to_job_error(e: &EngineError) -> JobError {
     let code = match e {
         EngineError::ConversionFailed(_) => "conversion_failed",
@@ -2150,7 +2168,24 @@ fn to_job_error(e: &EngineError) -> JobError {
         EngineError::UnsupportedFormat(_) => "unsupported_format",
         EngineError::Cancelled => "cancelled",
     };
-    JobError::new(code, e.to_string())
+    let error = JobError::new(code, e.to_string());
+    match e {
+        EngineError::ConversionFailed(d)
+        | EngineError::PrintFailed(d)
+        | EngineError::DependencyMissing(d)
+        | EngineError::UnsupportedFormat(d) => error.with_param("detail", d),
+        EngineError::UnsupportedSetting { setting, printer } => {
+            let error = error.with_param("printer", printer);
+            if setting == "duplex" {
+                error.with_reason("duplex")
+            } else if let Some(paper) = setting.strip_prefix("paper size ") {
+                error.with_reason("paper").with_param("paper", paper)
+            } else {
+                error.with_param("detail", setting)
+            }
+        }
+        EngineError::Cancelled => error,
+    }
 }
 
 /// Best-effort cache-file deletion; a missing file is not an error.
@@ -4462,5 +4497,122 @@ mod tests {
         assert_eq!(rec["file"], "report.pdf");
         assert!(!rec["started_at"].is_empty());
         assert!(!rec["finished_at"].is_empty());
+    }
+
+    // ---- FR-092: job errors carry what the UI needs to translate them -----
+
+    fn bare_job() -> Job {
+        Job::new(
+            "batch",
+            "/tmp/report.pdf",
+            JobSettings::default(),
+            None,
+            now_rfc3339(),
+        )
+    }
+
+    fn params(e: &JobError) -> Vec<(&str, &str)> {
+        e.params
+            .iter()
+            .flatten()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn fr_092_engine_errors_carry_reason_and_params() {
+        let e = to_job_error(&EngineError::UnsupportedSetting {
+            setting: "duplex".into(),
+            printer: "Front".into(),
+        });
+        assert_eq!(e.code, "unsupported_setting");
+        assert_eq!(e.reason.as_deref(), Some("duplex"));
+        assert_eq!(params(&e), [("printer", "Front")]);
+
+        let e = to_job_error(&EngineError::UnsupportedSetting {
+            setting: "paper size A6".into(),
+            printer: "Front".into(),
+        });
+        assert_eq!(e.reason.as_deref(), Some("paper"));
+        assert_eq!(params(&e), [("paper", "A6"), ("printer", "Front")]);
+
+        let e = to_job_error(&EngineError::ConversionFailed("bad zip".into()));
+        assert_eq!(e.reason, None);
+        assert_eq!(params(&e), [("detail", "bad zip")]);
+        // The English detail is kept for logs and the CLI.
+        assert_eq!(e.message, "conversion failed: bad zip");
+    }
+
+    #[test]
+    fn fr_092_print_failures_carry_reason_and_params() {
+        let cases = [
+            (
+                PrintError::TimedOut { seconds: 30 },
+                "print_timeout",
+                Some("spooler"),
+                vec![("secs", "30")],
+            ),
+            (
+                PrintError::PrinterMissing {
+                    printer: "Lab".into(),
+                },
+                "printer_unavailable",
+                None,
+                vec![("printer", "Lab")],
+            ),
+            (
+                PrintError::NoPrinter,
+                "printer_unavailable",
+                Some("no_printer"),
+                vec![],
+            ),
+            (
+                PrintError::PrinterDisabled {
+                    printer: "Lab".into(),
+                },
+                "printer_disabled",
+                None,
+                vec![("printer", "Lab")],
+            ),
+        ];
+        for (err, code, reason, want) in cases {
+            let mut job = bare_job();
+            record_print_failure(&mut job, err, &mut Post::default());
+            let e = job.error.expect("error recorded");
+            assert_eq!(e.code, code);
+            assert_eq!(e.reason.as_deref(), reason, "{code}");
+            assert_eq!(params(&e), want, "{code}");
+        }
+
+        let mut job = bare_job();
+        fail_print_timeout(
+            &mut job,
+            Some(Duration::from_secs(90)),
+            &mut Post::default(),
+        );
+        let e = job.error.unwrap();
+        assert_eq!(
+            (e.code.as_str(), e.reason.as_deref()),
+            ("print_timeout", None)
+        );
+        assert_eq!(params(&e), [("secs", "90")]);
+    }
+
+    #[test]
+    fn fr_092_job_error_wire_shape_is_backward_compatible() {
+        // A queue.json from before reason/params still loads...
+        let old: JobError =
+            serde_json::from_str(r#"{"code":"print_failed","message":"x"}"#).unwrap();
+        assert_eq!(old, JobError::new("print_failed", "x"));
+        // ...and an error without them is written exactly as before.
+        assert_eq!(
+            serde_json::to_string(&old).unwrap(),
+            r#"{"code":"print_failed","message":"x"}"#
+        );
+        let new = JobError::new("print_timeout", "x").with_param("secs", 5);
+        assert_eq!(
+            serde_json::to_string(&new).unwrap(),
+            r#"{"code":"print_timeout","message":"x","params":{"secs":"5"}}"#
+        );
     }
 }

@@ -166,7 +166,14 @@ export type JobState =
   | "queued" | "converting" | "converted" | "printing"
   | "done" | "failed" | "paused" | "cancelled";
 
-export type JobError = { code: string; message: string };
+// `reason` / `params` are optional (absent on a queue.json written before them):
+// the UI translates `code` (+ `reason`) with `params`, the same model as IpcError.
+export type JobError = {
+  code: string;               // stable: print_timeout, printer_unavailable, …
+  message: string;            // English detail (logs, CLI, UI fallback)
+  reason?: string | null;     // stable variant, e.g. "no_printer", "duplex"
+  params?: Record<string, string> | null; // secs, printer, paper, detail
+};
 // `percent` is NULLABLE: the printing phase cannot report a fraction, so the UI
 // must render an indeterminate bar rather than 0 %.
 export type JobProgress = { phase: string; percent: number | null };
@@ -552,7 +559,7 @@ Reasons currently emitted:
 | `DependencyMissing` | `ippfind_missing` | `platform::cups` discovery |
 | `PrintFailed` | `set_default_failed`, `add_printer_needs_admin` | `platform::windows` |
 
-**Frontend mapping (FR-092).** `unwrap()` in `src/lib/ipc.ts` throws an `IpcFailure` (`src/lib/ipcError.ts`) whose `message` is already in the UI language: `common:ipcErrors.reasons.<code>.<reason>` with `params` when that key exists; otherwise the family sentence `common:ipcErrors.codes.<code>` with the English detail as `{{detail}}`; and only for an unknown `code` the raw `message`. The English detail stays on `IpcFailure.detail`. Per-file refusals use the same idea without an error: `FileInfo.reason_code` / `SkippedFile.reason` are translated by `src/lib/jobFiles.ts`.
+**Frontend mapping (FR-092).** `unwrap()` in `src/lib/ipc.ts` throws an `IpcFailure` (`src/lib/ipcError.ts`) whose `message` is already in the UI language: `common:ipcErrors.reasons.<code>.<reason>` with `params` when that key exists; otherwise the family sentence `common:ipcErrors.codes.<code>` with the English detail as `{{detail}}`; and only for an unknown `code` the raw `message`. The English detail stays on `IpcFailure.detail`. Per-file refusals use the same idea without an error: `FileInfo.reason_code` / `SkippedFile.reason` are translated by `src/lib/jobFiles.ts`. Stored job errors (`Job.error`) follow it too: `src/lib/jobError.ts` maps `queue:jobErrors.reasons.<code>.<reason>`, else `queue:jobErrors.codes.<code>`, filled with `params` (a `printer` param shows the printer's display name), and falls back to `message` for an unknown code or when a sentence needs a param the stored error lacks.
 
 The CLI prints the `Display` form to stderr as `error: …`, or — with `--json` — the same payload wrapped as `{"error":{…}}`. `exit::exit_code_for` is the default `IpcError` → exit-code mapping (keyed on `code()`); a call site that knows better overrides it with `CliError::new`.
 

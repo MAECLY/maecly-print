@@ -1119,14 +1119,28 @@ finished_at: string | null }
 export type JobBatch = { batch_id: string; job_ids: string[] }
 /**
  * A structured job error. `code` is a stable machine-readable identifier;
- * `message` is human-readable (already localized/englished by the producer).
+ * `message` is the English detail (logs, the CLI, and the UI's fallback).
+ * 
+ * FR-092: the UI never shows `message` when it can help it. It translates
+ * `code` — or `code` + `reason`, when the code has variants — filling the
+ * sentence with `params` (`queue:jobErrors`), exactly as it does for an
+ * [`crate::util::error::IpcError`]. Both are optional on the wire, so a
+ * `queue.json` written before they existed still loads.
  * 
  * The special code `"interrupted_by_shutdown"` is set by shutdown recovery
  * ([`crate::queue::persist::recover`]) on jobs that were mid-flight when the
  * app was last closed; the UI treats it as resumable rather than a hard
  * failure.
  */
-export type JobError = { code: string; message: string }
+export type JobError = { code: string; message: string; 
+/**
+ * Stable variant within `code` (e.g. `"no_printer"`). Never renamed.
+ */
+reason?: string | null; 
+/**
+ * Interpolation values for the translated sentence (`secs`, `printer`…).
+ */
+params?: Partial<{ [key in string]: string }> | null }
 /**
  * Coarse progress for the currently-running phase of a job. `phase` is a short
  * label such as `"converting"` or `"printing"`.

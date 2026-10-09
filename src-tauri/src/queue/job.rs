@@ -10,6 +10,8 @@
 //! process spawning. The dispatcher (a later stage) owns the actual driving of
 //! jobs through the pipeline.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -359,7 +361,13 @@ pub struct PrintRequest {
 }
 
 /// A structured job error. `code` is a stable machine-readable identifier;
-/// `message` is human-readable (already localized/englished by the producer).
+/// `message` is the English detail (logs, the CLI, and the UI's fallback).
+///
+/// FR-092: the UI never shows `message` when it can help it. It translates
+/// `code` — or `code` + `reason`, when the code has variants — filling the
+/// sentence with `params` (`queue:jobErrors`), exactly as it does for an
+/// [`crate::util::error::IpcError`]. Both are optional on the wire, so a
+/// `queue.json` written before they existed still loads.
 ///
 /// The special code `"interrupted_by_shutdown"` is set by shutdown recovery
 /// ([`crate::queue::persist::recover`]) on jobs that were mid-flight when the
@@ -369,6 +377,12 @@ pub struct PrintRequest {
 pub struct JobError {
     pub code: String,
     pub message: String,
+    /// Stable variant within `code` (e.g. `"no_printer"`). Never renamed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Interpolation values for the translated sentence (`secs`, `printer`…).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<BTreeMap<String, String>>,
 }
 
 impl JobError {
@@ -377,7 +391,23 @@ impl JobError {
         Self {
             code: code.into(),
             message: message.into(),
+            reason: None,
+            params: None,
         }
+    }
+
+    /// Tag the error with a stable variant of its `code`.
+    pub fn with_reason(mut self, reason: &str) -> Self {
+        self.reason = Some(reason.to_string());
+        self
+    }
+
+    /// Attach one interpolation value for the translated sentence.
+    pub fn with_param(mut self, name: &str, value: impl ToString) -> Self {
+        self.params
+            .get_or_insert_with(BTreeMap::new)
+            .insert(name.to_string(), value.to_string());
+        self
     }
 }
 
