@@ -104,7 +104,8 @@ export function QueueTimelineView({ jobs }: QueueTimelineViewProps) {
                 marginTop: 4,
               }}
             >
-              {j.printer} · {j.profile} · {t('job.pages', { count: j.pages })}
+              {j.printer} · {j.profile}
+              {j.pages != null && ` · ${t('job.pages', { count: j.pages })}`}
               {j.noteKey ? ` · ${t(`note.${j.noteKey}`)}` : ''}
               {j.error ? ` · ${j.error}` : ''}
             </div>

@@ -7,6 +7,31 @@ export function fmtKb(kb: number): string {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
+/**
+ * When a job finished, in the app's locale: the time alone when it was today,
+ * the date and time otherwise — recent activity survives restarts, so a bare
+ * "14:03:12" from yesterday would read as this afternoon. `null` for an
+ * unparseable stamp.
+ */
+export function formatFinished(
+  iso: string,
+  locale: string,
+  now: Date = new Date(),
+): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  return new Intl.DateTimeFormat(
+    locale,
+    sameDay
+      ? { hour: '2-digit', minute: '2-digit', second: '2-digit' }
+      : { dateStyle: 'medium', timeStyle: 'short' },
+  ).format(d);
+}
+
 /** Which shell a copied command line is written for. */
 export type ShellFlavor = 'posix' | 'powershell';
 

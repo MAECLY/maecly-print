@@ -291,6 +291,28 @@ describe('HomeScreen', () => {
     expect(screen.queryByText(/Paper jam in Tray 2/)).not.toBeInTheDocument();
   });
 
+  it('says "unknown" for a page count it does not have, and dates an older finish', () => {
+    const old = toUiQueueJob({
+      ...mkJob({
+        id: 'j-old',
+        state: 'failed',
+        file_name: 'Huge.pdf',
+        finished_at: '2020-01-02T10:00:00Z',
+      }),
+      // A PDF too large to probe: the backend never learned its page count.
+      pages: null,
+    });
+    setQueue([old]);
+    renderHome();
+    fireEvent.click(
+      screen.getByRole('button', { name: /show the details of Huge\.pdf/i }),
+    );
+    expect(screen.getByText(/Pages: unknown/)).toBeInTheDocument();
+    expect(screen.queryByText(/Pages: 0/)).not.toBeInTheDocument();
+    // Not today, so the date is part of it (not a bare clock).
+    expect(screen.getByText(/Finished:.*2020/)).toBeInTheDocument();
+  });
+
   it('offers a way into the queue from the expanded job', () => {
     setQueue([doneJob]);
     const onAction = renderHome();

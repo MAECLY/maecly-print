@@ -438,6 +438,12 @@ export interface UiQueueJobView extends UiQueueJob {
     | 'interruptedByShutdown'
     | 'heldByPrinter'
     | 'printerNeedsAttention';
+  /**
+   * The raw RFC 3339 `finished_at`, for surfaces that must show a *date* in
+   * the app's own locale (Home's recent activity outlives the day: it is
+   * restored from `queue.json`). `finishedAt` is only a local clock.
+   */
+  finishedAtIso?: string;
 }
 
 /**
@@ -463,7 +469,7 @@ export function toUiQueueJob(job: Job): UiQueueJobView {
     ext: job.input_ext,
     status: job.state,
     progress: percent ?? (job.state === 'done' ? 1 : 0),
-    pages: job.pages ?? 0,
+    pages: job.pages ?? null,
     profile: job.profile_name ?? '—',
     printer: job.printer_resolved ?? job.settings.printer ?? 'Default printer',
     startedAt: toClock(job.started_at),
@@ -472,7 +478,10 @@ export function toUiQueueJob(job: Job): UiQueueJobView {
   if (job.progress != null && percent === null) ui.indeterminate = true;
   const duration = elapsedMs(job.started_at, job.finished_at);
   if (duration !== null) ui.durationMs = duration;
-  if (job.finished_at) ui.finishedAt = toClock(job.finished_at);
+  if (job.finished_at) {
+    ui.finishedAt = toClock(job.finished_at);
+    ui.finishedAtIso = job.finished_at;
+  }
   if (job.error) {
     if (job.error.code === 'interrupted_by_shutdown') {
       ui.noteKey = 'interruptedByShutdown';

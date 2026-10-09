@@ -112,7 +112,9 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
                   marginBottom: 8,
                 }}
               >
-                {t('job.pages', { count: j.pages })} · {j.profile}
+                {/* An unknown count is left out, never shown as "0p". */}
+                {j.pages != null && `${t('job.pages', { count: j.pages })} · `}
+                {j.profile}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <StatusDot status={j.status} />

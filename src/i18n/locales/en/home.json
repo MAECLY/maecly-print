@@ -42,6 +42,7 @@
     "printer": "Printer",
     "profile": "Profile",
     "pages": "Pages",
+    "pagesUnknown": "unknown",
     "finished": "Finished",
     "error": "Error",
     "openQueue": "Open the queue"

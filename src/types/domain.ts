@@ -122,7 +122,12 @@ export interface UiQueueJob {
   ext: string;
   status: JobState;
   progress: number;
-  pages: number;
+  /**
+   * Page count, or `null` when it is unknown (a PDF too large or too broken
+   * to probe, or one that failed before conversion). Never `0` for "unknown":
+   * that reads as an empty document.
+   */
+  pages: number | null;
   profile: string;
   printer: string;
   startedAt: string;

@@ -42,6 +42,7 @@
     "printer": "Impresora",
     "profile": "Perfil",
     "pages": "Páginas",
+    "pagesUnknown": "desconocidas",
     "finished": "Terminado",
     "error": "Error",
     "openQueue": "Abrir la cola"

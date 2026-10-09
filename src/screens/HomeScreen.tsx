@@ -16,8 +16,8 @@ import {
   StatusDot,
   MPTopBar,
 } from '@/components/ui';
-import { useT } from '@/i18n/I18nProvider';
-import { cliPrintCommand } from '@/lib/format';
+import { useLocale, useT } from '@/i18n/I18nProvider';
+import { cliPrintCommand, formatFinished } from '@/lib/format';
 import { fetchAppInfo, isTauri, openLogsFolder } from '@/lib/ipc';
 import { findProfileIn } from '@/lib/profiles';
 import { useProfilesStore } from '@/stores/profilesStore';
@@ -120,6 +120,7 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
   // can never disagree about what "converted" is called.
   const tQueue = useT('queue');
   const tCommon = useT('common');
+  const locale = useLocale();
   const recent = useQueueStore((s) => s.recentDone);
   const queueStatus = useQueueStore((s) => s.status);
   const queueError = useQueueStore((s) => s.error);
@@ -331,11 +332,14 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
                 {t('recent.profile')}: {j.profile}
               </div>
               <div>
-                {t('recent.pages')}: {j.pages}
+                {t('recent.pages')}: {j.pages ?? t('recent.pagesUnknown')}
               </div>
               {j.finishedAt && (
                 <div>
-                  {t('recent.finished')}: {j.finishedAt}
+                  {t('recent.finished')}:{' '}
+                  {(j.finishedAtIso &&
+                    formatFinished(j.finishedAtIso, locale)) ??
+                    j.finishedAt}
                 </div>
               )}
               {j.error && (
