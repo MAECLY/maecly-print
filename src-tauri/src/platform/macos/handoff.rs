@@ -58,6 +58,8 @@ pub fn payload(
             .iter()
             .map(|p| p.to_string_lossy().into_owned())
             .collect(),
+        // The Services provider hands over whatever the Finder passed.
+        truncated_from: None,
     }
 }
 

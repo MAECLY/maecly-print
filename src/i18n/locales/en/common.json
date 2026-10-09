@@ -36,6 +36,9 @@
     "nothingPrintable": "Nothing in that selection can be printed.",
     "unknownProfile": "No profile is called “{{name}}” — the default profile was used instead."
   },
+  "selection": {
+    "truncated": "Only the first {{sent}} of the {{total}} selected items reached MaeclyPrint. Select the rest separately to print them."
+  },
   "shellMenu": {
     "print_one": "Print 1 file",
     "print_other": "Print {{count}} files",

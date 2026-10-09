@@ -66,6 +66,11 @@ pub struct Selection {
     pub action: ContextAction,
     /// Profile id/name to apply, when the integration specified one.
     pub profile_id: Option<String>,
+    /// Set when the integration had to cut a larger selection down to the
+    /// handoff cap: the number of items the user actually selected. `paths`
+    /// then holds only the first ones, and the UI says so.
+    #[serde(default)]
+    pub truncated_from: Option<u32>,
 }
 
 /// What `main` should do next.
@@ -432,6 +437,7 @@ pub fn selection_from_payload(
         paths: payload.paths,
         action: payload.action.unwrap_or(action),
         profile_id: payload.profile_id.or(profile),
+        truncated_from: payload.truncated_from,
     }
 }
 

@@ -36,6 +36,9 @@
     "nothingPrintable": "No hay nada imprimible en esa selección.",
     "unknownProfile": "No hay ningún perfil llamado «{{name}}»: se ha usado el perfil por defecto."
   },
+  "selection": {
+    "truncated": "Solo han llegado a MaeclyPrint los primeros {{sent}} de los {{total}} elementos seleccionados. Selecciona el resto por separado para imprimirlos."
+  },
   "shellMenu": {
     "print_one": "Imprimir 1 archivo",
     "print_other": "Imprimir {{count}} archivos",

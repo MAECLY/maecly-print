@@ -47,6 +47,7 @@ fn fr_001_the_json_has_exactly_the_keys_the_app_deserializes() {
             "profile_id",
             "schema_version",
             "source",
+            "truncated_from",
         ],
         "field names are the contract with src-tauri/src/cli/handoff.rs"
     );

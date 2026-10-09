@@ -431,6 +431,18 @@ function App() {
    */
   const applySelection = async (selection: Selection) => {
     if (selection.paths.length === 0) return;
+    // FR-005: a selection cut down to the handoff cap is never dropped silently.
+    if (
+      selection.truncated_from != null &&
+      selection.truncated_from > selection.paths.length
+    ) {
+      toast.warning(
+        t('selection.truncated', {
+          sent: selection.paths.length,
+          total: selection.truncated_from,
+        }),
+      );
+    }
     // A selection can arrive before the profile list has loaded (it is
     // drained right at launch); resolving against the static built-ins would
     // call a real custom profile "unknown".

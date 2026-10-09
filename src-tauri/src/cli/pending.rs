@@ -108,6 +108,7 @@ mod tests {
             paths: vec![path.to_string()],
             action: ContextAction::Configure,
             profile_id: None,
+            truncated_from: None,
         }
     }
 

@@ -1444,7 +1444,13 @@ action: ContextAction;
 /**
  * Profile id/name to apply, when the integration specified one.
  */
-profile_id: string | null }
+profile_id: string | null; 
+/**
+ * Set when the integration had to cut a larger selection down to the
+ * handoff cap: the number of items the user actually selected. `paths`
+ * then holds only the first ones, and the UI says so.
+ */
+truncated_from?: number | null }
 /**
  * A second launch handed us a selection while this window was already open.
  */

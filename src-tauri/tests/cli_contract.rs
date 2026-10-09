@@ -566,6 +566,23 @@ fn fr_008_handoff_argv_fallbacks_apply_when_the_payload_is_silent() {
         selection_from_payload(payload, ContextAction::Queue, Some("Press".to_string()));
     assert_eq!(selection.action, ContextAction::Queue);
     assert_eq!(selection.profile_id.as_deref(), Some("Press"));
+    // An older writer says nothing about truncation: the selection is whole.
+    assert_eq!(selection.truncated_from, None);
+}
+
+/// FR-003 / FR-005: when the shell extension had to cut a huge selection down
+/// to the handoff cap, the original size reaches the UI instead of the excess
+/// disappearing without a word.
+#[test]
+fn fr_005_a_truncated_selection_says_how_big_it_was() {
+    let payload = handoff::parse(
+        r#"{"schema_version":1,"invoked_at":"2026-07-20T21:11:03Z",
+            "paths":["/tmp/a.pdf"],"truncated_from":12000}"#,
+    )
+    .expect("truncated_from is part of the schema");
+    assert_eq!(payload.truncated_from, Some(12_000));
+    let selection = selection_from_payload(payload, ContextAction::Configure, None);
+    assert_eq!(selection.truncated_from, Some(12_000));
 }
 
 #[test]

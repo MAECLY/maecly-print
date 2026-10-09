@@ -293,7 +293,9 @@ export type AppInfo = {
 
 // --- Shell-extension / second-launch handoff (cli/) ---
 export type ContextAction = "configure" | "print-default" | "queue";
-export type Selection = { paths: string[]; action: ContextAction; profile_id: string | null };
+// `truncated_from`: the real selection size when the writer had to cut it to the
+// 10,000-path handoff cap; the UI warns that only the first `paths.length` arrived.
+export type Selection = { paths: string[]; action: ContextAction; profile_id: string | null; truncated_from?: number | null };
 ```
 
 ### 2.3 Rust handler example

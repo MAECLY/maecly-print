@@ -34,7 +34,9 @@ pub const SOURCE: &str = "windows-explorer";
 
 /// Largest selection the app will honour (`MAX_HANDOFF_PATHS`). A bigger
 /// selection is truncated rather than sent whole, because the app refuses an
-/// over-long payload outright and the user would get nothing at all.
+/// over-long payload outright and the user would get nothing at all. The
+/// original size travels in [`Handoff::truncated_from`] so the app can tell the
+/// user what was left out.
 pub const MAX_PATHS: usize = 10_000;
 
 /// What a menu entry asks the app to do.
@@ -78,19 +80,26 @@ pub struct Handoff {
     pub profile_id: Option<String>,
     pub invoked_at: String,
     pub paths: Vec<String>,
+    /// The real selection size when it was cut to [`MAX_PATHS`]; `null`
+    /// otherwise. The app shows a warning for it (FR-005: nothing is dropped
+    /// silently).
+    pub truncated_from: Option<u32>,
 }
 
 /// Build a payload from a selection.
 ///
 /// Pure, with the clock injected, so the freshness contract can be asserted
 /// without waiting. `paths` longer than [`MAX_PATHS`] is truncated — see the
-/// constant for why — and the caller learns about it from the returned count.
+/// constant for why — and the original length is recorded in
+/// [`Handoff::truncated_from`].
 pub fn build(
     paths: &[PathBuf],
     action: Action,
     profile_id: Option<String>,
     now: time::OffsetDateTime,
 ) -> Handoff {
+    let truncated_from = (paths.len() > MAX_PATHS)
+        .then(|| u32::try_from(paths.len()).unwrap_or(u32::MAX));
     let paths: Vec<String> = paths
         .iter()
         .take(MAX_PATHS)
@@ -108,6 +117,7 @@ pub fn build(
         profile_id,
         invoked_at: format_rfc3339(now),
         paths,
+        truncated_from,
     }
 }
 
@@ -194,8 +204,13 @@ mod tests {
             .collect();
         let h = build(&many, Action::Queue, None, at("2026-07-20T21:11:03Z"));
         // Exactly at the cap, so the app accepts it instead of refusing the
-        // whole selection.
+        // whole selection…
         assert_eq!(h.paths.len(), MAX_PATHS);
+        // …and the app learns how much was left out.
+        assert_eq!(h.truncated_from, Some((MAX_PATHS + 10) as u32));
+
+        let few = build(&many[..3], Action::Queue, None, at("2026-07-20T21:11:03Z"));
+        assert_eq!(few.truncated_from, None);
     }
 
     #[test]

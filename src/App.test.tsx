@@ -386,6 +386,21 @@ describe('App', () => {
       expect(calls.some((c) => c.cmd === 'print_files')).toBe(false);
     });
 
+    it('FR-005: a selection the shell extension had to cut short says so', async () => {
+      const { park } = mockSelections();
+      park([{ ...selection('configure'), truncated_from: 12000 }]);
+
+      render(<App />);
+
+      expect(
+        await screen.findByText(
+          /Only the first 1 of the 12000 selected items reached MaeclyPrint/,
+        ),
+      ).toBeInTheDocument();
+      // The part that did arrive is still loaded.
+      expect((await reportRows()).length).toBeGreaterThan(0);
+    });
+
     it('NFR-014: a selection forwarded into an already-open window arrives too', async () => {
       const { calls, park } = mockSelections();
       render(<App />);

@@ -63,6 +63,13 @@ pub struct Handoff {
     #[serde(default)]
     pub invoked_at: String,
     pub paths: Vec<String>,
+    /// How many items the user actually selected, when the writer had to cut
+    /// the selection down to [`MAX_HANDOFF_PATHS`]. `None` (or absent, for an
+    /// older writer) means `paths` is the whole selection. Carried through to
+    /// [`super::Selection::truncated_from`] so the user is told (FR-005: nothing
+    /// is dropped silently).
+    #[serde(default)]
+    pub truncated_from: Option<u32>,
 }
 
 /// Directory the shell extensions write handoff files to. Under the per-user
