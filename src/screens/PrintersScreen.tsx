@@ -53,6 +53,8 @@ import {
   isValidDisplayName,
   isValidHost,
   isValidPort,
+  MAX_PORT,
+  MIN_PORT,
   type PrinterProtocol,
 } from '@/lib/printerAddress';
 import { resolvePrinterId } from '@/lib/printerIdentity';
@@ -1830,9 +1832,10 @@ function ModalField({
 }
 
 /** Inline error text shown under a control or row after a failed add. */
-function InlineError({ children }: { children: ReactNode }) {
+function InlineError({ children, id }: { children: ReactNode; id?: string }) {
   return (
     <div
+      {...(id !== undefined ? { id } : {})}
       style={{
         display: 'flex',
         gap: 6,
@@ -2103,6 +2106,9 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
   const nameOk = isValidDisplayName(effectiveName);
   const canConnect = !busy && hostOk && portOk && nameOk;
   const hasQueuePath = proto === 'ipp' || proto === 'ipps';
+  const hostInvalid = host !== '' && !hostOk;
+  const hostErrorId = useId();
+  const portErrorId = useId();
 
   const onProtoChange = (value: string) => {
     const p = value as PrinterProtocol;
@@ -2140,8 +2146,14 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
           value={host}
           onChange={(e) => setHost(e.target.value)}
           placeholder={t('ip.hostPlaceholder')}
-          error={host !== '' && !hostOk}
+          error={hostInvalid}
+          aria-describedby={hostInvalid ? hostErrorId : undefined}
         />
+        {hostInvalid && (
+          <div style={{ marginTop: 6 }}>
+            <InlineError id={hostErrorId}>{t('ip.hostInvalid')}</InlineError>
+          </div>
+        )}
       </ModalField>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -2158,10 +2170,13 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
           <MPInput
             fullWidth
             type="number"
+            min={MIN_PORT}
+            max={MAX_PORT}
             aria-label={t('ip.port')}
             value={port}
             onChange={(e) => setPort(e.target.value)}
             error={!portOk}
+            aria-describedby={portOk ? undefined : portErrorId}
           />
         </ModalField>
       </div>
@@ -2220,7 +2235,9 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
         />
       </ModalField>
 
-      {!portOk && <InlineError>{t('ip.portInvalid')}</InlineError>}
+      {!portOk && (
+        <InlineError id={portErrorId}>{t('ip.portInvalid')}</InlineError>
+      )}
       {errorMsg && <InlineError>{errorMsg}</InlineError>}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

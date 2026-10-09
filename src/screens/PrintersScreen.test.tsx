@@ -562,6 +562,28 @@ describe('PrintersScreen', () => {
     expect(calls.some((c) => c.cmd === 'add_printer')).toBe(false);
   });
 
+  it('NFR-043: an invalid host says why, and the fields announce it', async () => {
+    mockPrinters();
+    renderScreen();
+    await screen.findByText(/2 configured/);
+
+    const dialog = await openAddModal();
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'By IP address' }));
+    const host = within(dialog).getByRole('textbox', {
+      name: 'Host / IP address',
+    });
+    fireEvent.change(host, { target: { value: '999.1.1.1' } });
+
+    expect(host).toHaveAttribute('aria-invalid', 'true');
+    expect(host).toHaveAccessibleDescription(/Enter an IPv4 address/);
+
+    const port = within(dialog).getByRole('spinbutton', { name: 'Port' });
+    expect(port).toHaveAttribute('min', '1');
+    expect(port).toHaveAttribute('max', '65535');
+    fireEvent.change(port, { target: { value: '70000' } });
+    expect(port).toHaveAccessibleDescription(/from 1 to 65535/);
+  });
+
   it('FR-044: adds a discovered printer via add_printer, not open_printer_settings', async () => {
     const calls = mockPrinters();
     renderScreen();

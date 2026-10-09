@@ -169,6 +169,7 @@
     "hostPlaceholder": "10.0.0.41 o impresora.local",
     "protocol": "Protocolo",
     "port": "Puerto",
+    "hostInvalid": "Escribe una dirección IPv4 (10.0.0.41), un nombre de host (printer.local) o una dirección IPv6 entre corchetes ([fe80::1]), sin ipp:// ni espacios.",
     "portInvalid": "El puerto debe ser un número entero entre 1 y 65535.",
     "queuePath": "Ruta de la cola (opcional)",
     "queuePathPlaceholder": "ipp/print",
