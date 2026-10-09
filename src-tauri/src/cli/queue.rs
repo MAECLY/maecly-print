@@ -135,16 +135,26 @@ fn watch_queue(path: &Path, emitter: Emitter, mut last: QueueSnapshot) {
 /// written to the file would be reported as done while the job kept printing,
 /// and the stale snapshot we would write could drop jobs the app saved in the
 /// meantime. Failing loudly, with nothing changed, is the honest answer.
+///
+/// A lock that cannot be checked at all is refused too: on a filesystem
+/// without locking the app runs unlocked, and "could not tell" must not turn
+/// into "the app is closed".
 fn refuse_while_app_runs(queue_json: &Path) -> Result<(), CliError> {
-    if crate::cli::instance::is_held(&crate::cli::instance::lock_path_for(queue_json)) {
-        return Err(IpcError::InvalidState(
+    use crate::cli::instance::{lock_path_for, state, LockState};
+    match state(&lock_path_for(queue_json)) {
+        LockState::Free => Ok(()),
+        LockState::Held => Err(IpcError::InvalidState(
             "MaeclyPrint is open and owns the live queue, so nothing was changed — \
              cancel from its Queue screen, or close the app and run this again"
                 .to_string(),
         )
-        .into());
+        .into()),
+        LockState::Unknown(why) => Err(IpcError::InvalidState(format!(
+            "could not check whether MaeclyPrint is open ({why}), so nothing was changed — \
+             cancel from its Queue screen if it is running"
+        ))
+        .into()),
     }
-    Ok(())
 }
 
 fn save(path: &Path, snapshot: &QueueSnapshot) -> Result<(), CliError> {
@@ -310,6 +320,24 @@ mod tests {
             Some(("Office".to_string(), "Office-42".to_string()))
         );
         assert_eq!(os_job_of(&snapshot.jobs[1]), None, "never spooled");
+    }
+
+    #[test]
+    fn fr_009_cancel_refuses_when_the_app_lock_cannot_be_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = queue_paths(dir.path());
+        persist::save(&paths.queue, &snapshot_with(&[JobState::Queued])).unwrap();
+        // Something that cannot be opened as a lock file.
+        std::fs::create_dir(crate::cli::instance::lock_path_for(&paths.queue)).unwrap();
+
+        let err = run(&paths, Emitter::new(true), QueueCmd::CancelAll).unwrap_err();
+        assert!(matches!(err.error, IpcError::InvalidState(_)));
+        assert!(
+            err.error.to_string().contains("could not check"),
+            "{}",
+            err.error
+        );
+        assert_eq!(persist::load(&paths.queue).jobs[0].state, JobState::Queued);
     }
 
     #[test]

@@ -44,33 +44,68 @@ fn open(path: &Path) -> io::Result<File> {
         .open(path)
 }
 
-/// Take the lock for the running app. `Ok(None)` when another process already
-/// holds it — which the single-instance plugin should make impossible, so the
-/// caller logs it rather than refusing to start.
+/// How many times [`claim`] tries before concluding another process owns the
+/// lock, and how long it waits between tries.
+///
+/// The CLI's probe ([`state`]) takes the same exclusive lock for an instant.
+/// An app starting inside that instant would otherwise run its whole lifetime
+/// without the lock, and every later `queue cancel` would edit `queue.json`
+/// behind its back. A probe holds it for microseconds; a real owner holds it
+/// for good, so a short retry tells the two apart.
+const CLAIM_ATTEMPTS: u32 = 20;
+const CLAIM_RETRY: std::time::Duration = std::time::Duration::from_millis(25);
+
+/// Take the lock for the running app. `Ok(None)` when another process holds
+/// it for longer than a probe would — which the single-instance plugin should
+/// make impossible, so the caller logs it rather than refusing to start.
 pub fn claim(path: &Path) -> io::Result<Option<InstanceLock>> {
     let file = open(path)?;
-    match file.try_lock() {
-        Ok(()) => Ok(Some(InstanceLock { _file: file })),
-        Err(TryLockError::WouldBlock) => Ok(None),
-        Err(TryLockError::Error(e)) => Err(e),
+    for attempt in 1..=CLAIM_ATTEMPTS {
+        match file.try_lock() {
+            Ok(()) => return Ok(Some(InstanceLock { _file: file })),
+            Err(TryLockError::WouldBlock) if attempt < CLAIM_ATTEMPTS => {
+                std::thread::sleep(CLAIM_RETRY);
+            }
+            Err(TryLockError::WouldBlock) => return Ok(None),
+            Err(TryLockError::Error(e)) => return Err(e),
+        }
     }
+    Ok(None)
+}
+
+/// What the lock says about a running app.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LockState {
+    /// A running app holds the lock.
+    Held,
+    /// Nobody holds it: no app is running.
+    Free,
+    /// The lock could not be checked (the file cannot be opened, or this
+    /// filesystem does not support locking — some network or redirected
+    /// profile folders). An app may well be running unlocked there, so this
+    /// is never read as "not running". Carries the reason.
+    Unknown(String),
 }
 
 /// Whether a running app currently holds the lock.
-///
-/// Errs on the side of "not running" only when the lock file cannot even be
-/// opened (no data dir yet means no app has ever run here); any lock state we
-/// can read is reported as it is.
-pub fn is_held(path: &Path) -> bool {
-    let Ok(file) = open(path) else {
-        return false;
+pub fn state(path: &Path) -> LockState {
+    let file = match open(path) {
+        Ok(file) => file,
+        Err(e) => return LockState::Unknown(e.to_string()),
     };
     match file.try_lock() {
         // We got it, so nobody else had it; dropping `file` releases it.
-        Ok(()) => false,
-        Err(TryLockError::WouldBlock) => true,
-        Err(TryLockError::Error(_)) => false,
+        Ok(()) => LockState::Free,
+        Err(TryLockError::WouldBlock) => LockState::Held,
+        Err(TryLockError::Error(e)) => LockState::Unknown(e.to_string()),
     }
+}
+
+/// `true` only when a running app is known to hold the lock. Callers that
+/// are about to edit the app's files must use [`state`] and treat
+/// [`LockState::Unknown`] as a refusal too.
+pub fn is_held(path: &Path) -> bool {
+    state(path) == LockState::Held
 }
 
 #[cfg(test)]
@@ -92,6 +127,39 @@ mod tests {
 
         drop(lock);
         assert!(!is_held(&path), "the lock dies with its holder");
+    }
+
+    /// A probe that takes the lock for an instant must not make a starting
+    /// app run without it: `claim` waits it out.
+    #[test]
+    fn nfr_010_a_probe_in_flight_does_not_cost_the_app_its_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(LOCK_FILE);
+        let probe = open(&path).unwrap();
+        probe.try_lock().unwrap();
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(60));
+            drop(probe);
+        });
+
+        let lock = claim(&path).unwrap();
+        releaser.join().unwrap();
+        assert!(
+            lock.is_some(),
+            "the app gets the lock once the probe lets go"
+        );
+        assert_eq!(state(&path), LockState::Held);
+    }
+
+    /// A lock that cannot be checked is not evidence the app is closed.
+    #[test]
+    fn nfr_010_an_unopenable_lock_is_unknown_not_free() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory where the lock file should be cannot be opened as one.
+        let path = dir.path().join(LOCK_FILE);
+        std::fs::create_dir(&path).unwrap();
+        assert!(matches!(state(&path), LockState::Unknown(_)));
+        assert!(!is_held(&path));
     }
 
     #[test]
