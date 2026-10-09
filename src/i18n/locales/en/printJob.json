@@ -104,5 +104,20 @@
   },
   "preview": {
     "title": "Resolved command"
+  },
+  "rejectReason": {
+    "not_found": "File not found",
+    "invalid_path": "The path could not be read",
+    "folder": "Folder — add it to print the files inside",
+    "not_a_file": "Not a file",
+    "too_large": "Larger than the {{limit}} MB limit",
+    "too_large_unknown": "Larger than the file size limit",
+    "heif_unsupported": "HEIC is not supported yet — convert it to JPEG or PNG first",
+    "unsupported_type": "Unsupported file type"
+  },
+  "skipReason": {
+    "unsupported_format": "Unsupported file type (.{{ext}})",
+    "too_large": "Larger than the file size limit",
+    "unreadable": "Could not be read"
   }
 }

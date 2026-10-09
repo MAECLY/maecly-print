@@ -7,6 +7,8 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import type { FileInfo, FolderExpansion } from '@/lib/ipc';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { fixtureAppSettings } from '@/test/fixtures';
 import type { UiFile } from '@/types/domain';
 
 const ipc = vi.hoisted(() => ({
@@ -125,6 +127,37 @@ describe('jobFiles', () => {
     expect(out.rejected).toEqual([
       { name: 'notes.txt', reason: 'Unsupported file type' },
     ]);
+  });
+
+  it('FR-092: translates a refusal from its stable reason_code', async () => {
+    useSettingsStore.setState({
+      settings: {
+        ...fixtureAppSettings,
+        app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+        engine: { ...fixtureAppSettings.engine, max_file_size_mb: 50 },
+      },
+    });
+    ipc.inspectFiles.mockResolvedValue([
+      fileInfo('/docs/notes.txt', {
+        supported: false,
+        reason: 'Unsupported file type',
+        reason_code: 'unsupported_type',
+      }),
+      fileInfo('/docs/huge.pdf', {
+        supported: false,
+        reason: 'Larger than the 50 MB limit',
+        reason_code: 'too_large',
+      }),
+    ]);
+    try {
+      const out = await inspectPaths(['/docs/notes.txt', '/docs/huge.pdf']);
+      expect(out.rejected).toEqual([
+        { name: 'notes.txt', reason: 'Tipo de archivo no compatible' },
+        { name: 'huge.pdf', reason: 'Supera el límite de 50 MB' },
+      ]);
+    } finally {
+      useSettingsStore.setState({ settings: null });
+    }
   });
 
   it('strips the extension from the display name and rounds the size', async () => {

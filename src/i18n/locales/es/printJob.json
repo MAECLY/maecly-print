@@ -104,5 +104,20 @@
   },
   "preview": {
     "title": "Comando resuelto"
+  },
+  "rejectReason": {
+    "not_found": "No se encontró el archivo",
+    "invalid_path": "No se pudo leer la ruta",
+    "folder": "Carpeta: añádela para imprimir los archivos que contiene",
+    "not_a_file": "No es un archivo",
+    "too_large": "Supera el límite de {{limit}} MB",
+    "too_large_unknown": "Supera el tamaño máximo de archivo",
+    "heif_unsupported": "HEIC aún no es compatible: conviértelo antes a JPEG o PNG",
+    "unsupported_type": "Tipo de archivo no compatible"
+  },
+  "skipReason": {
+    "unsupported_format": "Tipo de archivo no compatible (.{{ext}})",
+    "too_large": "Supera el tamaño máximo de archivo",
+    "unreadable": "No se pudo leer"
   }
 }

@@ -38,6 +38,7 @@ import {
   type FileInfo,
   type FolderExpansion,
   type FolderScan,
+  type SkippedFile,
 } from '@/lib/ipc';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { UiFile } from '@/types/domain';
@@ -47,6 +48,40 @@ function t(key: TranslationKey<'printJob'>, params?: TranslateParams): string {
   const configured = useSettingsStore.getState().settings?.app.locale;
   const locale = matchLocale(configured) ?? detectSystemLocale();
   return translate(CATALOGS[locale], 'printJob', key, params);
+}
+
+/**
+ * The translated reason a file cannot be printed (FR-005, FR-092), from the
+ * backend's stable `reason_code`; the English `reason` is the fallback for a
+ * payload without one.
+ */
+export function rejectReason(
+  fi: Pick<FileInfo, 'reason' | 'reason_code'>,
+): string {
+  switch (fi.reason_code) {
+    case null:
+    case undefined:
+      return fi.reason ?? '';
+    case 'too_large': {
+      const limit =
+        useSettingsStore.getState().settings?.engine.max_file_size_mb;
+      return limit
+        ? t('rejectReason.too_large', { limit })
+        : t('rejectReason.too_large_unknown');
+    }
+    default:
+      return t(`rejectReason.${fi.reason_code}`);
+  }
+}
+
+/** The translated reason a folder walk discarded a file (FR-005, FR-092). */
+function skipReason(s: Pick<SkippedFile, 'name' | 'reason'>): string {
+  if (s.reason !== 'unsupported_format') return t(`skipReason.${s.reason}`);
+  const dot = s.name.lastIndexOf('.');
+  const ext = dot > 0 ? s.name.slice(dot + 1).toLowerCase() : '';
+  return ext
+    ? t('skipReason.unsupported_format', { ext })
+    : t('rejectReason.unsupported_type');
 }
 
 /** A path the backend refused, ready to list in a toast (FR-005). */
@@ -150,7 +185,7 @@ export async function inspectPaths(paths: string[]): Promise<InspectResult> {
       continue;
     }
     if (!fi.supported) {
-      out.rejected.push({ name: fi.name, reason: fi.reason ?? '' });
+      out.rejected.push({ name: fi.name, reason: rejectReason(fi) });
       continue;
     }
     if (seen.has(fi.path)) continue;
@@ -394,7 +429,7 @@ async function ingestExpansion(
       t('toasts.skipped', { count: expansion.skipped.length, name }),
       {
         description: expansion.skipped
-          .map((s) => `${s.name} — ${s.detail}`)
+          .map((s) => `${s.name} — ${skipReason(s)}`)
           .join('\n'),
       },
     );
