@@ -1281,7 +1281,15 @@ files: string[]; settings: JobSettings;
 /**
  * Name of the profile these settings were derived from, for the log/UI.
  */
-profile_name: string | null }
+profile_name: string | null; 
+/**
+ * Submit every job of the batch already `Paused`, so nothing starts until
+ * the user resumes it from the Queue screen (FR-001's "add to the queue"
+ * entry). Scoped to this batch on purpose: the global pause flag would
+ * also stop every other batch that was waiting. Optional on the wire —
+ * absent means "start normally".
+ */
+hold?: boolean }
 /**
  * A printer installed on the system, enriched with whatever capabilities the
  * OS could be coaxed into reporting.

@@ -125,6 +125,11 @@ impl QueueHandle {
             );
             job.input_bytes = meta.len();
             job.pages = probe_pages(path, &ext, meta.len());
+            if req.hold {
+                // Paused with no cached PDF: resuming sends it back to
+                // `Queued`, exactly like any job paused before conversion.
+                job.state = crate::queue::job::JobState::Paused;
+            }
             job_ids.push(job.id.clone());
             jobs.push(job);
         }
@@ -329,7 +334,7 @@ fn sweep_orphans(cache_dir: &Path, jobs: &[Job]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::queue::job::{JobSettings, PrintRequest};
+    use crate::queue::job::{JobSettings, JobState, PrintRequest};
     use tempfile::TempDir;
 
     fn handle_with_open_channel() -> (QueueHandle, mpsc::UnboundedReceiver<dispatcher::Cmd>) {
@@ -352,6 +357,7 @@ mod tests {
             files,
             settings,
             profile_name: None,
+            hold: false,
         }
     }
 
@@ -428,6 +434,7 @@ mod tests {
                 files: vec![f1, f2],
                 settings: JobSettings::default(),
                 profile_name: Some("Quick".into()),
+                hold: false,
             })
             .unwrap();
 
@@ -442,6 +449,50 @@ mod tests {
                     batch.job_ids
                 );
             }
+            _ => panic!("expected a Submit command"),
+        }
+    }
+
+    /// FR-001: the context menu's "add to the queue" entry submits its batch
+    /// held — every job lands `Paused`, for the user to start from the Queue —
+    /// without touching the global pause flag (which would also stop every
+    /// other batch already waiting).
+    #[test]
+    fn fr_001_a_held_request_enqueues_every_job_paused() {
+        let dir = tempfile::tempdir().unwrap();
+        let f1 = write_file(&dir, "a.pdf", b"%PDF-1.4\n%stub");
+        let f2 = write_file(&dir, "b.png", b"\x89PNG stub");
+        let (h, mut rx) = handle_with_open_channel();
+        h.submit(PrintRequest {
+            hold: true,
+            ..req(vec![f1, f2], JobSettings::default())
+        })
+        .unwrap();
+
+        match rx.try_recv().unwrap() {
+            dispatcher::Cmd::Submit { jobs } => {
+                assert_eq!(jobs.len(), 2);
+                assert!(
+                    jobs.iter().all(|j| j.state == JobState::Paused),
+                    "a held batch must not start on its own"
+                );
+            }
+            _ => panic!("expected a Submit command"),
+        }
+        assert!(
+            !h.snapshot().queue_paused,
+            "holding one batch must not pause the whole queue"
+        );
+    }
+
+    #[test]
+    fn fr_001_an_unheld_request_enqueues_jobs_queued() {
+        let dir = tempfile::tempdir().unwrap();
+        let f1 = write_file(&dir, "a.pdf", b"%PDF-1.4\n%stub");
+        let (h, mut rx) = handle_with_open_channel();
+        h.submit(req(vec![f1], JobSettings::default())).unwrap();
+        match rx.try_recv().unwrap() {
+            dispatcher::Cmd::Submit { jobs } => assert_eq!(jobs[0].state, JobState::Queued),
             _ => panic!("expected a Submit command"),
         }
     }

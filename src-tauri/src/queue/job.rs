@@ -349,6 +349,13 @@ pub struct PrintRequest {
     pub settings: JobSettings,
     /// Name of the profile these settings were derived from, for the log/UI.
     pub profile_name: Option<String>,
+    /// Submit every job of the batch already `Paused`, so nothing starts until
+    /// the user resumes it from the Queue screen (FR-001's "add to the queue"
+    /// entry). Scoped to this batch on purpose: the global pause flag would
+    /// also stop every other batch that was waiting. Optional on the wire —
+    /// absent means "start normally".
+    #[serde(default)]
+    pub hold: bool,
 }
 
 /// A structured job error. `code` is a stable machine-readable identifier;

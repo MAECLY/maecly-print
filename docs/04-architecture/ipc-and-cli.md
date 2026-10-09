@@ -48,7 +48,7 @@ The table below is the **complete** registered surface — 44 commands, in `coll
 | `open_printer_settings`     | `openPrinterSettings() => null`                                | `ipc::printers::open_printer_settings`  | Opens the OS Printers pane |
 | `add_printer`               | `addPrinter(name, uri) => null`                                | `ipc::printers::add_printer`            | **Implemented**: `lpadmin` (macOS/Linux); PowerShell `Add-Printer*` against the Microsoft IPP Class Driver, IPP/IPPS URIs only (Windows). Spooler error surfaced verbatim; an access-denied HRESULT becomes actionable guidance |
 | `get_printer_policy`        | `getPrinterPolicy() => PrinterPolicy`                          | `ipc::printers::get_printer_policy`     | Reads org `policy.json`; default value when absent/malformed |
-| `print_files`               | `printFiles(req) => JobBatch`                                  | `ipc::jobs::print_files`                | Validates + fans out one job per file; returns batch id + per-file job ids |
+| `print_files`               | `printFiles(req) => JobBatch`                                  | `ipc::jobs::print_files`                | Validates + fans out one job per file; returns batch id + per-file job ids. `hold: true` enqueues the batch `paused` |
 | `queue_status`              | `queueStatus() => QueueSnapshot`                               | `ipc::jobs::queue_status`               | One-shot snapshot; live updates arrive via `queue-updated` |
 | `cancel_job`                | `cancelJob(id) => null`                                        | `ipc::jobs::cancel_job`                 | `JobNotFound` / `InvalidState` on a terminal job |
 | `cancel_all`                | `cancelAll() => number`                                        | `ipc::jobs::cancel_all`                 | Cancels every non-terminal job; returns the count |
@@ -156,6 +156,8 @@ export type PrintRequest = {
   files: string[];
   settings: JobSettings;
   profile_name: string | null;   // display/log only
+  hold?: boolean;                // true = every job enqueued `paused` (FR-001 "add to queue");
+                                 // scoped to this batch, the global pause flag is untouched
 };
 
 export type JobBatch = { batch_id: string; job_ids: string[] };
