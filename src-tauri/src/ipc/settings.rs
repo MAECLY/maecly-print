@@ -96,15 +96,21 @@ pub async fn set_app_settings(
 /// - The config is loaded through [`Config::load_strict`], so a
 ///   corrupt `config.toml` is *refused* — never silently rewritten as
 ///   defaults + this patch (which would erase printer prefs/routes/overrides).
-/// - The `default_profile` existence check runs **only when the value
-///   changed** from what is stored. An already-stored dangling default (from a
-///   hand-edit or a race) therefore no longer bricks every theme/density/
-///   telemetry save. When a *changed* default is validated and `profiles.toml`
-///   is unreadable, the save is still refused, but with a message naming
-///   `profiles.toml`.
+/// - `engine.default_profile` is **never written here**: the stored value is
+///   kept and the incoming one ignored. The default has its own command
+///   ([`crate::ipc::profiles::set_default_profile`], which the CLI's
+///   `profiles set-default` shares), and this bundle is echoed back from a
+///   cache the window loaded once. Writing it would let a stale cache revert a
+///   default the CLI changed while the window was open — or, once the CLI had
+///   also deleted the old default, refuse every later settings save because
+///   the stale id no longer names a profile. The reply carries the real value,
+///   so the client cache heals on the next save.
+///
+/// `profiles_path` is kept for signature stability with the other `*_at`
+/// cores; nothing in this command needs to read profiles any more.
 pub fn set_app_settings_at(
     config_path: &Path,
-    profiles_path: &Path,
+    _profiles_path: &Path,
     settings: AppSettings,
 ) -> Result<AppSettings, IpcError> {
     // Pure bounds first — no I/O, no lock.
@@ -114,16 +120,10 @@ pub fn set_app_settings_at(
     let mut cfg = Config::load_strict(config_path)
         .map_err(|_| IpcError::Internal(CONFIG_CORRUPT_MSG.to_string()))?;
 
-    // Only validate the default profile's existence when this call *changes* it.
-    // An unchanged value — even a dangling one already on disk — passes through.
-    if settings.engine.default_profile != cfg.engine.default_profile {
-        if let Some(id) = settings.engine.default_profile.as_deref() {
-            validate_default_profile_exists(id, profiles_path)?;
-        }
-    }
-
+    let default_profile = cfg.engine.default_profile.take();
     cfg.app = settings.app;
     cfg.engine = settings.engine;
+    cfg.engine.default_profile = default_profile;
     cfg.updater = settings.updater;
     cfg.telemetry = settings.telemetry;
     // `settings.meta` is deliberately dropped: it is server-computed, and the
@@ -131,28 +131,6 @@ pub fn set_app_settings_at(
     cfg.save_to(config_path)?;
     // The file was just written from this very config, so it is readable again.
     Ok(to_app_settings(cfg, meta(config_path, false)))
-}
-
-/// Confirm `id` names a known profile (built-in or a stored custom). A read of
-/// `profiles.toml` is enough (config writes are atomic). Unlike a read command,
-/// an unreadable `profiles.toml` here is *not* tolerated: the caller is changing
-/// the default and we cannot confirm the target, so we refuse rather than accept
-/// a possibly-dangling id — with a message that names the offending file.
-fn validate_default_profile_exists(id: &str, profiles_path: &Path) -> Result<(), IpcError> {
-    let customs = crate::profiles::load(profiles_path)
-        .map_err(|_| {
-            IpcError::Internal(
-                "profiles.toml could not be parsed — fix or remove it; your settings were not modified"
-                    .to_string(),
-            )
-        })?
-        .profile;
-    if !crate::profiles::is_known_id(id, &customs) {
-        return Err(IpcError::InvalidRequest(format!(
-            "default_profile '{id}' does not name a known profile"
-        )));
-    }
-    Ok(())
 }
 
 /// Extract the wire subset of a [`Config`], with the server-computed `meta`.

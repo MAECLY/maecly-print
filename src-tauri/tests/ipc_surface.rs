@@ -192,27 +192,42 @@ fn fr_regression_fix2_dangling_default_still_allows_theme_save() {
     );
 }
 
+/// FR-008: `default_profile` has its own command (`set_default_profile`, also
+/// what `maeclyprint profiles set-default` calls), so `set_app_settings` never
+/// writes it. A GUI holding a stale copy — the CLI changed the default and
+/// deleted the old one while the window was open — must neither revert the
+/// CLI's choice nor have every unrelated save refused because its stale id no
+/// longer names a profile.
 #[test]
-fn fr_regression_fix2_changed_default_to_nonexistent_rejects() {
+fn fr_008_set_app_settings_keeps_the_stored_default_profile() {
     let dir = tempfile::tempdir().unwrap();
     let config_path = dir.path().join("config.toml");
     let profiles_path = dir.path().join("profiles.toml");
 
-    Config::default().save_to(&config_path).unwrap();
+    let mut cfg = Config::default();
+    cfg.engine.default_profile = Some(BUILTIN_QUICK.to_string());
+    cfg.save_to(&config_path).unwrap();
 
-    // Now *change* the default to an id that names no profile → rejected.
+    // The window's cached bundle still names a profile that is gone.
     let mut settings = app_settings_from(&Config::load_from(&config_path));
-    settings.engine.default_profile = Some("does-not-exist".to_string());
-    let result = set_app_settings_at(&config_path, &profiles_path, settings);
-    assert!(
-        result.is_err(),
-        "changing the default to a nonexistent id must be rejected"
+    settings.engine.default_profile = Some("deleted-by-the-cli".to_string());
+    settings.app.theme = Theme::Dark;
+    let saved = set_app_settings_at(&config_path, &profiles_path, settings)
+        .expect("an unrelated toggle must still save");
+
+    assert_eq!(saved.app.theme, Theme::Dark);
+    assert_eq!(
+        saved.engine.default_profile.as_deref(),
+        Some(BUILTIN_QUICK),
+        "the reply carries the real default, so the client cache heals"
     );
-    // The rejected write left the stored default at its original (None) value.
-    assert!(Config::load_from(&config_path)
-        .engine
-        .default_profile
-        .is_none());
+    let reloaded = Config::load_from(&config_path);
+    assert_eq!(reloaded.app.theme, Theme::Dark);
+    assert_eq!(
+        reloaded.engine.default_profile.as_deref(),
+        Some(BUILTIN_QUICK),
+        "the stored default is never overwritten from this command"
+    );
 }
 
 // ---------------------------------------------------------------------------
