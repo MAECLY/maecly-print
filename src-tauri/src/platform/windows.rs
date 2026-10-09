@@ -1,36 +1,54 @@
-//! Windows printer enumeration via the print spooler (`EnumPrinters`) and the
-//! GDI `DeviceCapabilities` query.
+//! Windows printer backend: enumeration via the print spooler (`EnumPrinters`)
+//! and the GDI `DeviceCapabilities` query, printer actions via `SetPrinter` /
+//! `DeletePrinter`, adding via PowerShell's `Add-Printer -IppURL`, and network
+//! discovery via an mDNS/DNS-SD browse.
 //!
 //! `EnumPrinters` (level 2) gives the core record (name, port, driver,
-//! location, shared, status, queued jobs); `DeviceCapabilities` adds
-//! color/duplex/paper/tray/resolution support. Toner levels are not exposed by
-//! the Win32 API (they need SNMP/WMI/IPP) and stay empty here; network
-//! discovery (WSD/mDNS) is a documented follow-up and returns empty.
+//! location, shared, status, attributes, queued jobs, default DEVMODE);
+//! `DeviceCapabilities` adds color/duplex/paper/tray/resolution support and the
+//! paper/bin *ids* that let the default DEVMODE be named. Toner levels are not
+//! exposed by the Win32 API (they need SNMP/WMI/IPP) and stay empty here.
 //!
 //! All field reads that touch the spooler buffer are `unsafe`; capability
 //! queries are defensive — any failure yields empty rather than aborting the
-//! whole enumeration.
+//! whole enumeration. A spooler that is not running is the exception: it is an
+//! error, never an empty list, so the UI can say why there are no printers.
 
 use std::os::windows::process::CommandExt;
 use std::process::Command;
+use std::time::Duration;
 
 use anyhow::Context;
 use windows::core::{PCWSTR, PWSTR};
+use windows::Win32::Foundation::{GetLastError, ERROR_FILE_NOT_FOUND, ERROR_INSUFFICIENT_BUFFER};
+use windows::Win32::Graphics::Gdi::{DEVMODEW, DM_DEFAULTSOURCE, DM_PAPERSIZE};
 use windows::Win32::Graphics::Printing::{
     EnumPrintersW, GetDefaultPrinterW, SetDefaultPrinterW, PRINTER_ATTRIBUTE_SHARED,
-    PRINTER_ENUM_CONNECTIONS, PRINTER_ENUM_LOCAL, PRINTER_INFO_2W, PRINTER_STATUS_BUSY,
-    PRINTER_STATUS_DOOR_OPEN, PRINTER_STATUS_ERROR, PRINTER_STATUS_NO_TONER,
-    PRINTER_STATUS_OFFLINE, PRINTER_STATUS_PAPER_JAM, PRINTER_STATUS_PAPER_OUT,
-    PRINTER_STATUS_PRINTING, PRINTER_STATUS_PROCESSING,
+    PRINTER_ATTRIBUTE_WORK_OFFLINE, PRINTER_ENUM_CONNECTIONS, PRINTER_ENUM_LOCAL, PRINTER_INFO_2W,
+    PRINTER_STATUS_BUSY, PRINTER_STATUS_DOOR_OPEN, PRINTER_STATUS_ERROR,
+    PRINTER_STATUS_NOT_AVAILABLE, PRINTER_STATUS_NO_TONER, PRINTER_STATUS_OFFLINE,
+    PRINTER_STATUS_PAPER_JAM, PRINTER_STATUS_PAPER_OUT, PRINTER_STATUS_PAPER_PROBLEM,
+    PRINTER_STATUS_PAUSED, PRINTER_STATUS_PRINTING, PRINTER_STATUS_PROCESSING,
+    PRINTER_STATUS_SERVER_UNKNOWN, PRINTER_STATUS_USER_INTERVENTION,
 };
 // DeviceCapabilities and the DC_* constants live under Storage::Xps in windows 0.58.
 use windows::Win32::Storage::Xps::{
-    DeviceCapabilitiesW, DC_BINNAMES, DC_COLORDEVICE, DC_DUPLEX, DC_ENUMRESOLUTIONS, DC_PAPERNAMES,
-    PRINTER_DEVICE_CAPABILITIES,
+    DeviceCapabilitiesW, DC_BINNAMES, DC_BINS, DC_COLORDEVICE, DC_DUPLEX, DC_ENUMRESOLUTIONS,
+    DC_PAPERNAMES, DC_PAPERS, PRINTER_DEVICE_CAPABILITIES,
 };
 
 use crate::ipc::printers::{DiscoveredPrinter, Printer, PrinterStatus, Supplies, Tray};
 use crate::platform::infer_kind;
+use crate::queue::job::PaperSize;
+
+/// `RPC_S_SERVER_UNAVAILABLE`: what every spooler call returns while the Print
+/// Spooler service is stopped.
+const RPC_S_SERVER_UNAVAILABLE: u32 = 1722;
+
+/// Shown when the spooler is not running. The single most common Windows
+/// support case for "MaeclyPrint shows no printers".
+const SPOOLER_DOWN: &str = "The Windows Print Spooler service is not running. Start it \
+     (Services → Print Spooler) and try again.";
 
 /// Read a (possibly null) wide string pointer into an owned `String`.
 fn pwstr(p: PWSTR) -> String {
@@ -41,43 +59,107 @@ fn pwstr(p: PWSTR) -> String {
     }
 }
 
-pub fn list_printers() -> anyhow::Result<Vec<Printer>> {
+/// Turn a spooler failure into an error the UI can show. A stopped spooler
+/// gets a sentence of its own; anything else keeps the OS message.
+fn spooler_error(e: windows::core::Error, what: &str) -> anyhow::Error {
+    if e.code() == windows::core::HRESULT::from_win32(RPC_S_SERVER_UNAVAILABLE) {
+        anyhow::anyhow!(SPOOLER_DOWN)
+    } else {
+        anyhow::anyhow!("{what} failed: {e}")
+    }
+}
+
+/// `EnumPrinters` level 2 into a buffer that is correctly aligned for
+/// `PRINTER_INFO_2W` (a `Vec<u8>` is only guaranteed byte alignment, and the
+/// records are read in place through a pointer cast).
+///
+/// The sizing call is expected to fail with `ERROR_INSUFFICIENT_BUFFER`; any
+/// *other* failure is real and returned — previously it was discarded and a
+/// stopped spooler looked exactly like a machine with no printers. A printer
+/// added between the two calls makes the second fail with the same
+/// insufficient-buffer code, so the pair is retried a few times.
+fn enum_printers_level2() -> anyhow::Result<(Vec<u64>, u32)> {
     let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
-    let mut needed = 0u32;
-    let mut returned = 0u32;
-
-    // First call sizes the buffer (returns an insufficient-buffer error).
-    let _ = unsafe { EnumPrintersW(flags, PCWSTR::null(), 2, None, &mut needed, &mut returned) };
-    if needed == 0 {
-        return Ok(Vec::new());
+    let insufficient = ERROR_INSUFFICIENT_BUFFER.to_hresult();
+    for _ in 0..4 {
+        let mut needed = 0u32;
+        let mut returned = 0u32;
+        match unsafe { EnumPrintersW(flags, PCWSTR::null(), 2, None, &mut needed, &mut returned) } {
+            // Success with no buffer means there is nothing to enumerate.
+            Ok(()) => return Ok((Vec::new(), 0)),
+            Err(e) if e.code() == insufficient => {}
+            Err(e) => return Err(spooler_error(e, "EnumPrinters")),
+        }
+        if needed == 0 {
+            return Ok((Vec::new(), 0));
+        }
+        let words = (needed as usize).div_ceil(std::mem::size_of::<u64>());
+        let mut buf = vec![0u64; words];
+        let bytes = unsafe {
+            std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<u8>(), needed as usize)
+        };
+        match unsafe {
+            EnumPrintersW(
+                flags,
+                PCWSTR::null(),
+                2,
+                Some(bytes),
+                &mut needed,
+                &mut returned,
+            )
+        } {
+            Ok(()) => return Ok((buf, returned)),
+            Err(e) if e.code() == insufficient => continue,
+            Err(e) => return Err(spooler_error(e, "EnumPrinters")),
+        }
     }
+    anyhow::bail!("the printer list kept changing while it was being read; try again")
+}
 
-    let mut buf = vec![0u8; needed as usize];
-    unsafe {
-        EnumPrintersW(
-            flags,
-            PCWSTR::null(),
-            2,
-            Some(buf.as_mut_slice()),
-            &mut needed,
-            &mut returned,
-        )?;
-    }
-
-    let default = default_printer().unwrap_or(None);
-    let infos = buf.as_ptr() as *const PRINTER_INFO_2W;
-    let mut out = Vec::with_capacity(returned as usize);
+/// Visit every `PRINTER_INFO_2W` record of an enumeration.
+fn for_each_printer(mut f: impl FnMut(&PRINTER_INFO_2W)) -> anyhow::Result<()> {
+    let (buf, returned) = enum_printers_level2()?;
+    let infos = buf.as_ptr().cast::<PRINTER_INFO_2W>();
     for i in 0..returned as usize {
+        // SAFETY: the spooler wrote `returned` contiguous records at the start
+        // of `buf`, which is 8-byte aligned and outlives the borrow.
         let info = unsafe { &*infos.add(i) };
-        out.push(printer_from(info, default.as_deref()));
+        f(info);
     }
+    Ok(())
+}
+
+pub fn list_printers() -> anyhow::Result<Vec<Printer>> {
+    let default = default_printer().unwrap_or(None);
+    let mut out = Vec::new();
+    for_each_printer(|info| out.push(printer_from(info, default.as_deref())))?;
+    Ok(out)
+}
+
+/// Installed queue names and ports, cheaply (no capability queries). Used to
+/// de-duplicate a new queue name and to hide installed devices from discovery.
+fn installed_names_and_ports() -> anyhow::Result<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    for_each_printer(|info| out.push((pwstr(info.pPrinterName), pwstr(info.pPortName))))?;
     Ok(out)
 }
 
 pub fn default_printer() -> anyhow::Result<Option<String>> {
     let mut len = 0u32;
-    // First call sizes the buffer.
-    let _ = unsafe { GetDefaultPrinterW(PWSTR::null(), &mut len) };
+    // First call sizes the buffer; ERROR_FILE_NOT_FOUND means "no default".
+    let ok = unsafe { GetDefaultPrinterW(PWSTR::null(), &mut len) };
+    if !ok.as_bool() {
+        let err = unsafe { GetLastError() };
+        if err == ERROR_FILE_NOT_FOUND {
+            return Ok(None);
+        }
+        if err.0 == RPC_S_SERVER_UNAVAILABLE {
+            anyhow::bail!(SPOOLER_DOWN);
+        }
+        if err != ERROR_INSUFFICIENT_BUFFER {
+            anyhow::bail!("GetDefaultPrinter failed: {}", err.to_hresult().message());
+        }
+    }
     if len == 0 {
         return Ok(None);
     }
@@ -100,12 +182,12 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+/// `CreateProcess` flag that suppresses the transient console window a
+/// console-subsystem child (`cmd.exe`, `powershell.exe`) would otherwise flash
+/// on screen: the release binary has no console of its own to lend it.
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 /// Run a CLI and succeed only on a zero exit status.
-///
-/// `CREATE_NO_WINDOW` matters here: the release binary is built with
-/// `windows_subsystem = "windows"` (no console of its own), so a console-
-/// subsystem child such as `cmd.exe` would allocate — and flash — a window of
-/// its own on screen.
 fn run_ok(program: &str, args: &[&str]) -> anyhow::Result<()> {
     let status = Command::new(program)
         .args(args)
@@ -128,24 +210,31 @@ pub fn set_os_default(name: &str) -> anyhow::Result<()> {
     }
 }
 
+// ----------------------------------------------------------------------------
+// Test page
+// ----------------------------------------------------------------------------
+
 /// Print the branded MaeclyPrint test page, applying the user's configured
-/// default paper for this printer — the same contract the CUPS path honours.
+/// default paper and tray for this printer — the same contract the CUPS path
+/// honours: an override that is set is sent, and one that is not set sends
+/// nothing, so the driver's own default applies.
 ///
 /// The PDF goes through the ordinary print backend
 /// ([`crate::engine::print::sumatra`]), which is the only Windows path whose
 /// **failure is observable**: `rundll32 printui.dll,PrintUIEntry` exits 0 even
 /// when `PrintUIEntry` itself fails (it shows its own dialog), so an `Ok(())`
-/// from it never meant the page was accepted, and the UI's "test page sent"
-/// was a guess. Spooling a real job gives a real exit status.
+/// from it never meant the page was accepted. Spooling a real job gives a real
+/// exit status. `rundll32` survives only as the fallback for hosts without the
+/// SumatraPDF sidecar.
 ///
-/// `rundll32` survives only as the fallback for hosts without the SumatraPDF
-/// sidecar — printing *something* beats printing nothing — and the UI copy is
-/// worded so it does not over-claim on that path either.
-///
-/// Known gap: the per-printer **tray** override cannot be expressed through
-/// SumatraPDF's `-print-settings` (it has no bin selector), so only `paper` is
-/// applied here. Honouring tray would need a GDI/DEVMODE spool path.
+/// The paper override is a *driver* paper name (from `DC_PAPERNAMES`), which is
+/// localized — Spanish Windows says "Carta" for Letter — so it is mapped
+/// through the driver's paper **id** (`DC_PAPERS`, a `DMPAPER_*` value) rather
+/// than by matching the string. A paper SumatraPDF cannot name is left out and
+/// logged instead of being silently replaced by A4. The tray goes out as
+/// SumatraPDF's `bin=<name>`.
 pub fn print_test_page(name: &str) -> anyhow::Result<()> {
+    use crate::engine::print::sumatra::{self, PaperToken};
     use std::io::Write as _;
 
     let prefs = crate::settings::Config::load_or_default().printers;
@@ -165,18 +254,44 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
     tmp.write_all(&pdf)?;
     tmp.flush()?;
 
+    let paper = over
+        .paper
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty());
+    let paper_size = paper.and_then(|p| paper_size_for_driver_name(name, p));
+    if let (Some(p), None) = (paper, paper_size) {
+        tracing::warn!(
+            event = "print_setting_not_applied",
+            setting = "paper",
+            backend = "sumatra",
+            printer = %name,
+            paper = %p,
+            message = "SumatraPDF cannot name this paper size; the driver default is used",
+        );
+    }
+
+    let defaults = crate::queue::job::JobSettings::default();
     let settings = crate::queue::job::JobSettings {
-        paper_size: super::media_paper_size(over.paper.as_deref()),
-        ..Default::default()
+        // Only read when `paper_token` says so, i.e. when `paper_size` is Some.
+        paper_size: paper_size.unwrap_or(defaults.paper_size),
+        tray: over.tray.clone(),
+        ..defaults
+    };
+    let paper_token = if paper_size.is_some() {
+        PaperToken::FromSettings
+    } else {
+        PaperToken::Omit
     };
     // SumatraPDF blocks until the spooler accepts the job, so the temp file is
     // still alive for the whole call and the status is meaningful.
-    match crate::engine::print::sumatra::spool(
+    match sumatra::spool_with(
         tmp.path(),
         name,
         &settings,
         "MaeclyPrint Test Page",
-        Some(std::time::Duration::from_secs(120)),
+        Some(Duration::from_secs(120)),
+        paper_token,
     ) {
         Ok(_) => Ok(()),
         Err(crate::engine::print::PrintError::Engine(
@@ -186,26 +301,76 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
     }
 }
 
+/// Map a driver paper name of `printer` to a [`PaperSize`] through its
+/// `DMPAPER_*` id, or `None` when the driver does not list it or SumatraPDF
+/// has no name for it.
+fn paper_size_for_driver_name(printer: &str, paper: &str) -> Option<PaperSize> {
+    let device = wide(printer);
+    let device = PCWSTR(device.as_ptr());
+    let names = dc_names(device, PCWSTR::null(), DC_PAPERNAMES, 64);
+    let ids = dc_ids(device, PCWSTR::null(), DC_PAPERS);
+    let id = id_for_name(&names, &ids, paper)?;
+    paper_size_for_dmpaper(id)
+}
+
+/// The `DMPAPER_*` ids SumatraPDF's `paper=` can express. The "small" variants
+/// are the same sheet with a different printable area.
+fn paper_size_for_dmpaper(id: u16) -> Option<PaperSize> {
+    match id {
+        1 | 2 => Some(PaperSize::Letter), // DMPAPER_LETTER, DMPAPER_LETTERSMALL
+        5 => Some(PaperSize::Legal),      // DMPAPER_LEGAL
+        8 => Some(PaperSize::A3),         // DMPAPER_A3
+        9 | 10 => Some(PaperSize::A4),    // DMPAPER_A4, DMPAPER_A4SMALL
+        _ => None,
+    }
+}
+
+/// The id paired with `name` in two parallel `DeviceCapabilities` arrays
+/// (`DC_PAPERNAMES`/`DC_PAPERS`, `DC_BINNAMES`/`DC_BINS`). Exact match first,
+/// then case-insensitive.
+fn id_for_name(names: &[String], ids: &[u16], name: &str) -> Option<u16> {
+    let pos = names
+        .iter()
+        .position(|n| n == name)
+        .or_else(|| names.iter().position(|n| n.eq_ignore_ascii_case(name)))?;
+    ids.get(pos).copied()
+}
+
+/// The name paired with `id` in two parallel `DeviceCapabilities` arrays.
+fn name_for_id(names: &[String], ids: &[u16], id: u16) -> Option<String> {
+    let pos = ids.iter().position(|&i| i == id)?;
+    names.get(pos).filter(|n| !n.is_empty()).cloned()
+}
+
 /// Open Settings → Printers & scanners.
 pub fn open_printer_settings() -> anyhow::Result<()> {
     run_ok("cmd", &["/C", "start", "", "ms-settings:printers"])
 }
 
 // ----------------------------------------------------------------------------
-// Adding a printer (`Add-Printer` via PowerShell)
+// Adding a printer (`Add-Printer -IppURL` via PowerShell)
 // ----------------------------------------------------------------------------
 
-/// `CreateProcess` flag that suppresses the transient console window a
-/// `powershell.exe` child would otherwise flash on screen.
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// Exit code the add-printer script uses for an access-denied failure. Matched
+/// as a number, so it works on every Windows display language (the error text
+/// itself is localized).
+const PS_EXIT_ACCESS_DENIED: i32 = 5;
+/// Exit code for "this Windows has no `Add-Printer -IppURL`".
+const PS_EXIT_NO_IPPURL: i32 = 3;
 
 /// Install a printer for `uri` using the built-in Microsoft IPP Class Driver.
 ///
-/// Only `ipp`/`ipps` URIs are supported here — raw sockets/LPD/WSD need the
-/// system dialog, so those are rejected with a message pointing at "Open
-/// printer settings". The IPP port is created on demand if `Add-Printer`
-/// reports it is missing. Adding a printer can require elevation; when the
-/// spooler returns access-denied we surface guidance rather than a raw error.
+/// Uses `Add-Printer -IppURL`, which creates a real IPP connection bound to the
+/// inbox class driver. (An earlier version pre-created a port with
+/// `Add-PrinterPort -Name 'IPP://…'`; with only `-Name` that cmdlet creates a
+/// *Local Port* whose name happens to be a URL, so jobs never reached the
+/// device, and its `catch {}` hid every failure.)
+///
+/// Only `ipp`/`ipps` URIs are supported — raw sockets/LPD/WSD need the system
+/// dialog, so those are rejected with a message pointing at "Open printer
+/// settings". The queue name is de-duplicated against the installed queues
+/// first (`Name`, `Name_2`, …), as on CUPS, because `Add-Printer` refuses an
+/// existing name.
 pub fn add_printer(name: &str, uri: &str) -> anyhow::Result<()> {
     let scheme = uri
         .split("://")
@@ -219,91 +384,148 @@ pub fn add_printer(name: &str, uri: &str) -> anyhow::Result<()> {
         );
     }
 
-    let port = ipp_port_name(uri)?;
-    let script = add_printer_script(name, &port);
-    match run_powershell(&script) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let msg = e.to_string();
-            let lower = msg.to_ascii_lowercase();
-            // Elevation problems can't be retried away — creating the port
-            // needs the same rights — so surface actionable guidance first.
-            // The HRESULT is checked too because the message text is localized
-            // on non-English Windows.
-            if msg.contains("0x80070005") || (lower.contains("access") && lower.contains("denied"))
-            {
-                anyhow::bail!(
-                    "Adding a printer may require administrator rights. Use \"Open printer \
-                     settings\" to add it from Windows."
-                );
-            }
-            Err(e)
-        }
+    let url = ipp_class_driver_url(uri)?;
+    let base = queue_base_name(name, &url);
+    let existing: Vec<String> = installed_names_and_ports()?
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    let queue = unique_queue_name(&base, &existing);
+    let script = add_printer_script(&queue, &url);
+
+    match run_powershell(&script)? {
+        PsOutcome::Ok => Ok(()),
+        PsOutcome::Failed { code, message } => match code {
+            PS_EXIT_ACCESS_DENIED => anyhow::bail!(
+                "Adding a printer may require administrator rights. Use \"Open printer \
+                 settings\" to add it from Windows."
+            ),
+            PS_EXIT_NO_IPPURL => anyhow::bail!(
+                "This version of Windows cannot add an IPP printer from MaeclyPrint \
+                 (Add-Printer has no -IppURL). Use \"Open printer settings\" to add it from \
+                 Windows."
+            ),
+            _ if message.is_empty() => anyhow::bail!("Add-Printer failed (exit code {code})"),
+            _ => anyhow::bail!("{message}"),
+        },
     }
 }
 
-/// Run a Windows PowerShell 5.1 one-liner, returning its captured stderr as the
-/// error text on failure so the spooler's own message reaches the UI.
-fn run_powershell(script: &str) -> anyhow::Result<()> {
+/// Result of a PowerShell run that did start.
+enum PsOutcome {
+    Ok,
+    Failed { code: i32, message: String },
+}
+
+/// Run a Windows PowerShell 5.1 script, returning the exit code and the
+/// script's own error line on failure.
+///
+/// The script writes its error text through `[Console]::Error` after switching
+/// the console encoding to UTF-8 (see [`add_printer_script`]), so it is decoded
+/// as UTF-8 here. Without that switch `powershell.exe` writes in the OEM code
+/// page (CP850 on Spanish Windows) and "No se encontró" arrived as "encontr�".
+fn run_powershell(script: &str) -> anyhow::Result<PsOutcome> {
     let out = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .with_context(|| "failed to spawn powershell.exe")?;
     if out.status.success() {
-        return Ok(());
+        return Ok(PsOutcome::Ok);
     }
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    let msg = stderr.trim();
-    if msg.is_empty() {
-        anyhow::bail!("powershell exited with {}", out.status);
-    }
-    anyhow::bail!("{msg}");
+    let message = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    Ok(PsOutcome::Failed {
+        code: out.status.code().unwrap_or(1),
+        message,
+    })
 }
 
-/// Map an IPP/IPPS device URI to the port name Windows expects.
-///
-/// `ipp://host[:port]/path` becomes `IPP://host/path` (and `ipps://` →
-/// `IPPS://…`). The default IPP port 631 is dropped; any explicit non-default
-/// port is kept as `host:port`.
-fn ipp_port_name(uri: &str) -> anyhow::Result<String> {
+/// Map an `ipp://` / `ipps://` device URI to the `http(s)://` URL the IPP
+/// Class Driver's `-IppURL` takes. IPP runs over HTTP, and Windows' IPP
+/// connections are addressed by their HTTP URL; the port is kept, and filled
+/// in as 631 (the IPP and IPPS default, RFC 8010 / RFC 7472) when absent.
+fn ipp_class_driver_url(uri: &str) -> anyhow::Result<String> {
     let (scheme, rest) = uri
         .split_once("://")
         .with_context(|| format!("not a URI: {uri}"))?;
-    let prefix = match scheme.to_ascii_lowercase().as_str() {
-        "ipp" => "IPP",
-        "ipps" => "IPPS",
-        other => anyhow::bail!("unsupported scheme for an IPP port: {other}"),
+    let http = match scheme.to_ascii_lowercase().as_str() {
+        "ipp" => "http",
+        "ipps" => "https",
+        other => anyhow::bail!("unsupported scheme for an IPP printer: {other}"),
     };
     let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
     if authority.is_empty() {
         anyhow::bail!("URI has no host: {uri}");
     }
-    // Split host from port. Bracketed IPv6 authorities ("[::1]:631") must not
-    // be split at their first ':', which is inside the brackets.
-    let (bare_host, port) = if let Some(v6) = authority.strip_prefix('[') {
+    // Bracketed IPv6 authorities ("[::1]:631") must not be split at their
+    // first ':', which is inside the brackets.
+    let (host, port) = if let Some(v6) = authority.strip_prefix('[') {
         match v6.split_once(']') {
-            Some((h, tail)) => (
-                format!("[{h}]"),
-                tail.strip_prefix(':').unwrap_or(tail).to_string(),
-            ),
+            Some((h, tail)) => (format!("[{h}]"), tail.strip_prefix(':').unwrap_or("")),
             None => anyhow::bail!("malformed IPv6 authority: {authority}"),
         }
     } else {
         match authority.split_once(':') {
-            Some((h, p)) => (h.to_string(), p.to_string()),
-            None => (authority.to_string(), String::new()),
+            Some((h, p)) => (h.to_string(), p),
+            None => (authority.to_string(), ""),
         }
     };
-    let host = if port.is_empty() || port == "631" {
-        bare_host
+    if host.is_empty() || host == "[]" {
+        anyhow::bail!("URI has no host: {uri}");
+    }
+    let port = if port.is_empty() { "631" } else { port };
+    if !port.chars().all(|c| c.is_ascii_digit()) {
+        anyhow::bail!("URI has an invalid port: {uri}");
+    }
+    let path = if path.is_empty() { "ipp/print" } else { path };
+    Ok(format!("{http}://{host}:{port}/{path}"))
+}
+
+/// The queue name to start from: the user's display name, else the host.
+/// Characters the spooler refuses in a printer name (`\` and `,`) become `_`;
+/// the spooler caps names at 220 characters.
+fn queue_base_name(name: &str, url: &str) -> String {
+    let trimmed = name.trim();
+    let raw = if trimmed.is_empty() {
+        url.split_once("://")
+            .map(|(_, rest)| rest.split(['/', ':']).next().unwrap_or(rest))
+            .unwrap_or(url)
     } else {
-        format!("{bare_host}:{port}")
+        trimmed
     };
-    if path.is_empty() {
-        Ok(format!("{prefix}://{host}"))
+    let cleaned: String = raw
+        .chars()
+        .map(|c| if matches!(c, '\\' | ',') { '_' } else { c })
+        .take(220)
+        .collect();
+    if cleaned.is_empty() {
+        "Printer".to_string()
     } else {
-        Ok(format!("{prefix}://{host}/{path}"))
+        cleaned
+    }
+}
+
+/// `base` if no installed queue uses it (Windows printer names compare
+/// case-insensitively), else the first free `base_2`, `base_3`, ….
+fn unique_queue_name(base: &str, existing: &[String]) -> String {
+    let taken = |candidate: &str| existing.iter().any(|e| e.eq_ignore_ascii_case(candidate));
+    if !taken(base) {
+        return base.to_string();
+    }
+    let mut n = 2u32;
+    loop {
+        let candidate = format!("{base}_{n}");
+        if !taken(&candidate) {
+            return candidate;
+        }
+        n += 1;
     }
 }
 
@@ -313,22 +535,38 @@ fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
-/// The PowerShell script binding `name` to the built-in IPP class driver on
-/// `port`.
+/// The PowerShell script adding queue `name` for the IPP printer at `url`.
 ///
-/// `$ErrorActionPreference = 'Stop'` turns non-terminating cmdlet errors into
-/// terminating ones, so PowerShell exits non-zero instead of reporting success
-/// with an error on stderr. The port is pre-created inside a `try/catch` that
-/// swallows the already-exists case — locale-independent, unlike matching
-/// "port does not exist" against localized stderr.
-fn add_printer_script(name: &str, port: &str) -> String {
-    let port = ps_quote(port);
+/// - Output encoding is switched to UTF-8 first, so localized error text
+///   survives the trip (see [`run_powershell`]).
+/// - Feature detection: `-IppURL` is not on every Windows build; its absence
+///   exits with [`PS_EXIT_NO_IPPURL`].
+/// - Access denied is recognised by HRESULT `0x80070005` or the
+///   `PermissionDenied` category — never by English words — and exits with
+///   [`PS_EXIT_ACCESS_DENIED`].
+/// - Any other failure writes just the exception message to stderr and exits 1.
+fn add_printer_script(name: &str, url: &str) -> String {
     format!(
-        "$ErrorActionPreference = 'Stop'; try {{ Add-PrinterPort -Name {port} }} catch {{ }}; \
-         Add-Printer -Name {} -DriverName 'Microsoft IPP Class Driver' -PortName {port}",
-        ps_quote(name),
+        "$ErrorActionPreference = 'Stop'; \
+         [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; \
+         try {{ \
+           if (-not (Get-Command Add-Printer).Parameters.ContainsKey('IppURL')) {{ exit {no_ipp} }}; \
+           Add-Printer -Name {name} -IppURL {url}; exit 0 \
+         }} catch {{ \
+           $id = \"$($_.FullyQualifiedErrorId) $($_.Exception.HResult) $($_.Exception.MessageId)\"; \
+           if ($_.CategoryInfo.Category -eq 'PermissionDenied' -or $id -match '80070005|-2147024891') {{ exit {denied} }}; \
+           [Console]::Error.WriteLine($_.Exception.Message); exit 1 \
+         }}",
+        no_ipp = PS_EXIT_NO_IPPURL,
+        denied = PS_EXIT_ACCESS_DENIED,
+        name = ps_quote(name),
+        url = ps_quote(url),
     )
 }
+
+// ----------------------------------------------------------------------------
+// Per-printer assembly
+// ----------------------------------------------------------------------------
 
 fn printer_from(info: &PRINTER_INFO_2W, default: Option<&str>) -> Printer {
     let name = pwstr(info.pPrinterName);
@@ -338,6 +576,18 @@ fn printer_from(info: &PRINTER_INFO_2W, default: Option<&str>) -> Printer {
     let port_w = PCWSTR(info.pPortName.0);
 
     let shared = (info.Attributes & PRINTER_ATTRIBUTE_SHARED) != 0;
+
+    let paper_names = dc_names(device, port_w, DC_PAPERNAMES, 64);
+    let bin_names = dc_names(device, port_w, DC_BINNAMES, 24);
+    let (default_paper, default_tray) = devmode_defaults(
+        // SAFETY: pDevMode is either null or points into the enumeration
+        // buffer, which outlives this call.
+        unsafe { info.pDevMode.as_ref() },
+        &paper_names,
+        &dc_ids(device, port_w, DC_PAPERS),
+        &bin_names,
+        &dc_ids(device, port_w, DC_BINS),
+    );
 
     Printer {
         id: name.clone(),
@@ -349,7 +599,7 @@ fn printer_from(info: &PRINTER_INFO_2W, default: Option<&str>) -> Printer {
         kind: infer_kind(&driver, &name, Some(&port)),
         color: dc_flag(device, port_w, DC_COLORDEVICE) == 1,
         duplex: dc_flag(device, port_w, DC_DUPLEX) == 1,
-        status: status_from(info.Status, info.cJobs),
+        status: status_from(info.Status, info.Attributes, info.cJobs),
         is_default: default == Some(name.as_str()),
         location: pwstr(info.pLocation),
         connection: if port.is_empty() {
@@ -361,9 +611,10 @@ fn printer_from(info: &PRINTER_INFO_2W, default: Option<&str>) -> Printer {
         shared,
         queued_jobs: info.cJobs,
         max_dpi: dc_resolution(device, port_w),
-        papers: dc_names(device, port_w, DC_PAPERNAMES, 64),
-        trays: dc_names(device, port_w, DC_BINNAMES, 24)
+        papers: paper_names.into_iter().filter(|n| !n.is_empty()).collect(),
+        trays: bin_names
             .into_iter()
+            .filter(|n| !n.is_empty())
             .map(|name| Tray {
                 name,
                 paper: None,
@@ -372,19 +623,61 @@ fn printer_from(info: &PRINTER_INFO_2W, default: Option<&str>) -> Printer {
             .collect(),
         // Win32 does not expose supply levels.
         supplies: Supplies::default(),
-        default_tray: None,
-        default_paper: None,
+        default_tray,
+        default_paper,
     }
 }
 
-fn status_from(status: u32, jobs: u32) -> PrinterStatus {
+/// The spooler's default paper and tray *names*, read from the printer's
+/// default DEVMODE and named through the driver's parallel id/name arrays.
+/// A field the DEVMODE does not set (`dmFields`) or an id the driver does not
+/// list yields `None`, which the UI shows as a plain "Printer default".
+fn devmode_defaults(
+    dm: Option<&DEVMODEW>,
+    paper_names: &[String],
+    paper_ids: &[u16],
+    bin_names: &[String],
+    bin_ids: &[u16],
+) -> (Option<String>, Option<String>) {
+    let Some(dm) = dm else {
+        return (None, None);
+    };
+    // SAFETY: the printer arm of the DEVMODE union is the one a printer's
+    // DEVMODE uses; reading plain integers from it cannot be invalid.
+    let printer_fields = unsafe { dm.Anonymous1.Anonymous1 };
+    let paper = (dm.dmFields.0 & DM_PAPERSIZE.0 != 0)
+        .then(|| name_for_id(paper_names, paper_ids, printer_fields.dmPaperSize as u16))
+        .flatten();
+    let tray = (dm.dmFields.0 & DM_DEFAULTSOURCE.0 != 0)
+        .then(|| name_for_id(bin_names, bin_ids, printer_fields.dmDefaultSource as u16))
+        .flatten();
+    (paper, tray)
+}
+
+/// Normalize the spooler's `Status` bits *and* `Attributes` into one state.
+///
+/// - **Offline**: the device is offline, unreachable or unknown to its server,
+///   the user chose *Use Printer Offline* (`PRINTER_ATTRIBUTE_WORK_OFFLINE` —
+///   an attribute, with `Status` often 0), or the queue is **paused**. A paused
+///   queue accepts jobs but prints none, which to the user is the same promise
+///   broken as offline, so it must not read "Ready".
+/// - **Error**: anything that needs a person (jam, out of paper or toner, door
+///   open, "user intervention").
+/// - **Busy**: printing/processing, or jobs waiting.
+fn status_from(status: u32, attributes: u32, jobs: u32) -> PrinterStatus {
+    let offline = PRINTER_STATUS_OFFLINE
+        | PRINTER_STATUS_NOT_AVAILABLE
+        | PRINTER_STATUS_SERVER_UNKNOWN
+        | PRINTER_STATUS_PAUSED;
     let err = PRINTER_STATUS_ERROR
         | PRINTER_STATUS_PAPER_JAM
         | PRINTER_STATUS_PAPER_OUT
+        | PRINTER_STATUS_PAPER_PROBLEM
         | PRINTER_STATUS_NO_TONER
-        | PRINTER_STATUS_DOOR_OPEN;
+        | PRINTER_STATUS_DOOR_OPEN
+        | PRINTER_STATUS_USER_INTERVENTION;
     let busy = PRINTER_STATUS_PRINTING | PRINTER_STATUS_PROCESSING | PRINTER_STATUS_BUSY;
-    if status & PRINTER_STATUS_OFFLINE != 0 {
+    if status & offline != 0 || attributes & PRINTER_ATTRIBUTE_WORK_OFFLINE != 0 {
         PrinterStatus::Offline
     } else if status & err != 0 {
         PrinterStatus::Error
@@ -401,6 +694,10 @@ fn dc_flag(device: PCWSTR, port: PCWSTR, cap: PRINTER_DEVICE_CAPABILITIES) -> i3
 }
 
 /// A name-array `DeviceCapabilities` query (`DC_PAPERNAMES` @64, `DC_BINNAMES` @24).
+///
+/// Empty names are kept (as empty strings) so the array stays parallel to the
+/// matching id array (`DC_PAPERS`/`DC_BINS`); callers that show the names
+/// filter blanks themselves.
 fn dc_names(
     device: PCWSTR,
     port: PCWSTR,
@@ -422,8 +719,22 @@ fn dc_names(
             let end = chunk.iter().position(|&c| c == 0).unwrap_or(chunk.len());
             String::from_utf16_lossy(&chunk[..end])
         })
-        .filter(|s| !s.is_empty())
         .collect()
+}
+
+/// A `WORD`-array `DeviceCapabilities` query (`DC_PAPERS`, `DC_BINS`).
+fn dc_ids(device: PCWSTR, port: PCWSTR, cap: PRINTER_DEVICE_CAPABILITIES) -> Vec<u16> {
+    let count = unsafe { DeviceCapabilitiesW(device, port, cap, PWSTR::null(), None) };
+    if count <= 0 {
+        return Vec::new();
+    }
+    let mut buf = vec![0u16; count as usize];
+    let got = unsafe { DeviceCapabilitiesW(device, port, cap, PWSTR(buf.as_mut_ptr()), None) };
+    if got <= 0 {
+        return Vec::new();
+    }
+    buf.truncate(got as usize);
+    buf
 }
 
 /// Max supported resolution from `DC_ENUMRESOLUTIONS` (pairs of `LONG` x,y).
@@ -460,62 +771,83 @@ mod tests {
     #[test]
     fn status_priority() {
         assert!(matches!(
-            status_from(PRINTER_STATUS_OFFLINE, 0),
+            status_from(PRINTER_STATUS_OFFLINE, 0, 0),
             PrinterStatus::Offline
         ));
         assert!(matches!(
-            status_from(PRINTER_STATUS_PAPER_JAM, 0),
+            status_from(PRINTER_STATUS_PAPER_JAM, 0, 0),
             PrinterStatus::Error
         ));
         assert!(matches!(
-            status_from(PRINTER_STATUS_PRINTING, 0),
+            status_from(PRINTER_STATUS_PRINTING, 0, 0),
             PrinterStatus::Busy
         ));
-        assert!(matches!(status_from(0, 3), PrinterStatus::Busy));
-        assert!(matches!(status_from(0, 0), PrinterStatus::Ready));
+        assert!(matches!(status_from(0, 0, 3), PrinterStatus::Busy));
+        assert!(matches!(status_from(0, 0, 0), PrinterStatus::Ready));
+    }
+
+    /// A paused queue, "Use Printer Offline" (an *attribute*, with Status 0),
+    /// an unreachable device and a server that no longer knows it are not
+    /// Ready; "user intervention" is an error.
+    #[test]
+    fn fr_printers_status_honours_paused_offline_attribute_and_intervention() {
+        let offline = |s, a| matches!(status_from(s, a, 0), PrinterStatus::Offline);
+        assert!(offline(PRINTER_STATUS_PAUSED, 0));
+        assert!(offline(0, PRINTER_ATTRIBUTE_WORK_OFFLINE));
+        assert!(offline(PRINTER_STATUS_NOT_AVAILABLE, 0));
+        assert!(offline(PRINTER_STATUS_SERVER_UNKNOWN, 0));
+        // Offline wins over jobs waiting: they are stuck, not printing.
+        assert!(matches!(
+            status_from(0, PRINTER_ATTRIBUTE_WORK_OFFLINE, 4),
+            PrinterStatus::Offline
+        ));
+        assert!(matches!(
+            status_from(PRINTER_STATUS_USER_INTERVENTION, 0, 0),
+            PrinterStatus::Error
+        ));
+        // A shared printer is still Ready.
+        assert!(matches!(
+            status_from(0, PRINTER_ATTRIBUTE_SHARED, 0),
+            PrinterStatus::Ready
+        ));
     }
 
     #[test]
-    fn ipp_port_name_strips_default_port() {
+    fn ipp_class_driver_url_maps_schemes_and_ports() {
         assert_eq!(
-            ipp_port_name("ipp://printer.local:631/ipp/print").unwrap(),
-            "IPP://printer.local/ipp/print"
+            ipp_class_driver_url("ipp://10.0.0.41:631/ipp/print").unwrap(),
+            "http://10.0.0.41:631/ipp/print"
+        );
+        assert_eq!(
+            ipp_class_driver_url("ipps://printer.local/ipp/print").unwrap(),
+            "https://printer.local:631/ipp/print"
+        );
+        assert_eq!(
+            ipp_class_driver_url("ipp://host:9631/printers/lab").unwrap(),
+            "http://host:9631/printers/lab"
+        );
+        // No path → the IPP Everywhere default.
+        assert_eq!(
+            ipp_class_driver_url("ipp://host").unwrap(),
+            "http://host:631/ipp/print"
         );
     }
 
     #[test]
-    fn ipp_port_name_handles_ipps_and_paths() {
+    fn ipp_class_driver_url_handles_ipv6_and_rejects_invalid() {
         assert_eq!(
-            ipp_port_name("ipps://host/ipp/print").unwrap(),
-            "IPPS://host/ipp/print"
-        );
-    }
-
-    #[test]
-    fn ipp_port_name_keeps_explicit_port() {
-        assert_eq!(
-            ipp_port_name("ipp://host:9631/ipp/print").unwrap(),
-            "IPP://host:9631/ipp/print"
-        );
-    }
-
-    #[test]
-    fn ipp_port_name_rejects_invalid() {
-        assert!(ipp_port_name("not-a-uri").is_err());
-        assert!(ipp_port_name("socket://host/queue").is_err());
-    }
-
-    #[test]
-    fn ipp_port_name_handles_bracketed_ipv6() {
-        assert_eq!(
-            ipp_port_name("ipp://[fe80::1]:631/ipp/print").unwrap(),
-            "IPP://[fe80::1]/ipp/print"
+            ipp_class_driver_url("ipp://[fe80::1]:631/ipp/print").unwrap(),
+            "http://[fe80::1]:631/ipp/print"
         );
         assert_eq!(
-            ipp_port_name("ipp://[fe80::1]:9631/ipp/print").unwrap(),
-            "IPP://[fe80::1]:9631/ipp/print"
+            ipp_class_driver_url("ipp://[fe80::1]/ipp/print").unwrap(),
+            "http://[fe80::1]:631/ipp/print"
         );
-        assert!(ipp_port_name("ipp://[fe80::1/ipp/print").is_err());
+        assert!(ipp_class_driver_url("ipp://[fe80::1/ipp/print").is_err());
+        assert!(ipp_class_driver_url("not-a-uri").is_err());
+        assert!(ipp_class_driver_url("socket://host/queue").is_err());
+        assert!(ipp_class_driver_url("ipp:///ipp/print").is_err());
+        assert!(ipp_class_driver_url("ipp://host:abc/ipp/print").is_err());
     }
 
     #[test]
@@ -524,14 +856,105 @@ mod tests {
         assert_eq!(ps_quote("O'Brien"), "'O''Brien'");
     }
 
+    /// The script binds the class driver through `-IppURL` — never a Local
+    /// Port named after the URL — reports access-denied by exit code, and has
+    /// no catch-all that swallows errors.
     #[test]
-    fn add_printer_script_shape() {
-        let s = add_printer_script("Front Desk", "IPP://host/ipp/print");
+    fn fr_printers_add_printer_script_uses_ippurl() {
+        let s = add_printer_script("Front Desk", "http://host:631/ipp/print");
         assert!(s.starts_with("$ErrorActionPreference = 'Stop';"));
-        assert!(s.contains("try { Add-PrinterPort -Name 'IPP://host/ipp/print' } catch { }"));
-        assert!(s.contains("Add-Printer -Name 'Front Desk'"));
-        assert!(s.contains("-DriverName 'Microsoft IPP Class Driver'"));
-        assert!(s.contains("-PortName 'IPP://host/ipp/print'"));
+        assert!(s.contains("[Console]::OutputEncoding"));
+        assert!(s.contains("Add-Printer -Name 'Front Desk' -IppURL 'http://host:631/ipp/print'"));
+        assert!(!s.contains("Add-PrinterPort"));
+        assert!(!s.contains("catch { }"));
+        assert!(s.contains(&format!("exit {PS_EXIT_ACCESS_DENIED}")));
+        assert!(s.contains(&format!("exit {PS_EXIT_NO_IPPURL}")));
+        assert!(s.contains("80070005"));
+        // Hostile names stay inside their literal.
+        let s = add_printer_script("x'; Remove-Item C:\\ -Recurse; '", "http://h:631/p");
+        assert!(s.contains("-Name 'x''; Remove-Item C:\\ -Recurse; '''"));
+    }
+
+    #[test]
+    fn fr_printers_add_printer_deduplicates_queue_names() {
+        let existing = vec![
+            "10.0.0.5".to_string(),
+            "office".to_string(),
+            "Office_2".into(),
+        ];
+        assert_eq!(unique_queue_name("Lab", &existing), "Lab");
+        assert_eq!(unique_queue_name("10.0.0.5", &existing), "10.0.0.5_2");
+        // Windows printer names compare case-insensitively.
+        assert_eq!(unique_queue_name("Office", &existing), "Office_3");
+    }
+
+    #[test]
+    fn queue_base_name_falls_back_to_host_and_cleans_reserved_chars() {
+        assert_eq!(
+            queue_base_name("  Front Desk ", "http://h:631/p"),
+            "Front Desk"
+        );
+        assert_eq!(
+            queue_base_name("", "http://10.0.0.5:631/ipp/print"),
+            "10.0.0.5"
+        );
+        assert_eq!(queue_base_name("a\\b,c", "http://h:631/p"), "a_b_c");
+    }
+
+    #[test]
+    fn dmpaper_ids_map_to_what_sumatra_can_name() {
+        assert_eq!(paper_size_for_dmpaper(1), Some(PaperSize::Letter));
+        assert_eq!(paper_size_for_dmpaper(9), Some(PaperSize::A4));
+        assert_eq!(paper_size_for_dmpaper(5), Some(PaperSize::Legal));
+        assert_eq!(paper_size_for_dmpaper(8), Some(PaperSize::A3));
+        // A5, envelopes, photo sizes: not expressible → None, never "A4".
+        assert_eq!(paper_size_for_dmpaper(11), None);
+        assert_eq!(paper_size_for_dmpaper(20), None);
+    }
+
+    /// Localized driver names resolve through the id, not the string:
+    /// Spanish Windows calls Letter "Carta".
+    #[test]
+    fn localized_paper_names_resolve_by_id() {
+        let names = vec!["Carta".to_string(), "Oficio".into(), "A4".into()];
+        let ids = vec![1u16, 5, 9];
+        assert_eq!(
+            id_for_name(&names, &ids, "Carta").and_then(paper_size_for_dmpaper),
+            Some(PaperSize::Letter)
+        );
+        assert_eq!(id_for_name(&names, &ids, "oficio"), Some(5));
+        assert_eq!(id_for_name(&names, &ids, "Tabloid"), None);
+        assert_eq!(name_for_id(&names, &ids, 9).as_deref(), Some("A4"));
+        assert_eq!(name_for_id(&names, &ids, 70), None);
+    }
+
+    #[test]
+    fn devmode_defaults_name_the_spooler_default() {
+        let mut dm = DEVMODEW {
+            dmFields: DM_PAPERSIZE | DM_DEFAULTSOURCE,
+            ..Default::default()
+        };
+        dm.Anonymous1.Anonymous1.dmPaperSize = 1;
+        dm.Anonymous1.Anonymous1.dmDefaultSource = 15;
+        let papers = vec!["Letter".to_string(), "A4".into()];
+        let paper_ids = vec![1u16, 9];
+        let bins = vec!["Auto".to_string(), "Tray 1".into()];
+        let bin_ids = vec![7u16, 15];
+        assert_eq!(
+            devmode_defaults(Some(&dm), &papers, &paper_ids, &bins, &bin_ids),
+            (Some("Letter".into()), Some("Tray 1".into()))
+        );
+        // Unset fields and unknown ids are "no hint", not a guess.
+        dm.dmFields = DM_PAPERSIZE;
+        dm.Anonymous1.Anonymous1.dmPaperSize = 70;
+        assert_eq!(
+            devmode_defaults(Some(&dm), &papers, &paper_ids, &bins, &bin_ids),
+            (None, None)
+        );
+        assert_eq!(
+            devmode_defaults(None, &papers, &paper_ids, &bins, &bin_ids),
+            (None, None)
+        );
     }
 
     #[test]
@@ -565,9 +988,15 @@ mod tests {
         let printers = list_printers().expect("list_printers should not error");
         for p in &printers {
             assert!(!p.id.is_empty());
+            // A spooler default is always one of the printer's own names.
+            if let Some(paper) = &p.default_paper {
+                assert!(p.papers.contains(paper), "{paper} not in {:?}", p.papers);
+            }
         }
         if let Some(def) = default_printer().unwrap() {
             assert!(printers.iter().any(|p| p.id == def));
         }
+        let names = installed_names_and_ports().unwrap();
+        assert_eq!(names.len(), printers.len());
     }
 }
