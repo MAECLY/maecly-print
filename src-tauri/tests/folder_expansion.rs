@@ -51,8 +51,22 @@ fn mkdir(dir: &Path, name: &str) -> PathBuf {
 /// the wrong reason.
 fn canonical_tempdir() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = canonical(dir.path());
     (dir, root)
+}
+
+/// `canonicalize` in the form the app reports: on Windows the verbatim
+/// `\\?\C:\…` prefix is dropped for drive-letter paths, as production does.
+fn canonical(p: &Path) -> PathBuf {
+    let c = p.canonicalize().unwrap();
+    if cfg!(windows) {
+        if let Some(rest) = c.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+            if rest.as_bytes().get(1) == Some(&b':') {
+                return PathBuf::from(rest);
+            }
+        }
+    }
+    c
 }
 
 fn names(exp: &FolderExpansion) -> Vec<String> {
@@ -315,7 +329,7 @@ fn fr_007_symlink_loop_is_reported_not_followed() {
 fn fr_004_legitimate_symlinks_are_still_followed() {
     let (_guard, root) = canonical_tempdir();
     let outside = tempfile::tempdir().unwrap();
-    let target = outside.path().canonicalize().unwrap();
+    let target = canonical(outside.path());
     touch(&target, "linked.pdf");
     std::os::unix::fs::symlink(&target, root.join("shortcut")).unwrap();
 
