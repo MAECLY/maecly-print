@@ -5,7 +5,9 @@
     "file_one": "{{count}} archivo",
     "file_other": "{{count}} archivos",
     "page_one": "{{count}} página",
-    "page_other": "{{count}} páginas"
+    "page_other": "{{count}} páginas",
+    "pageAtLeast_one": "al menos {{count}} página",
+    "pageAtLeast_other": "al menos {{count}} páginas"
   },
   "actions": {
     "addFolder": "Añadir carpeta",
@@ -21,7 +23,8 @@
     "moveUp": "Subir {{name}}",
     "moveDown": "Bajar {{name}}",
     "remove": "Quitar {{name}}",
-    "image": "imagen"
+    "image": "imagen",
+    "pagesUnknown": "páginas desconocidas"
   },
   "empty": {
     "desktop": "Aún no hay archivos. Arrastra archivos o carpetas desde el Explorador o el Finder, o usa Añadir archivos.",
@@ -50,7 +53,8 @@
     "skipped_one": "Se ha descartado {{count}} archivo de «{{name}}»",
     "skipped_other": "Se han descartado {{count}} archivos de «{{name}}»",
     "added_one": "Se ha añadido {{count}} archivo de «{{name}}»",
-    "added_other": "Se han añadido {{count}} archivos de «{{name}}»"
+    "added_other": "Se han añadido {{count}} archivos de «{{name}}»",
+    "alreadyAdded": "Todos los archivos de «{{name}}» ya están en el trabajo."
   },
   "settings": {
     "profile": "Perfil",
@@ -94,7 +98,8 @@
   "pageRange": {
     "placeholder": "p. ej. 1-5,10",
     "syntaxError": "Usa números de página como 1-5,10 (los intervalos deben ir en orden ascendente).",
-    "outOfBounds": "«{{name}}» solo tiene {{pages}} páginas.",
+    "outOfBounds_one": "«{{name}}» solo tiene {{count}} página.",
+    "outOfBounds_other": "«{{name}}» solo tiene {{count}} páginas.",
     "hint": "Se aplica a los PDF y documentos: las imágenes ignoran el intervalo."
   },
   "preview": {

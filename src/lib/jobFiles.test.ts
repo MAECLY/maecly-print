@@ -18,6 +18,8 @@ const toasts = vi.hoisted(() => ({
   warning: vi.fn(),
   success: vi.fn(),
   info: vi.fn(),
+  loading: vi.fn(),
+  dismiss: vi.fn(),
 }));
 
 vi.mock('@/lib/ipc', async (importOriginal) => {
@@ -34,9 +36,11 @@ import {
   addPathsToJob,
   clearPendingFolders,
   expandFolderIntoJob,
+  getExpandingCount,
   getPendingFolders,
   inspectPaths,
   resolvePendingFolder,
+  resolveSelectionFiles,
   subscribePendingFolders,
 } from './jobFiles';
 
@@ -366,5 +370,113 @@ describe('jobFiles', () => {
 
   it('returns a referentially stable snapshot between changes', () => {
     expect(getPendingFolders()).toBe(getPendingFolders());
+  });
+
+  // -- honest counts, progress, selections ------------------------------
+
+  it('counts only the files that were new to the job', async () => {
+    ipc.inspectFiles.mockImplementation(async (paths) =>
+      paths.map((p) => fileInfo(p)),
+    );
+    ipc.expandFolders.mockResolvedValue([
+      expansion({ root: '/docs/r', files: ['/docs/r/a.pdf', '/docs/r/b.pdf'] }),
+    ]);
+    const files = collector();
+    files.setFiles([
+      {
+        id: '/docs/r/a.pdf',
+        name: 'a',
+        ext: 'pdf',
+        kb: 2,
+        path: '/docs/r/a.pdf',
+      },
+    ]);
+
+    const added = await expandFolderIntoJob(
+      { path: '/docs/r', name: 'r', hasSubfolders: false },
+      'top_level',
+      files.setFiles,
+      () => new Set(files.get().map((f) => f.path)),
+    );
+
+    expect(added.map((f) => f.path)).toEqual(['/docs/r/b.pdf']);
+    expect(toasts.success).toHaveBeenCalledWith('Added 1 file from “r”');
+  });
+
+  it('says so when every file of a folder was already in the job', async () => {
+    ipc.inspectFiles.mockImplementation(async (paths) =>
+      paths.map((p) => fileInfo(p)),
+    );
+    ipc.expandFolders.mockResolvedValue([
+      expansion({ root: '/docs/r', files: ['/docs/r/a.pdf'] }),
+    ]);
+    const files = collector();
+    files.setFiles([
+      {
+        id: '/docs/r/a.pdf',
+        name: 'a',
+        ext: 'pdf',
+        kb: 2,
+        path: '/docs/r/a.pdf',
+      },
+    ]);
+
+    await expandFolderIntoJob(
+      { path: '/docs/r', name: 'r', hasSubfolders: false },
+      'top_level',
+      files.setFiles,
+      () => new Set(files.get().map((f) => f.path)),
+    );
+
+    expect(toasts.success).not.toHaveBeenCalled();
+    expect(toasts.info).toHaveBeenCalledWith(
+      'Every file in “r” is already in the job.',
+    );
+  });
+
+  it('FR-004: shows progress while a folder is read, and reports it as expanding', async () => {
+    let release!: (v: FolderExpansion[]) => void;
+    ipc.expandFolders.mockReturnValue(
+      new Promise<FolderExpansion[]>((r) => (release = r)),
+    );
+    ipc.inspectFiles.mockResolvedValue([]);
+    toasts.loading.mockReturnValue('loading-id');
+    const files = collector();
+
+    const walk = expandFolderIntoJob(
+      { path: '/docs/big', name: 'big', hasSubfolders: true },
+      'recursive',
+      files.setFiles,
+    );
+    expect(getExpandingCount()).toBe(1);
+    expect(toasts.loading).toHaveBeenCalledWith('Reading “big”…');
+
+    release([expansion({ root: '/docs/big', scan: 'recursive' })]);
+    await walk;
+    expect(getExpandingCount()).toBe(0);
+    expect(toasts.dismiss).toHaveBeenCalledWith('loading-id');
+  });
+
+  it('FR-001: a print-now selection walks every folder top-level, without asking', async () => {
+    ipc.inspectFiles.mockImplementation(async (paths) =>
+      paths[0] === '/docs/nested'
+        ? [folderInfo('/docs/nested', true), fileInfo('/docs/a.pdf')]
+        : paths.map((p) => fileInfo(p)),
+    );
+    ipc.expandFolders.mockResolvedValue([
+      expansion({ root: '/docs/nested', files: ['/docs/nested/b.pdf'] }),
+    ]);
+
+    const out = await resolveSelectionFiles(['/docs/nested', '/docs/a.pdf']);
+
+    expect(ipc.expandFolders).toHaveBeenCalledWith(
+      ['/docs/nested'],
+      'top_level',
+    );
+    expect(out.map((f) => f.path)).toEqual([
+      '/docs/a.pdf',
+      '/docs/nested/b.pdf',
+    ]);
+    expect(getPendingFolders()).toEqual([]);
   });
 });

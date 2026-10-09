@@ -5,7 +5,9 @@
     "file_one": "{{count}} file",
     "file_other": "{{count}} files",
     "page_one": "{{count}} page",
-    "page_other": "{{count}} pages"
+    "page_other": "{{count}} pages",
+    "pageAtLeast_one": "at least {{count}} page",
+    "pageAtLeast_other": "at least {{count}} pages"
   },
   "actions": {
     "addFolder": "Add folder",
@@ -21,7 +23,8 @@
     "moveUp": "Move {{name}} up",
     "moveDown": "Move {{name}} down",
     "remove": "Remove {{name}}",
-    "image": "image"
+    "image": "image",
+    "pagesUnknown": "pages unknown"
   },
   "empty": {
     "desktop": "No files yet. Drag files or folders from Explorer or Finder, or use Add files.",
@@ -50,7 +53,8 @@
     "skipped_one": "Skipped {{count}} file in “{{name}}”",
     "skipped_other": "Skipped {{count}} files in “{{name}}”",
     "added_one": "Added {{count}} file from “{{name}}”",
-    "added_other": "Added {{count}} files from “{{name}}”"
+    "added_other": "Added {{count}} files from “{{name}}”",
+    "alreadyAdded": "Every file in “{{name}}” is already in the job."
   },
   "settings": {
     "profile": "Profile",
@@ -94,7 +98,8 @@
   "pageRange": {
     "placeholder": "e.g. 1-5,10",
     "syntaxError": "Use page numbers like 1-5,10 (ranges must ascend).",
-    "outOfBounds": "“{{name}}” only has {{pages}} pages.",
+    "outOfBounds_one": "“{{name}}” only has {{count}} page.",
+    "outOfBounds_other": "“{{name}}” only has {{count}} pages.",
     "hint": "Applies to PDFs and documents — images ignore the range."
   },
   "preview": {

@@ -189,6 +189,50 @@ export function toastRejected(rejected: RejectedFile[]): void {
   });
 }
 
+/** Paths already in the job right now, for honest "added N" counts. */
+export type CurrentPaths = () => ReadonlySet<string>;
+
+/** `files` minus anything already in the job (and minus repeats among them). */
+function freshOnly(files: UiFile[], currentPaths?: CurrentPaths): UiFile[] {
+  const have = new Set(currentPaths?.() ?? []);
+  return files.filter((f) => {
+    if (have.has(f.path)) return false;
+    have.add(f.path);
+    return true;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Folder walks in progress (FR-004)
+// ---------------------------------------------------------------------------
+
+let expanding = 0;
+const expandingListeners = new Set<() => void>();
+
+function setExpanding(next: number): void {
+  expanding = next;
+  for (const listener of expandingListeners) listener();
+}
+
+/**
+ * How many folder walks are still running. While it is above zero the job is
+ * still growing, so Print stays disabled: a batch spooled now would leave the
+ * late files behind without a word.
+ */
+export function getExpandingCount(): number {
+  return expanding;
+}
+
+/** Subscribe to {@link getExpandingCount}; returns the unsubscribe function. */
+export function subscribeExpanding(listener: () => void): () => void {
+  expandingListeners.add(listener);
+  return () => expandingListeners.delete(listener);
+}
+
+// ---------------------------------------------------------------------------
+// Adding to the job
+// ---------------------------------------------------------------------------
+
 /**
  * Inspect `paths` and append the printable ones to the job's file list.
  *
@@ -196,16 +240,14 @@ export function toastRejected(rejected: RejectedFile[]): void {
  * are expanded top-level right away. Unsupported entries surface in one toast
  * listing name + reason; an inspect failure surfaces as an error toast.
  *
- * Resolves with the files that actually reached the job — the inspected ones
- * plus whatever the folders expanded without a question yielded. A caller that
- * only wants them *shown* ignores it (the list is already in `setFiles`); a
- * caller that has to act on the whole selection right away — a context-menu
- * "print now", where nobody is going to press Print — needs the resolved files
- * rather than the `useState` value it cannot read back synchronously.
+ * Resolves with the files that were new to the job (given `currentPaths`; all
+ * of them without it) — the inspected ones plus whatever the question-free
+ * folders yielded.
  */
 export async function addPathsToJob(
   paths: string[],
   setFiles: Dispatch<SetStateAction<UiFile[]>>,
+  currentPaths?: CurrentPaths,
 ): Promise<UiFile[]> {
   if (paths.length === 0) return [];
   let result: InspectResult;
@@ -215,6 +257,7 @@ export async function addPathsToJob(
     toast.error(e instanceof Error ? e.message : String(e));
     return [];
   }
+  const added = freshOnly(result.files, currentPaths);
   appendFiles(setFiles, result.files);
   toastRejected(result.rejected);
 
@@ -225,9 +268,14 @@ export async function addPathsToJob(
     const fresh = askable.filter((f) => !known.has(f.path));
     if (fresh.length > 0) setPendingFolders([...pendingFolders, ...fresh]);
   }
-  const added = [...result.files];
   for (const folder of flat) {
-    added.push(...(await expandFolderIntoJob(folder, 'top_level', setFiles)));
+    added.push(
+      ...(await expandFolderIntoJob(folder, 'top_level', setFiles, () => {
+        const have = new Set(currentPaths?.() ?? []);
+        for (const f of added) have.add(f.path);
+        return have;
+      })),
+    );
   }
   return added;
 }
@@ -238,19 +286,78 @@ export async function addPathsToJob(
  * count) and appended; discarded ones are toasted (FR-005) — the backend has
  * already written them to the app log (FR-059).
  *
- * A truncated walk is called out too: a silently thin batch is exactly what
- * FR-059 exists to prevent, and the ceilings come back with the expansion so
- * the warning never hardcodes them.
+ * While the walk runs a loading toast names the folder and
+ * {@link getExpandingCount} counts it, so a slow recursive walk never looks
+ * like a dead click and Print waits for it. The "added" toast counts only the
+ * files that were new to the job (`currentPaths`), so dropping the same folder
+ * twice never claims to have added anything the second time.
  *
- * Resolves with the files the walk added, for the same reason
- * {@link addPathsToJob} does.
+ * Resolves with those new files.
  */
 export async function expandFolderIntoJob(
   folder: PendingFolder,
   scan: FolderScan,
   setFiles: Dispatch<SetStateAction<UiFile[]>>,
+  currentPaths?: CurrentPaths,
 ): Promise<UiFile[]> {
   resolvePendingFolder(folder.path);
+  setExpanding(expanding + 1);
+  const progress = toast.loading(t('folders.expanding', { name: folder.name }));
+  try {
+    const walked = await walkFolder(folder, scan);
+    const fresh = freshOnly(walked, currentPaths);
+    appendFiles(setFiles, walked);
+    if (fresh.length > 0) {
+      toast.success(
+        t('toasts.added', { count: fresh.length, name: folder.name }),
+      );
+    } else if (walked.length > 0) {
+      toast.info(t('toasts.alreadyAdded', { name: folder.name }));
+    }
+    return fresh;
+  } finally {
+    toast.dismiss(progress);
+    setExpanding(expanding - 1);
+  }
+}
+
+/**
+ * Resolve a context-menu selection that prints (or queues) right away into the
+ * files it stands for — **without** touching the interactive job.
+ *
+ * "Print with MaeclyPrint" never shows a dialog, so nobody is there to answer
+ * the FR-004 question: every folder is walked top-level, as
+ * `context-menu-actions.md` specifies for that entry (recursion is what
+ * "Configure print job…" is for). Refusals and walk warnings are toasted as
+ * usual; the result is deduplicated by path.
+ */
+export async function resolveSelectionFiles(
+  paths: string[],
+): Promise<UiFile[]> {
+  if (paths.length === 0) return [];
+  let result: InspectResult;
+  try {
+    result = await inspectPaths(paths);
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : String(e));
+    return [];
+  }
+  toastRejected(result.rejected);
+  const out = [...result.files];
+  for (const folder of result.folders) {
+    out.push(...(await walkFolder(folder, 'top_level')));
+  }
+  return freshOnly(out);
+}
+
+/**
+ * Expand one folder and inspect what it holds, toasting what the walk
+ * discarded or truncated. Touches neither the job nor the pending questions.
+ */
+async function walkFolder(
+  folder: PendingFolder,
+  scan: FolderScan,
+): Promise<UiFile[]> {
   let expansions: FolderExpansion[];
   try {
     expansions = await expandFolders([folder.path], scan);
@@ -258,30 +365,23 @@ export async function expandFolderIntoJob(
     toast.error(e instanceof Error ? e.message : String(e));
     return [];
   }
-  const added: UiFile[] = [];
+  const files: UiFile[] = [];
   for (const expansion of expansions) {
-    added.push(...(await ingestExpansion(folder.name, expansion, setFiles)));
+    files.push(...(await ingestExpansion(folder.name, expansion)));
   }
-  return added;
+  return files;
 }
 
 async function ingestExpansion(
   name: string,
   expansion: FolderExpansion,
-  setFiles: Dispatch<SetStateAction<UiFile[]>>,
 ): Promise<UiFile[]> {
-  const added: UiFile[] = [];
+  const files: UiFile[] = [];
   if (expansion.files.length > 0) {
     try {
       const inspected = await inspectPaths(expansion.files);
-      appendFiles(setFiles, inspected.files);
-      added.push(...inspected.files);
+      files.push(...inspected.files);
       toastRejected(inspected.rejected);
-      if (inspected.files.length > 0) {
-        toast.success(
-          t('toasts.added', { count: inspected.files.length, name }),
-        );
-      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
@@ -309,5 +409,5 @@ async function ingestExpansion(
       t('folders.truncatedDepth', { name, max: expansion.limits.max_depth }),
     );
   }
-  return added;
+  return files;
 }
