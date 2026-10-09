@@ -125,7 +125,9 @@
       "InvalidState": {
         "update_in_progress": "An update is already being installed.",
         "resume_no_printer": "No printer is configured. Add one, or set a default on the Printers screen, then resume this job.",
-        "resume_printer_missing": "Printer “{{printer}}” is still not installed and nothing else is configured. Reinstall it, or reassign it on the Printers screen, then resume this job."
+        "resume_printer_missing": "Printer “{{printer}}” is still not installed and nothing else is configured. Reinstall it, or reassign it on the Printers screen, then resume this job.",
+        "resume_printer_ambiguous": "Several printers are named “{{printer}}”. Choose one on the Printers screen or remove the duplicate, then resume this job.",
+        "resume_printer_disabled": "Printer “{{printer}}” is disabled in MaeclyPrint. Enable it on the Printers screen, then resume this job."
       }
     },
     "noHost": "This needs the desktop app (it is running in a plain browser preview)."

@@ -125,7 +125,9 @@
       "InvalidState": {
         "update_in_progress": "Ya se está instalando una actualización.",
         "resume_no_printer": "No hay ninguna impresora configurada. Añade una o elige una predeterminada en la pantalla Impresoras y reanuda este trabajo.",
-        "resume_printer_missing": "La impresora «{{printer}}» sigue sin estar instalada y no hay otra configurada. Vuelve a instalarla o reasígnala en la pantalla Impresoras y reanuda este trabajo."
+        "resume_printer_missing": "La impresora «{{printer}}» sigue sin estar instalada y no hay otra configurada. Vuelve a instalarla o reasígnala en la pantalla Impresoras y reanuda este trabajo.",
+        "resume_printer_ambiguous": "Hay varias impresoras con el nombre «{{printer}}». Elige una en la pantalla Impresoras o elimina la duplicada y reanuda este trabajo.",
+        "resume_printer_disabled": "La impresora «{{printer}}» está desactivada en MaeclyPrint. Actívala en la pantalla Impresoras y reanuda este trabajo."
       }
     },
     "noHost": "Esto necesita la aplicación de escritorio (se está ejecutando en una vista previa del navegador)."

@@ -65,6 +65,14 @@ pub enum PrintError {
     #[error("printer '{printer}' is not installed — choose another printer")]
     PrinterMissing { printer: String },
 
+    /// The requested name matches several OS queues (two queues share a
+    /// display name). Never guessed at: the job pauses for a choice.
+    #[error("printer name '{printer}' matches several queues ({}) — choose one", candidates.join(", "))]
+    PrinterAmbiguous {
+        printer: String,
+        candidates: Vec<String>,
+    },
+
     /// No printer was requested and neither MaeclyPrint nor the OS has a default.
     #[error("no printer is configured — choose a printer first")]
     NoPrinter,

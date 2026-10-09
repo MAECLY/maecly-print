@@ -475,9 +475,11 @@ impl JobRunner for EngineRunner {
                     name: p.id.clone(),
                 })
             }
-            PrinterMatch::Ambiguous(_) | PrinterMatch::Missing => {
-                Err(PrintError::PrinterMissing { printer: name })
-            }
+            PrinterMatch::Ambiguous(candidates) => Err(PrintError::PrinterAmbiguous {
+                printer: name,
+                candidates,
+            }),
+            PrinterMatch::Missing => Err(PrintError::PrinterMissing { printer: name }),
         }
     }
 
@@ -961,8 +963,11 @@ impl Dispatcher {
                         // Drop the pin rather than writing `replacement` into
                         // the job: dispatch resolves the printer itself, and a
                         // name copied in here would go stale all over again.
+                        // The job does show where it is going now, so the
+                        // move is visible in the queue rather than only in
+                        // the log (dispatch overwrites it with the real one).
                         job.settings.printer = None;
-                        job.printer_resolved = None;
+                        job.printer_resolved = Some(replacement.clone());
                         tracing::info!(
                             event = "job_printer_reassigned",
                             job_id = %job.id,
@@ -1690,12 +1695,35 @@ fn plan_printer_fix(
     requested: Option<String>,
     file_name: &str,
 ) -> Result<PrinterFix, IpcError> {
-    // The printer came back (reinstalled, renamed back, spooler restarted).
-    if runner
-        .resolve_printer(requested.as_deref(), file_name)
-        .is_ok()
-    {
-        return Ok(PrinterFix::Unchanged);
+    match runner.resolve_printer(requested.as_deref(), file_name) {
+        // The printer came back (reinstalled, renamed back, spooler restarted).
+        Ok(_) => return Ok(PrinterFix::Unchanged),
+        // The printer is still there but cannot be used as named. Neither is
+        // a reason to send the job somewhere else: the user picked that
+        // printer, so the resume is refused with what to fix.
+        Err(PrintError::PrinterAmbiguous { printer, .. }) => {
+            return Err(IpcError::localized(
+                crate::util::error::IpcErrorCode::InvalidState,
+                "resume_printer_ambiguous",
+                format!(
+                    "several printers are named '{printer}' — choose one on the Printers screen or remove the duplicate, then resume this job"
+                ),
+            )
+            .with_param("printer", &printer));
+        }
+        Err(PrintError::PrinterDisabled { printer }) => {
+            return Err(IpcError::localized(
+                crate::util::error::IpcErrorCode::InvalidState,
+                "resume_printer_disabled",
+                format!(
+                    "printer '{printer}' is disabled in MaeclyPrint — enable it on the Printers screen, then resume this job"
+                ),
+            )
+            .with_param("printer", &printer));
+        }
+        // Only a printer the OS no longer has (or no printer at all) falls
+        // through to the preferences below.
+        Err(_) => {}
     }
 
     let Some(missing) = requested else {
@@ -1948,7 +1976,9 @@ impl<'a> JobLog<'a> {
 fn record_print_failure(job: &mut Job, e: PrintError, post: &mut Post) {
     let (code, terminal) = match &e {
         PrintError::TimedOut { .. } => ("print_timeout", true),
-        PrintError::PrinterMissing { .. } | PrintError::NoPrinter => ("printer_unavailable", false),
+        PrintError::PrinterMissing { .. }
+        | PrintError::PrinterAmbiguous { .. }
+        | PrintError::NoPrinter => ("printer_unavailable", false),
         PrintError::PrinterDisabled { .. } => ("printer_disabled", false),
         PrintError::Engine(engine) => return record_failure(job, engine, false, post),
     };
@@ -2226,6 +2256,8 @@ mod tests {
         overrides: Mutex<HashMap<String, crate::settings::PrinterOverride>>,
         /// Printers disabled in MaeclyPrint.
         disabled: Mutex<HashSet<String>>,
+        /// Names that match several OS queues.
+        ambiguous: Mutex<HashSet<String>>,
     }
 
     impl FakeRunner {
@@ -2249,6 +2281,7 @@ mod tests {
                 papers: Mutex::new(Vec::new()),
                 overrides: Mutex::new(HashMap::new()),
                 disabled: Mutex::new(HashSet::new()),
+                ambiguous: Mutex::new(HashSet::new()),
             }
         }
     }
@@ -2346,6 +2379,12 @@ mod tests {
             }
             if self.disabled.lock().unwrap().contains(&name) {
                 return Err(PrintError::PrinterDisabled { printer: name });
+            }
+            if self.ambiguous.lock().unwrap().contains(&name) {
+                return Err(PrintError::PrinterAmbiguous {
+                    candidates: vec![format!("{name}_1"), format!("{name}_2")],
+                    printer: name,
+                });
             }
             Ok(ResolvedPrinter {
                 overrides: self
@@ -3741,6 +3780,50 @@ mod tests {
         assert_eq!(h.job(&id).settings.printer.as_deref(), Some("Old Office"));
         h.run_to_idle();
         assert_eq!(h.job(&id).state, JobState::Done);
+    }
+
+    /// A printer that is still installed but cannot be used as named — two
+    /// queues share its name, or it is disabled — is not "gone": resuming
+    /// used to drop the pin and print on the default printer with nothing
+    /// but a log line to show for it. Resume now refuses and says what to fix.
+    #[tokio::test]
+    async fn fr_resume_never_moves_a_job_off_an_ambiguous_or_disabled_printer() {
+        for (setup, reason) in [
+            ("ambiguous", "resume_printer_ambiguous"),
+            ("disabled", "resume_printer_disabled"),
+        ] {
+            let mut h = harness();
+            let set = if setup == "ambiguous" {
+                &h.runner.ambiguous
+            } else {
+                &h.runner.disabled
+            };
+            set.lock().unwrap().insert("HP LaserJet".to_string());
+
+            let mut j = make_job("a.pdf");
+            j.settings.printer = Some("HP LaserJet".to_string());
+            let id = j.id.clone();
+            h.submit(vec![j]);
+            h.run_to_idle();
+            assert_eq!(h.job(&id).state, JobState::Paused, "{setup}");
+
+            let err = h
+                .request(|reply| Cmd::Resume {
+                    id: id.clone(),
+                    reply,
+                })
+                .await
+                .expect_err("resume refuses instead of re-pointing the job");
+            assert_eq!(err.reason(), Some(reason), "{setup}");
+            assert!(err.to_string().contains("HP LaserJet"), "{err}");
+            assert_eq!(
+                h.job(&id).settings.printer.as_deref(),
+                Some("HP LaserJet"),
+                "{setup}: the user's choice is kept"
+            );
+            assert_eq!(h.job(&id).state, JobState::Paused);
+            assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 0);
+        }
     }
 
     #[tokio::test]

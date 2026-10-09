@@ -167,7 +167,10 @@ impl From<crate::engine::print::PrintError> for CliError {
                 ExitCode::PrintFailed,
                 IpcError::PrintFailed(err_message(&err)),
             ),
-            P::PrinterMissing { .. } | P::NoPrinter | P::PrinterDisabled { .. } => {
+            P::PrinterMissing { .. }
+            | P::PrinterAmbiguous { .. }
+            | P::NoPrinter
+            | P::PrinterDisabled { .. } => {
                 Self::new(ExitCode::Printer, IpcError::PrintFailed(err_message(&err)))
             }
             P::Engine(engine) => engine.into(),
