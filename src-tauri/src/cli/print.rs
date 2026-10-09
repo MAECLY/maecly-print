@@ -284,7 +284,7 @@ fn print_one(
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| input.display().to_string());
 
-    // Page ranges are a PDF-only concept, so the engine narrows them per input
+    // Page ranges only apply to paged documents, so the engine narrows them per input
     // exactly as the dispatcher does — an image would otherwise spool empty.
     let settings =
         crate::engine::print::effective_settings(settings, &crate::engine::extension_of(input));

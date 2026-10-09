@@ -313,15 +313,21 @@ pub fn wait_with_timeout(
 
 /// The settings that actually apply to an input with extension `input_ext`.
 ///
-/// Page ranges are a PDF-only concept: an image is rasterised into a
-/// single-page PDF, so forwarding a range like `2-3` to the spooler prints
-/// nothing at all — a silent empty job. The UI and the docs already promise
-/// this ("Applies to PDFs only — images ignore the range",
-/// `docs/05-features/print-job.md` §Settings panel), so the engine drops the
-/// range rather than the doc being wrong. The job keeps the range the user
-/// typed; only what reaches the spooler is narrowed.
+/// Page ranges apply to paged documents: PDFs, and the documents converted to
+/// one (Office, OpenDocument, TXT, RTF, HTML, Markdown — the range selects
+/// pages of the converted PDF). A picture is rasterised into a single-page PDF,
+/// so forwarding a range like `2-3` to the spooler would print nothing at all —
+/// a silent empty job. The UI already promises "images ignore the range"
+/// (`docs/05-features/print-job.md` §Settings panel), so the engine drops the
+/// range for pictures (and for anything it cannot route). The job keeps the
+/// range the user typed; only what reaches the spooler is narrowed.
 pub fn effective_settings<'a>(settings: &'a JobSettings, input_ext: &str) -> Cow<'a, JobSettings> {
-    if input_ext.eq_ignore_ascii_case("pdf") || settings.page_ranges.is_none() {
+    use crate::engine::convert::{route, Route};
+    let paged = matches!(
+        route(input_ext),
+        Some(Route::Passthrough | Route::Office | Route::Html | Route::Markdown)
+    );
+    if paged || settings.page_ranges.is_none() {
         return Cow::Borrowed(settings);
     }
     Cow::Owned(JobSettings {
@@ -605,7 +611,13 @@ mod tests {
         let pdf = effective_settings(&settings, "pdf");
         assert_eq!(pdf.page_ranges.as_deref(), Some("2-3"), "PDFs keep it");
 
-        for ext in ["png", "JPG", "tiff", "webp", ""] {
+        // Converted documents are paged: the range selects pages of their PDF.
+        for ext in ["docx", "ODT", "txt", "html", "md"] {
+            let doc = effective_settings(&settings, ext);
+            assert_eq!(doc.page_ranges.as_deref(), Some("2-3"), "{ext} keeps it");
+        }
+
+        for ext in ["png", "JPG", "tiff", "webp", "heic", ""] {
             let img = effective_settings(&settings, ext);
             assert!(img.page_ranges.is_none(), "{ext} must drop the range");
             // Nothing else is narrowed.

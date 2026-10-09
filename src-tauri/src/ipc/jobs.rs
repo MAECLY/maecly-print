@@ -127,7 +127,9 @@ pub async fn print_files(
 ///   moment a PNG joins the selection.
 /// - **Known page counts only.** `probe_pages` returns `None` for PDFs above the
 ///   probe ceiling or that will not parse; those pass through, since refusing to
-///   print what we cannot measure is worse than trusting the user.
+///   print what we cannot measure is worse than trusting the user. Documents
+///   that still need converting (DOCX, HTML, …) do take the range, but their
+///   page count only exists after conversion, so they are not checked here.
 ///
 /// The message names the file: one range covers the whole batch, so "which one?"
 /// is the first thing the user needs to know.

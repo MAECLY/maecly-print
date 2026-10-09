@@ -398,8 +398,9 @@ impl JobRunner for EngineRunner {
             Some(p) => PathBuf::from(p),
             None => PathBuf::from(&job.input_path),
         };
-        // Page ranges are PDF-only; an image is one page, so a range that
-        // excludes page 1 would spool an empty job (see `effective_settings`).
+        // Page ranges apply to paged documents only; an image is one page, so
+        // a range that excludes page 1 would spool an empty job (see
+        // `effective_settings`).
         let settings = crate::engine::print::effective_settings(&job.settings, &job.input_ext);
         crate::engine::print::spool(
             &pdf,
