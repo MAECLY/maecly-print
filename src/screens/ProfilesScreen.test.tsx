@@ -12,7 +12,7 @@ import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 import { ProfilesScreen, exportFileName } from './ProfilesScreen';
 import { Toaster } from '@/components/AppShell/Toaster';
 import { useProfilesStore } from '@/stores/profilesStore';
-import { fixtureProfiles } from '@/test/fixtures';
+import { fixturePrinters, fixtureProfiles } from '@/test/fixtures';
 import type { Profile } from '@/ipc/bindings';
 
 // The Export/Import actions drive the OS file dialogs; the plugin is stubbed so
@@ -32,7 +32,9 @@ interface Call {
 const CUSTOM_ID = '01890a5e-7b2c-7c3d-8e4f-1a2b3c4d5e6f';
 
 /** Stateful profiles backend (upsert/delete/reflag) so refetch sees mutations. */
-function mockProfiles(opts: { fail?: string; list?: Profile[] } = {}): Call[] {
+function mockProfiles(
+  opts: { fail?: string; list?: Profile[]; printers?: unknown[] } = {},
+): Call[] {
   const calls: Call[] = [];
   let list: Profile[] = opts.list ?? fixtureProfiles;
   mockIPC((cmd, args) => {
@@ -42,7 +44,7 @@ function mockProfiles(opts: { fail?: string; list?: Profile[] } = {}): Call[] {
       case 'list_profiles':
         return list;
       case 'list_printers':
-        return [];
+        return opts.printers ?? [];
       case 'get_profile': {
         const { id } = args as { id: string };
         const found = list.find((q) => q.id === id);
@@ -201,6 +203,27 @@ describe('ProfilesScreen', () => {
     const save = calls.find((c) => c.cmd === 'save_profile')!;
     expect((save.args.profile as Profile).id).toBe('');
     expect((save.args.profile as Profile).name).toBe('New profile');
+  });
+
+  it('FR-044: the printer dropdown stores the queue id, not the display name', async () => {
+    const calls = mockProfiles({ printers: fixturePrinters });
+    render(<Harness />);
+    await screen.findByText('Photo Color');
+
+    fireEvent.click(screen.getByRole('button', { name: 'New profile' }));
+    const option = await screen.findByRole('option', {
+      name: 'EPSON L15160 Series',
+    });
+    expect(option).toHaveValue('EPSON_L15160');
+    const select = option.closest('select')!;
+    fireEvent.change(select, { target: { value: 'EPSON_L15160' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create profile' }));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.cmd === 'save_profile')).toBe(true),
+    );
+    const save = calls.find((c) => c.cmd === 'save_profile')!;
+    expect((save.args.profile as Profile).printer).toBe('EPSON_L15160');
   });
 
   it('shows inline errors and disables Save for invalid input', async () => {

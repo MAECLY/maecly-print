@@ -14,6 +14,7 @@ import {
   isValidPageRange,
   validateProfileName,
 } from '@/lib/profiles';
+import type { PrinterChoice } from '@/lib/printerIdentity';
 import type { EditorWorking } from '@/stores/profilesStore';
 import type { UiProfile } from '@/types/domain';
 
@@ -24,8 +25,13 @@ interface ProfileEditorProps {
   initial: UiProfile;
   /** Every stored profile — for the name-uniqueness check. */
   existing: UiProfile[];
-  /** Installed printer names for the printer dropdown (may be empty). */
-  printerNames: string[];
+  /**
+   * Installed printers for the dropdown (may be empty). The option VALUE is
+   * the spooler queue id — what a profile stores and the spooler addresses —
+   * and the label is the display name. Saving the display name instead made
+   * `lp -d "HP LaserJet Pro"` fail for queue `HP_LaserJet_Pro`.
+   */
+  printers: PrinterChoice[];
   /**
    * A working copy retained from a previous mount (the user left the screen
    * mid-edit). When present it seeds the form instead of `initial`, and the
@@ -130,7 +136,7 @@ function Field({
 export function ProfileEditor({
   initial,
   existing,
-  printerNames,
+  printers,
   restore,
   onWorkingChange,
   onSave,
@@ -213,16 +219,18 @@ export function ProfileEditor({
 
   // Include the current printer even if it isn't in the enumerated list (a
   // saved profile can name a printer that is currently offline/removed).
+  // A profile saved before ids were stored may hold a display name; the print
+  // path still resolves it, and it stays selectable here under its own text.
+  const savedRef =
+    form.printer &&
+    form.printer !== DEFAULT_PRINTER &&
+    !printers.some((p) => p.id === form.printer)
+      ? form.printer
+      : null;
   const printerOptions: SelectOption[] = [
     { value: DEFAULT_PRINTER, label: t('option.systemDefault') },
-    ...Array.from(
-      new Set([
-        ...printerNames,
-        ...(form.printer && form.printer !== DEFAULT_PRINTER
-          ? [form.printer]
-          : []),
-      ]),
-    ).map((n) => ({ value: n, label: n })),
+    ...printers.map((p) => ({ value: p.id, label: p.name || p.id })),
+    ...(savedRef ? [{ value: savedRef, label: savedRef }] : []),
   ];
 
   async function submit(): Promise<void> {

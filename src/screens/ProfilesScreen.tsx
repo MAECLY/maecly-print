@@ -13,6 +13,7 @@ import {
   nextUniqueName,
 } from '@/lib/profiles';
 import { isTauri, listPrinters } from '@/lib/ipc';
+import type { PrinterChoice } from '@/lib/printerIdentity';
 import { useProfilesStore } from '@/stores/profilesStore';
 import type { UiProfile } from '@/types/domain';
 
@@ -83,15 +84,16 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
     void init();
   }, [init]);
 
-  // Installed printer names for the editor's printer dropdown (best-effort;
+  // Installed printers (queue id + display name) for the editor's dropdown (best-effort;
   // empty outside Tauri or on failure — the dropdown still offers "default").
-  const [printerNames, setPrinterNames] = useState<string[]>([]);
+  const [printerChoices, setPrinterChoices] = useState<PrinterChoice[]>([]);
   useEffect(() => {
     if (!isTauri()) return;
     let alive = true;
     listPrinters()
       .then((ps) => {
-        if (alive) setPrinterNames(ps.map((p) => p.name));
+        if (alive)
+          setPrinterChoices(ps.map((p) => ({ id: p.id, name: p.name })));
       })
       .catch(() => {
         /* non-fatal: the dropdown just stays on "System default". */
@@ -573,7 +575,7 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
               workingKey={workingKey}
               initial={sel}
               existing={profiles}
-              printerNames={printerNames}
+              printers={printerChoices}
               restore={restore}
               setWorking={setWorking}
               onSave={handleSave}
@@ -616,7 +618,7 @@ function EditorSlot({
   }) => void;
   initial: UiProfile;
   existing: UiProfile[];
-  printerNames: string[];
+  printers: PrinterChoice[];
   restore: { key: string; profile: UiProfile; copiesText: string } | undefined;
   onSave: (p: UiProfile) => Promise<UiProfile | null>;
   onCancel: () => void;
