@@ -12,7 +12,10 @@
 //! - [`effective_settings`] — the per-input narrowing of the batch settings
 //!   (page ranges are a PDF-only concept), and
 //! - [`wait_with_timeout`] — the bounded child wait every backend spools
-//!   through, so a wedged spooler can never hold the queue forever.
+//!   through, so a wedged spooler can never hold the queue forever, and
+//! - [`job_state`] / [`cancel_os_job`] — following a spooled job until it
+//!   leaves the OS queue, so "done" means the printer finished rather than
+//!   "the spooler accepted the file".
 
 use std::borrow::Cow;
 use std::path::Path;
@@ -25,10 +28,12 @@ use super::EngineError;
 
 pub mod cups;
 pub mod sumatra;
+pub mod windows;
 
 /// Result of spooling a job to the OS. `os_job_id` is the spooler's own id when
-/// the backend reports one (CUPS does; SumatraPDF does not), used later to
-/// query status or cancel.
+/// it is known — CUPS's request id (`Office-42`), or on Windows the spooler job
+/// id recovered after SumatraPDF hands off — and is what [`job_state`] follows
+/// until the job leaves the queue, and what a cancel deletes.
 pub struct SpoolOutcome {
     pub os_job_id: Option<String>,
 }
@@ -67,6 +72,98 @@ pub enum PrintError {
     /// Any other engine failure, handled by the ordinary retry policy.
     #[error(transparent)]
     Engine(#[from] EngineError),
+}
+
+/// Where a spooled job stands in the OS print queue.
+///
+/// The vocabulary is IPP's `job-state` (RFC 8011 §5.3.7), which CUPS reports
+/// directly and the Windows spooler's `JOB_STATUS_*` flags map onto.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OsJobState {
+    /// Waiting in the queue (`pending`).
+    Pending,
+    /// Held: the queue will not print it until someone releases it
+    /// (`pending-held`, or a paused Windows job).
+    Held,
+    /// Being printed (`processing`).
+    Processing,
+    /// Printing stopped and the device needs attention — out of paper, offline,
+    /// a jam (`processing-stopped`, or the Windows error/offline/paper-out
+    /// flags). Still in the queue; it resumes when the printer does.
+    Stopped,
+    /// The printer finished it (`completed`).
+    Completed,
+    /// Someone cancelled it outside MaeclyPrint (`canceled`).
+    Canceled,
+    /// The spooler gave up on it (`aborted`).
+    Aborted,
+    /// The spooler no longer knows the job. It left the queue; with job
+    /// history disabled (or on Windows, where a printed job is removed) that is
+    /// the only trace of completion there is.
+    Gone,
+}
+
+impl OsJobState {
+    /// `true` once the job has left the queue for good.
+    pub fn is_final(self) -> bool {
+        matches!(
+            self,
+            OsJobState::Completed | OsJobState::Canceled | OsJobState::Aborted | OsJobState::Gone
+        )
+    }
+}
+
+/// Why a job's state could not be read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum TrackError {
+    /// This host cannot answer at all (no `ipptool`/`lpstat`, an id format the
+    /// backend does not issue). Asking again will not help, so the caller
+    /// stops tracking instead of waiting out the whole print budget.
+    #[error("job tracking is not available: {0}")]
+    Unavailable(String),
+    /// A one-off failure (the scheduler was busy, a transient RPC error); the
+    /// next poll may well succeed.
+    #[error("could not read the job state: {0}")]
+    Transient(String),
+}
+
+/// Read where the OS job `os_job_id` (as [`spool`] returned it) stands on
+/// `printer`. Never blocks for long: each backend asks the spooler once.
+pub fn job_state(printer: &str, os_job_id: &str) -> Result<OsJobState, TrackError> {
+    #[cfg(unix)]
+    {
+        let _ = printer;
+        cups::job_state(os_job_id)
+    }
+    #[cfg(windows)]
+    {
+        self::windows::job_state(printer, os_job_id)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (printer, os_job_id);
+        Err(TrackError::Unavailable(
+            "no print backend is available on this platform".to_string(),
+        ))
+    }
+}
+
+/// Best-effort cancellation of the OS job `os_job_id` on `printer`.
+pub fn cancel_os_job(printer: &str, os_job_id: &str) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        let _ = printer;
+        cups::cancel(os_job_id)
+    }
+    #[cfg(windows)]
+    {
+        self::windows::cancel(printer, os_job_id)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (printer, os_job_id);
+        anyhow::bail!("no print backend is available on this platform")
+    }
 }
 
 /// Spool `pdf` to `printer` with `settings`, tagging the job with `title`.

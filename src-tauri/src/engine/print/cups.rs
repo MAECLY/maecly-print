@@ -267,6 +267,118 @@ pub fn spool(
     }
 }
 
+/// The numeric CUPS job id inside an `lp` request id (`Office-42` → `42`).
+/// The destination may itself contain `-`, so the number is the last segment.
+pub fn job_number(os_job_id: &str) -> Option<u32> {
+    os_job_id.rsplit('-').next()?.parse().ok()
+}
+
+/// Map an IPP `job-state` keyword (as `ipptool` prints it) onto
+/// [`super::OsJobState`]. Unknown keywords are `None`, never guessed.
+pub fn parse_ipp_job_state(keyword: &str) -> Option<super::OsJobState> {
+    use super::OsJobState as S;
+    Some(match keyword.trim() {
+        "pending" => S::Pending,
+        "pending-held" => S::Held,
+        "processing" => S::Processing,
+        "processing-stopped" => S::Stopped,
+        "canceled" => S::Canceled,
+        "aborted" => S::Aborted,
+        "completed" => S::Completed,
+        _ => return None,
+    })
+}
+
+/// Read the job state out of `ipptool -tv … get-job-attributes.test` output:
+/// a `job-state (enum) = <keyword>` line, or `client-error-not-found` when the
+/// scheduler no longer knows the job.
+pub fn parse_ipptool_output(out: &str) -> Option<super::OsJobState> {
+    for line in out.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("job-state ") {
+            if let Some((_, value)) = rest.split_once('=') {
+                return parse_ipp_job_state(value);
+            }
+        }
+    }
+    if out.contains("client-error-not-found") {
+        return Some(super::OsJobState::Gone);
+    }
+    None
+}
+
+/// Whether `lpstat -W … -o <dest>` output lists `os_job_id` (first column).
+pub fn lpstat_lists(out: &str, os_job_id: &str) -> bool {
+    out.lines()
+        .filter_map(|l| l.split_whitespace().next())
+        .any(|id| id == os_job_id)
+}
+
+/// Where the CUPS job `os_job_id` stands.
+///
+/// `ipptool get-job-attributes` is asked first because it is the only source
+/// that tells a printed job from a cancelled or aborted one. Where `ipptool`
+/// is missing (a minimal Linux install), `lpstat -W` still tells a waiting job
+/// from a finished one, which is what keeps the print slot honest.
+#[cfg(unix)]
+pub fn job_state(os_job_id: &str) -> Result<super::OsJobState, super::TrackError> {
+    use super::{OsJobState, TrackError};
+
+    let Some(number) = job_number(os_job_id) else {
+        return Err(TrackError::Unavailable(format!(
+            "'{os_job_id}' is not a CUPS request id"
+        )));
+    };
+
+    let uri = format!("ipp://localhost/jobs/{number}");
+    match Command::new("ipptool")
+        .args(["-tv", &uri, "get-job-attributes.test"])
+        .env("LC_ALL", "C")
+        .env("LANG", "C")
+        .output()
+    {
+        Ok(out) => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            if let Some(state) = parse_ipptool_output(&text) {
+                return Ok(state);
+            }
+            // Ran but said nothing usable (no test file, scheduler busy): fall
+            // through to lpstat rather than give up.
+        }
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            return Err(TrackError::Transient(format!("failed to run ipptool: {e}")));
+        }
+        Err(_) => {}
+    }
+
+    let dest = os_job_id
+        .rsplit_once('-')
+        .map(|(d, _)| d)
+        .unwrap_or(os_job_id);
+    let lpstat = |which: &str| -> Result<String, TrackError> {
+        let out = Command::new("lpstat")
+            .args(["-W", which, "-o", dest])
+            .env("LC_ALL", "C")
+            .env("LANG", "C")
+            .output()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    TrackError::Unavailable("neither ipptool nor lpstat is installed".to_string())
+                } else {
+                    TrackError::Transient(format!("failed to run lpstat: {e}"))
+                }
+            })?;
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    if lpstat_lists(&lpstat("not-completed")?, os_job_id) {
+        return Ok(OsJobState::Processing);
+    }
+    if lpstat_lists(&lpstat("completed")?, os_job_id) {
+        return Ok(OsJobState::Completed);
+    }
+    Ok(OsJobState::Gone)
+}
+
 /// Best-effort cancellation of a CUPS job by its id (`cancel <id>`).
 #[cfg(unix)]
 pub fn cancel(os_job_id: &str) -> anyhow::Result<()> {
@@ -436,6 +548,95 @@ mod tests {
             !opts.iter().any(|o| o.starts_with("InputSlot=")),
             "{opts:?}"
         );
+    }
+
+    #[test]
+    fn job_number_is_the_last_segment_of_the_request_id() {
+        assert_eq!(job_number("Office-42"), Some(42));
+        assert_eq!(job_number("EPSON_L15160_Series-7"), Some(7));
+        assert_eq!(job_number("Front-Desk-Laser-1522"), Some(1522));
+        assert_eq!(job_number("Office"), None);
+        assert_eq!(job_number(""), None);
+    }
+
+    #[test]
+    fn ipp_job_states_map_one_to_one() {
+        use crate::engine::print::OsJobState as S;
+        for (kw, state) in [
+            ("pending", S::Pending),
+            ("pending-held", S::Held),
+            ("processing", S::Processing),
+            ("processing-stopped", S::Stopped),
+            ("canceled", S::Canceled),
+            ("aborted", S::Aborted),
+            ("completed", S::Completed),
+        ] {
+            assert_eq!(parse_ipp_job_state(kw), Some(state), "{kw}");
+        }
+        assert_eq!(parse_ipp_job_state("something-new"), None);
+    }
+
+    /// Captured from `ipptool -tv ipp://localhost/jobs/1522
+    /// get-job-attributes.test` against the `Maecly_Hold` queue.
+    #[test]
+    fn ipptool_output_yields_the_job_state() {
+        use crate::engine::print::OsJobState as S;
+        let held = r#""/usr/share/cups/ipptool/get-job-attributes.test":
+    Get-Job-Attributes:
+        attributes-charset (charset) = utf-8
+    Get job info with get-job-attributes                                 [PASS]
+        RECEIVED: 431 bytes in response
+        status-code = successful-ok (successful-ok)
+        job-state (enum) = pending-held
+        job-state-reasons (keyword) = job-hold-until-specified
+"#;
+        assert_eq!(parse_ipptool_output(held), Some(S::Held));
+        let done = "        job-state (enum) = completed\n";
+        assert_eq!(parse_ipptool_output(done), Some(S::Completed));
+        let gone = "        status-code = client-error-not-found (client-error-not-found)\n";
+        assert_eq!(parse_ipptool_output(gone), Some(S::Gone));
+        assert_eq!(parse_ipptool_output("garbage"), None);
+    }
+
+    /// Real-spooler check against the `Maecly_Hold` queue, which holds every
+    /// job (nothing prints). Opt-in: `cargo test -- --ignored maecly_hold`.
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "needs the local CUPS queue Maecly_Hold"]
+    fn maecly_hold_job_is_tracked_as_held_then_canceled() {
+        use crate::engine::print::OsJobState;
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = dir.path().join("track.pdf");
+        std::fs::write(
+            &pdf,
+            crate::platform::testpage::render(&crate::platform::testpage::TestPageInfo {
+                printer: "Maecly_Hold".into(),
+                paper: None,
+                tray: None,
+            }),
+        )
+        .unwrap();
+        let out = spool(
+            &pdf,
+            "Maecly_Hold",
+            &JobSettings::default(),
+            "maecly-track-test",
+            Some(std::time::Duration::from_secs(30)),
+        )
+        .expect("spooled");
+        let id = out.os_job_id.expect("lp reports a request id");
+        assert_eq!(job_state(&id), Ok(OsJobState::Held));
+        cancel(&id).unwrap();
+        assert_eq!(job_state(&id), Ok(OsJobState::Canceled));
+    }
+
+    #[test]
+    fn lpstat_lists_matches_the_first_column_exactly() {
+        let out = "Maecly_Hold-1523        ana     1024   Fri Oct  9 15:32:48 2026\n\
+                   Maecly_Hold-15230       ana     1024   Fri Oct  9 15:32:48 2026\n";
+        assert!(lpstat_lists(out, "Maecly_Hold-1523"));
+        assert!(!lpstat_lists(out, "Maecly_Hold-152"));
+        assert!(!lpstat_lists("", "Maecly_Hold-1523"));
     }
 
     #[test]

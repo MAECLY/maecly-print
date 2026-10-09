@@ -195,7 +195,9 @@ pub fn locate() -> Result<PathBuf, EngineError> {
 }
 
 /// Spool `pdf` via SumatraPDF, hiding the child's console window. SumatraPDF
-/// prints synchronously and reports no OS job id, so `os_job_id` is `None`.
+/// reports no OS job id itself, so the spooler's job list is compared before
+/// and after ([`super::windows::find_spooled_job`]); `os_job_id` is `None` only
+/// when the new job cannot be told apart from another (or already left).
 /// `title` is accepted for parity with the CUPS backend but SumatraPDF has no
 /// job-title flag, so it is not forwarded.
 ///
@@ -243,6 +245,9 @@ pub fn spool(
 
     let exe = locate()?;
     let args = sumatra_args(printer, settings, pdf);
+    // SumatraPDF reports no job id, so take the spooler's job list before and
+    // after: the new job carrying this file's name is the one to track.
+    let before = super::windows::job_ids(printer);
     let mut child = Command::new(exe)
         .args(&args)
         .creation_flags(CREATE_NO_WINDOW)
@@ -252,7 +257,14 @@ pub fn spool(
     let status = super::wait_with_timeout(&mut child, timeout)?;
 
     if status.success() {
-        Ok(super::SpoolOutcome { os_job_id: None })
+        let file_name = pdf
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        Ok(super::SpoolOutcome {
+            os_job_id: super::windows::find_spooled_job(printer, &before, &file_name)
+                .map(|id| id.to_string()),
+        })
     } else {
         Err(EngineError::PrintFailed(format!("SumatraPDF exited with {status}")).into())
     }
