@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Icon } from '@/components/Icon';
@@ -59,6 +59,7 @@ export function exportFileName(name: string): string {
 
 export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
   const t = useT('profiles');
+  const tc = useT('common');
   const profiles = useProfilesStore((s) => s.profiles);
   const status = useProfilesStore((s) => s.status);
   const error = useProfilesStore((s) => s.error);
@@ -134,9 +135,44 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
   // stale values back. Cheap, and the only consumer of `get_profile`.
   const selectedIsCustom =
     ready && profiles.some((p) => p.id === selectedId && !p.builtin);
+  //
+  // Patching the row alone is not enough: the editor seeded its form from the
+  // old row and keeps it, so it would read as dirty and Save would write the
+  // stale values back. A clean editor is therefore remounted on the fresh row;
+  // one holding real edits keeps them and is told the stored profile moved. A
+  // profile deleted meanwhile moves the selection to the default.
+  // The latest selection, so a refresh that resolves after the user moved on
+  // is ignored. (Not an effect-cleanup flag: a `missing` outcome reloads the
+  // list, which flips `selectedIsCustom` and would cancel its own handling.)
+  const selectedRef = useRef(selectedId);
+  selectedRef.current = selectedId;
   useEffect(() => {
     if (!selectedIsCustom) return;
-    void refreshProfile(selectedId);
+    const id = selectedId;
+    void refreshProfile(id).then((r) => {
+      if (selectedRef.current !== id) return;
+      if (r.kind === 'missing') {
+        clearEditor();
+        toast.error(t('toast.goneOnDisk'));
+        onSelect?.(useProfilesStore.getState().defaultProfile().id);
+        return;
+      }
+      if (r.kind !== 'changed') return;
+      const w = useProfilesStore.getState().working;
+      const untouched =
+        !w ||
+        w.key !== `profile:${id}` ||
+        (JSON.stringify(w.profile) === JSON.stringify(r.before) &&
+          w.copiesText === String(r.before.copies));
+      if (untouched) {
+        setWorking(null);
+        setEditorNonce((n) => n + 1);
+      } else {
+        toast.warning(t('toast.changedOnDisk'));
+      }
+    });
+    // `t`/`onSelect` identities are not triggers: this runs per selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIsCustom, selectedId, refreshProfile]);
 
   // Run `action`, but if the editor has unsaved edits, confirm the discard
@@ -166,12 +202,21 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
 
   /** Pick a destination and write `p` there as a shareable TOML file (FR-024). */
   const doExport = async (p: UiProfile): Promise<void> => {
-    const { save: saveDialog } = await import('@tauri-apps/plugin-dialog');
-    const path = await saveDialog({
-      title: t('dialog.exportTitle'),
-      defaultPath: exportFileName(p.name),
-      filters: [{ name: t('dialog.fileType'), extensions: ['toml'] }],
-    });
+    let path: string | null;
+    try {
+      const { save: saveDialog } = await import('@tauri-apps/plugin-dialog');
+      path = await saveDialog({
+        title: t('dialog.exportTitle'),
+        defaultPath: exportFileName(p.name),
+        filters: [{ name: t('dialog.fileType'), extensions: ['toml'] }],
+      });
+    } catch (e) {
+      // A dialog that cannot open (permission, platform error, chunk load)
+      // must not leave the click looking like it did nothing.
+      console.error('export dialog failed', e);
+      toast.error(t('dialog.failed'));
+      return;
+    }
     if (!path) return;
     if (await exportProfile(p.id, path)) {
       toast.success(t('toast.exported', { name: p.name }));
@@ -180,13 +225,20 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
 
   /** Pick a TOML document and add whatever valid profiles it holds (FR-024). */
   const doImport = async (): Promise<void> => {
-    const { open } = await import('@tauri-apps/plugin-dialog');
-    const picked = await open({
-      title: t('dialog.importTitle'),
-      multiple: false,
-      directory: false,
-      filters: [{ name: t('dialog.fileType'), extensions: ['toml'] }],
-    });
+    let picked: string | string[] | null;
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      picked = await open({
+        title: t('dialog.importTitle'),
+        multiple: false,
+        directory: false,
+        filters: [{ name: t('dialog.fileType'), extensions: ['toml'] }],
+      });
+    } catch (e) {
+      console.error('import dialog failed', e);
+      toast.error(t('dialog.failed'));
+      return;
+    }
     if (typeof picked !== 'string') return;
     const imported = await importProfiles(picked);
     if (!imported) return;
@@ -231,13 +283,35 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
     return (
       <>
         {topBar}
-        <CenteredNotice
-          loading={loading}
-          error={error ?? null}
-          icon="sliders"
-          loadingTitle={t('notice.loadingTitle')}
-          errorTitle={t('notice.errorTitle')}
-        />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <CenteredNotice
+            loading={loading}
+            error={error ?? null}
+            icon="sliders"
+            loadingTitle={t('notice.loadingTitle')}
+            errorTitle={t('notice.errorTitle')}
+          />
+          {/* `init` is re-runnable after an error; without this the only way
+              to retry was to leave the screen and come back. */}
+          {!loading && (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                paddingBottom: 32,
+              }}
+            >
+              <MPButton
+                variant="ghost"
+                icon="rotate"
+                size="sm"
+                onClick={() => void init()}
+              >
+                {tc('actions.retry')}
+              </MPButton>
+            </div>
+          )}
+        </div>
       </>
     );
   }
@@ -245,6 +319,7 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
   const showDraft = draft !== null;
   const sel = showDraft ? draft : findProfileIn(profiles, selectedId);
   const editing = showDraft || !sel.builtin;
+  const exportBlocked = editing && editorDirty;
   // Identity of the open editor, used both to key the React element and to tag
   // the working copy so it is never restored into a different form.
   const workingKey = showDraft ? 'draft' : `profile:${sel.id}`;
@@ -534,13 +609,20 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
                 ) : null}
                 <span
                   style={{ display: 'inline-flex' }}
-                  title={t('tooltip.export')}
+                  title={
+                    exportBlocked
+                      ? t('tooltip.exportDirty')
+                      : t('tooltip.export')
+                  }
                 >
+                  {/* export_profile reads the stored profile from disk, so
+                      with unsaved edits on screen the file would silently
+                      differ from what the user is looking at. */}
                   <MPButton
                     variant="ghost"
                     icon="upload"
                     size="sm"
-                    disabled={!ready}
+                    disabled={!ready || exportBlocked}
                     onClick={() => void doExport(sel)}
                   >
                     {t('actions.export')}

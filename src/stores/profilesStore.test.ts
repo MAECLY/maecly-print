@@ -384,8 +384,44 @@ describe('profilesStore', () => {
     await useProfilesStore.getState().init();
     const before = useProfilesStore.getState().profiles;
 
-    await useProfilesStore.getState().refreshProfile(CUSTOM_ID);
+    const r = await useProfilesStore.getState().refreshProfile(CUSTOM_ID);
+    expect(r).toEqual({ kind: 'unchanged' });
     expect(useProfilesStore.getState().profiles).toBe(before);
+  });
+
+  it('FR-020: refreshProfile reports a change with the row as it was', async () => {
+    mockProfiles();
+    await useProfilesStore.getState().init();
+    useProfilesStore.setState({
+      profiles: useProfilesStore
+        .getState()
+        .profiles.map((p) => (p.id === CUSTOM_ID ? { ...p, copies: 99 } : p)),
+    });
+
+    const r = await useProfilesStore.getState().refreshProfile(CUSTOM_ID);
+    expect(r.kind).toBe('changed');
+    expect(r.kind === 'changed' && r.before.copies).toBe(99);
+  });
+
+  it('FR-020: refreshProfile reloads the list when the profile is gone on disk', async () => {
+    let list = fixtureProfiles;
+    const calls: Call[] = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+      if (cmd === 'list_profiles') return list;
+      if (cmd === 'get_profile') {
+        list = fixtureProfiles.filter((p) => p.id !== CUSTOM_ID);
+        throw { code: 'ProfileNotFound', message: CUSTOM_ID };
+      }
+      return null;
+    });
+    await useProfilesStore.getState().init();
+
+    const r = await useProfilesStore.getState().refreshProfile(CUSTOM_ID);
+    expect(r).toEqual({ kind: 'missing' });
+    expect(
+      useProfilesStore.getState().profiles.some((p) => p.id === CUSTOM_ID),
+    ).toBe(false);
   });
 
   it('refreshProfile stays silent when the backend rejects', async () => {

@@ -86,16 +86,20 @@
     "undo": "Undo",
     "exported": "Exported \"{{name}}\"",
     "imported_one": "Imported {{count}} profile",
-    "imported_other": "Imported {{count}} profiles"
+    "imported_other": "Imported {{count}} profiles",
+    "changedOnDisk": "This profile was changed outside the editor. Saving will replace that version with yours.",
+    "goneOnDisk": "This profile was deleted outside the app."
   },
   "tooltip": {
     "deleteIsDefault": "Set another profile as default first",
     "export": "Save this profile as a TOML file you can share",
+    "exportDirty": "Save or cancel your changes first: export writes the saved version",
     "import": "Add profiles from a TOML file"
   },
   "dialog": {
     "exportTitle": "Export profile",
     "importTitle": "Import profiles",
-    "fileType": "MaeclyPrint profile"
+    "fileType": "MaeclyPrint profile",
+    "failed": "Couldn't open the file dialog."
   }
 }

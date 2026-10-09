@@ -67,7 +67,7 @@ All three share `printer = <default>`, `copies = 1`, `paper = A4`, `orientation 
 
 Built-ins render a read-only field table with a **Clone** button. Customs (and drafts) render the `ProfileEditor`, a controlled form over a working copy:
 
-- **Name** — validated live (`validateProfileName`): non-empty when trimmed, ≤ 100 chars, and unique case-insensitively against every other profile (the edited profile excludes its own name, so a plain re-save keeps working).
+- **Name** — validated live (`validateProfileName`): non-empty when trimmed, ≤ 100 characters counted as Unicode code points (the backend's `chars().count()`, so an emoji counts once), and unique case-insensitively against every other profile (the edited profile excludes its own name, so a plain re-save keeps working).
 - **Printer** — a dropdown of `System default` (the `<default>` sentinel) plus the installed printers from `list_printers`, minus those disabled in MaeclyPrint (`get_printer_prefs`), exactly as on Print Job. Each option is labelled with the printer's display name but its value is the printer **id** (the queue name the spooler needs; on CUPS the display name is `printer-info` and differs from it). A profile's own saved printer is always included even if it is currently offline or unlisted. A profile saved by an older build that holds a display name is shown as the matching printer and stored as its id on the next save (`resolvePrinterId`).
 - **Color, Duplex, Orientation, Scaling, Quality, Paper** — selects over the fixed vocabularies above.
 - **Copies** — buffered as text so an out-of-range keystroke shows an inline error (`Enter a whole number from 1 to 999.`) instead of being silently clamped; only a valid value is submitted.
@@ -81,7 +81,7 @@ Built-ins render a read-only field table with a **Clone** button. Customs (and d
 | Action           | Where           | Behavior                                                                                       |
 | ---------------- | --------------- | ---------------------------------------------------------------------------------------------- |
 | **New profile**  | top bar         | Opens an unsaved draft (id `''`) seeded from `Quick` with a unique `New profile` name.          |
-| **Clone**        | built-in detail | Opens a draft copying the built-in's settings, named `Copy of {name}` (de-duplicated).          |
+| **Clone**        | built-in detail | Opens a draft copying the built-in's settings, named `Copy of {name}` (de-duplicated, shortened to fit 100 characters). |
 | **Save changes / Create profile** | editor | Upserts via `save_profile`; toasts `Saved "{name}"`, reloads the list, selects the saved profile. |
 | **Cancel**       | editor          | Discards the draft / edits (resets the working copy to the stored values).                      |
 | **Make default** | custom/built-in detail | Marks the profile the app default via `set_default_profile`; disabled when it already is. |
@@ -97,6 +97,9 @@ Built-ins render a read-only field table with a **Clone** button. Customs (and d
 - **Duplicate names on load.** A hand-edited file with two case-insensitively equal names keeps the first and drops the rest with a warning.
 - **Unlimited profiles (FR-027).** There is no cap; the integration suite exercises 500.
 - **Deleted default.** The effective default resolves to the configured `engine.default_profile` when it still names a known profile, otherwise falls back to `builtin-quick` — a default deleted out from under the config never dangles. (Deleting the *current* default is refused outright; the user must switch first.)
+- **Changed or deleted on disk.** Opening a saved custom re-reads it through `get_profile`. If another window, a hand edit or the CLI changed it, the row is refreshed and a clean editor is remounted on the fresh values, so Save cannot write stale values back; an editor holding real edits keeps them and warns that saving will replace the newer version. If the profile was deleted (`ProfileNotFound`), the list is reloaded, a toast says so, and the selection moves to the default, so a later Save cannot quietly re-create it.
+- **Load failure.** When `list_profiles` fails the screen shows the error with a **Retry** button that re-runs the store's `init`.
+- **Export with unsaved edits.** `export_profile` writes the stored version, so **Export** is disabled (with a tooltip saying why) while the editor holds unsaved changes. A file dialog that cannot open shows an error toast instead of doing nothing.
 - **Standalone web preview.** Outside the Tauri host the store falls back to the static built-ins and marks itself `unavailable`: the detail pane shows a lock note, editing is disabled, and the Print Job profile dropdown still works.
 
 ## Default profile resolution

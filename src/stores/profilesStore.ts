@@ -56,6 +56,13 @@ export interface EditorWorking {
   copiesText: string;
 }
 
+/** Outcome of {@link ProfilesState.refreshProfile}. */
+export type RefreshResult =
+  | { kind: 'unchanged' }
+  | { kind: 'changed'; before: UiProfile }
+  | { kind: 'missing' }
+  | { kind: 'failed' };
+
 interface ProfilesState {
   profiles: UiProfile[];
   status: ProfilesLoadStatus;
@@ -77,8 +84,13 @@ interface ProfilesState {
   /** The current default profile (or the fallback chain), derived on demand. */
   defaultProfile: () => UiProfile;
 
-  /** Re-read one profile by id and refresh its row if the backend disagrees. */
-  refreshProfile: (id: string) => Promise<void>;
+  /**
+   * Re-read one profile by id and refresh its row if the backend disagrees.
+   * Says what happened, so the screen can re-seed an editor built from the
+   * old row (`changed`, with the row as it was) or move off a profile that no
+   * longer exists (`missing`, after the list was reloaded).
+   */
+  refreshProfile: (id: string) => Promise<RefreshResult>;
   /** Write one profile to `path` as a TOML document (FR-024). */
   exportProfile: (id: string, path: string) => Promise<boolean>;
   /** Import profiles from the TOML document at `path` (FR-024). */
@@ -205,21 +217,37 @@ export const useProfilesStore = create<ProfilesState>()((set, get) => {
      * cached row in place, which is what the screen would have shown anyway.
      */
     refreshProfile: async (id) => {
-      if (!isTauri()) return;
+      if (!isTauri()) return { kind: 'failed' };
       let fresh: UiProfile;
       try {
-        fresh = toUiProfile(await unwrap(commands.getProfile(id)));
+        const r = await commands.getProfile(id);
+        if (r.status === 'error') {
+          if (r.error?.code === 'ProfileNotFound') {
+            // Deleted behind our back (another window, the CLI). Keeping the
+            // row would let a later Save re-create it through the upsert's
+            // "unknown id → create" path, so reload the list instead.
+            try {
+              await refetch();
+            } catch {
+              /* the caller still moves the selection off the dead id */
+            }
+            return { kind: 'missing' };
+          }
+          return { kind: 'failed' };
+        }
+        fresh = toUiProfile(r.data);
       } catch {
-        return;
+        return { kind: 'failed' };
       }
-      set((s) => {
-        const i = s.profiles.findIndex((p) => p.id === fresh.id);
-        if (i < 0) return {};
-        if (JSON.stringify(s.profiles[i]) === JSON.stringify(fresh)) return {};
-        const profiles = [...s.profiles];
-        profiles[i] = fresh;
-        return { profiles };
-      });
+      const before = get().profiles.find((p) => p.id === fresh.id);
+      if (!before) return { kind: 'unchanged' };
+      if (JSON.stringify(before) === JSON.stringify(fresh)) {
+        return { kind: 'unchanged' };
+      }
+      set((s) => ({
+        profiles: s.profiles.map((p) => (p.id === fresh.id ? fresh : p)),
+      }));
+      return { kind: 'changed', before };
     },
 
     exportProfile: async (id, path) => {

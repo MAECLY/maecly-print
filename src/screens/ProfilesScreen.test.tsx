@@ -38,6 +38,11 @@ function mockProfiles(
     list?: Profile[];
     printers?: unknown[];
     disabledPrinters?: string[];
+    /**
+     * What `get_profile` reads "from disk" for an id, when it differs from the
+     * cached list (another window edited it). `null` = deleted on disk.
+     */
+    onDisk?: Record<string, Profile | null>;
   } = {},
 ): Call[] {
   const calls: Call[] = [];
@@ -54,6 +59,15 @@ function mockProfiles(
         return { disabled: opts.disabledPrinters ?? [] };
       case 'get_profile': {
         const { id } = args as { id: string };
+        if (opts.onDisk && id in opts.onDisk) {
+          const disk = opts.onDisk[id];
+          if (disk === null) {
+            // Gone on disk: the list follows, as the real backend's would.
+            list = list.filter((q) => q.id !== id);
+            throw { code: 'ProfileNotFound', message: id };
+          }
+          if (disk) return disk;
+        }
         const found = list.find((q) => q.id === id);
         if (!found) throw new Error(`Profile not found: ${id}`);
         return found;
@@ -495,6 +509,73 @@ describe('ProfilesScreen', () => {
       expect(screen.getByRole('button', { name: 'Clone' })).toBeInTheDocument(),
     );
     expect(calls.filter((c) => c.cmd === 'get_profile')).toHaveLength(before);
+  });
+
+  it('FR-020: a profile changed on disk re-seeds a clean editor, so Save cannot write stale values back', async () => {
+    const fresh: Profile = { ...fixtureProfiles[3]!, copies: 7 };
+    mockProfiles({ onDisk: { [CUSTOM_ID]: fresh } });
+    render(<Harness initialId={CUSTOM_ID} />);
+    await screen.findByDisplayValue('Contracts duplex');
+
+    // The editor now shows the on-disk copies and is not dirty.
+    expect(await screen.findByDisplayValue('7')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+  });
+
+  it('FR-020: a profile deleted on disk moves the selection to the default', async () => {
+    mockProfiles({ onDisk: { [CUSTOM_ID]: null } });
+    render(<Harness initialId={CUSTOM_ID} />);
+
+    expect(
+      await screen.findByText('This profile was deleted outside the app.'),
+    ).toBeInTheDocument();
+    // The default (Quick) is a built-in: read-only detail, Clone offered.
+    expect(
+      await screen.findByRole('button', { name: 'Clone' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Contracts duplex')).toBeNull();
+  });
+
+  it('FR-024: Export is disabled while the editor holds unsaved edits', async () => {
+    mockProfiles();
+    render(<Harness initialId={CUSTOM_ID} />);
+    const name = await screen.findByDisplayValue('Contracts duplex');
+    expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled();
+
+    fireEvent.change(name, { target: { value: 'Contracts duplex v2' } });
+    expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled();
+  });
+
+  it('FR-024: a file dialog that fails to open says so', async () => {
+    mockProfiles();
+    saveDialogMock.mockRejectedValue(new Error('dialog denied'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(<Harness initialId={CUSTOM_ID} />);
+    await screen.findByDisplayValue('Contracts duplex');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    expect(
+      await screen.findByText("Couldn't open the file dialog."),
+    ).toBeInTheDocument();
+    err.mockRestore();
+  });
+
+  it('offers Retry when the list fails to load, and a retry recovers', async () => {
+    let fail = true;
+    mockIPC((cmd) => {
+      if (cmd === 'list_profiles') {
+        if (fail) throw new Error('boom');
+        return fixtureProfiles;
+      }
+      if (cmd === 'list_printers') return [];
+      if (cmd === 'get_printer_prefs') return { disabled: [] };
+      return null;
+    });
+    render(<Harness />);
+    const retry = await screen.findByRole('button', { name: 'Retry' });
+    fail = false;
+    fireEvent.click(retry);
+    expect(await screen.findByText('Photo Color')).toBeInTheDocument();
   });
 
   // ---- FR-023: the stored printer is the queue id ------------------------

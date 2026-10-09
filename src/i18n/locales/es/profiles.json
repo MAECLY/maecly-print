@@ -86,16 +86,20 @@
     "undo": "Deshacer",
     "exported": "Se ha exportado «{{name}}»",
     "imported_one": "Se ha importado {{count}} perfil",
-    "imported_other": "Se han importado {{count}} perfiles"
+    "imported_other": "Se han importado {{count}} perfiles",
+    "changedOnDisk": "Este perfil se ha modificado fuera del editor. Si guardas, tu versión sustituirá a esa.",
+    "goneOnDisk": "Este perfil se ha eliminado fuera de la aplicación."
   },
   "tooltip": {
     "deleteIsDefault": "Antes marca otro perfil como predeterminado",
     "export": "Guarda este perfil como un archivo TOML que puedes compartir",
+    "exportDirty": "Guarda o descarta antes tus cambios: la exportación usa la versión guardada",
     "import": "Añade perfiles desde un archivo TOML"
   },
   "dialog": {
     "exportTitle": "Exportar perfil",
     "importTitle": "Importar perfiles",
-    "fileType": "Perfil de MaeclyPrint"
+    "fileType": "Perfil de MaeclyPrint",
+    "failed": "No se ha podido abrir el cuadro de diálogo de archivos."
   }
 }
