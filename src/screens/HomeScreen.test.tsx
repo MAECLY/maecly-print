@@ -10,6 +10,7 @@
 
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -281,6 +282,26 @@ describe('HomeScreen', () => {
     expect(screen.getByText('queue.json is corrupt')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));
     expect(init).toHaveBeenCalledTimes(1);
+  });
+
+  it('NFR-033: a queue read failure links to the logs folder', async () => {
+    const calls: string[] = [];
+    mockIPC((cmd) => {
+      calls.push(cmd);
+      return null;
+    });
+    try {
+      setQueue([], { status: 'error', error: 'queue.json is corrupt' });
+      renderHome();
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Open the logs folder' }),
+      );
+      await vi.waitFor(() => expect(calls).toContain('open_logs_folder'));
+    } finally {
+      clearMocks();
+      delete (window as unknown as { __TAURI_INTERNALS__?: unknown })
+        .__TAURI_INTERNALS__;
+    }
   });
 
   it('NFR-033: an unavailable backend says so instead of showing an empty history', () => {

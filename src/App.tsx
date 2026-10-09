@@ -14,6 +14,7 @@ import {
 import {
   isTauri,
   openExternal,
+  openLogsFolder,
   pauseQueue,
   printFiles,
   takePendingSelections,
@@ -46,8 +47,8 @@ const ONBOARD_KEY = 'maeclyprint:onboarding-complete';
  * How long the "an update is available" toast stays up. Long enough to be read
  * by someone who was not looking at the moment it appeared (the check fires 30
  * seconds after launch, unprompted), short enough that it still goes away on
- * its own — the news also waits on the About screen, so nothing is lost by
- * missing it.
+ * its own. Missing it costs little: the About screen's "Check for updates"
+ * finds the same release on demand (the launch-time result itself is not kept).
  */
 const UPDATE_TOAST_MS = 15_000;
 
@@ -209,7 +210,13 @@ function App() {
           action: url
             ? {
                 label: tAbout('updates.available.releaseNotes'),
-                onClick: () => void openExternal(url),
+                // A rejected URL or a machine with no default browser must
+                // say so; an unhandled rejection here was invisible.
+                onClick: () => {
+                  openExternal(url).catch((e: unknown) => {
+                    toast.error(e instanceof Error ? e.message : String(e));
+                  });
+                },
               }
             : undefined,
         });
@@ -287,8 +294,20 @@ function App() {
       setFiles([]);
       setActive('queue');
     } catch (e) {
-      // Keep the files so the user can fix and resubmit.
-      toast.error(e instanceof Error ? e.message : String(e), { id });
+      // Keep the files so the user can fix and resubmit. NFR-033: the error
+      // also offers the logs, whichever screen started the print (Home's
+      // shortcut and the context menu land here too).
+      toast.error(e instanceof Error ? e.message : String(e), {
+        id,
+        action: {
+          label: t('actions.openLogsFolder'),
+          onClick: () => {
+            openLogsFolder().catch((err: unknown) => {
+              toast.error(err instanceof Error ? err.message : String(err));
+            });
+          },
+        },
+      });
     } finally {
       submittingRef.current = false;
     }

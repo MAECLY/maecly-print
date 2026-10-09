@@ -524,6 +524,25 @@ describe('App', () => {
       await waitFor(() => expect(calls).toContain('open_external'));
     });
 
+    it('FR-080: a release link that cannot open says so instead of failing silently', async () => {
+      mockIPC((cmd) => {
+        if (cmd === 'open_external') throw new Error('no default browser');
+        if (cmd === 'get_app_settings') return fixtureAppSettings;
+        if (cmd === 'list_profiles') return fixtureProfiles;
+        if (cmd === 'queue_status')
+          return { schema_version: 1, queue_paused: false, jobs: [] };
+        if (cmd === 'take_pending_selections') return [];
+        return null;
+      });
+      await renderSubscribed();
+      emitUpdateAvailable();
+
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Release notes' }),
+      );
+      expect(await screen.findByText('no default browser')).toBeInTheDocument();
+    });
+
     it('says nothing when the payload names no version', async () => {
       mockShell();
       await renderSubscribed();
@@ -549,7 +568,11 @@ describe('App', () => {
       const calls: Call[] = [];
       mockIPC((cmd, args) => {
         calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
-        if (cmd in overrides) return overrides[cmd];
+        if (cmd in overrides) {
+          const answer = overrides[cmd];
+          if (answer instanceof Error) throw answer;
+          return answer;
+        }
         switch (cmd) {
           case 'list_profiles':
             return fixtureProfiles;
@@ -634,6 +657,29 @@ describe('App', () => {
       press('p');
       await waitFor(() =>
         expect(calls.some((c) => c.cmd === 'print_files')).toBe(true),
+      );
+    });
+
+    it('NFR-033: a failed print from a shortcut offers the logs folder', async () => {
+      const calls = recordShell({ print_files: new Error('spooler offline') });
+      render(<App />);
+      await waitFor(() => expect(webview.handler).not.toBeNull());
+      await act(async () => {
+        webview.handler!({
+          payload: { type: 'drop', paths: ['/tmp/Report.pdf'] },
+        });
+      });
+      expect(
+        (await screen.findAllByRole('button', { name: /Report\.pdf/ })).length,
+      ).toBeGreaterThan(0);
+
+      press('p');
+      expect(await screen.findByText('spooler offline')).toBeInTheDocument();
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Open the logs folder' }),
+      );
+      await waitFor(() =>
+        expect(calls.some((c) => c.cmd === 'open_logs_folder')).toBe(true),
       );
     });
 

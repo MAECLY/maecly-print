@@ -17,6 +17,7 @@ import {
   MPTopBar,
 } from '@/components/ui';
 import { useT } from '@/i18n/I18nProvider';
+import { openLogsFolder } from '@/lib/ipc';
 import { findProfileIn } from '@/lib/profiles';
 import { useProfilesStore } from '@/stores/profilesStore';
 import { useQueueStore } from '@/stores/queueStore';
@@ -190,14 +191,29 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
         title={t('recent.errorTitle')}
         body={queueError ?? t('recent.errorHint')}
         action={
-          <MPButton
-            variant="ghost"
-            icon="rotate"
-            size="sm"
-            onClick={() => void initQueue()}
-          >
-            {tCommon('actions.retry')}
-          </MPButton>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <MPButton
+              variant="ghost"
+              icon="rotate"
+              size="sm"
+              onClick={() => void initQueue()}
+            >
+              {tCommon('actions.retry')}
+            </MPButton>
+            {/* NFR-033: every error offers a way to the logs. */}
+            <MPButton
+              variant="ghost"
+              icon="folder"
+              size="sm"
+              onClick={() => {
+                openLogsFolder().catch((e: unknown) => {
+                  toast.error(e instanceof Error ? e.message : String(e));
+                });
+              }}
+            >
+              {tCommon('actions.openLogsFolder')}
+            </MPButton>
+          </div>
         }
       />
     );
