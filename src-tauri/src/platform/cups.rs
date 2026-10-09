@@ -19,9 +19,7 @@ use std::process::Command;
 
 use anyhow::Context;
 
-use crate::ipc::printers::{
-    DiscoveredPrinter, Printer, PrinterKind, PrinterStatus, Supplies, Tray,
-};
+use crate::ipc::printers::{DiscoveredPrinter, Printer, PrinterStatus, Supplies, Tray};
 use crate::platform::infer_kind;
 
 /// Run a CLI in the C locale and return its stdout (lossy UTF-8).
@@ -699,7 +697,7 @@ fn status_from(state: Option<&str>, reasons: Option<&str>) -> PrinterStatus {
     if reasons.contains("offline") || reasons.contains("shutdown") {
         return PrinterStatus::Offline;
     }
-    if list.iter().any(|r| *r == "paused") {
+    if list.contains(&"paused") {
         return PrinterStatus::Offline;
     }
     match state {
@@ -801,6 +799,7 @@ fn pretty_conn(uri: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ipc::printers::PrinterKind;
 
     const LPOPTIONS_P: &str = "copies=1 device-uri=dnssd://EPSON%20L15160%20Series._ipps._tcp.local./?uuid=cfe92100 finishings=3 marker-colors=#000000,#00FFFF,#FF00FF,#FFFF00 marker-levels=38,52,51,55 marker-names='Black\\ ink,Cyan\\ ink,Magenta\\ ink,Yellow\\ ink' printer-info='EPSON L15160 Series' printer-is-shared=false printer-location printer-make-and-model='EPSON L15160 Series-AirPrint' printer-state=3 printer-state-reasons=media-empty-report";
 
