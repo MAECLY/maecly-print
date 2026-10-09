@@ -119,6 +119,19 @@ async function unwrap<T>(
   throw new Error(message ?? (code ? `IPC error: ${code}` : 'IPC error'));
 }
 
+/**
+ * FR-072: show a native OS notification when the window is in the background.
+ * The backend decides whether one is warranted (window focus, the user's
+ * `app.native_notifications` switch) and resolves to whether it showed one.
+ */
+export async function notifyNative(
+  title: string,
+  body: string,
+): Promise<boolean> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return unwrap(commands.notifyNative(title, body));
+}
+
 /** Returns the live AppInfo from Rust, or rejects in non-Tauri contexts. */
 export async function fetchAppInfo(): Promise<AppInfo> {
   if (!isTauri()) throw new Error(NO_HOST);

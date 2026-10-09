@@ -19,6 +19,14 @@
  *   already-complete set — whether it came from `init()`'s `queue_status` or
  *   from an event that beat it — so yesterday's history never re-announces
  *   itself.
+ * - **Jobs that stop and need the user (FR-071).** A job the dispatcher pauses
+ *   on an error the user has to fix (printer gone, SumatraPDF missing, a
+ *   setting the driver refuses) keeps its batch from ever completing, so it is
+ *   announced on its own, with an "Open queue" action. A manual pause (no
+ *   error) and a shutdown interruption are not alarms.
+ * - **Native notifications (FR-072).** Each of those announcements is also
+ *   offered to the OS notification centre; the backend shows it only when the
+ *   window is in the background and the user has not turned it off.
  * - **The "Clear done" undo window (NFR-032).** `requestClearDone()` hides the
  *   finished jobs immediately and only calls `clear_done` five seconds later,
  *   so `undoClearDone()` can put them back without needing the backend to
@@ -47,6 +55,7 @@ import {
   cancelJob as cancelJobCmd,
   clearDone as clearDoneCmd,
   isTauri,
+  notifyNative,
   openLogsFolder,
   pauseJob as pauseJobCmd,
   pauseQueue as pauseQueueCmd,
@@ -100,6 +109,12 @@ interface QueueState {
    * toast. A batch that leaves the set (a job was retried) can announce again.
    */
   notifiedBatches: string[];
+  /**
+   * Ids of jobs currently stopped on a user-fixable error that were already
+   * announced. A job that resumes leaves the set, so stopping again
+   * announces again.
+   */
+  notifiedPaused: string[];
   // Derived — recomputed on every snapshot change (memoized at the write).
   uiJobs: UiQueueJobView[];
   counts: QueueCounts;
@@ -127,6 +142,24 @@ interface QueueState {
 }
 
 const TERMINAL = new Set(['done', 'failed', 'cancelled']);
+
+/**
+ * A paused job with one of these error codes did not stop because of the user:
+ * shutdown recovery parks in-flight jobs this way, and resuming is all it
+ * takes. Every other error on a paused job means something must be fixed.
+ */
+const BENIGN_PAUSE_CODES = new Set(['interrupted_by_shutdown']);
+
+/** Where "Open queue" goes; registered by the app shell (`App.tsx`). */
+let navigateToQueue: (() => void) | null = null;
+
+/**
+ * Let the app shell tell the store how to show the Queue screen. A store
+ * cannot navigate by itself, and the toasts it raises must offer a way there.
+ */
+export function setQueueNavigator(fn: (() => void) | null): void {
+  navigateToQueue = fn;
+}
 
 /** The locale to translate a toast into, read at call time (never a hook). */
 function activeLocale() {
@@ -225,6 +258,51 @@ function completeBatchIds(snapshot: QueueSnapshot | null): string[] {
     .map(([id]) => id);
 }
 
+/** Ids of the jobs in `snapshot` stopped on an error the user has to fix. */
+function needsActionIds(snapshot: QueueSnapshot | null): string[] {
+  return (snapshot?.jobs ?? [])
+    .filter(
+      (j) =>
+        j.state === 'paused' &&
+        j.error !== null &&
+        !BENIGN_PAUSE_CODES.has(j.error.code),
+    )
+    .map((j) => j.id);
+}
+
+/**
+ * FR-072: offer an announcement to the OS notification centre as well. The
+ * backend decides whether to show it (window in the background, switch on);
+ * any failure is irrelevant here because the toast has already been shown.
+ */
+function notifyOs(title: string, body: string): void {
+  if (!isTauri()) return;
+  notifyNative(title, body).catch(() => {});
+}
+
+/** Announce a job that stopped and is waiting for the user (FR-071). */
+function notifyJobNeedsAction(snapshot: QueueSnapshot, jobId: string): void {
+  const job = snapshot.jobs.find((j) => j.id === jobId);
+  if (!job) return;
+  const title = t('notify.jobNeedsAction', { file: job.file_name });
+  const description = t('notify.jobNeedsActionHint', {
+    error: job.error?.message ?? '',
+  });
+  toast.error(title, {
+    description,
+    duration: 10000,
+    action: navigateToQueue
+      ? { label: t('notify.openQueue'), onClick: () => navigateToQueue?.() }
+      : {
+          label: tCommon('actions.openLogsFolder'),
+          onClick: () => {
+            openLogsFolder().catch((e: unknown) => toast.error(message(e)));
+          },
+        },
+  });
+  notifyOs(title, description);
+}
+
 /**
  * Announce one finished batch (FR-070 / FR-071).
  *
@@ -242,28 +320,28 @@ function notifyBatchComplete(snapshot: QueueSnapshot, batchId: string): void {
 
   if (failed.length > 0) {
     const first = failed[0];
-    toast.error(
-      // `count` is the batch size: it decides "file" vs "files", exactly as in
-      // the success copy ("1 of 2 files failed", not "1 of 2 file failed").
-      t('notify.batchFailed', {
-        count: total,
-        failed: failed.length,
-        total,
-      }),
-      {
-        description: t('notify.batchFailedHint', {
-          file: first?.file_name ?? '',
-          error: first?.error?.message ?? '',
-        }),
-        duration: 10000,
-        action: {
-          label: tCommon('actions.openLogsFolder'),
-          onClick: () => {
-            openLogsFolder().catch((e: unknown) => toast.error(message(e)));
-          },
+    // `count` is the batch size: it decides "file" vs "files", exactly as in
+    // the success copy ("1 of 2 files failed", not "1 of 2 file failed").
+    const title = t('notify.batchFailed', {
+      count: total,
+      failed: failed.length,
+      total,
+    });
+    const description = t('notify.batchFailedHint', {
+      file: first?.file_name ?? '',
+      error: first?.error?.message ?? '',
+    });
+    notifyOs(title, description);
+    toast.error(title, {
+      description,
+      duration: 10000,
+      action: {
+        label: tCommon('actions.openLogsFolder'),
+        onClick: () => {
+          openLogsFolder().catch((e: unknown) => toast.error(message(e)));
         },
       },
-    );
+    });
     return;
   }
   if (done === 0) {
@@ -272,7 +350,9 @@ function notifyBatchComplete(snapshot: QueueSnapshot, batchId: string): void {
     toast.message(t('notify.batchCancelled', { count: cancelled }));
     return;
   }
-  toast.success(t('notify.batchDone', { count: total, done, total }));
+  const summary = t('notify.batchDone', { count: total, done, total });
+  toast.success(summary);
+  notifyOs('MaeclyPrint', summary);
 }
 
 /** Turn an unknown thrown value into a user-facing message. */
@@ -319,11 +399,18 @@ export const useQueueStore = create<QueueState>()((set, get) => {
     const complete = completeBatchIds(next);
     const known = get().notifiedBatches;
     const fresh = announce ? complete.filter((id) => !known.includes(id)) : [];
+    const stuck = needsActionIds(next);
+    const knownStuck = get().notifiedPaused;
+    const freshStuck = announce
+      ? stuck.filter((id) => !knownStuck.includes(id))
+      : [];
     set({
       ...derive(next, get().pendingClear),
       status: 'ready',
       notifiedBatches: complete,
+      notifiedPaused: stuck,
     });
+    for (const id of freshStuck) notifyJobNeedsAction(next, id);
     for (const id of fresh) notifyBatchComplete(next, id);
   }
 
@@ -358,6 +445,7 @@ export const useQueueStore = create<QueueState>()((set, get) => {
     subscribed: false,
     pendingClear: [],
     notifiedBatches: [],
+    notifiedPaused: [],
     uiJobs: [],
     counts: { active: 0, pending: 0, done: 0 },
     queuePaused: false,

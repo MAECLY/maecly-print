@@ -227,6 +227,7 @@ mod tests {
                 theme: Theme::System,
                 launch_minimized: false,
                 density: Density::Comfortable,
+                native_notifications: true,
             },
             EngineCfg {
                 max_concurrent_conversions: max_concurrent,

@@ -28,6 +28,10 @@
     "launchMinimized": {
       "label": "Iniciar minimizada",
       "hint": "Se guarda, pero todavía no se aplica: la ventana sigue abriéndose con normalidad."
+    },
+    "nativeNotifications": {
+      "label": "Notificaciones del sistema",
+      "hint": "Muestra una notificación del sistema cuando un lote termina, falla o necesita tu atención mientras MaeclyPrint está en segundo plano."
     }
   },
   "printing": {

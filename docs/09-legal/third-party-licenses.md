@@ -19,6 +19,7 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `tauri-plugin-dialog` | 2 | MIT / Apache-2.0 | Native file picker | Yes |
 | `tauri-plugin-opener` | 2 | MIT / Apache-2.0 | Open URLs / reveal folders | Yes |
 | `tauri-plugin-single-instance` | 2 | MIT / Apache-2.0 | Forward a second launch (NFR-014) | Yes |
+| `tauri-plugin-notification` | 2.4 | MIT / Apache-2.0 | Native OS notifications (FR-072) | Yes |
 | `serde`, `serde_json` | 1 | MIT / Apache-2.0 | Serialization | Yes |
 | `toml` | 0.8 | MIT / Apache-2.0 | `config.toml`, `profiles.toml` | Yes |
 | `tokio` | 1.41 | MIT | Async runtime (queue dispatcher) | Yes |

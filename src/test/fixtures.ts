@@ -329,6 +329,7 @@ export const fixtureAppSettings: AppSettings = {
     theme: 'system',
     launch_minimized: false,
     density: 'comfortable',
+    native_notifications: true,
   },
   engine: {
     max_concurrent_conversions: 2,

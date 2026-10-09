@@ -24,7 +24,7 @@ import { logError } from '@/lib/errorLog';
 import { addPathsToJob } from '@/lib/jobFiles';
 import { events } from '@/ipc/bindings';
 import { useProfilesStore } from '@/stores/profilesStore';
-import { useQueueStore } from '@/stores/queueStore';
+import { setQueueNavigator, useQueueStore } from '@/stores/queueStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useT } from '@/i18n/I18nProvider';
 import type { UiFile } from '@/types/domain';
@@ -118,6 +118,13 @@ function App() {
   useEffect(() => {
     void initQueue();
   }, [initQueue]);
+
+  // The queue store's "a job needs you" toast (FR-071) offers "Open queue";
+  // only the shell knows how to get there.
+  useEffect(() => {
+    setQueueNavigator(() => setActive('queue'));
+    return () => setQueueNavigator(null);
+  }, []);
 
   // Load profiles and app settings once (both idempotent, retryable).
   useEffect(() => {

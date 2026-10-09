@@ -98,6 +98,9 @@
     "batchFailed_other": "{{failed}} of {{total}} files failed to print",
     "batchFailedHint": "{{file}}: {{error}} — open the logs folder for the full job log entry.",
     "batchCancelled_one": "{{count}} job cancelled",
-    "batchCancelled_other": "{{count}} jobs cancelled"
+    "batchCancelled_other": "{{count}} jobs cancelled",
+    "jobNeedsAction": "Printing stopped: {{file}} needs your attention",
+    "jobNeedsActionHint": "{{error}} — fix it, then resume the job from the queue.",
+    "openQueue": "Open queue"
   }
 }

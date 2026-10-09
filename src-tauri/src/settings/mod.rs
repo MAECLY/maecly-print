@@ -405,6 +405,16 @@ pub struct AppCfg {
     /// field existed still loads (filling in [`Density::Comfortable`]).
     #[serde(default)]
     pub density: Density,
+    /// FR-072: announce finished, failed and stuck batches through the OS
+    /// notification centre while the window is in the background. On by
+    /// default; `#[serde(default)]` so a config written before this field
+    /// existed keeps notifications on.
+    #[serde(default = "default_native_notifications")]
+    pub native_notifications: bool,
+}
+
+fn default_native_notifications() -> bool {
+    true
 }
 
 impl Default for AppCfg {
@@ -414,6 +424,7 @@ impl Default for AppCfg {
             theme: Theme::System,
             launch_minimized: false,
             density: Density::default(),
+            native_notifications: default_native_notifications(),
         }
     }
 }
@@ -769,6 +780,22 @@ mod tests {
             !s.contains("default_profile"),
             "None default_profile must be omitted, not serialized"
         );
+    }
+
+    #[test]
+    fn fr_072_native_notifications_default_on_and_round_trip() {
+        // A config written before the switch existed keeps notifications on.
+        let old: Config = toml::from_str(
+            "[app]\nlocale = \"es-ES\"\ntheme = \"dark\"\nlaunch_minimized = false\n",
+        )
+        .unwrap();
+        assert!(old.app.native_notifications);
+        assert!(Config::default().app.native_notifications);
+
+        let mut c = Config::default();
+        c.app.native_notifications = false;
+        let c2: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
+        assert!(!c2.app.native_notifications);
     }
 
     #[test]

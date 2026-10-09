@@ -98,6 +98,9 @@
     "batchFailed_other": "No se pudieron imprimir {{failed}} de {{total}} archivos",
     "batchFailedHint": "{{file}}: {{error}} — abre la carpeta de registros para ver la entrada completa del trabajo.",
     "batchCancelled_one": "{{count}} trabajo cancelado",
-    "batchCancelled_other": "{{count}} trabajos cancelados"
+    "batchCancelled_other": "{{count}} trabajos cancelados",
+    "jobNeedsAction": "La impresión se detuvo: {{file}} necesita tu atención",
+    "jobNeedsActionHint": "{{error}}. Corrígelo y reanuda el trabajo desde la cola.",
+    "openQueue": "Abrir la cola"
   }
 }

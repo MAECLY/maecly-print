@@ -49,7 +49,11 @@ vi.mock('@/ipc/bindings', async (importOriginal) => {
 });
 
 // Imported after the mock is registered (vi.mock is hoisted regardless).
-import { CLEAR_UNDO_MS, useQueueStore } from '@/stores/queueStore';
+import {
+  CLEAR_UNDO_MS,
+  setQueueNavigator,
+  useQueueStore,
+} from '@/stores/queueStore';
 
 interface Call {
   cmd: string;
@@ -95,6 +99,7 @@ function resetStore() {
     subscribed: false,
     pendingClear: [],
     notifiedBatches: [],
+    notifiedPaused: [],
     uiJobs: [],
     counts: { active: 0, pending: 0, done: 0 },
     queuePaused: false,
@@ -652,5 +657,171 @@ describe('queueStore — clear done with undo (NFR-032)', () => {
     expect(error).toHaveBeenCalledWith('boom');
     expect(useQueueStore.getState().counts.done).toBe(3);
     expect(useQueueStore.getState().pendingClear).toEqual([]);
+  });
+});
+
+describe('queueStore — jobs that stop and need the user (FR-071)', () => {
+  beforeEach(() => resetStore());
+  afterEach(() => {
+    clearMocks();
+    vi.restoreAllMocks();
+    setQueueNavigator(null);
+  });
+
+  const running = snapshotOf([
+    mkJob({ id: 'a', state: 'printing', file_name: 'a.pdf' }),
+    mkJob({ id: 'b', state: 'queued', file_name: 'b.pdf' }),
+  ]);
+  const stuck = (code: string, message: string) =>
+    snapshotOf([
+      mkJob({
+        id: 'a',
+        state: 'paused',
+        file_name: 'a.pdf',
+        error: { code, message },
+      }),
+      mkJob({ id: 'b', state: 'queued', file_name: 'b.pdf' }),
+    ]);
+
+  it('FR-071: a job paused on a user-fixable error is announced with a way to the queue', async () => {
+    mockQueue({ snapshot: running });
+    const error = vi.spyOn(toast, 'error').mockReturnValue('id');
+    const openQueue = vi.fn();
+    setQueueNavigator(openQueue);
+    await useQueueStore.getState().init();
+
+    emitQueueUpdated(
+      stuck('printer_unavailable', "Printer 'Front Desk' is not available"),
+    );
+
+    expect(error).toHaveBeenCalledTimes(1);
+    const [text, opts] = error.mock.calls[0] ?? [];
+    expect(text).toBe('Printing stopped: a.pdf needs your attention');
+    const options = opts as {
+      description: string;
+      action: { label: string; onClick: () => void };
+    };
+    expect(options.description).toContain("Printer 'Front Desk'");
+    expect(options.action.label).toBe('Open queue');
+    options.action.onClick();
+    expect(openQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('FR-071: the same stop is announced once, and again only after a resume', async () => {
+    mockQueue({ snapshot: running });
+    const error = vi.spyOn(toast, 'error').mockReturnValue('id');
+    await useQueueStore.getState().init();
+
+    const paused = stuck('dependency_missing', 'SumatraPDF was not found');
+    emitQueueUpdated(paused);
+    emitQueueUpdated(paused);
+    expect(error).toHaveBeenCalledTimes(1);
+
+    emitQueueUpdated(running); // resumed
+    emitQueueUpdated(paused); // and stopped again
+    expect(error).toHaveBeenCalledTimes(2);
+  });
+
+  it('FR-071: a manual pause or a shutdown interruption is not an alarm', async () => {
+    mockQueue({ snapshot: running });
+    const error = vi.spyOn(toast, 'error').mockReturnValue('id');
+    await useQueueStore.getState().init();
+
+    emitQueueUpdated(
+      snapshotOf([
+        mkJob({ id: 'a', state: 'paused', file_name: 'a.pdf' }),
+        mkJob({ id: 'b', state: 'queued', file_name: 'b.pdf' }),
+      ]),
+    );
+    emitQueueUpdated(
+      stuck('interrupted_by_shutdown', 'MaeclyPrint closed mid-job'),
+    );
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('FR-071: a job already stuck when the session starts only seeds', async () => {
+    mockQueue({ snapshot: stuck('printer_unavailable', 'gone') });
+    const error = vi.spyOn(toast, 'error').mockReturnValue('id');
+    await useQueueStore.getState().init();
+    emitQueueUpdated(stuck('printer_unavailable', 'gone'));
+    expect(error).not.toHaveBeenCalled();
+  });
+});
+
+describe('queueStore — native notifications (FR-072)', () => {
+  beforeEach(() => resetStore());
+  afterEach(() => {
+    clearMocks();
+    vi.restoreAllMocks();
+  });
+
+  const running = snapshotOf([
+    mkJob({ id: 'a', state: 'printing', file_name: 'a.pdf' }),
+  ]);
+
+  function nativeCalls(calls: Call[]) {
+    return calls
+      .filter((c) => c.cmd === 'notify_native')
+      .map((c) => c.args as { title: string; body: string });
+  }
+
+  it('FR-072: a finished batch also asks for a native notification', async () => {
+    const calls = mockQueue({ snapshot: running });
+    vi.spyOn(toast, 'success').mockReturnValue('id');
+    await useQueueStore.getState().init();
+
+    emitQueueUpdated(
+      snapshotOf([mkJob({ id: 'a', state: 'done', file_name: 'a.pdf' })]),
+    );
+
+    await vi.waitFor(() => expect(nativeCalls(calls)).toHaveLength(1));
+    expect(nativeCalls(calls)[0]?.body).toBe(
+      '1 of 1 file printed successfully',
+    );
+  });
+
+  it('FR-072: a failed batch and a stuck job are native notifications too', async () => {
+    const calls = mockQueue({
+      snapshot: snapshotOf([
+        mkJob({ id: 'a', state: 'printing', file_name: 'a.pdf' }),
+        {
+          ...mkJob({ id: 'c', state: 'queued', file_name: 'c.pdf' }),
+          batch_id: 'b2',
+        },
+      ]),
+    });
+    vi.spyOn(toast, 'error').mockReturnValue('id');
+    await useQueueStore.getState().init();
+
+    emitQueueUpdated(
+      snapshotOf([
+        mkJob({
+          id: 'a',
+          state: 'failed',
+          file_name: 'a.pdf',
+          error: { code: 'print_failed', message: 'Paper jam' },
+        }),
+        {
+          ...mkJob({
+            id: 'c',
+            state: 'paused',
+            file_name: 'c.pdf',
+            error: { code: 'printer_unavailable', message: 'Unplugged' },
+          }),
+          batch_id: 'b2',
+        },
+      ]),
+    );
+
+    await vi.waitFor(() => expect(nativeCalls(calls)).toHaveLength(2));
+    const titles = nativeCalls(calls).map((c) => c.title);
+    expect(titles).toContain('1 of 1 file failed to print');
+    expect(titles).toContain('Printing stopped: c.pdf needs your attention');
+  });
+
+  it('FR-072: the first snapshot of a session never notifies', async () => {
+    const calls = mockQueue();
+    await useQueueStore.getState().init();
+    expect(nativeCalls(calls)).toHaveLength(0);
   });
 });

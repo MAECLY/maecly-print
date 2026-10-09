@@ -39,7 +39,7 @@ A single scrolling column (max 760 px) of labelled sections, each a stack of lab
 
 | Section       | Wire type      | Fields                                                                                   |
 | ------------- | -------------- | ---------------------------------------------------------------------------------------- |
-| `app`         | `AppCfg`       | `locale`, `theme` (`light\|dark\|system`), `launch_minimized`, `density` (`comfortable\|compact`) |
+| `app`         | `AppCfg`       | `locale`, `theme` (`light\|dark\|system`), `launch_minimized`, `density` (`comfortable\|compact`), `native_notifications` (FR-072, default `true`) |
 | `engine`      | `EngineCfg`    | `max_concurrent_conversions`, `conversion_timeout_seconds`, `print_timeout_seconds`, `max_file_size_mb`, `default_profile` |
 | `updater`     | `UpdaterCfg`   | `channel` (`stable\|beta\|nightly`), `check_on_startup`                                   |
 | `telemetry`   | `TelemetryCfg` | `crash_reports`, `anonymous_usage_metrics`                                                |
@@ -56,6 +56,8 @@ Theme is a **3-way** control (Light / Dark / System) driven by `App`'s `useTheme
 2. **Backend source of truth** — the same value is persisted to `config.toml` via `patch({ app: { theme } })` / `patch({ app: { density } })` when the backend is reachable.
 
 On divergence the **backend wins**: once `get_app_settings` resolves, a reconcile effect (in both `SettingsScreen` and `App`) overrides the cache with the persisted value. The reconcile is idempotent, so it settles without fighting a fresh user change. In the standalone preview (backend `unavailable`) appearance stays local-only — no backend write.
+
+The section also carries the **Native notifications** switch (`app.native_notifications`, on by default; FR-072). It is read by the backend before every OS notification (`notify_native`), so turning it off takes effect immediately. With it on, a finished batch, a failed batch and a job stopped for the user are announced through the OS notification centre while the MaeclyPrint window is unfocused, hidden or minimized; the in-app toasts are unaffected either way.
 
 ### Printing — default profile
 

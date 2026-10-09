@@ -440,6 +440,26 @@ export function SettingsScreen({
             }
           />
         </Row>
+        {/* FR-072: the backend reads this before every native notification
+            (`notify_native`), so the switch takes effect immediately. An
+            absent field means a config from before the switch: on. */}
+        <Row
+          label={t('appearance.nativeNotifications.label')}
+          hint={t('appearance.nativeNotifications.hint')}
+          disabled={backendDisabled}
+        >
+          <MPSwitch
+            checked={app?.native_notifications ?? true}
+            aria-label={t('appearance.nativeNotifications.label')}
+            onChange={() =>
+              void patch({
+                app: {
+                  native_notifications: !(app?.native_notifications ?? true),
+                },
+              })
+            }
+          />
+        </Row>
 
         {status === 'unavailable' && <Note>{t('status.unavailable')}</Note>}
         {status === 'loading' && <Note>{t('status.loading')}</Note>}

@@ -94,6 +94,11 @@ tauri-plugin-opener = "2"
 # NFR-014: a second launch (shell extension, CLI, shortcut) must hand its
 # argv to the running instance instead of racing it over queue.json.
 tauri-plugin-single-instance = "2"
+# FR-072: native OS notifications (Windows toast, macOS Notification Center)
+# for finished, failed and stuck batches while the window is in the
+# background. Driven Rust-side only (`ipc::notify`); no JS capability needed.
+# 2.4 is the newest line that does not require a newer `tauri` than 2.11.
+tauri-plugin-notification = "2.4"
 
 # --- Dev/test only ---
 # `test-util` unlocks tokio's virtual clock (`start_paused` / `time::advance`)

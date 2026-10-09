@@ -69,6 +69,22 @@ async logFrontendError(report: FrontendErrorReport) : Promise<Result<null, IpcEr
 }
 },
 /**
+ * Show `title`/`body` as a native notification if [`should_notify_natively`]
+ * says so. Resolves to whether one was shown.
+ * 
+ * Never an error the UI has to handle: the in-app toast has already been
+ * shown, so a denied permission or a notification service that is not
+ * running is logged and reported as `false`.
+ */
+async notifyNative(title: string, body: string) : Promise<Result<boolean, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("notify_native", { title, body }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * List every printer the OS spooler knows about, with capabilities.
  */
 async listPrinters() : Promise<Result<Printer[], IpcError>> {
@@ -523,7 +539,8 @@ async checkForUpdates() : Promise<Result<UpdateCheck, IpcError>> {
 /**
  * The persisted update bookkeeping: when the last check ran and which version
  * the user skipped (FR-084), so the About screen can render "you skipped
- * {version}" with a way back out.
+ * {version}" with a way back out. A skip that is no longer ahead of the
+ * running build is cleared on the way out.
  */
 async getUpdateState() : Promise<Result<UpdateState, IpcError>> {
     try {
@@ -590,7 +607,14 @@ export type AppCfg = { locale: string; theme: Theme; launch_minimized: boolean;
  * UI spacing preference. `#[serde(default)]` so a config written before this
  * field existed still loads (filling in [`Density::Comfortable`]).
  */
-density?: Density }
+density?: Density; 
+/**
+ * FR-072: announce finished, failed and stuck batches through the OS
+ * notification centre while the window is in the background. On by
+ * default; `#[serde(default)]` so a config written before this field
+ * existed keeps notifications on.
+ */
+native_notifications?: boolean }
 export type AppInfo = { version: string; build_date: string; config_dir: string; log_dir: string; data_dir: string; 
 /**
  * Target OS, e.g. `"macos"`, `"windows"`, `"linux"` (`std::env::consts::OS`).

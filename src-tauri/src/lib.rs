@@ -108,6 +108,9 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        // FR-072: native notifications. Driven Rust-side only
+        // (`ipc::notify::notify_native`), so no JS capability is granted.
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
@@ -193,6 +196,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::diag::report_issue,
             ipc::diag::open_external,
             ipc::diag::log_frontend_error,
+            ipc::notify::notify_native,
             ipc::printers::list_printers,
             ipc::printers::default_printer,
             ipc::printers::discover_printers,

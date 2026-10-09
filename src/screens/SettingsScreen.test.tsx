@@ -317,6 +317,22 @@ describe('SettingsScreen', () => {
     expect(sent.app.launch_minimized).toBe(true);
   });
 
+  it('FR-072: the native-notifications switch is on by default and persists when turned off', async () => {
+    const calls = mockSettings();
+    renderSettings();
+    await waitReady();
+
+    const toggle = within(controlOf('Native notifications')).getByRole(
+      'switch',
+      { name: 'Native notifications' },
+    );
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+
+    const sent = await savedSettings(calls);
+    expect(sent.app.native_notifications).toBe(false);
+  });
+
   // -- printing / updates / privacy ---------------------------------------
 
   it('FR: the default-profile select calls setDefault on the profiles store', async () => {

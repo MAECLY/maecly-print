@@ -28,6 +28,10 @@
     "launchMinimized": {
       "label": "Start minimized",
       "hint": "Saved, but not applied yet: the window still opens normally at launch."
+    },
+    "nativeNotifications": {
+      "label": "Native notifications",
+      "hint": "Show a system notification when a batch finishes, fails or needs your attention while MaeclyPrint is in the background."
     }
   },
   "printing": {

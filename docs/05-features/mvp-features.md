@@ -111,10 +111,9 @@ Delivered, and slightly wider than this list: the five subcommand roots are `pri
 
 ### 8. Notifications
 
-- **In-app toast** on batch complete and on batch failure, raised from the queue store when every job of a batch reaches a terminal state. A failed batch reports the error and offers a link to the job log.
-- Click toast → opens the Queue page with the job selected.
-
-**Not implemented:** the **native OS toast** (Windows Toast / macOS `UNNotification`). `tauri-plugin-notification` is not a dependency, so notifications only exist while the window is open — see [FR-072](../03-requirements/functional-requirements.md). There is also **no global mute switch** in Settings yet; per-profile mute stays post-MVP.
+- **In-app toast** on batch complete and on batch failure, raised from the queue store when every job of a batch reaches a terminal state. A failed batch reports the error and offers the logs folder.
+- **A job that stops for the user** (printer gone, SumatraPDF missing, a setting the driver refuses) gets its own toast with an **Open queue** action — its batch cannot complete until it is fixed.
+- **Native OS notifications** (Windows toast / macOS Notification Center) for the same three events, only while the window is in the background — see [FR-072](../03-requirements/functional-requirements.md). **Settings → Native notifications** turns them off; per-profile mute stays post-MVP.
 
 ### 9. Auto-update (basic)
 
