@@ -331,7 +331,7 @@ Contains a `README.md` and a `.gitkeep`, nothing else. **The macOS Finder integr
 
 **Placeholder.** `installers/windows/` and `installers/macos/` contain only `.gitkeep`. None of the Inno Setup script, sparse-MSIX manifest, `pkgbuild.sh`, `create-dmg.sh` or `notarize.sh` exists yet.
 
-Today the only installer that gets produced is whatever Tauri's own bundler emits from `tauri.conf.json` (`bundle.targets: "all"`, with a `bundle.windows.nsis` block). See [installer-windows.md](../07-build-and-release/installer-windows.md) for the open contradiction between that and ADR-0006.
+Today the only installer that gets produced is what Tauri's own bundler emits from `tauri.conf.json`: an explicit `bundle.targets` list with no `msi`, so Windows gets only the per-user NSIS setup configured in `bundle.windows.nsis` ([ADR-0008](../adr/0008-installer-nsis-per-user.md), which supersedes ADR-0006). See [installer-windows.md](../07-build-and-release/installer-windows.md).
 
 ### Why `installers/` is reserved at top level
 

@@ -28,17 +28,18 @@ Whichever way it goes, one constraint binds both options: `SumatraPDF.exe` is **
 ```json
 "bundle": {
   "active": true,
-  "targets": "all",
+  "targets": ["nsis", "app", "dmg", "deb", "rpm", "appimage"],
   "resources": ["resources/sumatrapdf/*"],
   "publisher": "Maecly",
-  "windows": { "nsis": { "installMode": "currentUser" } }
+  "windows": { "nsis": { "installMode": "currentUser" } },
+  "createUpdaterArtifacts": true
 }
 ```
 
 - `installMode: "currentUser"` is what keeps the no-admin requirement (NFR-020) satisfied: a per-user install under `%LOCALAPPDATA%`, `HKCU` only.
-- `targets: "all"` means the bundler emits every target it can for the host — on Windows that is both the NSIS `setup.exe` and a WiX MSI. Only the NSIS half is configured deliberately; the MSI falls out of `"all"` and has had no design attention.
+- `targets` is an explicit list without `msi`. The bundler builds only the entries that apply to the host, so a Windows build produces the per-user NSIS `setup.exe` and nothing else. It used to be `"all"`, which also built a per-machine WiX MSI (Program Files, elevation) next to it. Installing that MSI and later updating through the NSIS-based `latest.json` left two installs and two Start-menu entries, which contradicts [ADR-0008](../adr/0008-installer-nsis-per-user.md). `fr_083_no_per_machine_msi_is_bundled` guards the list.
 - The crate has two binaries, `maeclyprint` (the app) and `maeclyprint-cli` (`src/bin/maeclyprint-cli.rs`, the console-subsystem CLI front end scripts wait on). Tauri's bundler packages every binary of the crate, so the NSIS installer is expected to place `maeclyprint-cli.exe` next to `maeclyprint.exe`; **verify this on the first Windows build.** Neither is added to `PATH` yet.
-- No `plugins.updater` block: the app checks for updates against the GitHub releases API and does not self-install (`src-tauri/src/update/mod.rs`). Nothing in the bundle is updater-signed.
+- `plugins.updater` and `createUpdaterArtifacts` are set: the NSIS setup is signed for the updater, and `tauri-plugin-updater` installs an update by running that same setup in `passive` mode (see [auto-update-flow.md](./auto-update-flow.md)).
 - Nothing is code-signed. See [ci-cd.md](./ci-cd.md) § *What does not exist yet*.
 
 Everything from here down is **the ADR-0006 design, unimplemented**. Treat every file path in it as a path to be created.

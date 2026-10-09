@@ -493,6 +493,26 @@ mod tests {
         );
     }
 
+    /// ADR-0008: the per-user NSIS setup is the only Windows installer. With
+    /// `"targets": "all"` the bundler also built a per-machine WiX MSI, which
+    /// installs a second copy under Program Files that NSIS updates never
+    /// reach.
+    #[test]
+    fn fr_083_no_per_machine_msi_is_bundled() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../../tauri.conf.json")).unwrap();
+        let targets = conf["bundle"]["targets"]
+            .as_array()
+            .expect("an explicit target list, never \"all\"");
+        let names: Vec<&str> = targets.iter().filter_map(|t| t.as_str()).collect();
+        assert!(names.contains(&"nsis"), "{names:?}");
+        assert!(!names.contains(&"msi"), "{names:?}");
+        assert!(
+            names.contains(&"app") && names.contains(&"dmg"),
+            "{names:?}"
+        );
+    }
+
     #[test]
     fn fr_082_only_one_install_runs_at_a_time() {
         let first = InstallGuard::acquire().unwrap();
