@@ -285,6 +285,8 @@ pub fn open_with_selection<S: AsRef<str>>(args: &[S]) -> Option<Selection> {
         paths,
         action: ContextAction::Configure,
         profile_id: None,
+        // Argv is never capped, so an open-with launch is never truncated.
+        truncated_from: None,
     })
 }
 

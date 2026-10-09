@@ -408,7 +408,7 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
         .map(str::trim)
         .filter(|p| !p.is_empty());
     let paper_size = paper.and_then(|p| paper_size_for_driver_name(name, p));
-    if let (Some(p), None) = (paper, paper_size) {
+    if let (Some(p), None) = (paper, &paper_size) {
         tracing::warn!(
             event = "print_setting_not_applied",
             setting = "paper",
@@ -419,17 +419,17 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
         );
     }
 
+    let paper_token = if paper_size.is_some() {
+        PaperToken::FromSettings
+    } else {
+        PaperToken::Omit
+    };
     let defaults = crate::queue::job::JobSettings::default();
     let settings = crate::queue::job::JobSettings {
         // Only read when `paper_token` says so, i.e. when `paper_size` is Some.
         paper_size: paper_size.unwrap_or(defaults.paper_size),
         tray: over.tray.clone(),
         ..defaults
-    };
-    let paper_token = if paper_size.is_some() {
-        PaperToken::FromSettings
-    } else {
-        PaperToken::Omit
     };
     // SumatraPDF blocks until the spooler accepts the job, so the temp file is
     // still alive for the whole call and the status is meaningful.
@@ -464,13 +464,19 @@ fn paper_size_for_driver_name(printer: &str, paper: &str) -> Option<PaperSize> {
 /// The `DMPAPER_*` ids SumatraPDF's `paper=` can express. The "small" variants
 /// are the same sheet with a different printable area.
 fn paper_size_for_dmpaper(id: u16) -> Option<PaperSize> {
-    match id {
-        1 | 2 => Some(PaperSize::Letter), // DMPAPER_LETTER, DMPAPER_LETTERSMALL
-        5 => Some(PaperSize::Legal),      // DMPAPER_LEGAL
-        8 => Some(PaperSize::A3),         // DMPAPER_A3
-        9 | 10 => Some(PaperSize::A4),    // DMPAPER_A4, DMPAPER_A4SMALL
-        _ => None,
-    }
+    let name = match id {
+        1 | 2 => "Letter", // DMPAPER_LETTER, DMPAPER_LETTERSMALL
+        3 => "Tabloid",    // DMPAPER_TABLOID
+        5 => "Legal",      // DMPAPER_LEGAL
+        6 => "Statement",  // DMPAPER_STATEMENT
+        8 => "A3",         // DMPAPER_A3
+        9 | 10 => "A4",    // DMPAPER_A4, DMPAPER_A4SMALL
+        11 => "A5",        // DMPAPER_A5
+        66 => "A2",        // DMPAPER_A2
+        70 => "A6",        // DMPAPER_A6
+        _ => return None,
+    };
+    PaperSize::parse(name).ok()
 }
 
 /// The id paired with `name` in two parallel `DeviceCapabilities` arrays
@@ -1051,12 +1057,24 @@ mod tests {
 
     #[test]
     fn dmpaper_ids_map_to_what_sumatra_can_name() {
-        assert_eq!(paper_size_for_dmpaper(1), Some(PaperSize::Letter));
+        assert_eq!(paper_size_for_dmpaper(1), Some(PaperSize::LETTER));
         assert_eq!(paper_size_for_dmpaper(9), Some(PaperSize::A4));
-        assert_eq!(paper_size_for_dmpaper(5), Some(PaperSize::Legal));
+        assert_eq!(paper_size_for_dmpaper(5), Some(PaperSize::LEGAL));
         assert_eq!(paper_size_for_dmpaper(8), Some(PaperSize::A3));
-        // A5, envelopes, photo sizes: not expressible → None, never "A4".
-        assert_eq!(paper_size_for_dmpaper(11), None);
+        // The extra sizes SumatraPDF names since PaperSize became open.
+        assert_eq!(
+            paper_size_for_dmpaper(11).map(|p| p.to_string()),
+            Some("A5".into())
+        );
+        assert_eq!(
+            paper_size_for_dmpaper(70).map(|p| p.to_string()),
+            Some("A6".into())
+        );
+        assert_eq!(
+            paper_size_for_dmpaper(3).map(|p| p.to_string()),
+            Some("Tabloid".into())
+        );
+        // Envelopes, photo sizes: not expressible → None, never "A4".
         assert_eq!(paper_size_for_dmpaper(20), None);
     }
 
@@ -1068,7 +1086,7 @@ mod tests {
         let ids = vec![1u16, 5, 9];
         assert_eq!(
             id_for_name(&names, &ids, "Carta").and_then(paper_size_for_dmpaper),
-            Some(PaperSize::Letter)
+            Some(PaperSize::LETTER)
         );
         assert_eq!(id_for_name(&names, &ids, "oficio"), Some(5));
         assert_eq!(id_for_name(&names, &ids, "Tabloid"), None);
