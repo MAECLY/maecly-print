@@ -25,7 +25,11 @@
 /// source of truth. Duplicated rather than shared because the app is a separate
 /// crate; a drift here only widens or narrows what the menu offers, never what
 /// actually prints.
-pub const SUPPORTED_EXTS: &[&str] = &["pdf", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp"];
+pub const SUPPORTED_EXTS: &[&str] = &[
+    "pdf", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp", "heic", "heif", "docx", "doc",
+    "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf", "txt", "html", "htm", "md",
+    "markdown",
+];
 
 /// How many items of a selection are inspected before giving up and showing the
 /// entry anyway.
@@ -87,11 +91,33 @@ mod tests {
         assert!(is_supported_name("invoice.pdf"));
         assert!(is_supported_name("SCAN.TIFF"));
         assert!(is_supported_name("holiday.JpEg"));
-        assert!(!is_supported_name("report.docx"));
+        assert!(is_supported_name("report.docx"));
+        assert!(is_supported_name("notes.MD"));
+        assert!(!is_supported_name("setup.exe"));
         assert!(!is_supported_name("Makefile"));
         assert!(!is_supported_name("archive."));
         // A dot in a directory component is not an extension.
         assert!(!is_supported_name(r"C:\v1.0\readme"));
+    }
+
+    /// The list is duplicated across crates; this keeps it from drifting from
+    /// the engine's, which is the source of truth (a stale copy hid the entry
+    /// for every Office, text, HTML, Markdown and HEIC file).
+    #[test]
+    fn fr_005_mirrors_the_engine_list() {
+        let engine = include_str!("../../src-tauri/src/engine/mod.rs");
+        let start = engine
+            .find("pub const SUPPORTED_EXTS: &[&str] = &[")
+            .expect("engine SUPPORTED_EXTS");
+        let body = &engine[start..];
+        let body = &body[body.find('[').unwrap() + 1..];
+        let body = &body[body.find('[').unwrap() + 1..body.find("];").unwrap()];
+        let engine_exts: Vec<&str> = body
+            .split(',')
+            .map(|s| s.trim().trim_matches('"'))
+            .filter(|s| !s.is_empty())
+            .collect();
+        assert_eq!(engine_exts, SUPPORTED_EXTS);
     }
 
     #[test]

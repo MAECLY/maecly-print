@@ -98,8 +98,8 @@ pub fn build(
     profile_id: Option<String>,
     now: time::OffsetDateTime,
 ) -> Handoff {
-    let truncated_from = (paths.len() > MAX_PATHS)
-        .then(|| u32::try_from(paths.len()).unwrap_or(u32::MAX));
+    let truncated_from =
+        (paths.len() > MAX_PATHS).then(|| u32::try_from(paths.len()).unwrap_or(u32::MAX));
     let paths: Vec<String> = paths
         .iter()
         .take(MAX_PATHS)

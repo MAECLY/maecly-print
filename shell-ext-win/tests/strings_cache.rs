@@ -183,10 +183,11 @@ fn fr_005_visibility_follows_the_supported_formats() {
     };
 
     assert!(is_supported_name("2026-01.PDF"));
-    assert!(!is_supported_name("notes.txt"));
+    assert!(is_supported_name("notes.txt"));
+    assert!(!is_supported_name("setup.msi"));
 
-    assert!(should_show(&[file("a.txt"), file("b.pdf")], 2));
-    assert!(!should_show(&[file("a.txt"), file("b.exe")], 2));
+    assert!(should_show(&[file("a.msi"), file("b.pdf")], 2));
+    assert!(!should_show(&[file("a.msi"), file("b.exe")], 2));
 
     let unprintable: Vec<ProbeItem> = (0..PROBE_LIMIT)
         .map(|i| file(&format!("{i}.exe")))
