@@ -3,10 +3,14 @@ import react from '@vitejs/plugin-react';
 import { configDefaults } from 'vitest/config';
 import path from 'node:path';
 
+import { maeclyE2eStub } from './e2e/browser/vite-plugin';
+
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig(async () => ({
-  plugins: [react()],
+  // maeclyE2eStub is dev-server only and inert unless MAECLY_E2E_STUB=1
+  // (`pnpm dev:e2e`): it injects the browser E2E fake Tauri host.
+  plugins: [react(), maeclyE2eStub(process.env)],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
@@ -44,8 +48,10 @@ export default defineConfig(async () => ({
     // default {test,spec} glob never matches them) and only run via
     // `pnpm test:e2e`; the belt-and-suspenders include/exclude keeps
     // `pnpm test` unit-only even if a spec is renamed.
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
-    exclude: [...configDefaults.exclude, 'e2e/**'],
+    // The one exception under e2e/ is the browser harness's own unit tests
+    // (e2e/browser/*.test.ts), which are plain Vitest.
+    include: ['src/**/*.{test,spec}.{ts,tsx}', 'e2e/browser/**/*.test.ts'],
+    exclude: [...configDefaults.exclude, 'e2e/specs/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
