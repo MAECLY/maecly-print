@@ -45,15 +45,41 @@ let fixtures: string;
  * the app shell subscribe to — listens for `tauri://drag-drop`, so emitting
  * that event with the documented payload drives the production code path
  * rather than a test-only hook.
+ *
+ * The emit goes through `window.__TAURI_INTERNALS__.invoke` — the very call
+ * `@tauri-apps/api/event`'s `emit` makes — because a script injected by
+ * WebDriver cannot `import('@tauri-apps/api/event')`: the built app is a
+ * bundle, so a bare module specifier does not resolve inside the webview.
  */
 async function drop(paths: string[]): Promise<void> {
-  await browser.execute(async (dropped: string[]) => {
-    const { emit } = await import('@tauri-apps/api/event');
-    await emit('tauri://drag-drop', {
-      paths: dropped,
-      position: { x: 100, y: 100 },
-    });
-  }, paths);
+  await invokeIpc('plugin:event|emit', {
+    event: 'tauri://drag-drop',
+    payload: { paths, position: { x: 100, y: 100 } },
+  });
+}
+
+/** Call a Tauri command from the page, through the host's own IPC bridge. */
+async function invokeIpc(
+  cmd: string,
+  args: Record<string, unknown> = {},
+): Promise<unknown> {
+  return browser.execute(
+    async (c: string, a: Record<string, unknown>) => {
+      const internals = (
+        window as unknown as {
+          __TAURI_INTERNALS__: {
+            invoke: (
+              cmd: string,
+              args: Record<string, unknown>,
+            ) => Promise<unknown>;
+          };
+        }
+      ).__TAURI_INTERNALS__;
+      return internals.invoke(c, a);
+    },
+    cmd,
+    args,
+  );
 }
 
 describe('Print Job', () => {
@@ -61,6 +87,20 @@ describe('Print Job', () => {
     fixtures = mkdtempSync(join(tmpdir(), 'maeclyprint-e2e-'));
     writeFileSync(join(fixtures, 'report.pdf'), PDF, 'utf8');
     writeFileSync(join(fixtures, 'notes.txt'), 'not printable', 'utf8');
+  });
+
+  // The submit below goes to the host's real default printer. On a developer
+  // machine that is paper; on a runner it is often "Microsoft Print to PDF",
+  // which opens a Save dialog nobody answers and holds the single print slot
+  // until the print timeout. Pause the whole queue first (FR-033) so the job
+  // is created and listed but never spooled, then cancel it and resume.
+  before(async () => {
+    await invokeIpc('pause_queue');
+  });
+
+  after(async () => {
+    await invokeIpc('cancel_all').catch(() => undefined);
+    await invokeIpc('resume_queue').catch(() => undefined);
   });
 
   it('adds a dropped file, submits the batch and shows it in the Queue', async () => {
