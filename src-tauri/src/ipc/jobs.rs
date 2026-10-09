@@ -396,20 +396,22 @@ pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
             &req.settings,
             &prefs,
             os_default.as_deref(),
-            crate::platform::caps_of,
+            crate::platform::queue_of,
         ))
     })
     .await
 }
 
-/// Pure core of [`preview_command`]: printer capabilities come from `caps_of`
-/// (looked up once per printer) so the grouping is testable without one.
+/// Pure core of [`preview_command`]: the queue id and capabilities of each
+/// resolved printer come from `queue_of` (looked up once per printer), so a
+/// display name previews as the queue id the spooler receives, and the
+/// grouping is testable without an installed printer.
 fn preview_for_files(
     files: &[String],
     settings: &crate::queue::job::JobSettings,
     prefs: &crate::settings::PrinterPrefs,
     os_default: Option<&str>,
-    caps_of: impl Fn(&str) -> crate::engine::print::PrinterCaps,
+    queue_of: impl Fn(&str) -> (String, crate::engine::print::PrinterCaps),
 ) -> String {
     use crate::queue::job::JobSettings;
 
@@ -420,7 +422,9 @@ fn preview_for_files(
         files
     };
 
-    // (printer, effective settings) → display names, in batch order.
+    // resolved name → (queue id, caps), so each printer is looked up once.
+    let mut queues: Vec<(String, String, crate::engine::print::PrinterCaps)> = Vec::new();
+    // (queue id, effective settings) → display names, in batch order.
     let mut groups: Vec<(String, JobSettings, Vec<String>)> = Vec::new();
     for file in files {
         let path = Path::new(file);
@@ -428,8 +432,16 @@ fn preview_for_files(
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| file.clone());
-        let printer =
+        let resolved =
             resolve_preview_printer(prefs, settings.printer.as_deref(), &display, os_default);
+        let printer = match queues.iter().find(|(n, _, _)| *n == resolved) {
+            Some((_, id, _)) => id.clone(),
+            None => {
+                let (id, caps) = queue_of(&resolved);
+                queues.push((resolved, id.clone(), caps));
+                id
+            }
+        };
         let ext = crate::engine::extension_of(path);
         let narrowed = crate::engine::print::effective_settings(settings, &ext);
         let effective = crate::engine::print::apply_printer_overrides(
@@ -446,17 +458,13 @@ fn preview_for_files(
         }
     }
 
-    let mut caps_cache: Vec<(String, crate::engine::print::PrinterCaps)> = Vec::new();
     let mut blocks = Vec::with_capacity(groups.len());
     for (printer, effective, names) in &groups {
-        let caps = match caps_cache.iter().find(|(p, _)| p == printer) {
-            Some((_, c)) => c.clone(),
-            None => {
-                let c = caps_of(printer);
-                caps_cache.push((printer.clone(), c.clone()));
-                c
-            }
-        };
+        let caps = queues
+            .iter()
+            .find(|(_, id, _)| id == printer)
+            .map(|(_, _, c)| c.clone())
+            .unwrap_or_default();
         let command = crate::engine::print::preview_command(&names[0], printer, effective, &caps);
         if groups.len() == 1 {
             blocks.push(command);
@@ -662,8 +670,8 @@ mod tests {
             "/d/report.pdf".to_string(),
             "/d/photo.png".to_string(),
         ];
-        let out = preview_for_files(&files, &settings, &prefs, Some("Office"), |_| {
-            PrinterCaps::unknown()
+        let out = preview_for_files(&files, &settings, &prefs, Some("Office"), |n| {
+            (n.to_string(), PrinterCaps::unknown())
         });
         let blocks: Vec<&str> = out.split("\n\n").collect();
         assert_eq!(blocks.len(), 2, "{out}");
@@ -687,10 +695,36 @@ mod tests {
             &JobSettings::default(),
             &crate::settings::PrinterPrefs::default(),
             Some("Office"),
-            |_| PrinterCaps::unknown(),
+            |n| (n.to_string(), PrinterCaps::unknown()),
         );
         assert!(!same.contains("\n\n") && !same.starts_with('#'), "{same}");
         assert!(same.contains("a.pdf"), "{same}");
+    }
+
+    /// A display name (a profile's or the Print Job dropdown's) previews as the
+    /// queue id the dispatcher really spools to, and the printer's per-queue
+    /// defaults are looked up under that id.
+    #[test]
+    fn preview_names_the_queue_id_for_a_display_name() {
+        use crate::engine::print::PrinterCaps;
+        use crate::queue::job::JobSettings;
+
+        let settings = JobSettings {
+            printer: Some("HP LaserJet Pro M404".into()),
+            ..JobSettings::default()
+        };
+        let out = preview_for_files(
+            &["/d/a.pdf".to_string()],
+            &settings,
+            &crate::settings::PrinterPrefs::default(),
+            None,
+            |n| {
+                assert_eq!(n, "HP LaserJet Pro M404");
+                ("HP_LaserJet_Pro_M404".to_string(), PrinterCaps::unknown())
+            },
+        );
+        assert!(out.contains("HP_LaserJet_Pro_M404"), "{out}");
+        assert!(!out.contains("HP LaserJet Pro M404"), "{out}");
     }
 
     /// A 1-page PDF written by the real image converter, so the page count the

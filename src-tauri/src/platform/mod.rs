@@ -160,15 +160,23 @@ pub fn printer_caps(p: &crate::ipc::printers::Printer) -> crate::engine::print::
     }
 }
 
-/// The capabilities of the printer named `name` (queue id or display name),
-/// or [`crate::engine::print::PrinterCaps::unknown`] when enumeration fails or
-/// does not list it — the same best-effort stance the dispatcher takes.
-pub fn caps_of(name: &str) -> crate::engine::print::PrinterCaps {
-    list_printers()
-        .ok()
-        .and_then(|list| list.into_iter().find(|p| p.id == name || p.name == name))
-        .map(|p| printer_caps(&p))
-        .unwrap_or_default()
+/// The spooler queue id and capabilities of the printer named `name` (queue
+/// id or display name), matched exactly as the dispatcher and the CLI match it
+/// ([`crate::ipc::printers::match_installed`]): a display name resolves to its
+/// queue id, so a preview names the queue `lp -d` will really receive. When
+/// enumeration fails or the name is missing or ambiguous, the name is kept as
+/// typed with [`crate::engine::print::PrinterCaps::unknown`] — the same
+/// best-effort stance the dispatcher takes.
+pub fn queue_of(name: &str) -> (String, crate::engine::print::PrinterCaps) {
+    use crate::ipc::printers::{match_installed, PrinterMatch};
+    let list = list_printers().unwrap_or_default();
+    match match_installed(&list, name) {
+        PrinterMatch::Found(p) => (p.id.clone(), printer_caps(p)),
+        PrinterMatch::Ambiguous(_) | PrinterMatch::Missing => (
+            name.to_string(),
+            crate::engine::print::PrinterCaps::unknown(),
+        ),
+    }
 }
 
 /// The CUPS `ColorModel` choices of queue `id` (empty when not reported, and
