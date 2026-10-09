@@ -22,7 +22,7 @@ use std::path::Path;
 use std::process::{Child, ExitStatus};
 use std::time::Duration;
 
-use crate::queue::job::{Duplex, JobSettings};
+use crate::queue::job::{Duplex, JobSettings, PaperSize};
 
 use super::EngineError;
 
@@ -72,6 +72,74 @@ pub enum PrintError {
     /// Any other engine failure, handled by the ordinary retry policy.
     #[error(transparent)]
     Engine(#[from] EngineError),
+}
+
+/// What MaeclyPrint knows about a printer's abilities when it spools to it,
+/// read from the OS enumeration ([`crate::ipc::printers::Printer`]).
+///
+/// Empty lists mean "not reported", never "supports nothing": the platform
+/// backends are best effort, and refusing a job because a list could not be
+/// read would be worse than letting the spooler decide. [`PrinterCaps::unknown`]
+/// is exactly that stance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrinterCaps {
+    /// Whether the driver can print two-sided.
+    pub duplex: bool,
+    /// Media names the printer reports (CUPS `PageSize` keywords, Windows paper
+    /// names), in its own spelling.
+    pub papers: Vec<String>,
+    /// CUPS `ColorModel` choices (`Gray`, `RGB`, `CMYK`…); empty on Windows.
+    pub color_models: Vec<String>,
+}
+
+impl Default for PrinterCaps {
+    fn default() -> Self {
+        Self::unknown()
+    }
+}
+
+impl PrinterCaps {
+    /// Nothing is known: duplex is trusted (as before enumeration was read)
+    /// and no paper or colour model is checked.
+    pub fn unknown() -> Self {
+        Self {
+            duplex: true,
+            papers: Vec::new(),
+            color_models: Vec::new(),
+        }
+    }
+
+    /// The printer's own name for `paper`, matched case-insensitively — `A4`
+    /// also matches a Windows `A4 210 x 297 mm`, and `letter` a CUPS `Letter`.
+    /// `None` when the printer lists no such size (or lists nothing).
+    pub fn paper_keyword(&self, paper: &PaperSize) -> Option<&str> {
+        let want = paper.as_str();
+        self.papers
+            .iter()
+            .find(|cap| cap.eq_ignore_ascii_case(want))
+            .or_else(|| self.papers.iter().find(|cap| paper_prefix_match(cap, want)))
+            .map(String::as_str)
+    }
+
+    /// Whether `paper` can be sent to this printer: always for `auto` or when
+    /// the printer reported no list, otherwise only a size it lists.
+    pub fn supports_paper(&self, paper: &PaperSize) -> bool {
+        paper.is_auto() || self.papers.is_empty() || self.paper_keyword(paper).is_some()
+    }
+}
+
+/// `cap` names the size `want` plus a qualifier (`A4 210 x 297 mm`,
+/// `A4.Borderless`) — but not a different size that merely starts with the same
+/// letters (`LetterSmall`, `A4x`).
+fn paper_prefix_match(cap: &str, want: &str) -> bool {
+    let (cap_l, want_l) = (cap.to_ascii_lowercase(), want.to_ascii_lowercase());
+    match cap_l.strip_prefix(&want_l) {
+        Some(rest) => rest
+            .chars()
+            .next()
+            .is_some_and(|c| !c.is_ascii_alphanumeric()),
+        None => false,
+    }
 }
 
 /// Where a spooled job stands in the OS print queue.
@@ -175,20 +243,22 @@ pub fn spool(
     pdf: &Path,
     printer: &str,
     settings: &JobSettings,
+    caps: &PrinterCaps,
     title: &str,
     timeout: Option<Duration>,
 ) -> Result<SpoolOutcome, PrintError> {
     #[cfg(unix)]
     {
-        cups::spool(pdf, printer, settings, title, timeout)
+        cups::spool(pdf, printer, settings, caps, title, timeout)
     }
     #[cfg(windows)]
     {
+        let _ = caps;
         sumatra::spool(pdf, printer, settings, title, timeout)
     }
     #[cfg(not(any(unix, windows)))]
     {
-        let _ = (pdf, printer, settings, title, timeout);
+        let _ = (pdf, printer, settings, caps, title, timeout);
         Err(PrintError::Engine(EngineError::DependencyMissing(
             "no print backend is available on this platform".to_string(),
         )))
@@ -268,21 +338,27 @@ pub fn effective_settings<'a>(settings: &'a JobSettings, input_ext: &str) -> Cow
 /// - a setting the backend cannot express is appended as a comment
 ///   ([`sumatra::quality_note`]) rather than left unsaid — the panel's job is to
 ///   tell the user what will happen, including what will not.
-pub fn preview_command(pdf_display: &str, printer: &str, settings: &JobSettings) -> String {
+pub fn preview_command(
+    pdf_display: &str,
+    printer: &str,
+    settings: &JobSettings,
+    caps: &PrinterCaps,
+) -> String {
     #[cfg(windows)]
     {
+        let _ = caps;
         let cmd = format!(
             "SumatraPDF.exe -print-to \"{printer}\" -print-settings \"{}\" -silent -exit-when-done \"{pdf_display}\"",
             sumatra::print_settings_string(settings)
         );
-        match sumatra::quality_note(settings) {
-            Some(note) => format!("{cmd}\n{note}"),
-            None => cmd,
-        }
+        std::iter::once(cmd)
+            .chain(sumatra::unsupported_notes(settings))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
     #[cfg(not(windows))]
     {
-        let opts = cups::lp_opts(settings)
+        let opts = cups::lp_opts_for(settings, caps)
             .iter()
             .map(|o| shell_quote(o))
             .collect::<Vec<_>>()
@@ -307,6 +383,11 @@ fn shell_quote(arg: &str) -> Cow<'_, str> {
 
 /// Pure capability gate: reject settings that would *silently* degrade output.
 ///
+/// Paper is the second such case: a size the printer does not list is
+/// substituted by the driver (or rejected by the spooler) with nothing on
+/// screen to say so, so it pauses as `unsupported_setting` for the user to pick
+/// a size the printer has. Only checked when the printer reported a list.
+///
 /// Per the honesty policy (`docs/03-requirements/print-settings.md` §160-168)
 /// we hard-fail only where the failure is invisible to the user. Duplex is that
 /// case: a driver that cannot duplex silently prints single-sided, discovered
@@ -320,15 +401,18 @@ fn shell_quote(arg: &str) -> Cow<'_, str> {
 pub fn check_supported(
     settings: &JobSettings,
     printer: &str,
-    duplex_supported: bool,
-    color_supported: bool,
+    caps: &PrinterCaps,
 ) -> Result<(), EngineError> {
-    // Intentionally unused: colour degradation is visible, so it never blocks.
-    let _ = color_supported;
-
-    if matches!(settings.duplex, Duplex::Long | Duplex::Short) && !duplex_supported {
+    // Colour is deliberately not checked: degradation to grey is visible.
+    if matches!(settings.duplex, Duplex::Long | Duplex::Short) && !caps.duplex {
         return Err(EngineError::UnsupportedSetting {
             setting: "duplex".to_string(),
+            printer: printer.to_string(),
+        });
+    }
+    if !caps.supports_paper(&settings.paper_size) {
+        return Err(EngineError::UnsupportedSetting {
+            setting: format!("paper size {}", settings.paper_size),
             printer: printer.to_string(),
         });
     }
@@ -340,27 +424,72 @@ mod tests {
     use super::*;
     use crate::queue::job::{Duplex, JobSettings};
 
+    fn caps(duplex: bool, papers: &[&str]) -> PrinterCaps {
+        PrinterCaps {
+            duplex,
+            papers: papers.iter().map(|s| s.to_string()).collect(),
+            color_models: Vec::new(),
+        }
+    }
+
     #[test]
     fn duplex_requires_driver_support() {
         let settings = JobSettings {
             duplex: Duplex::Long,
             ..JobSettings::default()
         };
-        assert!(check_supported(&settings, "P", false, true).is_err());
-        assert!(check_supported(&settings, "P", true, true).is_ok());
+        assert!(check_supported(&settings, "P", &caps(false, &[])).is_err());
+        assert!(check_supported(&settings, "P", &caps(true, &[])).is_ok());
     }
 
     #[test]
     fn no_duplex_request_never_fails() {
         let settings = JobSettings::default(); // Duplex::None
-        assert!(check_supported(&settings, "P", false, false).is_ok());
+        assert!(check_supported(&settings, "P", &caps(false, &[])).is_ok());
     }
 
     #[test]
     fn color_on_mono_printer_is_allowed() {
         // Colour job, printer reports no colour support: prints grey, not an error.
         let settings = JobSettings::default(); // ColorMode::Color
-        assert!(check_supported(&settings, "P", true, false).is_ok());
+        assert!(check_supported(&settings, "P", &PrinterCaps::unknown()).is_ok());
+    }
+
+    /// Any size the printer reports can be chosen, and a size it does not
+    /// report pauses the job instead of being silently substituted.
+    #[test]
+    fn paper_is_validated_against_the_printers_own_list() {
+        let printer = caps(true, &["A4", "Letter", "A6", "4x6", "Env10"]);
+        let with = |name: &str| JobSettings {
+            paper_size: PaperSize::parse(name).unwrap(),
+            ..JobSettings::default()
+        };
+        for ok in ["A4", "letter", "a6", "4x6", "ENV10", "auto"] {
+            assert!(check_supported(&with(ok), "P", &printer).is_ok(), "{ok}");
+        }
+        match check_supported(&with("A3"), "Photo", &printer) {
+            Err(EngineError::UnsupportedSetting { setting, printer }) => {
+                assert!(setting.contains("A3"), "{setting}");
+                assert_eq!(printer, "Photo");
+            }
+            other => panic!("expected UnsupportedSetting, got {other:?}"),
+        }
+        // Nothing reported → nothing refused.
+        assert!(check_supported(&with("Tabloid"), "P", &PrinterCaps::unknown()).is_ok());
+    }
+
+    #[test]
+    fn paper_keyword_uses_the_printers_spelling() {
+        let win = caps(true, &["Letter", "LetterSmall", "A4 210 x 297 mm"]);
+        assert_eq!(win.paper_keyword(&PaperSize::A4), Some("A4 210 x 297 mm"));
+        assert_eq!(win.paper_keyword(&PaperSize::LETTER), Some("Letter"));
+        assert_eq!(
+            win.paper_keyword(&PaperSize::parse("lettersmall").unwrap()),
+            Some("LetterSmall")
+        );
+        assert_eq!(win.paper_keyword(&PaperSize::LEGAL), None);
+        // A longer size name is not a qualifier of a shorter one.
+        assert_eq!(caps(true, &["A4x"]).paper_keyword(&PaperSize::A4), None);
     }
 
     #[test]
@@ -369,7 +498,7 @@ mod tests {
             duplex: Duplex::Short,
             ..JobSettings::default()
         };
-        match check_supported(&settings, "Front Desk", false, true) {
+        match check_supported(&settings, "Front Desk", &caps(false, &[])) {
             Err(EngineError::UnsupportedSetting { setting, printer }) => {
                 assert_eq!(setting, "duplex");
                 assert_eq!(printer, "Front Desk");
@@ -426,7 +555,7 @@ mod tests {
     #[test]
     fn preview_command_shows_printer_and_pdf() {
         let settings = JobSettings::default();
-        let cmd = preview_command("/tmp/job.pdf", "Office", &settings);
+        let cmd = preview_command("/tmp/job.pdf", "Office", &settings, &PrinterCaps::unknown());
         assert!(
             cmd.contains("/tmp/job.pdf"),
             "preview names the file: {cmd}"
@@ -453,7 +582,7 @@ mod tests {
             tray: Some("Tray 2".to_string()),
             ..JobSettings::default()
         };
-        let cmd = preview_command("job.pdf", "Office", &settings);
+        let cmd = preview_command("job.pdf", "Office", &settings, &PrinterCaps::unknown());
 
         if cfg!(windows) {
             assert!(cmd.contains("bin=Tray 2"), "{cmd}");

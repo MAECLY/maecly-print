@@ -62,6 +62,7 @@
     "copies": "Copias",
     "copiesSuffix": "× por archivo",
     "paper": "Papel",
+    "paperPrinterDefault": "La de la impresora",
     "orientation": "Orient.",
     "orientationLabel": "Orientación",
     "scaling": "Escalado",

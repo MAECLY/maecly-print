@@ -12,7 +12,7 @@
 //! | duplex none/long/short| `simplex` / `duplex` / `duplexshort`       |
 //! | colour / monochrome   | `color` / `monochrome`                     |
 //! | scaling fit/shrink/none| `fit` / `shrink` / `noscale`              |
-//! | paper                 | `paper=A4\|Letter\|Legal\|A3`              |
+//! | paper                 | `paper=<A2…A6\|letter\|legal\|tabloid\|statement>` |
 //! | tray                  | `bin=<bin name or number>`                 |
 //! | copies > 1            | `copies=<n>`                               |
 //! | orientation land/port | `landscape` / `portrait` *(auto omitted)*  |
@@ -41,6 +41,20 @@ use std::path::{Path, PathBuf};
 
 use crate::engine::{deps, EngineError};
 use crate::queue::job::{ColorMode, Duplex, JobSettings, Orientation, PaperSize, Quality, Scaling};
+
+/// The sizes SumatraPDF's `paper=` understands (its own vocabulary, matched
+/// case-insensitively). Anything else cannot be expressed on its command line.
+const SUMATRA_PAPERS: [&str; 9] = [
+    "A2",
+    "A3",
+    "A4",
+    "A5",
+    "A6",
+    "letter",
+    "legal",
+    "tabloid",
+    "statement",
+];
 
 #[cfg(windows)]
 use std::process::Command;
@@ -84,7 +98,12 @@ pub fn print_settings_string(settings: &JobSettings) -> String {
         .to_string(),
     );
 
-    parts.push(format!("paper={}", paper(settings.paper_size)));
+    // Paper — only a size SumatraPDF can name; `auto` and any other size send
+    // nothing (the printer's own setting applies), and
+    // [`unsupported_notes`] says so for the latter.
+    if let Some(paper) = paper_token(&settings.paper_size) {
+        parts.push(format!("paper={paper}"));
+    }
 
     // Tray: SumatraPDF takes the driver's own bin name or number. Only emitted
     // when the job names one — otherwise the printer's default bin wins.
@@ -153,13 +172,37 @@ pub fn quality_note(settings: &JobSettings) -> Option<&'static str> {
     }
 }
 
-fn paper(paper: PaperSize) -> &'static str {
-    match paper {
-        PaperSize::A4 => "A4",
-        PaperSize::Letter => "Letter",
-        PaperSize::Legal => "Legal",
-        PaperSize::A3 => "A3",
+/// SumatraPDF's own spelling of `paper`, or `None` for `auto` or a size it has
+/// no keyword for. The classic four keep their established spelling
+/// (`A4`, `Letter`, `Legal`, `A3`).
+fn paper_token(paper: &PaperSize) -> Option<&str> {
+    if paper.is_auto() {
+        return None;
     }
+    if PaperSize::CLASSIC.contains(paper) {
+        return Some(paper.as_str());
+    }
+    SUMATRA_PAPERS
+        .iter()
+        .find(|p| p.eq_ignore_ascii_case(paper.as_str()))
+        .copied()
+}
+
+/// Every setting the SumatraPDF command line cannot carry, as `::` comment
+/// lines for the honesty preview (and the job log): quality, and a paper size
+/// outside SumatraPDF's vocabulary.
+pub fn unsupported_notes(settings: &JobSettings) -> Vec<String> {
+    let mut notes: Vec<String> = quality_note(settings)
+        .map(str::to_string)
+        .into_iter()
+        .collect();
+    if !settings.paper_size.is_auto() && paper_token(&settings.paper_size).is_none() {
+        notes.push(format!(
+            ":: note: SumatraPDF has no keyword for the paper size \"{}\", so it is NOT applied — the printer's own paper setting is used.",
+            settings.paper_size
+        ));
+    }
+    notes
 }
 
 fn strip_ws(s: &str) -> String {
@@ -224,10 +267,9 @@ pub fn spool(
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let _ = title;
 
-    if let Some(note) = quality_note(settings) {
+    for note in unsupported_notes(settings) {
         tracing::warn!(
             event = "print_setting_not_applied",
-            setting = "quality",
             backend = "sumatra",
             printer = %printer,
             message = %note,
@@ -348,13 +390,36 @@ mod tests {
         }
     }
 
+    /// SumatraPDF names a fixed set of sizes; anything else is stated as not
+    /// applied rather than mangled into a token, and `auto` says nothing.
+    #[test]
+    fn paper_outside_sumatras_vocabulary_is_declared_not_applied() {
+        let with = |name: &str| JobSettings {
+            paper_size: PaperSize::parse(name).unwrap(),
+            ..JobSettings::default()
+        };
+        assert!(print_settings_string(&with("Tabloid")).contains("paper=tabloid"));
+        assert!(print_settings_string(&with("a5")).contains("paper=A5"));
+        assert!(unsupported_notes(&with("A5")).is_empty());
+
+        let photo = with("4x6");
+        assert!(!print_settings_string(&photo).contains("paper="));
+        let notes = unsupported_notes(&photo);
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].contains("4x6") && notes[0].contains("NOT applied"));
+
+        let auto = with("auto");
+        assert!(!print_settings_string(&auto).contains("paper="));
+        assert!(unsupported_notes(&auto).is_empty());
+    }
+
     #[test]
     fn short_edge_portrait_shrink() {
         let settings = JobSettings {
             duplex: Duplex::Short,
             orientation: Orientation::Portrait,
             scaling: Scaling::Shrink,
-            paper_size: PaperSize::Letter,
+            paper_size: PaperSize::LETTER,
             ..JobSettings::default()
         };
         assert_eq!(

@@ -1142,10 +1142,20 @@ export type JobState =
  */
 export type Orientation = "auto" | "portrait" | "landscape"
 /**
- * Target paper size. Serializes lowercase: `"a4"`, `"letter"`, `"legal"`,
- * `"a3"`.
+ * Target paper size: any media name the printer reports — a CUPS `PageSize`
+ * keyword (`A4`, `Letter`, `A6`, `4x6`, `Tabloid`, `w288h432`) or a Windows
+ * paper name — or [`PaperSize::AUTO`], "whatever this printer is set to".
+ * 
+ * It used to be a closed four-value enum, so a printer's own sizes (photo
+ * paper, envelopes, A5) could not be chosen at all. The wire form stays
+ * backward compatible: the four classic sizes still serialize as `"a4"`,
+ * `"letter"`, `"legal"`, `"a3"` and parse case-insensitively, so every stored
+ * profile and `queue.json` loads unchanged. Any other name travels verbatim;
+ * the engine matches it against the printer's list case-insensitively and
+ * sends the printer's own spelling
+ * ([`crate::engine::print::PrinterCaps::paper_keyword`]).
  */
-export type PaperSize = "a4" | "letter" | "legal" | "a3"
+export type PaperSize = string
 /**
  * A request from the frontend/CLI to print one or more files with a shared
  * [`JobSettings`]. The dispatcher fans this out into one [`Job`] per file,

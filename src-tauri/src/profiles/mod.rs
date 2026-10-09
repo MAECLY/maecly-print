@@ -176,7 +176,7 @@ impl StoredProfile {
             color_mode: self.color_mode,
             duplex: self.duplex,
             copies: self.copies,
-            paper_size: self.paper_size,
+            paper_size: self.paper_size.clone(),
             orientation: self.orientation,
             scaling: self.scaling,
             page_range: self.page_range.clone(),
@@ -196,7 +196,7 @@ impl Profile {
             color_mode: self.color_mode,
             duplex: self.duplex,
             copies: self.copies,
-            paper_size: self.paper_size,
+            paper_size: self.paper_size.clone(),
             orientation: self.orientation,
             scaling: self.scaling,
             page_range: self.page_range.clone(),
@@ -1261,7 +1261,7 @@ mod tests {
             // lowercase. `toUiProfile` re-cases, so compare case-insensitively.
             assert_eq!(
                 get("paper").to_lowercase(),
-                wire(rs.paper_size),
+                wire(rs.paper_size.clone()),
                 "{}",
                 at("paper")
             );

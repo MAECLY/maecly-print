@@ -146,6 +146,45 @@ pub fn open_printer_settings() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// What the print engine needs to know about an enumerated printer.
+///
+/// Built from the same [`crate::ipc::printers::Printer`] the Printers screen
+/// shows, so the sizes a user can pick there are exactly the ones a job is
+/// validated against. Colour models are read separately on CUPS (they are
+/// not part of the wire `Printer`); see [`printer_color_models`].
+pub fn printer_caps(p: &crate::ipc::printers::Printer) -> crate::engine::print::PrinterCaps {
+    crate::engine::print::PrinterCaps {
+        duplex: p.duplex,
+        papers: p.papers.clone(),
+        color_models: printer_color_models(&p.id),
+    }
+}
+
+/// The capabilities of the printer named `name` (queue id or display name),
+/// or [`crate::engine::print::PrinterCaps::unknown`] when enumeration fails or
+/// does not list it — the same best-effort stance the dispatcher takes.
+pub fn caps_of(name: &str) -> crate::engine::print::PrinterCaps {
+    list_printers()
+        .ok()
+        .and_then(|list| list.into_iter().find(|p| p.id == name || p.name == name))
+        .map(|p| printer_caps(&p))
+        .unwrap_or_default()
+}
+
+/// The CUPS `ColorModel` choices of queue `id` (empty when not reported, and
+/// always empty on Windows, where colour is a DEVMODE flag, not a model).
+pub fn printer_color_models(id: &str) -> Vec<String> {
+    #[cfg(unix)]
+    {
+        cups::color_models(id)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = id;
+        Vec::new()
+    }
+}
+
 /// Map a driver/PWG media name onto the closest [`PaperSize`] the print engine
 /// can express.
 ///
@@ -162,9 +201,9 @@ pub fn media_paper_size(paper: Option<&str>) -> crate::queue::job::PaperSize {
         .to_ascii_lowercase()
         .replace(['_', '-'], "");
     if p.contains("legal") {
-        PaperSize::Legal
+        PaperSize::LEGAL
     } else if p.contains("letter") {
-        PaperSize::Letter
+        PaperSize::LETTER
     } else if p.contains("a3") {
         PaperSize::A3
     } else {
@@ -181,12 +220,12 @@ mod tests {
         use crate::queue::job::PaperSize;
         assert_eq!(media_paper_size(Some("A4")), PaperSize::A4);
         assert_eq!(media_paper_size(Some("iso_a4_210x297mm")), PaperSize::A4);
-        assert_eq!(media_paper_size(Some("Letter")), PaperSize::Letter);
+        assert_eq!(media_paper_size(Some("Letter")), PaperSize::LETTER);
         assert_eq!(
             media_paper_size(Some("na_letter_8.5x11in")),
-            PaperSize::Letter
+            PaperSize::LETTER
         );
-        assert_eq!(media_paper_size(Some("US Legal")), PaperSize::Legal);
+        assert_eq!(media_paper_size(Some("US Legal")), PaperSize::LEGAL);
         assert_eq!(media_paper_size(Some("iso_a3_297x420mm")), PaperSize::A3);
         // Unknown media and "no override at all" both fall back to A4.
         assert_eq!(media_paper_size(Some("Photo 4x6")), PaperSize::A4);

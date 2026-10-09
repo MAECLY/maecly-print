@@ -22,7 +22,9 @@ import { toast } from 'sonner';
 import {
   BUILT_IN_PROFILES,
   buildPrintRequest,
+  AUTO_PAPER,
   DEFAULT_PRINTER,
+  paperChoices,
   findProfileIn,
   findPageRangeOverflow,
   isValidCopies,
@@ -117,7 +119,9 @@ export function PrintJobScreen({
   // labels it, and on CUPS the two genuinely differ (`printer-info` vs the
   // queue name). Sending the label would produce a job for a printer that does
   // not exist.
-  const [printers, setPrinters] = useState<{ id: string; name: string }[]>([]);
+  const [printers, setPrinters] = useState<
+    { id: string; name: string; papers: string[] }[]
+  >([]);
   useEffect(() => {
     if (!isTauri()) return;
     let alive = true;
@@ -131,7 +135,7 @@ export function PrintJobScreen({
         setPrinters(
           ps
             .filter((p) => !disabled.has(p.id))
-            .map((p) => ({ id: p.id, name: p.name })),
+            .map((p) => ({ id: p.id, name: p.name, papers: p.papers })),
         );
       })
       .catch((e) => {
@@ -750,9 +754,13 @@ export function PrintJobScreen({
                 onChange={(e) =>
                   setOverrides({ ...overrides, paper: e.target.value })
                 }
-                options={['A4', 'Letter', 'Legal', 'A3'].map((v) => ({
+                options={paperChoices(
+                  printers.find((p) => p.id === currentPrinter)?.papers ?? [],
+                  merged.paper,
+                ).map((v) => ({
                   value: v,
-                  label: v,
+                  label:
+                    v === AUTO_PAPER ? t('settings.paperPrinterDefault') : v,
                 }))}
               />
             </div>

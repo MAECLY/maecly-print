@@ -79,7 +79,7 @@ interface Call {
 interface MockOpts {
   inspect?: (paths: string[]) => FileInfo[];
   expand?: (paths: string[], scan: string) => FolderExpansion;
-  printers?: { id: string; name: string }[];
+  printers?: { id: string; name: string; papers?: string[] }[];
   preview?: string;
   printError?: string;
   jobIds?: string[];
@@ -146,7 +146,10 @@ function mockJob(opts: MockOpts = {}): Call[] {
         return one ? [one] : [];
       }
       case 'list_printers':
-        return (opts.printers ?? []).map((p) => printerRow(p.id, p.name));
+        return (opts.printers ?? []).map((p) => ({
+          ...printerRow(p.id, p.name),
+          papers: p.papers ?? [],
+        }));
       case 'default_printer':
         return null;
       case 'get_printer_prefs':
@@ -483,6 +486,44 @@ describe('PrintJobScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
 
     expect(seen.at(-1)?.settings.printer).toBe('HP_LaserJet_2');
+  });
+
+  it('FR-041: offers every paper size the chosen printer reports, plus its own default', async () => {
+    const seen: PrintRequest[] = [];
+    mockJob({
+      printers: [
+        {
+          id: 'Photo',
+          name: 'Photo printer',
+          papers: ['A4', 'Letter', '4x6', 'Tabloid'],
+        },
+      ],
+    });
+    render(
+      <Harness
+        initial={[uiFile('/docs/a.pdf')]}
+        onRequest={(req) => seen.push(req)}
+      />,
+    );
+
+    const printer = await screen.findByRole('combobox', { name: 'Printer' });
+    await waitFor(() =>
+      expect(within(printer).getByText('Photo printer')).toBeInTheDocument(),
+    );
+    fireEvent.change(printer, { target: { value: 'Photo' } });
+
+    const paper = screen.getByRole('combobox', { name: 'Paper' });
+    for (const size of ['Printer default', 'A4', 'Legal', '4x6', 'Tabloid']) {
+      expect(within(paper).getByText(size)).toBeInTheDocument();
+    }
+
+    fireEvent.change(paper, { target: { value: '4x6' } });
+    fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
+    expect(seen.at(-1)?.settings.paper_size).toBe('4x6');
+
+    fireEvent.change(paper, { target: { value: 'auto' } });
+    fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
+    expect(seen.at(-1)?.settings.paper_size).toBe('auto');
   });
 
   it('FR-044: keeps a stored printer selectable even when it is not installed', async () => {

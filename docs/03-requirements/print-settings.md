@@ -15,7 +15,7 @@ A print setting is anything that can be different per job: the printer, paper, d
 | `color_mode` | enum: color / monochrome | color | `color` / `monochrome` | `-o ColorModel=Gray` for mono; **colour omitted** (driver default) | **Shipped** | yes |
 | `copies` | int 1–999 | 1 | `copies=N` (only when N > 1) | `-n N` (only when N > 1) | **Shipped** | no |
 | `page_ranges` | string `1-5,10` | all | bare `1-5,10`, prepended, no key | `-o page-ranges=1-5,10` | **Shipped** | no |
-| `paper_size` | enum: A4 / Letter / Legal / A3 | A4 | `paper=A4` | `-o media=A4` | **Shipped** | yes |
+| `paper_size` | string: any size the printer reports (`A4`, `Letter`, `A6`, `4x6`, `Tabloid`…), or `auto` | A4 | `paper=<A2…A6, letter, legal, tabloid, statement>`; any other size is **not applied** and the preview says so; `auto` emits nothing | `-o media=<the printer's own keyword>`; `auto` emits nothing | **Shipped** | yes — validated against the printer's list when it reports one (`unsupported_setting` pause otherwise) |
 | `orientation` | enum: portrait / landscape / auto | auto | `landscape` / `portrait`; **auto emits nothing** | `-o orientation-requested=3` (portrait) / `=4` (landscape); **auto emits nothing** | **Shipped** | no |
 | `scaling` | enum: fit / shrink / none | fit | `fit` / `shrink` / `noscale` | `-o fit-to-page` for fit **and** shrink; none emits nothing | **Shipped** | no |
 | `quality` | enum: draft / normal / high | normal | — | — | **Stored, never applied** | yes |
@@ -32,6 +32,10 @@ Three things in that table contradict earlier drafts and are worth stating plain
 - **`duplex` defaults to `none`, not to anything inherited.** `sides=` is emitted on every CUPS invocation precisely so an explicit "none" beats a driver default that duplexes.
 - **`quality` and `tray` are a trap.** They are real fields on `Profile` and `StoredProfile`, they round-trip through `profiles.toml`, and the UI can set them — but they are not on `JobSettings` and no renderer reads them. Setting them changes nothing about the printed output. Either wire them or remove them; documenting them as working would be the worst of the three options.
 - **CUPS cannot distinguish `fit` from `shrink`.** It has a single `fit-to-page` toggle, so both map to it. Only SumatraPDF honours the distinction (`fit` vs `shrink`).
+
+### `paper_size`
+
+Any media name the printer reports can be chosen — the Print Job paper menu lists the classic four, then every other size the selected printer reports, plus **Printer default** (`auto`). The wire form is backward compatible: `a4`, `letter`, `legal` and `a3` still serialize lowercase, so stored profiles and `queue.json` load unchanged; any other name travels verbatim and is matched against the printer case-insensitively (`A4` also matches a Windows `A4 210 x 297 mm`). When the printer reports a list and the size is not on it, the job pauses with `unsupported_setting` rather than letting the driver substitute another size in silence. `auto` sends no media flag, so the printer's override from the Printers screen, else its own default, applies.
 
 ## Setting details
 
@@ -217,7 +221,7 @@ Full argument vector: `-print-to <printer> -print-settings <string> -silent -exi
 | Duplex none / long / short | `simplex` / `duplex` / `duplexshort` — always emitted |
 | Colour / monochrome | `color` / `monochrome` — always emitted |
 | Scaling fit / shrink / none | `fit` / `shrink` / `noscale` — always emitted |
-| Paper size | `paper=A4` (also `Letter`, `Legal`, `A3`) — always emitted |
+| Paper size | `paper=A4` (also `Letter`, `Legal`, `A3`, and SumatraPDF's own `A2`, `A5`, `A6`, `tabloid`, `statement`); `auto` emits nothing; any other size cannot be named here, so it is left out and a `:: note:` line in the preview says it is not applied |
 | Copies | `copies=N`, **only when N > 1** |
 | Orientation | `landscape` / `portrait`; `auto` emits nothing |
 | Tray (bin) | *not emitted* — `bin=N` exists in SumatraPDF but no renderer produces it |
@@ -233,7 +237,7 @@ The command is **`lp`**, not `lpr`. Vector: `lp -d <printer> -t <title> <opts…
 | Printer | `-d <name>` |
 | Title | `-t <title>` |
 | Sides (duplex) | `-o sides=one-sided \| two-sided-long-edge \| two-sided-short-edge` — always emitted |
-| Paper | `-o media=A4 \| Letter \| Legal \| A3` — always emitted |
+| Paper | `-o media=<keyword>` in the printer's own spelling (`A4`, `Letter`, `4x6`, `Tabloid`, `w288h432`…); omitted only for `auto` |
 | Monochrome | `-o ColorModel=Gray`; **colour emits nothing** (driver default) |
 | Copies | `-n N` — `lp`'s own flag, **not** `-o copies=N`; only when N > 1 |
 | Orientation | `-o orientation-requested=3` portrait / `=4` landscape; `auto` emits nothing, so each page keeps its own orientation |

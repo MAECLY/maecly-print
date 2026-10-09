@@ -8,6 +8,8 @@ import {
   isValidPageRange,
   parsePageRange,
   nextUniqueName,
+  paperChoices,
+  paperToWire,
   toJobSettings,
   toWireTray,
   validateProfileName,
@@ -305,5 +307,26 @@ describe('findPageRangeOverflow', () => {
 
   it('FR-042: a syntactically invalid range reports nothing (one error at a time)', () => {
     expect(findPageRangeOverflow('5-1', [pdf('a.pdf', 1)])).toBeNull();
+  });
+});
+
+describe('paper sizes beyond the classic four', () => {
+  it('FR-041: keeps the classic wire spelling and passes printer sizes through verbatim', () => {
+    expect(paperToWire('A4')).toBe('a4');
+    expect(paperToWire('letter')).toBe('letter');
+    expect(paperToWire('Tabloid')).toBe('Tabloid');
+    expect(paperToWire('4x6')).toBe('4x6');
+    expect(paperToWire('auto')).toBe('auto');
+
+    expect(paperChoices(['a4', 'Letter', '4x6', 'Env10'], 'A6')).toEqual([
+      'auto',
+      'A4',
+      'Letter',
+      'Legal',
+      'A3',
+      '4x6',
+      'Env10',
+      'A6',
+    ]);
   });
 });

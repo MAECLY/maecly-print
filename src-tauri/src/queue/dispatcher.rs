@@ -92,7 +92,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot};
 
-use crate::engine::print::{OsJobState, PrintError, SpoolOutcome, TrackError};
+use crate::engine::print::{OsJobState, PrintError, PrinterCaps, SpoolOutcome, TrackError};
 use crate::engine::EngineError;
 use crate::queue::job::{
     now_rfc3339, Job, JobError, JobProgress, JobState, QueueSnapshot, SCHEMA_VERSION,
@@ -190,6 +190,13 @@ const PROGRESS_THROTTLE: Duration = Duration::from_millis(100);
 // ---------------------------------------------------------------------------
 // Commands & wire types
 // ---------------------------------------------------------------------------
+
+/// The printer a job will go to, with what is known about it.
+#[derive(Debug, Clone)]
+pub(crate) struct ResolvedPrinter {
+    pub name: String,
+    pub caps: PrinterCaps,
+}
 
 /// Successful print outcome flowing back from a blocking print task. Carries
 /// the resolved printer name (so the job records which printer it actually went
@@ -293,11 +300,11 @@ pub(crate) trait JobRunner: Send + Sync + 'static {
     fn print(
         &self,
         job: &Job,
-        printer: &str,
+        printer: &ResolvedPrinter,
         timeout: Option<Duration>,
     ) -> Result<SpoolOutcome, PrintError>;
 
-    /// Resolve the printer name to use and whether it supports duplex.
+    /// Resolve the printer to use and what it can do.
     ///
     /// `file_name` carries the input's name so a file-type routing rule can
     /// apply (see [`crate::ipc::printers::resolve_app_printer`]).
@@ -305,7 +312,7 @@ pub(crate) trait JobRunner: Send + Sync + 'static {
         &self,
         requested: Option<&str>,
         file_name: &str,
-    ) -> Result<(String, bool), PrintError>;
+    ) -> Result<ResolvedPrinter, PrintError>;
 
     /// Best-effort cancellation of an already-spooled OS job on `printer`.
     fn cancel_os_job(&self, printer: &str, os_job_id: &str);
@@ -371,7 +378,7 @@ impl JobRunner for EngineRunner {
     fn print(
         &self,
         job: &Job,
-        printer: &str,
+        printer: &ResolvedPrinter,
         timeout: Option<Duration>,
     ) -> Result<SpoolOutcome, PrintError> {
         // A converted job prints its cache PDF; a passthrough PDF prints in place.
@@ -382,7 +389,14 @@ impl JobRunner for EngineRunner {
         // Page ranges are PDF-only; an image is one page, so a range that
         // excludes page 1 would spool an empty job (see `effective_settings`).
         let settings = crate::engine::print::effective_settings(&job.settings, &job.input_ext);
-        crate::engine::print::spool(&pdf, printer, &settings, &job.file_name, timeout)
+        crate::engine::print::spool(
+            &pdf,
+            &printer.name,
+            &settings,
+            &printer.caps,
+            &job.file_name,
+            timeout,
+        )
     }
 
     /// Resolve the target printer and its duplex capability.
@@ -399,7 +413,7 @@ impl JobRunner for EngineRunner {
         &self,
         requested: Option<&str>,
         file_name: &str,
-    ) -> Result<(String, bool), PrintError> {
+    ) -> Result<ResolvedPrinter, PrintError> {
         let name = match resolve_app_printer_for(requested, file_name) {
             Some(p) => p,
             None => resolve_os_default_printer()?,
@@ -408,10 +422,16 @@ impl JobRunner for EngineRunner {
             .ok()
             .filter(|list| !list.is_empty());
         let Some(list) = enumerated else {
-            return Ok((name, true));
+            return Ok(ResolvedPrinter {
+                name,
+                caps: PrinterCaps::unknown(),
+            });
         };
         match list.iter().find(|p| p.id == name || p.name == name) {
-            Some(p) => Ok((name, p.duplex)),
+            Some(p) => Ok(ResolvedPrinter {
+                caps: crate::platform::printer_caps(p),
+                name,
+            }),
             None => Err(PrintError::PrinterMissing { printer: name }),
         }
     }
@@ -1400,19 +1420,15 @@ impl Dispatcher {
         let timeout = self.limits.print_timeout;
         self.spawner.spawn_blocking(Box::new(move || {
             let result = (|| -> Result<PrintOk, PrintError> {
-                let (name, duplex_supported) =
+                let printer =
                     runner.resolve_printer(job.settings.printer.as_deref(), &job.file_name)?;
                 // Pure capability gate (honesty policy): a duplex request against
-                // a non-duplex driver is an error rather than a silent downgrade.
-                crate::engine::print::check_supported(
-                    &job.settings,
-                    &name,
-                    duplex_supported,
-                    true,
-                )?;
-                let outcome = runner.print(&job, &name, timeout)?;
+                // a non-duplex driver, or a paper size the printer does not
+                // list, is an error rather than a silent substitution.
+                crate::engine::print::check_supported(&job.settings, &printer.name, &printer.caps)?;
+                let outcome = runner.print(&job, &printer, timeout)?;
                 Ok(PrintOk {
-                    printer: name,
+                    printer: printer.name,
                     os_job_id: outcome.os_job_id,
                 })
             })();
@@ -1564,7 +1580,9 @@ fn plan_printer_fix(
     // then the OS default) — which is exactly what the Printers screen's
     // "Update references" reconciliation edits.
     match runner.resolve_printer(None, file_name) {
-        Ok((replacement, _)) => Ok(PrinterFix::Unpin {
+        Ok(ResolvedPrinter {
+            name: replacement, ..
+        }) => Ok(PrinterFix::Unpin {
             missing,
             replacement,
         }),
@@ -1996,6 +2014,8 @@ mod tests {
         /// routing rule can only apply if the dispatcher passes it, so this is
         /// how a test proves the plumbing exists.
         resolve_file_names: Mutex<Vec<String>>,
+        /// Paper sizes the fake printer reports (empty: not reported).
+        papers: Mutex<Vec<String>>,
     }
 
     impl FakeRunner {
@@ -2015,6 +2035,7 @@ mod tests {
                 print_timeouts: Mutex::new(Vec::new()),
                 print_settings: Mutex::new(Vec::new()),
                 resolve_file_names: Mutex::new(Vec::new()),
+                papers: Mutex::new(Vec::new()),
             }
         }
     }
@@ -2052,7 +2073,7 @@ mod tests {
         fn print(
             &self,
             job: &Job,
-            _printer: &str,
+            _printer: &ResolvedPrinter,
             timeout: Option<Duration>,
         ) -> Result<SpoolOutcome, PrintError> {
             self.print_calls.fetch_add(1, Ordering::Relaxed);
@@ -2082,7 +2103,7 @@ mod tests {
             &self,
             requested: Option<&str>,
             file_name: &str,
-        ) -> Result<(String, bool), PrintError> {
+        ) -> Result<ResolvedPrinter, PrintError> {
             self.resolve_file_names
                 .lock()
                 .unwrap()
@@ -2099,7 +2120,14 @@ mod tests {
             {
                 return Err(PrintError::PrinterMissing { printer: name });
             }
-            Ok((name, self.duplex_supported.load(Ordering::Relaxed)))
+            Ok(ResolvedPrinter {
+                name,
+                caps: PrinterCaps {
+                    duplex: self.duplex_supported.load(Ordering::Relaxed),
+                    papers: self.papers.lock().unwrap().clone(),
+                    color_models: Vec::new(),
+                },
+            })
         }
 
         fn cancel_os_job(&self, _printer: &str, os_job_id: &str) {
@@ -3409,6 +3437,25 @@ mod tests {
         h.run_to_idle();
         assert!(rrx.try_recv().unwrap().is_ok());
         assert_ne!(h.job(&id).state, JobState::Paused);
+    }
+
+    /// A paper size the printer does not list pauses the job for the user to
+    /// fix, instead of the driver substituting another size in silence.
+    #[tokio::test]
+    async fn fr_041_a_paper_size_the_printer_lacks_pauses_the_job() {
+        let mut h = harness();
+        *h.runner.papers.lock().unwrap() = vec!["A4".into(), "Letter".into()];
+        let mut j = make_job("a.pdf");
+        j.settings.paper_size = crate::queue::job::PaperSize::parse("Tabloid").unwrap();
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+
+        assert_eq!(h.job(&id).state, JobState::Paused);
+        let err = h.job(&id).error.unwrap();
+        assert_eq!(err.code, "unsupported_setting");
+        assert!(err.message.contains("Tabloid"), "{err:?}");
+        assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 0);
     }
 
     // ---- OS job tracking (the print slot) --------------------------------

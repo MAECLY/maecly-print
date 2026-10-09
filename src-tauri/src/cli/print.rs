@@ -94,24 +94,23 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
     // the capability gate are per file. Doing the whole pass before printing
     // anything preserves the all-or-nothing acceptance described above: one
     // unusable target means nothing is spooled.
-    let targets: Vec<String> = files
+    let targets: Vec<(String, crate::engine::print::PrinterCaps)> = files
         .iter()
         .map(|file| {
             let name = Path::new(file)
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| file.clone());
-            let (printer, duplex_supported) =
-                resolve_printer(paths, settings.printer.as_deref(), &name)?;
-            crate::engine::print::check_supported(&settings, &printer, duplex_supported, true)?;
-            Ok(printer)
+            let (printer, caps) = resolve_printer(paths, settings.printer.as_deref(), &name)?;
+            crate::engine::print::check_supported(&settings, &printer, &caps)?;
+            Ok((printer, caps))
         })
         .collect::<Result<_, CliError>>()?;
     // What the batch reports as its target: the common printer when routing did
     // not split it, otherwise a marker rather than one file's printer standing
     // in for the rest.
     let printer = match targets.first() {
-        Some(first) if targets.iter().all(|p| p == first) => first.clone(),
+        Some((first, _)) if targets.iter().all(|(p, _)| p == first) => first.clone(),
         Some(_) => "<per file type>".to_string(),
         None => String::new(),
     };
@@ -135,12 +134,13 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
 
     for (index, file) in files.iter().enumerate() {
         let job_id = format!("{batch_id}-{index}");
-        let target = targets.get(index).cloned().unwrap_or_default();
+        let (target, caps) = targets.get(index).cloned().unwrap_or_default();
         let outcome = print_one(
             Path::new(file),
             cache.path(),
             &job_id,
             &target,
+            &caps,
             &settings,
             timeout,
         );
@@ -248,6 +248,7 @@ fn print_one(
     cache_dir: &Path,
     job_id: &str,
     printer: &str,
+    caps: &crate::engine::print::PrinterCaps,
     settings: &JobSettings,
     timeout: Option<std::time::Duration>,
 ) -> Result<Option<String>, CliError> {
@@ -267,7 +268,7 @@ fn print_one(
     // exactly as the dispatcher does — an image would otherwise spool empty.
     let settings =
         crate::engine::print::effective_settings(settings, &crate::engine::extension_of(input));
-    let outcome = crate::engine::print::spool(&pdf, printer, &settings, &title, timeout)?;
+    let outcome = crate::engine::print::spool(&pdf, printer, &settings, caps, &title, timeout)?;
     // The basename (`title`), never the absolute path (NFR-082).
     tracing::info!(event = "cli_job_printed", file = %title, printer = %printer);
     Ok(outcome.os_job_id)
@@ -345,7 +346,7 @@ pub fn from_profile(profile: &Profile) -> JobSettings {
         },
         color_mode: profile.color_mode,
         copies: profile.copies,
-        paper_size: profile.paper_size,
+        paper_size: profile.paper_size.clone(),
         orientation: profile.orientation,
         scaling: profile.scaling,
         page_ranges: profile.page_range.clone(),
@@ -402,7 +403,7 @@ fn resolve_printer(
     paths: &Paths,
     requested: Option<&str>,
     file_name: &str,
-) -> Result<(String, bool), CliError> {
+) -> Result<(String, crate::engine::print::PrinterCaps), CliError> {
     let prefs = crate::settings::Config::load_from(&paths.config).printers;
     // Same order as the queue: explicit request, then the file-type routing
     // rule, then the app default — one definition, in `ipc::printers`.
@@ -424,10 +425,10 @@ fn resolve_printer(
         .ok()
         .filter(|list| !list.is_empty());
     let Some(list) = enumerated else {
-        return Ok((name, true));
+        return Ok((name, crate::engine::print::PrinterCaps::unknown()));
     };
     match list.iter().find(|p| p.id == name || p.name == name) {
-        Some(p) => Ok((name, p.duplex)),
+        Some(p) => Ok((name, crate::platform::printer_caps(p))),
         None => Err(CliError::printer(format!(
             "printer '{name}' is not installed — choose another printer"
         ))),
@@ -504,7 +505,7 @@ mod tests {
         assert_eq!(settings.color_mode, ColorMode::Monochrome);
         assert_eq!(settings.duplex, Duplex::Short);
         assert_eq!(settings.copies, 3);
-        assert_eq!(settings.paper_size, PaperSize::Letter);
+        assert_eq!(settings.paper_size, PaperSize::LETTER);
         assert_eq!(settings.scaling, Scaling::None);
         assert_eq!(settings.page_ranges.as_deref(), Some("1-5,8"));
     }

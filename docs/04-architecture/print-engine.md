@@ -164,7 +164,7 @@ Flag mapping (`engine/print/cups.rs`), in the exact order `lp_args` emits them:
 | colour | *(omitted — driver default)* |
 | monochrome | `-o ColorModel=Gray` |
 | copies > 1 | `-n <copies>` |
-| paper | `-o media=A4\|Letter\|Legal\|A3` |
+| paper | `-o media=<the printer's keyword>` *(`auto` omits)* |
 | orientation portrait / landscape | `-o orientation-requested=3` / `=4` *(`auto` omits)* |
 | scaling fit **or** shrink | `-o fit-to-page` *(`none` omits)* |
 | page ranges | `-o page-ranges=<r>` (whitespace stripped) |

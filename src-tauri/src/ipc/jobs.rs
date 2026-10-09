@@ -404,8 +404,9 @@ pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
             .unwrap_or_else(|| "pdf".to_string());
         let settings = crate::engine::print::effective_settings(&req.settings, &ext);
 
+        let caps = crate::platform::caps_of(&printer);
         Ok(crate::engine::print::preview_command(
-            &display, &printer, &settings,
+            &display, &printer, &settings, &caps,
         ))
     })
     .await

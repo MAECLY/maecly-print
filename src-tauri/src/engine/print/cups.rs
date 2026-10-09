@@ -13,7 +13,7 @@
 //! | colour               | *(omitted — driver default)*                          |
 //! | monochrome           | `-o ColorModel=Gray`                                  |
 //! | copies > 1           | `-n <copies>`                                         |
-//! | paper                | `-o media=A4\|Letter\|Legal\|A3`                      |
+//! | paper                | `-o media=<the printer's keyword>` *(auto omitted)*   |
 //! | tray                 | `-o InputSlot=<bin> -o media-source=<bin>`            |
 //! | quality              | `-o print-quality=3\|4\|5 -o cupsPrintQuality=…`      |
 //! | orientation          | `-o orientation-requested=3\|4` *(auto omitted)*      |
@@ -37,16 +37,25 @@
 
 use std::path::Path;
 
-use crate::queue::job::{ColorMode, Duplex, JobSettings, Orientation, PaperSize, Quality, Scaling};
+use crate::queue::job::{ColorMode, Duplex, JobSettings, Orientation, Quality, Scaling};
+
+use super::PrinterCaps;
 
 #[cfg(unix)]
 use anyhow::Context;
 #[cfg(unix)]
 use std::process::Command;
 
-/// The option flags (everything after `-d <printer> -t <title>` and before the
-/// PDF path). Shared by [`lp_args`] and the UI preview so they never drift.
+/// The option flags for a printer whose capabilities are not known — see
+/// [`lp_opts_for`].
 pub fn lp_opts(settings: &JobSettings) -> Vec<String> {
+    lp_opts_for(settings, &PrinterCaps::unknown())
+}
+
+/// The option flags (everything after `-d <printer> -t <title>` and before the
+/// PDF path) for a printer with capabilities `caps`. Shared by [`lp_args_for`]
+/// and the UI preview so they never drift.
+pub fn lp_opts_for(settings: &JobSettings, caps: &PrinterCaps) -> Vec<String> {
     let mut opts = Vec::new();
 
     // Sides — always explicit: a user's "none" must force single-sided rather
@@ -73,9 +82,15 @@ pub fn lp_opts(settings: &JobSettings) -> Vec<String> {
         opts.push(settings.copies.to_string());
     }
 
-    // Paper — always explicit.
-    opts.push("-o".to_string());
-    opts.push(format!("media={}", media(settings.paper_size)));
+    // Paper — explicit unless the job defers to the printer ("auto"), and in
+    // the printer's own spelling when it lists the size.
+    if !settings.paper_size.is_auto() {
+        let keyword = caps
+            .paper_keyword(&settings.paper_size)
+            .unwrap_or(settings.paper_size.as_str());
+        opts.push("-o".to_string());
+        opts.push(format!("media={keyword}"));
+    }
 
     // Tray — only when the job names one; no name means the printer's own
     // default bin, which is not ours to override.
@@ -129,16 +144,27 @@ pub fn lp_opts(settings: &JobSettings) -> Vec<String> {
     opts
 }
 
-/// Full `lp` argument vector: `-d <printer> -t <title>` + [`lp_opts`] + the PDF
-/// path as the final argument.
+/// Full `lp` argument vector for a printer whose capabilities are not known.
 pub fn lp_args(printer: &str, pdf: &Path, settings: &JobSettings, title: &str) -> Vec<String> {
+    lp_args_for(printer, pdf, settings, &PrinterCaps::unknown(), title)
+}
+
+/// Full `lp` argument vector: `-d <printer> -t <title>` + [`lp_opts_for`] + the
+/// PDF path as the final argument.
+pub fn lp_args_for(
+    printer: &str,
+    pdf: &Path,
+    settings: &JobSettings,
+    caps: &PrinterCaps,
+    title: &str,
+) -> Vec<String> {
     let mut args = vec![
         "-d".to_string(),
         printer.to_string(),
         "-t".to_string(),
         title.to_string(),
     ];
-    args.extend(lp_opts(settings));
+    args.extend(lp_opts_for(settings, caps));
     args.push(pdf.to_string_lossy().into_owned());
     args
 }
@@ -203,15 +229,6 @@ fn ppd_quality(quality: Quality) -> &'static str {
     }
 }
 
-fn media(paper: PaperSize) -> &'static str {
-    match paper {
-        PaperSize::A4 => "A4",
-        PaperSize::Letter => "Letter",
-        PaperSize::Legal => "Legal",
-        PaperSize::A3 => "A3",
-    }
-}
-
 /// Remove *all* whitespace from a page-range string (`" 1-5, 8 "` → `"1-5,8"`),
 /// keeping it a single shell token.
 fn strip_ws(s: &str) -> String {
@@ -232,13 +249,14 @@ pub fn spool(
     pdf: &Path,
     printer: &str,
     settings: &JobSettings,
+    caps: &PrinterCaps,
     title: &str,
     timeout: Option<std::time::Duration>,
 ) -> Result<super::SpoolOutcome, super::PrintError> {
     use crate::engine::EngineError;
     use std::io::Read;
 
-    let args = lp_args(printer, pdf, settings, title);
+    let args = lp_args_for(printer, pdf, settings, caps, title);
     let mut child = Command::new("lp")
         .args(&args)
         .env("LC_ALL", "C")
@@ -406,6 +424,7 @@ pub fn cancel(os_job_id: &str) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::queue::job::PaperSize;
     use std::path::Path;
 
     fn strs(v: &[String]) -> Vec<&str> {
@@ -449,7 +468,7 @@ mod tests {
             duplex: Duplex::Short,
             color_mode: ColorMode::Monochrome,
             copies: 3,
-            paper_size: PaperSize::Legal,
+            paper_size: PaperSize::LEGAL,
             orientation: Orientation::Landscape,
             scaling: Scaling::Shrink,
             page_ranges: Some(" 1-5, 8 ".to_string()),
@@ -584,6 +603,30 @@ mod tests {
         assert!(!auto.iter().any(|o| o == "landscape"), "{auto:?}");
     }
 
+    /// Any size the printer lists reaches `lp` in the printer's own spelling;
+    /// `auto` sends no media at all, so the printer's own setting applies.
+    #[test]
+    fn media_uses_the_printers_keyword_and_auto_sends_none() {
+        let caps = PrinterCaps {
+            papers: vec!["A4".into(), "Letter".into(), "4x6".into(), "Tabloid".into()],
+            ..PrinterCaps::unknown()
+        };
+        let with = |name: &str| {
+            lp_opts_for(
+                &JobSettings {
+                    paper_size: PaperSize::parse(name).unwrap(),
+                    ..JobSettings::default()
+                },
+                &caps,
+            )
+        };
+        assert!(with("tabloid").iter().any(|o| o == "media=Tabloid"));
+        assert!(with("4x6").iter().any(|o| o == "media=4x6"));
+        assert!(with("letter").iter().any(|o| o == "media=Letter"));
+        let auto = with("auto");
+        assert!(!auto.iter().any(|o| o.starts_with("media=")), "{auto:?}");
+    }
+
     #[test]
     fn job_number_is_the_last_segment_of_the_request_id() {
         assert_eq!(job_number("Office-42"), Some(42));
@@ -654,6 +697,7 @@ mod tests {
             &pdf,
             "Maecly_Hold",
             &JobSettings::default(),
+            &PrinterCaps::unknown(),
             "maecly-track-test",
             Some(std::time::Duration::from_secs(30)),
         )

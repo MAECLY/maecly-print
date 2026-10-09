@@ -68,7 +68,7 @@ A profile provides the baseline; the controls below it are per-invocation overri
 | **Sides**    | Single / Long / Short                     | `duplex` = `none` / `long` / `short`             |
 | **Color**    | Color / B&W                               | `color_mode` = `color` / `monochrome`            |
 | **Copies**   | integer, validated `1..=999`              | `copies`                                         |
-| **Paper**    | A4 / Letter / Legal / A3                  | `paper_size`                                     |
+| **Paper**    | Printer default / A4 / Letter / Legal / A3 + every size the chosen printer reports | `paper_size` (`auto` = printer default; classic sizes lowercase, others verbatim) |
 | **Orient.**  | Auto / Portrait / Landscape               | `orientation`                                    |
 | **Scaling**  | Fit / Shrink / 100%                       | `scaling` = `fit` / `shrink` / `none`            |
 | **Page range** | e.g. `1-5,10` (blank = all)             | `page_ranges` (`null` when blank)                |
@@ -77,6 +77,7 @@ A profile provides the baseline; the controls below it are per-invocation overri
 - **Copies** is buffered locally so an out-of-range keystroke shows an inline error instead of being silently clamped; only a valid value flows into the request (`isValidCopies`).
 - **Page range** is validated client-side against a mirror of the engine grammar (`isValidPageRange`) so the Print button reflects intent; the backend re-validates authoritatively (`engine::pagerange::parse`). Ranges apply to PDFs only — images ignore them.
 - **Printer** options come from `list_printers` with MaeclyPrint-disabled queues filtered out (via `get_printer_prefs`).
+- **Paper** lists the sizes the selected printer reports (`Printer.papers`), so photo, envelope and other sizes can be chosen; a size the printer does not list pauses the job (`unsupported_setting`) instead of being substituted silently. **Printer default** sends no size, so the printer's override from the Printers screen (or its own default) applies.
 
 ## Resolved command (honesty preview)
 

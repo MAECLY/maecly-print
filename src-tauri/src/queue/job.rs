@@ -117,15 +117,95 @@ pub enum ColorMode {
     Monochrome,
 }
 
-/// Target paper size. Serializes lowercase: `"a4"`, `"letter"`, `"legal"`,
-/// `"a3"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "lowercase")]
-pub enum PaperSize {
-    A4,
-    Letter,
-    Legal,
-    A3,
+/// Target paper size: any media name the printer reports — a CUPS `PageSize`
+/// keyword (`A4`, `Letter`, `A6`, `4x6`, `Tabloid`, `w288h432`) or a Windows
+/// paper name — or [`PaperSize::AUTO`], "whatever this printer is set to".
+///
+/// It used to be a closed four-value enum, so a printer's own sizes (photo
+/// paper, envelopes, A5) could not be chosen at all. The wire form stays
+/// backward compatible: the four classic sizes still serialize as `"a4"`,
+/// `"letter"`, `"legal"`, `"a3"` and parse case-insensitively, so every stored
+/// profile and `queue.json` loads unchanged. Any other name travels verbatim;
+/// the engine matches it against the printer's list case-insensitively and
+/// sends the printer's own spelling
+/// ([`crate::engine::print::PrinterCaps::paper_keyword`]).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, specta::Type)]
+#[specta(transparent)]
+pub struct PaperSize(std::borrow::Cow<'static, str>);
+
+impl PaperSize {
+    pub const A4: PaperSize = PaperSize(std::borrow::Cow::Borrowed("A4"));
+    pub const LETTER: PaperSize = PaperSize(std::borrow::Cow::Borrowed("Letter"));
+    pub const LEGAL: PaperSize = PaperSize(std::borrow::Cow::Borrowed("Legal"));
+    pub const A3: PaperSize = PaperSize(std::borrow::Cow::Borrowed("A3"));
+    /// No explicit size: the printer's override (Printers screen) or, failing
+    /// that, the printer's own default applies, and no media flag is sent.
+    pub const AUTO: PaperSize = PaperSize(std::borrow::Cow::Borrowed("auto"));
+
+    /// The sizes every build has always offered, in display order.
+    pub const CLASSIC: [PaperSize; 4] = [Self::A4, Self::LETTER, Self::LEGAL, Self::A3];
+
+    /// Parse a paper name. The classic four and `auto` are matched
+    /// case-insensitively onto their canonical values; anything else is kept
+    /// as written (trimmed). Blank names and control characters are refused.
+    pub fn parse(name: &str) -> Result<PaperSize, String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("paper size must not be empty".to_string());
+        }
+        if name.chars().any(char::is_control) {
+            return Err(format!("'{name}' is not a paper size"));
+        }
+        if name.eq_ignore_ascii_case("auto") {
+            return Ok(Self::AUTO);
+        }
+        if let Some(classic) = Self::CLASSIC
+            .iter()
+            .find(|c| c.as_str().eq_ignore_ascii_case(name))
+        {
+            return Ok(classic.clone());
+        }
+        Ok(PaperSize(std::borrow::Cow::Owned(name.to_string())))
+    }
+
+    /// The size's name (canonical case for the classic four).
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// `true` for [`PaperSize::AUTO`].
+    pub fn is_auto(&self) -> bool {
+        *self == Self::AUTO
+    }
+
+    /// The wire spelling: lowercase for the classic four (the format every
+    /// stored profile and `queue.json` already uses), verbatim otherwise.
+    pub fn wire(&self) -> String {
+        if Self::CLASSIC.contains(self) {
+            self.0.to_ascii_lowercase()
+        } else {
+            self.0.to_string()
+        }
+    }
+}
+
+impl std::fmt::Display for PaperSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl Serialize for PaperSize {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.wire())
+    }
+}
+
+impl<'de> Deserialize<'de> for PaperSize {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(d)?;
+        PaperSize::parse(&raw).map_err(serde::de::Error::custom)
+    }
 }
 
 /// Page orientation. [`Auto`](Orientation::Auto) lets the engine pick per page
@@ -517,6 +597,37 @@ mod tests {
         assert!(!JobState::Queued.is_active());
         assert!(!JobState::Converted.is_active());
         assert!(!JobState::Done.is_active());
+    }
+
+    /// Stored profiles and queues name the classic sizes in lowercase; they
+    /// must keep loading, and any size a printer reports must round-trip.
+    #[test]
+    fn paper_size_is_open_but_backward_compatible() {
+        for (wire, canon) in [
+            ("a4", "A4"),
+            ("letter", "Letter"),
+            ("legal", "Legal"),
+            ("a3", "A3"),
+        ] {
+            let p: PaperSize = serde_json::from_value(serde_json::json!(wire)).unwrap();
+            assert_eq!(p.as_str(), canon);
+            assert_eq!(serde_json::to_value(&p).unwrap(), wire, "same wire form");
+        }
+        // Case-insensitive for the classic four, so a hand-edit still matches.
+        assert_eq!(PaperSize::parse("LETTER").unwrap(), PaperSize::LETTER);
+
+        for name in ["A6", "4x6", "Tabloid", "w288h432", "Env10", "Letter Small"] {
+            let p = PaperSize::parse(name).unwrap();
+            assert_eq!(p.as_str(), name);
+            let v = serde_json::to_value(&p).unwrap();
+            assert_eq!(v, name, "kept verbatim");
+            assert_eq!(serde_json::from_value::<PaperSize>(v).unwrap(), p);
+        }
+
+        assert!(PaperSize::parse("Auto").unwrap().is_auto());
+        assert!(PaperSize::parse("   ").is_err());
+        assert!(serde_json::from_value::<PaperSize>(serde_json::json!("")).is_err());
+        assert!(PaperSize::parse("A4\nrm").is_err());
     }
 
     #[test]

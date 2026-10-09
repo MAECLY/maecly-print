@@ -324,8 +324,8 @@ impl CliPaper {
     pub fn to_engine(self) -> PaperSize {
         match self {
             CliPaper::A4 => PaperSize::A4,
-            CliPaper::Letter => PaperSize::Letter,
-            CliPaper::Legal => PaperSize::Legal,
+            CliPaper::Letter => PaperSize::LETTER,
+            CliPaper::Legal => PaperSize::LEGAL,
             CliPaper::A3 => PaperSize::A3,
         }
     }

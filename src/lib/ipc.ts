@@ -86,6 +86,7 @@ import type {
   UiQueueJob,
   UiTonerLevels,
 } from '@/types/domain';
+import { paperToWire } from '@/lib/profiles';
 
 /** True when running inside the Tauri host (real IPC available). */
 export function isTauri(): boolean {
@@ -456,14 +457,6 @@ const PAPER_TO_UI: Record<PaperSize, UiProfile['paper']> = {
   a3: 'A3',
 };
 
-/** Display paper size → wire (lowercase). Inverse of {@link PAPER_TO_UI}. */
-const PAPER_TO_WIRE: Record<string, PaperSize> = {
-  A4: 'a4',
-  Letter: 'letter',
-  Legal: 'legal',
-  A3: 'a3',
-};
-
 /** Adapt a wire [`Profile`] into the display-cased `UiProfile` the editor uses. */
 export function toUiProfile(p: Profile): UiProfile {
   // color_mode/duplex/orientation/scaling/quality share the profile vocabulary
@@ -504,7 +497,7 @@ function toWireProfile(p: UiProfile): Profile {
     color_mode: p.color,
     duplex: p.duplex,
     copies: p.copies,
-    paper_size: PAPER_TO_WIRE[p.paper] ?? (p.paper.toLowerCase() as PaperSize),
+    paper_size: paperToWire(p.paper),
     orientation: p.orientation,
     scaling: p.scaling,
     quality: p.quality,

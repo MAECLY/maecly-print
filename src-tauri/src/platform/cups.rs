@@ -485,6 +485,14 @@ fn parse_caps(text: &str) -> HashMap<String, Cap> {
     map
 }
 
+/// The `ColorModel` choices `lpoptions -p <id> -l` lists for queue `id`.
+pub fn color_models(id: &str) -> Vec<String> {
+    parse_caps(&lc_run("lpoptions", &["-p", id, "-l"]).unwrap_or_default())
+        .remove("ColorModel")
+        .map(|c| c.values)
+        .unwrap_or_default()
+}
+
 fn is_grayscale(v: &str) -> bool {
     matches!(
         v.to_ascii_lowercase().as_str(),

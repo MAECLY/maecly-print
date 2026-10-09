@@ -21,6 +21,51 @@ import type {
 } from '@/ipc/bindings';
 import type { UiProfile } from '@/types/domain';
 
+/**
+ * Paper value meaning "whatever this printer is set to": the printer's
+ * override from the Printers screen, else its own default. No media flag is
+ * sent for it.
+ */
+export const AUTO_PAPER = 'auto';
+
+/** The sizes every printer path has always offered, in display order. */
+export const CLASSIC_PAPERS = ['A4', 'Letter', 'Legal', 'A3'] as const;
+
+/**
+ * The wire spelling of a display paper size. The classic four go lowercase
+ * (the format stored profiles have always used); `auto` and any size a printer
+ * reports (`Tabloid`, `4x6`, `A6`…) travel verbatim — the backend matches them
+ * against the printer case-insensitively and sends the printer's own spelling.
+ */
+export function paperToWire(paper: string): PaperSize {
+  const classic = CLASSIC_PAPERS.find(
+    (c) => c.toLowerCase() === paper.toLowerCase(),
+  );
+  return classic ? classic.toLowerCase() : paper;
+}
+
+/**
+ * The paper choices to offer for a printer: "printer default", the classic
+ * four, then every other size the printer reports (deduplicated
+ * case-insensitively), then `current` if it is none of those — a stored value
+ * must stay selectable rather than snap to something else.
+ */
+export function paperChoices(
+  printerPapers: readonly string[],
+  current: string,
+): string[] {
+  const out: string[] = [AUTO_PAPER, ...CLASSIC_PAPERS];
+  const seen = new Set(out.map((p) => p.toLowerCase()));
+  for (const p of [...printerPapers, current]) {
+    const key = p.toLowerCase();
+    if (p.trim() && !seen.has(key)) {
+      seen.add(key);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
 /** Sentinel used in the UI for "use the app/OS default printer". */
 export const DEFAULT_PRINTER = '<default>';
 
@@ -301,7 +346,7 @@ export function toJobSettings(
     duplex: DUPLEX_TO_WIRE[merged.duplex],
     color_mode: merged.color,
     copies: merged.copies,
-    paper_size: merged.paper.toLowerCase() as PaperSize,
+    paper_size: paperToWire(merged.paper),
     orientation: merged.orientation,
     scaling: merged.scaling,
     page_ranges: range ? range : null,
