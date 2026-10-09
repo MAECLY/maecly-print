@@ -263,8 +263,13 @@ pub(crate) enum Cmd {
         id: String,
         result: Result<PrintOk, PrintError>,
     },
+    /// A retry backoff elapsed. `generation` is the token the backoff was
+    /// armed with; a timer from an earlier backoff (the job was resumed and
+    /// failed again since) carries an older one and is ignored, so it cannot
+    /// cut the current backoff short.
     RetryDue {
         id: String,
+        generation: u64,
     },
     /// Time to ask the spooler where the tracked print `id` stands.
     TrackDue {
@@ -618,8 +623,12 @@ pub(crate) struct Dispatcher {
     print_slot: Option<PrintSlot>,
     /// Cancellation flags for in-flight conversions, keyed by job id.
     converting: HashMap<String, Arc<AtomicBool>>,
-    /// Jobs waiting out a retry backoff; the scheduler skips these.
-    delayed: HashSet<String>,
+    /// Jobs waiting out a retry backoff, with the generation of the backoff
+    /// they wait on; the scheduler skips these.
+    delayed: HashMap<String, u64>,
+    /// Source of [`Cmd::RetryDue`] generations: each armed backoff gets the
+    /// next value.
+    retry_generation: u64,
     /// Last progress-emit instant per job, for throttling. Shared into the
     /// progress closures handed to the runner.
     progress_last: Arc<Mutex<HashMap<String, Instant>>>,
@@ -651,7 +660,8 @@ impl Dispatcher {
             limits,
             print_slot: None,
             converting: HashMap::new(),
-            delayed: HashSet::new(),
+            delayed: HashMap::new(),
+            retry_generation: 0,
             progress_last: Arc::new(Mutex::new(HashMap::new())),
             persist_failing: false,
         }
@@ -699,8 +709,12 @@ impl Dispatcher {
             }
             Cmd::ConversionDone { id, result, pages } => self.on_conversion_done(id, result, pages),
             Cmd::PrintDone { id, result } => self.on_print_done(id, result),
-            Cmd::RetryDue { id } => {
-                self.delayed.remove(&id);
+            Cmd::RetryDue { id, generation } => {
+                // Only the timer of the backoff the job is waiting on now ends
+                // it (FR-034's 1s/5s/25s schedule).
+                if self.delayed.get(&id) == Some(&generation) {
+                    self.delayed.remove(&id);
+                }
             }
             Cmd::TrackDue { id } => self.on_track_due(id),
             Cmd::TrackResult { id, result } => self.on_track_result(id, result),
@@ -1310,11 +1324,13 @@ impl Dispatcher {
             self.delayed.remove(&id);
         }
         if let Some((id, delay)) = post.retry {
-            self.delayed.insert(id.clone());
+            self.retry_generation += 1;
+            let generation = self.retry_generation;
+            self.delayed.insert(id.clone(), generation);
             let tx = self.self_tx.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(delay).await;
-                let _ = tx.send(Cmd::RetryDue { id });
+                let _ = tx.send(Cmd::RetryDue { id, generation });
             });
         }
     }
@@ -1352,7 +1368,7 @@ impl Dispatcher {
                     // at the next stage boundary) and the retry then proceeds.
                     let Some(idx) = st.jobs.iter().position(|j| {
                         j.state == JobState::Queued
-                            && !self.delayed.contains(&j.id)
+                            && !self.delayed.contains_key(&j.id)
                             && !self.converting.contains_key(&j.id)
                     }) else {
                         break;
@@ -1389,7 +1405,7 @@ impl Dispatcher {
                 // the printer busy even though no job reads `Printing`.
                 if self.print_slot.is_none() {
                     if let Some(idx) = st.jobs.iter().position(|j| {
-                        j.state == JobState::Converted && !self.delayed.contains(&j.id)
+                        j.state == JobState::Converted && !self.delayed.contains_key(&j.id)
                     }) {
                         let job = &mut st.jobs[idx];
                         job.state = JobState::Printing;
@@ -2646,6 +2662,59 @@ mod tests {
         assert_eq!(h.runner.convert_calls.load(Ordering::Relaxed), 4);
     }
 
+    /// FR-034: an old retry timer must not end a later backoff. Pausing and
+    /// resuming a job that waits out its 1 s backoff runs it at once; when
+    /// that run fails too, the job waits 5 s — and the first timer, still
+    /// pending, used to release it after about 1 s.
+    #[tokio::test(start_paused = true)]
+    async fn fr_034_a_stale_retry_timer_does_not_cut_a_later_backoff_short() {
+        let mut h = harness();
+        {
+            let mut steps = h.runner.convert_steps.lock().unwrap();
+            for _ in 0..3 {
+                steps.push_back(ConvertStep::Fail);
+            }
+        }
+        let j = make_job("a.docx");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        assert_eq!(h.job(&id).attempts, 1, "first failure, 1 s backoff armed");
+        // Let the 1 s timer register its deadline before anything else runs.
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        // Pause + resume: the job runs straight away and fails again, which
+        // arms a 5 s backoff while the 1 s timer is still pending.
+        h.request(|reply| Cmd::Pause {
+            id: id.clone(),
+            reply,
+        })
+        .await
+        .unwrap();
+        h.request(|reply| Cmd::Resume {
+            id: id.clone(),
+            reply,
+        })
+        .await
+        .unwrap();
+        h.run_to_idle();
+        assert_eq!(h.job(&id).attempts, 2, "second failure, 5 s backoff armed");
+
+        // The stale 1 s timer fires: the job keeps waiting.
+        h.advance_and_settle(Duration::from_millis(1500)).await;
+        assert_eq!(
+            h.job(&id).attempts,
+            2,
+            "the 5 s backoff must not end after 1 s"
+        );
+        assert_eq!(h.job(&id).state, JobState::Queued);
+
+        // Its own timer does release it.
+        h.advance_and_settle(Duration::from_secs(4)).await;
+        assert_eq!(h.job(&id).attempts, 3);
+    }
+
     #[tokio::test]
     async fn resume_during_inflight_conversion_does_not_double_start() {
         // Pause a Converting job, resume it before the aborted conversion
@@ -3248,7 +3317,7 @@ mod tests {
         assert_eq!(job.state, JobState::Failed);
         assert_eq!(job.error.unwrap().code, "conversion_timeout");
         assert_eq!(h.runner.convert_calls.load(Ordering::Relaxed), 1);
-        assert!(!h.d.delayed.contains(&id), "no retry is scheduled");
+        assert!(!h.d.delayed.contains_key(&id), "no retry is scheduled");
     }
 
     #[tokio::test(start_paused = true)]
