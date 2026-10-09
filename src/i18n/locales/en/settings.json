@@ -40,12 +40,12 @@
   "engine": {
     "concurrency": {
       "label": "Concurrent conversions",
-      "hint": "Applies after restart.",
+      "hint": "Applies to the next conversion, no restart needed.",
       "suffix": "jobs"
     },
     "timeout": {
       "label": "Conversion timeout",
-      "hint": "0 disables the timeout. Applies after restart.",
+      "hint": "0 disables the timeout. Applies to the next conversion.",
       "suffix": "seconds"
     },
     "printTimeout": {

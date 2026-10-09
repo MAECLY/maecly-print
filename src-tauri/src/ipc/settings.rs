@@ -6,10 +6,13 @@
 //! it is owned by the Printers screen ([`crate::ipc::printers`]) — and
 //! `schema_version` is server-managed, so a write preserves both.
 //!
-//! Engine changes (`max_concurrent_conversions`, `conversion_timeout_seconds`,
-//! `max_file_size_mb`) take effect on the next app start: the queue reads them
-//! once at boot. Telemetry flags are **consent-only** — this version transmits
-//! nothing regardless of their value.
+//! Engine changes apply without a restart: after a successful save,
+//! [`set_app_settings`] pushes the new limits to the running dispatcher
+//! (`QueueHandle::apply_engine_settings`), so `max_concurrent_conversions`,
+//! `conversion_timeout_seconds` and `print_timeout_seconds` govern the next
+//! conversion or print, and `max_file_size_mb` is read on every submit. Telemetry
+//! flags are **consent-only** — this version transmits nothing regardless of
+//! their value.
 //!
 //! Every response also carries [`SettingsMeta`]: whether the config file had to
 //! be degraded to defaults (FR-101) and the engine [`Bounds`] the write path
@@ -66,15 +69,26 @@ fn meta(config_path: &Path, config_unreadable: bool) -> SettingsMeta {
 /// naming the offending field; nothing is written when validation fails.
 #[tauri::command]
 #[specta::specta]
-pub async fn set_app_settings(settings: AppSettings) -> Result<AppSettings, IpcError> {
-    super::run_blocking(move || {
+pub async fn set_app_settings(
+    app: tauri::AppHandle,
+    settings: AppSettings,
+) -> Result<AppSettings, IpcError> {
+    let saved = super::run_blocking(move || {
         set_app_settings_at(
             &Config::config_path(),
             &crate::profiles::profiles_path(),
             settings,
         )
     })
-    .await
+    .await?;
+    // Hot reload: the running queue picks up the new limits now rather than at
+    // the next start. `try_state`, because a queue that failed to boot is not
+    // managed — the save itself still stands.
+    use tauri::Manager;
+    if let Some(queue) = app.try_state::<crate::queue::QueueHandle>() {
+        queue.apply_engine_settings(&saved.engine);
+    }
+    Ok(saved)
 }
 
 /// Path-injected core of [`set_app_settings`].

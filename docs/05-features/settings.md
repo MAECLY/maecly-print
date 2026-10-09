@@ -19,7 +19,7 @@ A single scrolling column (max 760 px) of labelled sections, each a stack of lab
 │   Default profile   Applied when no profile is chosen.   [ Quick        ▾ ]    │
 │   ⓘ Right-click printing arrives with the shell integration milestone (M2).    │
 │ ENGINE                                                                         │
-│   Concurrent conversions   Applies after restart.        [ 2      ] jobs       │
+│   Concurrent conversions   Applies to the next conv…     [ 2      ] jobs       │
 │   Conversion timeout       0 disables the timeout.       [ 60     ] seconds    │
 │   Print timeout            0 disables it. Counts from…   [ 300    ] seconds    │
 │   Max file size            Largest input accepted…       [ 200    ] MB         │
@@ -61,18 +61,18 @@ On divergence the **backend wins**: once `get_app_settings` resolves, a reconcil
 
 A dropdown of every profile from the profiles store; selecting one calls `profilesStore.setDefault` → `set_default_profile`, which writes `config.toml`'s `[engine].default_profile` (the single source of the default — see [profiles-management.md](./profiles-management.md#default-profile-resolution)). Because that command writes the config behind the settings store's back, the store syncs its cached `engine.default_profile` afterward so a later whole-section engine write can't silently revert the default. A muted note points out that right-click printing arrives with **M2**.
 
-### Engine — real, restart-scoped limits
+### Engine — real limits, applied without a restart
 
 Four numeric fields with **local text state**: typing never persists; the value commits on blur or Enter, and only when it parses to an in-bounds whole number. An out-of-range entry shows an inline error and is **not** sent to the backend.
 
 | Field                    | Bounds              | Enforcement                                                                 |
 | ------------------------ | ------------------- | -------------------------------------------------------------------------- |
-| Concurrent conversions   | `1..=8`             | Read once at app start by the dispatcher (clamped `1..=8`). **Applies after restart.** |
-| Conversion timeout       | `0`, or `10..=3600` | `0` disables it; otherwise the dispatcher fails a conversion that overruns with `conversion timed out after {n}s` (terminal, no auto-retry). Read at start. |
+| Concurrent conversions   | `1..=8`             | Read by the dispatcher at app start and pushed to it again on every save (clamped `1..=8`). A raised cap starts waiting conversions at once; a lowered one never stops running work. |
+| Conversion timeout       | `0`, or `10..=3600` | `0` disables it; otherwise the dispatcher fails a conversion that overruns with `conversion timed out after {n}s` (terminal, no auto-retry). A new value applies to conversions that start after the save. |
 | Print timeout            | `0`, or `10..=3600` (default `300`) | Its own budget, separate from the conversion timeout: it runs from handing the PDF to the spooler until the OS job leaves the queue (see [queue.md](./queue.md)). `0` disables it. When it runs out the job fails with `print_timeout` (terminal, no auto-retry). A `config.toml` written before this field existed loads with the default. |
 | Max file size (MB)       | `1..=4096`          | Enforced live by `inspect_files` and by submission — an oversized file is reported unsupported / rejected. |
 
-These are not cosmetic: `max_file_size_mb` gates the Print Job screen's file inspection and submission immediately, while the concurrency cap and timeout are read once when the queue boots (changing them mid-session does not re-tune the running dispatcher, hence "applies after restart"). The timeout uses the running attempt's cancel flag, guarded by an `Arc::ptr_eq` identity check so a late timer can never fail a *different* attempt.
+These are not cosmetic: `max_file_size_mb` gates the Print Job screen's file inspection and submission immediately, and the concurrency cap and both timeouts reach the running queue on save — `set_app_settings` sends the dispatcher a `SetLimits` command (`QueueHandle::apply_engine_settings`), so none of them needs a restart. The timeout uses the running attempt's cancel flag, guarded by an `Arc::ptr_eq` identity check so a late timer can never fail a *different* attempt.
 
 ### Updates
 
@@ -126,7 +126,6 @@ On the backend, `set_app_settings` takes the config lock, loads the full config,
 
 ## Open questions for v1+
 
-- Should the engine limits that require a restart offer an in-app "restart to apply" affordance rather than a passive note?
 - Should `locale` become a visible control once i18n (M4) lands, or stay OS-derived?
 - Where should a future "reset to defaults" live — per section, or one global action?
 

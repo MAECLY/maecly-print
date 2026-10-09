@@ -181,6 +181,14 @@ impl QueueHandle {
             .map_err(|_| IpcError::Internal("print queue dropped the reply".to_string()))
     }
 
+    /// Push changed engine settings to the running dispatcher, so the
+    /// concurrency cap and both timeouts apply without a restart. Takes the
+    /// config as saved; it is sanitized here, like every other consumer does.
+    pub fn apply_engine_settings(&self, engine: &crate::settings::EngineCfg) {
+        let limits = dispatcher::DispatcherLimits::from_engine(&engine.sanitized());
+        let _ = self.tx.send(dispatcher::Cmd::SetLimits { limits });
+    }
+
     /// Pause the whole queue (stops starting new work; in-flight continues).
     pub fn pause_queue(&self) {
         let _ = self.tx.send(dispatcher::Cmd::PauseQueue);

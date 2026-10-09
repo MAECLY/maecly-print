@@ -187,6 +187,11 @@ pub(crate) enum Cmd {
     },
     PauseQueue,
     ResumeQueue,
+    /// Replace the engine limits at run time — sent by `set_app_settings` so a
+    /// changed concurrency cap or timeout applies without a restart.
+    SetLimits {
+        limits: DispatcherLimits,
+    },
     ClearDone {
         reply: oneshot::Sender<u32>,
     },
@@ -527,6 +532,7 @@ impl Dispatcher {
             }
             Cmd::PauseQueue => self.set_queue_paused(true),
             Cmd::ResumeQueue => self.set_queue_paused(false),
+            Cmd::SetLimits { limits } => self.set_limits(limits),
             Cmd::ClearDone { reply } => {
                 let _ = reply.send(self.on_clear_done());
             }
@@ -813,6 +819,33 @@ impl Dispatcher {
             } else {
                 "queue_resumed"
             }
+        );
+    }
+
+    /// Apply new engine limits to the running queue.
+    ///
+    /// What changes when:
+    /// - **Concurrency** applies at once: `schedule()` runs right after this
+    ///   command, so a raised cap starts waiting conversions immediately. A
+    ///   lowered cap never kills running work; it just starts nothing new until
+    ///   the in-flight count drops below it.
+    /// - **Conversion timeout** applies to conversions started from now on.
+    ///   Each attempt arms its own timer when it starts, and re-arming running
+    ///   ones would make a single attempt's budget depend on when the user
+    ///   happened to save.
+    /// - **Print timeout** applies to the next print, and to a print that is
+    ///   being tracked: its deadline is re-read on every poll.
+    fn set_limits(&mut self, limits: DispatcherLimits) {
+        if limits == self.limits {
+            return;
+        }
+        self.limits = limits;
+        let secs = |d: Option<Duration>| d.map(|d| d.as_secs()).unwrap_or(0);
+        tracing::info!(
+            event = "queue_limits_updated",
+            max_concurrent = limits.max_concurrent,
+            conversion_timeout_s = secs(limits.conversion_timeout),
+            print_timeout_s = secs(limits.print_timeout),
         );
     }
 
@@ -2482,6 +2515,43 @@ mod tests {
         spawner.run_next();
         h.run_to_idle();
         assert_eq!(h.count(JobState::Converting), 1);
+    }
+
+    /// Engine settings apply to the running queue without a restart: raising
+    /// the cap starts the waiting conversions straight away.
+    #[tokio::test]
+    async fn fr_037_raising_the_cap_at_run_time_starts_waiting_conversions() {
+        let spawner = Arc::new(DeferredSpawner::default());
+        let mut h = harness_with(
+            spawner.clone(),
+            DispatcherLimits {
+                max_concurrent: 1,
+                ..DispatcherLimits::default()
+            },
+        );
+        h.submit((0..3).map(|i| make_job(&format!("f{i}.pdf"))).collect());
+        h.step();
+        assert_eq!(h.count(JobState::Converting), 1);
+
+        h.tx.send(Cmd::SetLimits {
+            limits: DispatcherLimits {
+                max_concurrent: 3,
+                print_timeout: Some(Duration::from_secs(42)),
+                ..DispatcherLimits::default()
+            },
+        })
+        .unwrap();
+        h.step();
+        assert_eq!(h.count(JobState::Converting), 3, "no restart needed");
+
+        // The new print budget reaches the next spool.
+        while spawner.run_next() {
+            h.run_to_idle();
+        }
+        h.run_to_idle();
+        let timeouts = h.runner.print_timeouts.lock().unwrap().clone();
+        assert!(!timeouts.is_empty());
+        assert!(timeouts.iter().all(|t| *t == Some(Duration::from_secs(42))));
     }
 
     // ---- Conversion timeout ----------------------------------------------

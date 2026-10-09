@@ -40,12 +40,12 @@
   "engine": {
     "concurrency": {
       "label": "Conversiones simultáneas",
-      "hint": "Se aplica al reiniciar.",
+      "hint": "Se aplica a la siguiente conversión, sin reiniciar.",
       "suffix": "trabajos"
     },
     "timeout": {
       "label": "Tiempo límite de conversión",
-      "hint": "0 desactiva el tiempo límite. Se aplica al reiniciar.",
+      "hint": "0 desactiva el tiempo límite. Se aplica a la siguiente conversión.",
       "suffix": "segundos"
     },
     "printTimeout": {
