@@ -336,7 +336,7 @@ pub fn validate_and_normalize(
     if name.is_empty() {
         return Err("profile name must not be empty".to_string());
     }
-    if name.chars().count() > 100 {
+    if name.chars().count() > MAX_NAME_CHARS {
         return Err("profile name must be 100 characters or fewer".to_string());
     }
     let name_lc = name.to_lowercase();
@@ -382,6 +382,10 @@ pub fn validate_and_normalize(
 pub enum UpsertError {
     /// The id names a built-in profile, which cannot be modified.
     Builtin,
+    /// The id is not one a custom profile may own (a `builtin-` prefix). Such
+    /// a row would be hidden by every read and make every later mutation
+    /// refuse the file, so it is never written.
+    ReservedId,
     /// A provided (non-empty) id is longer than 100 characters.
     IdTooLong,
     /// Validation failed; the message is user-facing.
@@ -400,6 +404,11 @@ pub fn upsert(file: &mut ProfilesFile, profile: Profile) -> Result<Profile, Upse
     if !requested_id.is_empty() {
         if is_builtin_id(&requested_id) {
             return Err(UpsertError::Builtin);
+        }
+        // The loader's own predicate: anything it would refuse to load for a
+        // mutation must never be stored in the first place.
+        if is_invalid_stored_id(&requested_id) {
+            return Err(UpsertError::ReservedId);
         }
         if requested_id.chars().count() > 100 {
             return Err(UpsertError::IdTooLong);
@@ -583,18 +592,35 @@ fn taken_names(file: &ProfilesFile) -> std::collections::HashSet<String> {
 /// The first of `base`, `"base 2"`, `"base 3"`… that is not in `taken`
 /// (which holds **lowercased** names). Mirrors `nextUniqueName` in
 /// `src/lib/profiles.ts` so an imported profile is renamed exactly the way a
-/// cloned one is.
+/// cloned one is — including the length rule: the base is shortened (never the
+/// counter, and never inside a character) so `"<base> N"` still fits in
+/// [`MAX_NAME_CHARS`]. Re-importing a valid 99/100-character name would
+/// otherwise produce an over-long name and reject the whole document.
 pub fn unique_name(base: &str, taken: &std::collections::HashSet<String>) -> String {
-    if !taken.contains(&base.to_lowercase()) {
-        return base.to_string();
+    let first = truncate_chars(base, MAX_NAME_CHARS).trim_end().to_string();
+    if !taken.contains(&first.to_lowercase()) {
+        return first;
     }
     let mut n = 2u32;
     loop {
-        let candidate = format!("{base} {n}");
+        let suffix = format!(" {n}");
+        let room = MAX_NAME_CHARS.saturating_sub(suffix.chars().count());
+        let candidate = format!("{}{suffix}", truncate_chars(&first, room).trim_end());
         if !taken.contains(&candidate.to_lowercase()) {
             return candidate;
         }
         n += 1;
+    }
+}
+
+/// The longest profile name accepted, in characters (`chars().count()`).
+pub const MAX_NAME_CHARS: usize = 100;
+
+/// `s` cut to at most `max` characters, on a char boundary.
+fn truncate_chars(s: &str, max: usize) -> &str {
+    match s.char_indices().nth(max) {
+        Some((byte, _)) => &s[..byte],
+        None => s,
     }
 }
 
@@ -662,7 +688,9 @@ pub fn merge_imported(
         let stored = upsert(file, p).map_err(|e| ImportError::InvalidProfile {
             name: entry.name.trim().to_string(),
             reason: match e {
-                UpsertError::Builtin => "it claims a reserved built-in id".to_string(),
+                UpsertError::Builtin | UpsertError::ReservedId => {
+                    "it claims a reserved built-in id".to_string()
+                }
                 UpsertError::IdTooLong => "its id is too long".to_string(),
                 UpsertError::Invalid(msg) => msg,
             },
@@ -1120,6 +1148,46 @@ mod tests {
         p.id = BUILTIN_QUICK.to_string();
         assert_eq!(upsert(&mut file, p), Err(UpsertError::Builtin));
         assert!(file.profile.is_empty(), "nothing written");
+    }
+
+    #[test]
+    fn upsert_rejects_a_builtin_prefixed_id_the_loader_would_refuse() {
+        // Accepting it used to persist a row that every read hides and every
+        // later mutation refuses (InvalidEntries), bricking all profile writes.
+        let mut file = ProfilesFile::default();
+        let mut p = sample_profile("Squatter");
+        p.id = "builtin-foo".to_string();
+        assert_eq!(upsert(&mut file, p), Err(UpsertError::ReservedId));
+        assert!(file.profile.is_empty(), "nothing written");
+    }
+
+    #[test]
+    fn fr_024_unique_name_keeps_a_renamed_import_within_100_chars() {
+        let long = "x".repeat(100);
+        let taken: std::collections::HashSet<String> = [long.clone()].into_iter().collect();
+        let renamed = unique_name(&long, &taken);
+        assert_eq!(renamed.chars().count(), 100);
+        assert!(renamed.ends_with(" 2"));
+
+        // Multi-byte characters are cut on char boundaries, never mid-scalar.
+        let emoji = "😀".repeat(100);
+        let taken: std::collections::HashSet<String> = [emoji.clone()].into_iter().collect();
+        assert_eq!(
+            unique_name(&emoji, &taken),
+            format!("{} 2", "😀".repeat(98))
+        );
+    }
+
+    #[test]
+    fn fr_024_reimporting_a_100_char_profile_succeeds() {
+        let long = "y".repeat(100);
+        let mut file = ProfilesFile::default();
+        upsert(&mut file, sample_profile(&long)).unwrap();
+        let incoming = vec![file.profile[0].clone()];
+        let saved = merge_imported(&mut file, &incoming).expect("import must not fail");
+        assert_eq!(saved.len(), 1);
+        assert!(saved[0].name.chars().count() <= 100);
+        assert_eq!(file.profile.len(), 2);
     }
 
     #[test]

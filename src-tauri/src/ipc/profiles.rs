@@ -109,6 +109,9 @@ pub fn save_profile_at(
         UpsertError::Builtin => {
             IpcError::InvalidRequest("built-in profiles cannot be modified".to_string())
         }
+        UpsertError::ReservedId => IpcError::InvalidRequest(
+            "profile ids starting with 'builtin-' are reserved".to_string(),
+        ),
         UpsertError::IdTooLong => {
             IpcError::InvalidRequest("profile id must be 100 characters or fewer".to_string())
         }
