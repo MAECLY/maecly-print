@@ -408,7 +408,7 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
       key={row.label}
       style={{
         display: 'grid',
-        gridTemplateColumns: '140px 1fr',
+        gridTemplateColumns: 'minmax(100px, 140px) minmax(0, 1fr)',
         gap: 14,
         padding: '10px 0',
         borderBottom: '1px solid var(--mp-border)',
@@ -419,7 +419,12 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
       </span>
       <span
         className={'mono' in row && row.mono ? 'mp-mono' : ''}
-        style={{ fontSize: 13, color: 'var(--mp-text)' }}
+        style={{
+          fontSize: 13,
+          color: 'var(--mp-text)',
+          minWidth: 0,
+          overflowWrap: 'anywhere',
+        }}
       >
         {row.v}
       </span>
@@ -434,7 +439,8 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
         <div
           className="mp-scroll"
           style={{
-            width: 280,
+            // 280 px on a wide window, down to 220 px at the 880 px minimum.
+            width: 'clamp(220px, 26vw, 280px)',
             flexShrink: 0,
             overflow: 'auto',
             borderRight: '1px solid var(--mp-border)',
@@ -499,7 +505,17 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
                       gap: 6,
                     }}
                   >
-                    <span style={{ fontSize: 12.5, fontWeight: 500 }}>
+                    <span
+                      title={p.name}
+                      style={{
+                        fontSize: 12.5,
+                        fontWeight: 500,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
                       {p.name}
                     </span>
                     {p.default && (
@@ -558,14 +574,17 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 12,
               marginBottom: 18,
             }}
           >
-            <div>
+            <div style={{ flex: '1 1 220px', minWidth: 0 }}>
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
+                  flexWrap: 'wrap',
                   gap: 10,
                 }}
               >
@@ -575,6 +594,8 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
                     fontSize: 18,
                     fontWeight: 600,
                     letterSpacing: '-0.01em',
+                    minWidth: 0,
+                    overflowWrap: 'anywhere',
                   }}
                 >
                   {sel.name}
@@ -606,7 +627,14 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
             </div>
 
             {!showDraft && (
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 6,
+                  maxWidth: '100%',
+                }}
+              >
                 {sel.builtin ? (
                   <MPButton
                     variant="ghost"
