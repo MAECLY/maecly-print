@@ -13,6 +13,7 @@ import {
 } from '@/components/ui';
 import {
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type Dispatch,
@@ -30,6 +31,7 @@ import {
   findPageRangeOverflow,
   isValidCopies,
   isValidPageRange,
+  printBlocker,
   type PrintJobOverrides,
 } from '@/lib/profiles';
 import { fmtKb } from '@/lib/format';
@@ -49,8 +51,10 @@ import { useProfilesStore } from '@/stores/profilesStore';
 import {
   addPathsToJob,
   expandFolderIntoJob,
+  getExpandingCount,
   getPendingFolders,
   resolvePendingFolder,
+  subscribeExpanding,
   subscribePendingFolders,
 } from '@/lib/jobFiles';
 import type { Density } from '@/lib/theme';
@@ -75,6 +79,15 @@ interface PrintJobScreenProps {
   setProfile: (id: string) => void;
   overrides: PrintJobOverrides;
   setOverrides: (o: PrintJobOverrides) => void;
+  /**
+   * What the copies field shows while it differs from the committed value
+   * (an invalid entry, or one being typed). Owned by the caller when given,
+   * so the Ctrl/⌘+P shortcut — which lives outside this screen — refuses the
+   * same invalid entry the Print button does; `null` shows the effective
+   * value, so a profile change from anywhere is reflected at once.
+   */
+  copiesDraft?: string | null;
+  setCopiesDraft?: (draft: string | null) => void;
   density?: Density;
   onPrint?: () => void;
 }
@@ -86,10 +99,24 @@ export function PrintJobScreen({
   setProfile,
   overrides,
   setOverrides,
+  copiesDraft: draftProp,
+  setCopiesDraft: setDraftProp,
   density = 'comfortable',
   onPrint,
 }: PrintJobScreenProps) {
   const t = useT('printJob');
+
+  // The copies draft lives with the caller when it passes one (App does);
+  // otherwise this screen keeps its own, so it still works standalone.
+  const [localDraft, setLocalDraft] = useState<string | null>(null);
+  const copiesDraft = setDraftProp ? (draftProp ?? null) : localDraft;
+  const setCopiesDraft = setDraftProp ?? setLocalDraft;
+
+  // What is in the job right now, for the "added N files" counts: a folder
+  // dropped twice must not claim to have added its files the second time.
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  const currentPaths = () => new Set(filesRef.current.map((f) => f.path));
 
   // Profiles come from the shared store (built-ins + customs). Init is
   // idempotent; the static built-ins are the fallback until it resolves (and
@@ -194,7 +221,16 @@ export function PrintJobScreen({
       d.blocks.some((ext) => jobExts.has(ext)),
   );
 
-  const totalPages = files.reduce((s, f) => s + (f.pages ?? 1), 0);
+  // An image is one page; a PDF too large or broken to probe has no known
+  // count, and must neither be shown as an image nor counted as one page.
+  const isImage = (ext: string) =>
+    ext.toLowerCase() !== 'pdf' &&
+    (SUPPORTED as readonly string[]).includes(ext.toLowerCase());
+  const unknownPages = files.filter((f) => !f.pages && !isImage(f.ext)).length;
+  const totalPages = files.reduce(
+    (s, f) => s + (f.pages ?? (isImage(f.ext) ? 1 : 0)),
+    0,
+  );
   const totalKb = files.reduce((s, f) => s + f.kb, 0);
 
   /**
@@ -203,7 +239,7 @@ export function PrintJobScreen({
    * so concurrent adds can't lose files or duplicate them.
    */
   async function addPaths(paths: string[]): Promise<void> {
-    await addPathsToJob(paths, setFiles);
+    await addPathsToJob(paths, setFiles, currentPaths);
   }
 
   /**
@@ -272,9 +308,13 @@ export function PrintJobScreen({
     getPendingFolders,
   );
 
-  // Copies is buffered locally so an out-of-range keystroke can show an error
-  // instead of being silently clamped; valid values flow into the overrides.
-  const [copiesText, setCopiesText] = useState(String(merged.copies));
+  // Folder walks still running: the job is still growing, so Print waits.
+  const expanding = useSyncExternalStore(subscribeExpanding, getExpandingCount);
+
+  // Copies shows the draft while one exists (so an out-of-range keystroke can
+  // show an error instead of being silently clamped) and the effective value
+  // otherwise — derived, never a stale copy taken at mount.
+  const copiesText = copiesDraft ?? String(merged.copies);
   const copiesError = !isValidCopies(copiesText);
 
   // The page range is DERIVED, never buffered: what the field shows has to be
@@ -298,11 +338,16 @@ export function PrintJobScreen({
       );
   const rangeError = rangeSyntaxError || rangeOverflow !== null;
 
+  /**
+   * A new profile is a new starting point (FR-041): its own values are
+   * pre-filled, so every override made against the previous one goes.
+   * Keeping them would leave the dropdown naming a profile whose settings are
+   * not the ones shown or sent.
+   */
   function onProfileChange(id: string): void {
     setProfile(id);
-    setCopiesText(
-      String(overrides.copies ?? findProfileIn(profileList, id).copies),
-    );
+    setOverrides({});
+    setCopiesDraft(null);
   }
 
   // Honesty preview: the exact command the backend would run, debounced so it
@@ -338,7 +383,18 @@ export function PrintJobScreen({
     };
   }, [canPreview, files, profileObj, overrides]);
 
-  const canPrint = files.length > 0 && !copiesError && !rangeError;
+  const canPrint =
+    expanding === 0 &&
+    printBlocker(
+      files.map((f) => ({
+        name: `${f.name}.${f.ext}`,
+        ext: f.ext,
+        pages: f.pages,
+      })),
+      profileObj,
+      overrides,
+      copiesDraft,
+    ) === null;
 
   const remove = (id: string) => setFiles(files.filter((f) => f.id !== id));
   const move = (id: string, dir: -1 | 1) => {
@@ -363,7 +419,10 @@ export function PrintJobScreen({
 
   const summary = t('subtitle', {
     files: t('units.file', { count: files.length }),
-    pages: t('units.page', { count: totalPages }),
+    pages:
+      unknownPages > 0
+        ? t('units.pageAtLeast', { count: totalPages })
+        : t('units.page', { count: totalPages }),
     size: fmtKb(totalKb),
   });
 
@@ -485,7 +544,12 @@ export function PrintJobScreen({
                       variant="primary"
                       size="sm"
                       onClick={() =>
-                        void expandFolderIntoJob(folder, 'recursive', setFiles)
+                        void expandFolderIntoJob(
+                          folder,
+                          'recursive',
+                          setFiles,
+                          currentPaths,
+                        )
                       }
                     >
                       {t('folders.recursive')}
@@ -493,7 +557,12 @@ export function PrintJobScreen({
                     <MPButton
                       size="sm"
                       onClick={() =>
-                        void expandFolderIntoJob(folder, 'top_level', setFiles)
+                        void expandFolderIntoJob(
+                          folder,
+                          'top_level',
+                          setFiles,
+                          currentPaths,
+                        )
                       }
                     >
                       {t('folders.topLevel')}
@@ -600,7 +669,9 @@ export function PrintJobScreen({
                       >
                         {f.pages
                           ? t('units.page', { count: f.pages })
-                          : t('list.image')}{' '}
+                          : isImage(f.ext)
+                            ? t('list.image')
+                            : t('list.pagesUnknown')}{' '}
                         · {fmtKb(f.kb)}
                       </div>
                     )}
@@ -708,9 +779,15 @@ export function PrintJobScreen({
             value={copiesText}
             onChange={(e) => {
               const raw = e.target.value;
-              setCopiesText(raw);
               if (isValidCopies(raw)) {
-                setOverrides({ ...overrides, copies: Number(raw.trim()) });
+                const copies = Number(raw.trim());
+                setOverrides({ ...overrides, copies });
+                // A canonical entry needs no draft: the field then follows
+                // the effective value again. "05" keeps its draft so the
+                // caret is not yanked mid-edit.
+                setCopiesDraft(raw.trim() === String(copies) ? null : raw);
+              } else {
+                setCopiesDraft(raw);
               }
             }}
             type="number"
@@ -824,7 +901,7 @@ export function PrintJobScreen({
               : rangeOverflow
                 ? t('pageRange.outOfBounds', {
                     name: rangeOverflow.name,
-                    pages: rangeOverflow.pages,
+                    count: rangeOverflow.pages,
                   })
                 : t('pageRange.hint')}
           </div>

@@ -632,6 +632,56 @@ describe('PrintJobScreen', () => {
     expect(printBtn).not.toBeDisabled();
   });
 
+  it('FR-042: a one-page overflow reads in the singular', async () => {
+    mockJob();
+    render(<Harness initial={[{ ...uiFile('/docs/one.pdf'), pages: 1 }]} />);
+    fireEvent.change(screen.getByPlaceholderText('e.g. 1-5,10'), {
+      target: { value: '2' },
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      '“one.pdf” only has 1 page.',
+    );
+  });
+
+  it('a PDF whose page count is unknown is not called an image, nor counted as one page', async () => {
+    mockJob();
+    render(
+      <Harness
+        initial={[
+          { ...uiFile('/docs/huge.pdf'), pages: null },
+          uiFile('/docs/three.pdf'),
+        ]}
+      />,
+    );
+    expect(screen.getByText(/pages unknown/)).toBeInTheDocument();
+    expect(screen.queryByText(/^image/)).not.toBeInTheDocument();
+    // 3 known pages, plus one document that has at least… something.
+    expect(screen.getByText(/at least 3 pages/)).toBeInTheDocument();
+  });
+
+  it('FR-041: picking another profile drops the overrides made against the old one', async () => {
+    mockJob();
+    let last: PrintRequest | undefined;
+    render(
+      <Harness
+        initial={[uiFile('/docs/a.pdf')]}
+        onRequest={(r) => (last = r)}
+      />,
+    );
+    fireEvent.change(screen.getByDisplayValue('1'), {
+      target: { value: '4' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Profile' }), {
+      target: { value: 'builtin-duplex-bw' },
+    });
+    // The field shows the new profile's own copies…
+    expect(screen.getByDisplayValue('1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
+    // …and that is what is sent, with the profile's own duplex.
+    expect(last?.settings.copies).toBe(1);
+    expect(last?.settings.duplex).toBe('long');
+  });
+
   it('FR-042: an image never invalidates a range (the engine drops it)', async () => {
     mockJob();
     render(
