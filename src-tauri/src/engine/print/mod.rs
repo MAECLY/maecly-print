@@ -349,12 +349,23 @@ pub fn effective_settings<'a>(settings: &'a JobSettings, input_ext: &str) -> Cow
 /// - a setting the backend cannot express is appended as a comment
 ///   ([`sumatra::quality_note`]) rather than left unsaid — the panel's job is to
 ///   tell the user what will happen, including what will not.
+///
+/// `file_name` is the *input* (what the user added). Like the real dispatch,
+/// the preview titles the job with it, and spools the input itself only when
+/// it is a PDF; anything else is converted first, so the spooled argument is
+/// labelled as that converted PDF rather than shown as the source image.
 pub fn preview_command(
-    pdf_display: &str,
+    file_name: &str,
     printer: &str,
     settings: &JobSettings,
     caps: &PrinterCaps,
 ) -> String {
+    let is_pdf = crate::engine::extension_of(std::path::Path::new(file_name)) == "pdf";
+    let pdf_display = if is_pdf {
+        file_name.to_string()
+    } else {
+        format!("<converted PDF of {file_name}>")
+    };
     #[cfg(windows)]
     {
         let _ = caps;
@@ -369,23 +380,36 @@ pub fn preview_command(
     }
     #[cfg(not(windows))]
     {
-        let opts = cups::lp_opts_for(settings, caps)
+        // The very builder `spool` uses, so the two cannot drift: same
+        // printer, same `-t` title, same options, same order.
+        let args = cups::lp_args_for(
+            printer,
+            std::path::Path::new(&pdf_display),
+            settings,
+            caps,
+            file_name,
+        );
+        let rendered = args
             .iter()
-            .map(|o| shell_quote(o))
+            .map(|a| shell_quote(a))
             .collect::<Vec<_>>()
             .join(" ");
-        format!("lp -d \"{printer}\" {opts} \"{pdf_display}\"")
+        format!("lp {rendered}")
     }
 }
 
-/// Wrap `arg` in double quotes when it contains whitespace, so a preview line
-/// with a multi-word bin or media name pastes into a shell as one argument.
-/// Values are driver-supplied names, not user shell input; the quoting is for
+/// Wrap `arg` in double quotes when it contains whitespace or a character a
+/// shell would treat specially (`<converted PDF of …>`), so a preview line
+/// pastes into a shell as the same argument vector. Values are file, printer
+/// and driver-supplied names, not user shell input; the quoting is for
 /// legibility and fidelity, not for safety (nothing here is ever run through a
 /// shell).
 #[cfg_attr(windows, allow(dead_code))]
 fn shell_quote(arg: &str) -> Cow<'_, str> {
-    if arg.chars().any(char::is_whitespace) {
+    if arg
+        .chars()
+        .any(|c| c.is_whitespace() || matches!(c, '<' | '>' | '|' | '&' | ';'))
+    {
         Cow::Owned(format!("\"{arg}\""))
     } else {
         Cow::Borrowed(arg)
@@ -659,6 +683,27 @@ mod tests {
             "preview names the file: {cmd}"
         );
         assert!(cmd.contains("Office"), "preview names the printer: {cmd}");
+    }
+
+    /// The preview is the argument vector `lp` really receives: the job title
+    /// (`-t <file name>`) included, and for an image the PDF it is converted
+    /// to — never the source image, which is not what gets spooled.
+    #[test]
+    fn preview_matches_the_spooled_argument_vector() {
+        let settings = JobSettings::default();
+        let pdf = preview_command("report.pdf", "Office", &settings, &PrinterCaps::unknown());
+        let img = preview_command("chart.png", "Office", &settings, &PrinterCaps::unknown());
+        if cfg!(windows) {
+            assert!(img.contains("<converted PDF of chart.png>"), "{img}");
+        } else {
+            assert!(pdf.starts_with("lp -d Office -t report.pdf "), "{pdf}");
+            assert!(pdf.ends_with(" report.pdf"), "{pdf}");
+            assert!(img.contains("-t chart.png"), "{img}");
+            assert!(
+                img.ends_with(" \"<converted PDF of chart.png>\""),
+                "an image spools its converted PDF: {img}"
+            );
+        }
     }
 
     #[test]
