@@ -79,7 +79,12 @@
     "profiles": "Profiles",
     "settings": "Settings",
     "about": "About",
-    "label": "Main"
+    "label": "Main",
+    "host": {
+      "connected": "connected",
+      "connecting": "connecting…",
+      "noBackend": "no backend"
+    }
   },
   "onboarding": {
     "welcome": {

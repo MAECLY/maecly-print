@@ -79,7 +79,12 @@
     "profiles": "Perfiles",
     "settings": "Ajustes",
     "about": "Acerca de",
-    "label": "Principal"
+    "label": "Principal",
+    "host": {
+      "connected": "conectado",
+      "connecting": "conectando…",
+      "noBackend": "desconectado"
+    }
   },
   "onboarding": {
     "welcome": {

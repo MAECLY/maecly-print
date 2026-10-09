@@ -178,11 +178,16 @@ export function MPSidebar({
                   : 'var(--mp-textDim)',
             }}
           >
+            {/* The dot is decoration: screen readers would read the glyph
+                ("black circle") before the translated status. */}
+            <span aria-hidden="true">
+              {host.kind === 'connected' ? '● ' : '○ '}
+            </span>
             {host.kind === 'connected'
-              ? '● connected'
+              ? t('nav.host.connected')
               : host.kind === 'connecting'
-                ? '○ connecting…'
-                : '○ no backend'}
+                ? t('nav.host.connecting')
+                : t('nav.host.noBackend')}
           </span>
         </div>
       </div>
