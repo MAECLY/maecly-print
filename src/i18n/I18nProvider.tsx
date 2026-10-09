@@ -120,6 +120,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // right language; it is an idempotent module write, not React state.
   setActiveLocale(locale);
 
+  // Screen readers pick their voice and pronunciation rules from <html lang>;
+  // a Spanish UI announced with English rules is close to unintelligible.
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
   const value = useMemo<I18nContextValue>(() => ({ locale }), [locale]);
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

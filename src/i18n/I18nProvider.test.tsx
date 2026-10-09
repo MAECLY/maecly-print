@@ -5,7 +5,7 @@ import { fixtureAppSettings } from '@/test/fixtures';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 import { I18nProvider, useT, useLocale } from './I18nProvider';
-import type { Locale } from './index';
+import { getActiveLocale, type Locale } from './index';
 
 /** Point `navigator.language` at `tag` for the duration of a test. */
 function setBrowserLanguage(tag: string) {
@@ -63,6 +63,20 @@ describe('I18nProvider', () => {
       expect(screen.getByTestId('cancel')).toHaveTextContent('Cancelar'),
     );
     expect(screen.getByTestId('locale')).toHaveTextContent('es-ES');
+  });
+
+  it('FR-094: keeps <html lang> and the non-React locale in step with the UI', async () => {
+    loaded('en-US');
+    render(
+      <I18nProvider>
+        <Probe />
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(document.documentElement.lang).toBe('en-US'));
+
+    act(() => loaded('es-ES'));
+    await waitFor(() => expect(document.documentElement.lang).toBe('es-ES'));
+    expect(getActiveLocale()).toBe('es-ES');
   });
 
   it('FR-093: uses the OS language while no config is loaded', () => {
