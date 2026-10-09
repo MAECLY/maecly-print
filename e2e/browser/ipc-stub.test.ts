@@ -188,7 +188,8 @@ describe('installIpcStub', () => {
     // since through `set_default_profile`: the real backend ignores the
     // incoming value, so the fake has to as well.
     const stale = ok(await commands.getAppSettings());
-    const [, other] = ok(await commands.listProfiles());
+    const other = ok(await commands.listProfiles())[1];
+    if (!other) throw new Error('the fixtures have a second profile');
     ok(await commands.setDefaultProfile(other.id));
     ok(
       await commands.setAppSettings({
