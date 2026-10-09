@@ -30,7 +30,7 @@ A two-pane split: the file list fills the main area; a fixed settings panel sits
 ```
 
 - **Top bar** — title `Print Job`, subtitle `{files} files · {pages} pages · {size}` (page total sums per-file page counts, images counting as 1), and two actions: **Add files** (opens the OS picker; disabled outside the desktop app) and **Print {n}** (submits; disabled until at least one file is present and every field is valid).
-- **File list (left)** — one row per file: an index, a file-type glyph, `name.ext`, a `{pages}·{size}` sub-line, and per-row **move up / move down / remove** controls. The whole pane is a drop target (dashed accent outline while dragging).
+- **File list (left)** — one row per file: an index, a file-type glyph, `name.ext` (full path as its tooltip; when two files share a name, each shows the shortest parent folder that tells them apart), a `{pages}·{size}` sub-line, and per-row **move up / move down / remove** controls. The whole pane is a drop target (dashed accent outline while dragging).
 - **Settings panel (right, 280 px)** — profile picker, then the per-invocation overrides, then the honesty **Resolved command** preview.
 
 ## Adding files
@@ -78,7 +78,7 @@ A profile provides the baseline; the controls below it are per-invocation overri
 - **Changing the profile resets the overrides** (FR-041): from the dropdown, from Ctrl/⌘+K or from a context-menu selection, the new profile's own values are what the panel shows and what is sent — overrides made against the previous profile never linger behind a dropdown that names another one. Overrides are also dropped after a successful print: they were tweaks for that job.
 - **Copies** shows a *draft* only while the field differs from the committed value (an invalid entry, or one mid-edit); otherwise it shows the effective value, so a profile change from anywhere is reflected immediately. An out-of-range entry shows an inline error instead of being silently clamped; only a valid value flows into the request (`isValidCopies`). The draft lives in `App`, so the Ctrl/⌘+P shortcut refuses the same invalid entry the Print button does (one shared rule, `printBlocker`).
 - **Page range** is validated client-side against a mirror of the engine grammar (`isValidPageRange`) so the Print button reflects intent; the backend re-validates authoritatively (`engine::pagerange::parse`). Ranges apply to PDFs and to converted documents (pages of the converted PDF); images ignore them.
-- **Printer** options come from `list_printers` with MaeclyPrint-disabled queues filtered out (via `get_printer_prefs`).
+- **Printer** options come from `list_printers` with MaeclyPrint-disabled queues filtered out (via `get_printer_prefs`). When an explicitly chosen printer reports it cannot print two-sided (`Printer.duplex`) or in color (`Printer.color`) and the panel asks for it, a warning under **Sides** / **Color** says so (duplex: the job will pause; color: pages come out grey). *System default* gets no warning: it resolves at print time (routes, app default).
 - **Paper** lists the sizes the selected printer reports (`Printer.papers`), so photo, envelope and other sizes can be chosen; a size the printer does not list pauses the job (`unsupported_setting`) instead of being substituted silently. **Printer default** sends no size, so the printer's override from the Printers screen (or its own default) applies.
 
 ## Resolved command (honesty preview)

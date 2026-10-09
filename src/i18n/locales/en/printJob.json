@@ -123,5 +123,9 @@
     "unsupported_format": "Unsupported file type (.{{ext}})",
     "too_large": "Larger than the file size limit",
     "unreadable": "Could not be read"
+  },
+  "capability": {
+    "noDuplex": "{{name}} cannot print two-sided: the job will pause until you choose Single or another printer.",
+    "noColor": "{{name}} prints in black and white only: color pages come out in grey."
   }
 }

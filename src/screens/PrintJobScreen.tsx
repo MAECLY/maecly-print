@@ -19,6 +19,7 @@ import {
   useSyncExternalStore,
   type Dispatch,
   type KeyboardEvent,
+  type ReactNode,
   type SetStateAction,
 } from 'react';
 import { toast } from 'sonner';
@@ -50,6 +51,7 @@ import {
 // other screens use, and this one is not on that list yet.
 import type { DependencyReport } from '@/ipc/bindings';
 import { isMacPlatform } from '@/components/AppShell/MPAppShell';
+import { Icon } from '@/components/Icon';
 import { useT } from '@/i18n/I18nProvider';
 import { useProfilesStore } from '@/stores/profilesStore';
 import { primePrinterNames } from '@/stores/printerNamesStore';
@@ -75,6 +77,27 @@ const SUPPORTED = PRINTABLE_EXTENSIONS;
 /** Turn an unknown thrown value into a user-facing message. */
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** A warning under a setting the chosen printer reports it cannot honour. */
+function CapabilityNote({ children }: { children: ReactNode }) {
+  return (
+    <div
+      role="note"
+      style={{
+        display: 'flex',
+        gap: 6,
+        alignItems: 'flex-start',
+        marginTop: 6,
+        fontSize: 11,
+        lineHeight: 1.45,
+        color: 'var(--mp-warn)',
+      }}
+    >
+      <Icon name="alert" size={12} color="var(--mp-warn)" />
+      <span style={{ flex: 1, minWidth: 0 }}>{children}</span>
+    </div>
+  );
 }
 
 interface PrintJobScreenProps {
@@ -148,7 +171,13 @@ export function PrintJobScreen({
   // queue name). Sending the label would produce a job for a printer that does
   // not exist.
   const [printers, setPrinters] = useState<
-    { id: string; name: string; papers: string[] }[]
+    {
+      id: string;
+      name: string;
+      papers: string[];
+      color: boolean;
+      duplex: boolean;
+    }[]
   >([]);
   useEffect(() => {
     if (!isTauri()) return;
@@ -164,7 +193,13 @@ export function PrintJobScreen({
         setPrinters(
           ps
             .filter((p) => !disabled.has(p.id))
-            .map((p) => ({ id: p.id, name: p.name, papers: p.papers })),
+            .map((p) => ({
+              id: p.id,
+              name: p.name,
+              papers: p.papers,
+              color: p.color,
+              duplex: p.duplex,
+            })),
         );
       })
       .catch((e) => {
@@ -186,6 +221,18 @@ export function PrintJobScreen({
     !printers.some((p) => p.id === currentPrinter)
       ? currentPrinter
       : null;
+  // What the chosen printer reports it cannot do. Only an explicit choice is
+  // checked: "System default" resolves at print time (routes, app default),
+  // so naming a printer here could be wrong.
+  const chosenPrinter = printers.find((p) => p.id === currentPrinter);
+  const noDuplex =
+    chosenPrinter !== undefined &&
+    !chosenPrinter.duplex &&
+    merged.duplex !== 'off';
+  const noColor =
+    chosenPrinter !== undefined &&
+    !chosenPrinter.color &&
+    merged.color === 'color';
   const printerOptions = [
     { value: DEFAULT_PRINTER, label: t('settings.systemDefault') },
     ...printers.map((p) => ({ value: p.id, label: p.name })),
@@ -849,6 +896,11 @@ export function PrintJobScreen({
               { value: 'short-edge', label: t('sides.short') },
             ]}
           />
+          {noDuplex && chosenPrinter && (
+            <CapabilityNote>
+              {t('capability.noDuplex', { name: chosenPrinter.name })}
+            </CapabilityNote>
+          )}
           <div style={{ height: 14 }} />
 
           <MPSectionLabel>{t('settings.color')}</MPSectionLabel>
@@ -861,6 +913,11 @@ export function PrintJobScreen({
               { value: 'monochrome', label: t('color.monochrome') },
             ]}
           />
+          {noColor && chosenPrinter && (
+            <CapabilityNote>
+              {t('capability.noColor', { name: chosenPrinter.name })}
+            </CapabilityNote>
+          )}
           <div style={{ height: 14 }} />
 
           <MPSectionLabel>{t('settings.copies')}</MPSectionLabel>

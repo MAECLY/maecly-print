@@ -79,7 +79,13 @@ interface Call {
 interface MockOpts {
   inspect?: (paths: string[]) => FileInfo[];
   expand?: (paths: string[], scan: string) => FolderExpansion;
-  printers?: { id: string; name: string; papers?: string[] }[];
+  printers?: {
+    id: string;
+    name: string;
+    papers?: string[];
+    color?: boolean;
+    duplex?: boolean;
+  }[];
   preview?: string;
   printError?: string;
   jobIds?: string[];
@@ -149,6 +155,8 @@ function mockJob(opts: MockOpts = {}): Call[] {
         return (opts.printers ?? []).map((p) => ({
           ...printerRow(p.id, p.name),
           papers: p.papers ?? [],
+          color: p.color ?? true,
+          duplex: p.duplex ?? true,
         }));
       case 'default_printer':
         return null;
@@ -543,6 +551,37 @@ describe('PrintJobScreen', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Collate copies' }));
     fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
     expect(seen.at(-1)?.settings.collate).toBe(false);
+  });
+
+  it('FR-040: warns when the chosen printer cannot do the chosen sides or color', async () => {
+    mockJob({
+      printers: [
+        { id: 'MONO', name: 'Brother mono', color: false, duplex: true },
+        { id: 'PDF', name: 'Save as PDF', color: true, duplex: false },
+      ],
+    });
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
+
+    const printer = await screen.findByRole('combobox', { name: 'Printer' });
+    await within(printer).findByText('Save as PDF');
+    const sides = screen.getByRole('radiogroup', { name: 'Sides' });
+    const color = screen.getByRole('radiogroup', { name: 'Color' });
+    fireEvent.click(within(sides).getByRole('radio', { name: 'Long' }));
+    fireEvent.click(within(color).getByRole('radio', { name: 'Color' }));
+    // "System default" resolves at print time: no claim about it.
+    expect(screen.queryByRole('note')).toBeNull();
+
+    fireEvent.change(printer, { target: { value: 'PDF' } });
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'Save as PDF cannot print two-sided',
+    );
+
+    fireEvent.change(printer, { target: { value: 'MONO' } });
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'Brother mono prints in black and white only',
+    );
+    fireEvent.click(within(color).getByRole('radio', { name: 'B&W' }));
+    expect(screen.queryByRole('note')).toBeNull();
   });
 
   it('FR-044: keeps a stored printer selectable even when it is not installed', async () => {
