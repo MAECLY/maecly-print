@@ -162,6 +162,9 @@ windows = { version = "0.58", features = [
   # DNS Client service, whose firewall rule admits the mDNS answers
   # (platform::windows_dnssd).
   "Win32_NetworkManagement_Dns",
+  # MFTEnumEx: is an HEVC decoder installed, for the HEIC dependency message
+  # (engine::convert::heif).
+  "Win32_Media_MediaFoundation",
   "Win32_Security",
   # Owner check on the machine policy file (GetNamedSecurityInfoW).
   "Win32_Security_Authorization",
