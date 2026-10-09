@@ -27,13 +27,18 @@
 //! Run with:
 //!
 //! ```sh
-//! MAECLY_REAL_PRINTER=1 cargo test --test real_printer -- --ignored --test-threads=1
+//! MAECLY_REAL_PRINTER=1 cargo test --test real_printer -- --ignored
 //! ```
+//!
+//! The tests are serial by construction ([`serial`]) and only ever touch jobs
+//! whose `job-name` is their own, so the default parallel runner is safe: one
+//! test can neither adopt another's job id nor cancel another's job.
 #![cfg(unix)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use maeclyprint_lib::engine::print::spool;
@@ -44,6 +49,33 @@ use maeclyprint_lib::queue::job::{
 
 /// Queue names this suite must never touch, whatever the environment says.
 const FORBIDDEN_QUEUES: &[&str] = &["EPSON_L15160_Series"];
+
+/// One real-spooler test at a time. Each test diffs the hold queue's job list
+/// around its own submission, so two running at once would see each other's
+/// jobs. A panicking test poisons the lock; the next one still runs.
+fn serial() -> MutexGuard<'static, ()> {
+    static SERIAL: Mutex<()> = Mutex::new(());
+    SERIAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// The jobs that appeared in `queue` since `before` and were submitted under
+/// `title`: this test's own, never another process's. `get-job-attributes`
+/// does not report `job-name` on every CUPS, so the document name the engine
+/// derives from the title (`<title>.pdf`) identifies the job as well.
+fn own_new_jobs(queue: &str, before: &BTreeSet<u32>, title: &str) -> Vec<u32> {
+    let document = format!("{title}.pdf");
+    job_ids(queue)
+        .difference(before)
+        .copied()
+        .filter(|id| {
+            let attrs = job_attributes(*id);
+            attr(&attrs, "job-name") == Some(title)
+                || attr(&attrs, "document-name-supplied") == Some(document.as_str())
+        })
+        .collect()
+}
 
 /// `Some(queue)` when the suite is enabled, `None` (skip) otherwise.
 fn hold_queue() -> Option<String> {
@@ -174,12 +206,11 @@ fn submit(
         .and_then(|s| s.rsplit_once('-'))
         .and_then(|(_, n)| n.parse().ok())
         .or_else(|| {
-            let after = job_ids(queue);
-            let fresh: Vec<u32> = after.difference(&before).copied().collect();
+            let fresh = own_new_jobs(queue, &before, &title);
             assert_eq!(
                 fresh.len(),
                 1,
-                "expected exactly one new job, got {fresh:?}"
+                "expected exactly one new job named {title}, got {fresh:?}"
             );
             fresh.first().copied()
         })
@@ -241,6 +272,7 @@ fn is_monochrome(attrs: &BTreeMap<String, String>) -> bool {
 #[test]
 #[ignore = "submits to a real CUPS hold queue; set MAECLY_REAL_PRINTER=1"]
 fn fr_040_defaults_reach_cups_as_one_sided_a4_colour_single_copy() {
+    let _serial = serial();
     let Some(queue) = hold_queue() else { return };
     let settings = JobSettings {
         printer: Some(queue.clone()),
@@ -264,11 +296,18 @@ fn fr_040_defaults_reach_cups_as_one_sided_a4_colour_single_copy() {
     assert_eq!(attr(&attrs, "media-source"), None);
     assert_quality(&attrs, "normal", "Normal");
     assert_eq!(attr(&attrs, "fit-to-page"), Some("true"));
+    // The document is named after the user's file, not the file handed to
+    // `lp` (for a converted job, the cache's UUID).
+    assert_eq!(
+        attr(&attrs, "document-name-supplied"),
+        Some("maecly-real-printer-defaults.pdf")
+    );
 }
 
 #[test]
 #[ignore = "submits to a real CUPS hold queue; set MAECLY_REAL_PRINTER=1"]
 fn fr_040_full_override_set_reaches_cups_as_ipp_attributes() {
+    let _serial = serial();
     let Some(queue) = hold_queue() else { return };
     let settings = JobSettings {
         printer: Some(queue.clone()),
@@ -304,6 +343,7 @@ fn fr_040_full_override_set_reaches_cups_as_ipp_attributes() {
 #[test]
 #[ignore = "submits to a real CUPS hold queue; set MAECLY_REAL_PRINTER=1"]
 fn fr_040_short_edge_legal_draft_single_page() {
+    let _serial = serial();
     let Some(queue) = hold_queue() else { return };
     let settings = JobSettings {
         printer: Some(queue.clone()),
@@ -335,6 +375,7 @@ fn fr_040_short_edge_legal_draft_single_page() {
 #[test]
 #[ignore = "submits to a real CUPS hold queue; set MAECLY_REAL_PRINTER=1"]
 fn fr_040_a3_with_multiple_ranges() {
+    let _serial = serial();
     let Some(queue) = hold_queue() else { return };
     let settings = JobSettings {
         printer: Some(queue.clone()),
@@ -360,20 +401,23 @@ fn fr_040_a3_with_multiple_ranges() {
 #[test]
 #[ignore = "submits to a real CUPS hold queue; set MAECLY_REAL_PRINTER=1"]
 fn fr_032_spool_reports_the_cups_job_id() {
+    let _serial = serial();
     let Some(queue) = hold_queue() else { return };
     let pdf = two_page_pdf("request-id");
+    let title = "maecly-real-printer-request-id";
     let before = job_ids(&queue);
     let outcome = spool(
         &pdf,
         &queue,
         &JobSettings::default(),
         &queue_of(&queue).1,
-        "maecly-real-printer-request-id",
+        title,
         Some(Duration::from_secs(30)),
     )
     .expect("spool");
     let _ = std::fs::remove_file(&pdf);
-    let fresh: Vec<u32> = job_ids(&queue).difference(&before).copied().collect();
+    // Only this test's own job: its guard must never cancel anyone else's.
+    let fresh = own_new_jobs(&queue, &before, title);
     let _guards: Vec<CancelOnDrop> = fresh.iter().copied().map(CancelOnDrop).collect();
 
     let expected = fresh.first().map(|n| format!("{queue}-{n}"));
