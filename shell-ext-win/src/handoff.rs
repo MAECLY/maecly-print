@@ -12,7 +12,7 @@
 //!
 //! * `schema_version` must be exactly [`SCHEMA_VERSION`];
 //! * `paths` must be non-empty and no longer than [`MAX_PATHS`];
-//! * the file must be under 4 MiB;
+//! * the file must be no larger than [`MAX_BYTES`];
 //! * `invoked_at` must be an RFC 3339 stamp no older than 60 s (replay window),
 //!   and no more than 5 s in the future (clock skew);
 //! * the file must *canonicalize* inside [`handoff_dir`], so it has to be
@@ -38,6 +38,16 @@ pub const SOURCE: &str = "windows-explorer";
 /// original size travels in [`Handoff::truncated_from`] so the app can tell the
 /// user what was left out.
 pub const MAX_PATHS: usize = 10_000;
+
+/// Largest file the app will read (`MAX_HANDOFF_BYTES`). A selection is
+/// trimmed to fit this as well as [`MAX_PATHS`]: very long paths can exceed
+/// the byte cap before the count cap, and the app refuses an oversized file
+/// outright, so the user would get nothing at all.
+pub const MAX_BYTES: usize = 64 * 1024 * 1024;
+
+/// Room kept in [`MAX_BYTES`] for everything but the paths (keys, action,
+/// profile id, timestamp).
+const ENVELOPE_RESERVE: usize = 64 * 1024;
 
 /// What a menu entry asks the app to do.
 ///
@@ -89,8 +99,9 @@ pub struct Handoff {
 /// Build a payload from a selection.
 ///
 /// Pure, with the clock injected, so the freshness contract can be asserted
-/// without waiting. `paths` longer than [`MAX_PATHS`] is truncated — see the
-/// constant for why — and the original length is recorded in
+/// without waiting. A selection longer than [`MAX_PATHS`], or one whose
+/// serialized paths would not fit [`MAX_BYTES`], is truncated (see the
+/// constants for why) and the original length is recorded in
 /// [`Handoff::truncated_from`].
 pub fn build(
     paths: &[PathBuf],
@@ -98,17 +109,38 @@ pub fn build(
     profile_id: Option<String>,
     now: time::OffsetDateTime,
 ) -> Handoff {
-    let truncated_from =
-        (paths.len() > MAX_PATHS).then(|| u32::try_from(paths.len()).unwrap_or(u32::MAX));
-    let paths: Vec<String> = paths
-        .iter()
-        .take(MAX_PATHS)
+    build_within(paths, action, profile_id, now, MAX_BYTES)
+}
+
+/// [`build`] with the byte budget explicit, so the trimming is testable
+/// without a 64 MiB selection.
+pub fn build_within(
+    paths: &[PathBuf],
+    action: Action,
+    profile_id: Option<String>,
+    now: time::OffsetDateTime,
+    max_bytes: usize,
+) -> Handoff {
+    let budget = max_bytes.saturating_sub(ENVELOPE_RESERVE);
+    let mut used = 0usize;
+    let mut kept: Vec<String> = Vec::with_capacity(paths.len().min(MAX_PATHS));
+    for p in paths.iter().take(MAX_PATHS) {
         // to_string_lossy, not a fallible conversion: a Windows path that is
         // not valid UTF-16-to-UTF-8 round-trippable is vanishingly rare and
         // dropping the whole selection over one name would be worse than
         // printing it with a replacement character in the log.
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
+        let path = p.to_string_lossy().into_owned();
+        // Its exact JSON size (quotes and escapes) plus the separating comma.
+        let cost = serde_json::to_string(&path).map_or(path.len() * 6 + 2, |s| s.len()) + 1;
+        if used + cost > budget {
+            break;
+        }
+        used += cost;
+        kept.push(path);
+    }
+    let truncated_from = (kept.len() < paths.len())
+        .then(|| u32::try_from(paths.len()).unwrap_or(u32::MAX));
+    let paths = kept;
 
     Handoff {
         schema_version: SCHEMA_VERSION,
@@ -211,6 +243,25 @@ mod tests {
 
         let few = build(&many[..3], Action::Queue, None, at("2026-07-20T21:11:03Z"));
         assert_eq!(few.truncated_from, None);
+    }
+
+    /// FR-003: a selection is trimmed by bytes as well as by count, so the
+    /// app never refuses the file as too large (it used to: 10,000 deep
+    /// OneDrive paths went over the reader's cap and nothing printed).
+    #[test]
+    fn fr_003_truncates_by_size_before_the_app_would_refuse_the_file() {
+        let long = format!(r"C:\Users\ana\OneDrive - Empresa\Facturación\{}", "x".repeat(400));
+        let many: Vec<PathBuf> = (0..100)
+            .map(|i| PathBuf::from(format!(r"{long}\f{i}.pdf")))
+            .collect();
+        let budget = ENVELOPE_RESERVE + 10 * 1024;
+        let h = build_within(&many, Action::Queue, None, at("2026-07-20T21:11:03Z"), budget);
+        assert!(!h.paths.is_empty() && h.paths.len() < 100, "{}", h.paths.len());
+        assert_eq!(h.truncated_from, Some(100));
+        let bytes = serde_json::to_vec(&h).unwrap();
+        assert!(bytes.len() <= budget, "{} > {budget}", bytes.len());
+        // Kept in order: the first files of the selection, not a sample.
+        assert_eq!(h.paths[0], many[0].to_string_lossy());
     }
 
     #[test]

@@ -29,10 +29,17 @@ use crate::util::paths;
 /// is refused rather than guessed at.
 pub const HANDOFF_SCHEMA_VERSION: u32 = 1;
 
-/// Largest handoff file we will read. 10,000 long Windows paths still fit
-/// comfortably; anything bigger is a bug or an attack, and reading it would
-/// mean allocating whatever the writer felt like.
-pub const MAX_HANDOFF_BYTES: u64 = 4 * 1024 * 1024;
+/// Largest handoff file we will read. Anything bigger is a bug or an attack,
+/// and reading it would mean allocating whatever the writer felt like.
+///
+/// It has to hold a full [`MAX_HANDOFF_PATHS`] selection of real paths. It
+/// used to be 4 MiB, but JSON doubles every backslash and accented folder
+/// names are multi-byte, so 10,000 paths under a deep OneDrive folder
+/// (~420 bytes each) went over it and Explorer printed nothing at all for a
+/// large selection. 64 MiB is ~6.7 KB per path at the cap; the shell
+/// extension trims a selection by this same byte budget as well as by count,
+/// so a payload it writes is never refused for size.
+pub const MAX_HANDOFF_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Largest selection we will honour.
 pub const MAX_HANDOFF_PATHS: usize = 10_000;
@@ -283,6 +290,29 @@ mod tests {
             .collect::<Vec<_>>()
             .join(",");
         assert_eq!(parse(&payload(&many)).unwrap().paths.len(), 2_000);
+    }
+
+    /// FR-003: the shell extension sends up to 10,000 paths. With deep,
+    /// accented OneDrive folders (~420 JSON bytes a path) that is over the old
+    /// 4 MiB read cap, and the whole selection was refused.
+    #[test]
+    fn fr_003_a_full_selection_of_long_paths_is_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = format!(
+            r"C:\\Users\\ana\\OneDrive - Empresa Ejemplo\\Facturación {}",
+            "ñ".repeat(200)
+        );
+        let many = (0..MAX_HANDOFF_PATHS)
+            .map(|i| format!("\"{folder}\\\\factura-{i:05}.pdf\""))
+            .collect::<Vec<_>>()
+            .join(",");
+        let body = payload(&many);
+        assert!(body.len() > 4 * 1024 * 1024, "{} bytes", body.len());
+        let file = dir.path().join("sel.json");
+        std::fs::write(&file, &body).unwrap();
+
+        let h = read_file(&file).expect("a legal selection is read whatever its size");
+        assert_eq!(h.paths.len(), MAX_HANDOFF_PATHS);
     }
 
     #[test]

@@ -134,10 +134,10 @@ fn fr_003_a_five_thousand_file_selection_fits_the_apps_limits() {
     let bytes = serde_json::to_vec(&payload).unwrap();
 
     assert_eq!(payload.paths.len(), 5_000);
-    // The app refuses a handoff file over 4 MiB before reading it.
+    // The app refuses a handoff file over its byte cap before reading it.
     assert!(
-        bytes.len() < 4 * 1024 * 1024,
-        "5,000 paths serialized to {} bytes, over the app's 4 MiB cap",
+        bytes.len() < handoff::MAX_BYTES,
+        "5,000 paths serialized to {} bytes, over the app's cap",
         bytes.len()
     );
 }
@@ -323,5 +323,9 @@ fn fr_001_the_consumer_still_declares_this_schema() {
     assert!(
         source.contains("MAX_HANDOFF_PATHS: usize = 10_000"),
         "the app's path cap changed; handoff::MAX_PATHS must follow"
+    );
+    assert!(
+        source.contains("MAX_HANDOFF_BYTES: u64 = 64 * 1024 * 1024"),
+        "the app's byte cap changed; handoff::MAX_BYTES must follow"
     );
 }
