@@ -105,6 +105,7 @@ export function PrintJobScreen({
   onPrint,
 }: PrintJobScreenProps) {
   const t = useT('printJob');
+  const tCommon = useT('common');
 
   // The copies draft lives with the caller when it passes one (App does);
   // otherwise this screen keeps its own, so it still works standalone.
@@ -257,7 +258,12 @@ export function PrintJobScreen({
         ? await open({ multiple: true, directory: true })
         : await open({
             multiple: true,
-            filters: [{ name: 'Printable files', extensions: [...SUPPORTED] }],
+            filters: [
+              {
+                name: tCommon('filePicker.filterName'),
+                extensions: [...SUPPORTED],
+              },
+            ],
           });
       if (!picked) return;
       await addPaths(Array.isArray(picked) ? picked : [picked]);

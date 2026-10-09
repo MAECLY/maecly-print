@@ -571,7 +571,7 @@ function App() {
             multiple: true,
             filters: [
               {
-                name: 'Printable files',
+                name: t('filePicker.filterName'),
                 extensions: [...PRINTABLE_EXTENSIONS],
               },
             ],
