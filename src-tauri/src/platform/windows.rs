@@ -1,7 +1,12 @@
 //! Windows printer backend: enumeration via the print spooler (`EnumPrinters`)
-//! and the GDI `DeviceCapabilities` query, printer actions via `SetPrinter` /
-//! `DeletePrinter`, adding via PowerShell's `Add-Printer -IppURL`, and network
-//! discovery via an mDNS/DNS-SD browse.
+//! and the GDI `DeviceCapabilities` query, setting the default printer,
+//! adding via PowerShell's `Add-Printer -IppURL`, and network discovery via an
+//! mDNS/DNS-SD browse.
+//!
+//! The spooler queue itself is never paused, resumed or deleted from here:
+//! *Remove* on the Printers screen is a MaeclyPrint-only soft-disable
+//! (`docs/05-features/printers-management.md`), and OS-level queue management
+//! is left to Windows (*Open printer settings*).
 //!
 //! `EnumPrinters` (level 2) gives the core record (name, port, driver,
 //! location, shared, status, attributes, queued jobs, default DEVMODE);
@@ -20,20 +25,16 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{
-    GetLastError, ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_INSUFFICIENT_BUFFER, HANDLE,
-};
+use windows::Win32::Foundation::{GetLastError, ERROR_FILE_NOT_FOUND, ERROR_INSUFFICIENT_BUFFER};
 use windows::Win32::Graphics::Gdi::{DEVMODEW, DM_DEFAULTSOURCE, DM_PAPERSIZE};
 use windows::Win32::Graphics::Printing::{
-    ClosePrinter, DeletePrinter, EnumPrintersW, GetDefaultPrinterW, OpenPrinterW,
-    SetDefaultPrinterW, SetPrinterW, PRINTER_ACCESS_ADMINISTER, PRINTER_ACCESS_RIGHTS,
-    PRINTER_ALL_ACCESS, PRINTER_ATTRIBUTE_SHARED, PRINTER_ATTRIBUTE_WORK_OFFLINE,
-    PRINTER_CONTROL_PAUSE, PRINTER_CONTROL_RESUME, PRINTER_DEFAULTSW, PRINTER_ENUM_CONNECTIONS,
-    PRINTER_ENUM_LOCAL, PRINTER_INFO_2W, PRINTER_STATUS_BUSY, PRINTER_STATUS_DOOR_OPEN,
-    PRINTER_STATUS_ERROR, PRINTER_STATUS_NOT_AVAILABLE, PRINTER_STATUS_NO_TONER,
-    PRINTER_STATUS_OFFLINE, PRINTER_STATUS_PAPER_JAM, PRINTER_STATUS_PAPER_OUT,
-    PRINTER_STATUS_PAPER_PROBLEM, PRINTER_STATUS_PAUSED, PRINTER_STATUS_PRINTING,
-    PRINTER_STATUS_PROCESSING, PRINTER_STATUS_SERVER_UNKNOWN, PRINTER_STATUS_USER_INTERVENTION,
+    EnumPrintersW, GetDefaultPrinterW, SetDefaultPrinterW, PRINTER_ATTRIBUTE_SHARED,
+    PRINTER_ATTRIBUTE_WORK_OFFLINE, PRINTER_ENUM_CONNECTIONS, PRINTER_ENUM_LOCAL, PRINTER_INFO_2W,
+    PRINTER_STATUS_BUSY, PRINTER_STATUS_DOOR_OPEN, PRINTER_STATUS_ERROR,
+    PRINTER_STATUS_NOT_AVAILABLE, PRINTER_STATUS_NO_TONER, PRINTER_STATUS_OFFLINE,
+    PRINTER_STATUS_PAPER_JAM, PRINTER_STATUS_PAPER_OUT, PRINTER_STATUS_PAPER_PROBLEM,
+    PRINTER_STATUS_PAUSED, PRINTER_STATUS_PRINTING, PRINTER_STATUS_PROCESSING,
+    PRINTER_STATUS_SERVER_UNKNOWN, PRINTER_STATUS_USER_INTERVENTION,
 };
 // DeviceCapabilities and the DC_* constants live under Storage::Xps in windows 0.58.
 use windows::Win32::Storage::Xps::{
@@ -280,88 +281,6 @@ pub fn set_os_default(name: &str) -> anyhow::Result<()> {
         )
         .into())
     }
-}
-
-// ----------------------------------------------------------------------------
-// Printer actions (pause / resume / remove / open queue)
-// ----------------------------------------------------------------------------
-
-/// An open spooler handle, closed on drop.
-struct PrinterHandle(HANDLE);
-
-impl PrinterHandle {
-    fn open(name: &str, access: PRINTER_ACCESS_RIGHTS) -> anyhow::Result<Self> {
-        let w = wide(name);
-        let defaults = PRINTER_DEFAULTSW {
-            pDatatype: PWSTR::null(),
-            pDevMode: std::ptr::null_mut(),
-            DesiredAccess: access,
-        };
-        let mut handle = HANDLE::default();
-        unsafe { OpenPrinterW(PCWSTR(w.as_ptr()), &mut handle, Some(&defaults)) }
-            .map_err(|e| action_error(e, name, "open"))?;
-        Ok(Self(handle))
-    }
-}
-
-impl Drop for PrinterHandle {
-    fn drop(&mut self) {
-        let _ = unsafe { ClosePrinter(self.0) };
-    }
-}
-
-/// Map a spooler failure on a printer action to a message the UI can show.
-/// Administering a queue (pause, resume, delete) needs the *Manage printers*
-/// right, which a standard user has on queues they installed but not on ones
-/// an administrator or a policy installed; that case gets guidance, not a raw
-/// HRESULT.
-fn action_error(e: windows::core::Error, name: &str, verb: &str) -> anyhow::Error {
-    if e.code() == ERROR_ACCESS_DENIED.to_hresult() {
-        anyhow::anyhow!(
-            "Windows did not allow MaeclyPrint to {verb} \"{name}\": managing this printer \
-             requires administrator rights. Use \"Open printer settings\" to do it from Windows."
-        )
-    } else if e.code() == windows::core::HRESULT::from_win32(RPC_S_SERVER_UNAVAILABLE) {
-        anyhow::anyhow!(SPOOLER_DOWN)
-    } else {
-        anyhow::anyhow!("could not {verb} \"{name}\": {e}")
-    }
-}
-
-/// Pause the printer's queue in the spooler (`PRINTER_CONTROL_PAUSE`). Jobs
-/// keep arriving and wait; nothing is printed until [`resume_printer`].
-pub fn pause_printer(name: &str) -> anyhow::Result<()> {
-    let h = PrinterHandle::open(name, PRINTER_ACCESS_ADMINISTER)?;
-    unsafe { SetPrinterW(h.0, 0, None, PRINTER_CONTROL_PAUSE) }
-        .map_err(|e| action_error(e, name, "pause"))
-}
-
-/// Resume a paused printer (`PRINTER_CONTROL_RESUME`).
-pub fn resume_printer(name: &str) -> anyhow::Result<()> {
-    let h = PrinterHandle::open(name, PRINTER_ACCESS_ADMINISTER)?;
-    unsafe { SetPrinterW(h.0, 0, None, PRINTER_CONTROL_RESUME) }
-        .map_err(|e| action_error(e, name, "resume"))
-}
-
-/// Remove the printer from Windows (`DeletePrinter`). The spooler deletes it
-/// once its pending jobs are gone; this returns as soon as it is marked.
-pub fn remove_printer(name: &str) -> anyhow::Result<()> {
-    let h = PrinterHandle::open(name, PRINTER_ALL_ACCESS)?;
-    unsafe { DeletePrinter(h.0) }.map_err(|e| action_error(e, name, "remove"))
-}
-
-/// Open Windows' own queue window for the printer
-/// (`rundll32 printui.dll,PrintUIEntry /o /n <name>`).
-///
-/// Spawned, not waited on: the queue window lives as long as the user keeps
-/// it open, and `PrintUIEntry` reports its own errors in a dialog (its exit
-/// status is always 0), so there is nothing to wait for.
-pub fn open_printer_queue(name: &str) -> anyhow::Result<()> {
-    Command::new("rundll32")
-        .args(["printui.dll,PrintUIEntry", "/o", "/n", name])
-        .spawn()
-        .with_context(|| "could not start rundll32 to open the printer queue")?;
-    Ok(())
 }
 
 // ----------------------------------------------------------------------------
@@ -1298,21 +1217,6 @@ mod tests {
         }
         let names = installed_names_and_ports().unwrap();
         assert_eq!(names.len(), printers.len());
-    }
-
-    /// Opening a printer that does not exist is an error with the name in it,
-    /// not a panic or a silent success, for every action.
-    #[test]
-    fn printer_actions_fail_cleanly_on_an_unknown_printer() {
-        let ghost = "MaeclyPrint test printer that does not exist";
-        for result in [
-            pause_printer(ghost),
-            resume_printer(ghost),
-            remove_printer(ghost),
-        ] {
-            let err = result.expect_err("unknown printer must fail").to_string();
-            assert!(err.contains(ghost) || err.contains("Spooler"), "{err}");
-        }
     }
 
     /// The browse runs for its window and returns without error on a host with

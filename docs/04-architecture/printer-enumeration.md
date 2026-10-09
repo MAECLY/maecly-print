@@ -103,8 +103,10 @@ Rust `Printer` (snake_case, `src-tauri/src/ipc/printers.rs`) → UI `UiPrinter` 
 | Print test page | ✅ branded PDF via `lp` | ✅ branded PDF via SumatraPDF (`printui.dll` only without the sidecar) |
 | Open the OS printers pane | ✅ | ✅ |
 | Network discovery (scan) | ✅ `ippfind` (mDNS/Bonjour) | ✅ mDNS (`mdns-sd`); WSD-only devices not listed |
-| Pause / resume / remove / open queue | — (Printers work) | ✅ `SetPrinter` `PRINTER_CONTROL_PAUSE`/`RESUME`, `DeletePrinter`, `printui.dll,PrintUIEntry /o` (`platform::{pause,resume,remove}_printer`, `open_printer_queue`) |
+| Pause / resume / delete an OS queue | — not offered | — not offered |
 | **Add a printer (mutates the spooler)** | ✅ **implemented** — `lpadmin` | ✅ **implemented** — PowerShell, IPP/IPPS only |
+
+**OS queue management is out of scope.** MaeclyPrint never pauses, resumes or deletes a spooler queue. *Remove* on the Printers screen is a MaeclyPrint-only soft-disable (the printer's id goes into `prefs.disabled`, see [printers-management.md](../05-features/printers-management.md#actions)), and anything that changes the OS queue itself is left to Windows or CUPS through *Open printer settings*. An earlier Windows-only set of `pause_printer` / `resume_printer` / `remove_printer` / `open_printer_queue` functions was never wired to any command or screen and has been removed.
 
 **Add is shipped, not deferred.** `ipc::printers::add_printer` is wired end to end; the earlier "the commit step is a documented follow-up" note is stale.
 

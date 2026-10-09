@@ -117,11 +117,6 @@ pub use windows::{
     print_test_page, set_os_default,
 };
 
-// Printer actions (Printers screen). The Windows half; the IPC commands and
-// the CUPS half are wired by the Printers work.
-#[cfg(windows)]
-pub use windows::{open_printer_queue, pause_printer, remove_printer, resume_printer};
-
 // Fallback for any other target so the crate always compiles.
 #[cfg(not(any(unix, windows)))]
 pub fn list_printers() -> anyhow::Result<Vec<crate::ipc::printers::Printer>> {
