@@ -10,7 +10,7 @@
 //! | duplex none          | `-o sides=one-sided`                                  |
 //! | duplex long          | `-o sides=two-sided-long-edge`                        |
 //! | duplex short         | `-o sides=two-sided-short-edge`                       |
-//! | colour               | *(omitted — driver default)*                          |
+//! | colour               | `-o ColorModel=RGB` *only if the printer lists `RGB`* |
 //! | monochrome           | `-o ColorModel=Gray`                                  |
 //! | copies > 1           | `-n <copies>`                                         |
 //! | paper                | `-o media=<the printer's keyword>` *(auto omitted)*   |
@@ -70,10 +70,27 @@ pub fn lp_opts_for(settings: &JobSettings, caps: &PrinterCaps) -> Vec<String> {
         }
     ));
 
-    // Colour: only force grey; colour is the driver default so we omit it.
-    if matches!(settings.color_mode, ColorMode::Monochrome) {
-        opts.push("-o".to_string());
-        opts.push("ColorModel=Gray".to_string());
+    // Colour: grey is always forced for monochrome. Colour is asked for
+    // explicitly only when the printer lists an `RGB` colour model — a queue
+    // whose default is `Gray` would otherwise print a colour job in grey —
+    // and sent in the printer's own spelling. A printer that does not list it
+    // (driverless queues, Windows) keeps its default, which is colour on any
+    // colour device.
+    match settings.color_mode {
+        ColorMode::Monochrome => {
+            opts.push("-o".to_string());
+            opts.push("ColorModel=Gray".to_string());
+        }
+        ColorMode::Color => {
+            if let Some(rgb) = caps
+                .color_models
+                .iter()
+                .find(|m| m.eq_ignore_ascii_case("RGB"))
+            {
+                opts.push("-o".to_string());
+                opts.push(format!("ColorModel={rgb}"));
+            }
+        }
     }
 
     // Copies use `lp`'s own `-n` flag.
@@ -625,6 +642,48 @@ mod tests {
         assert!(with("letter").iter().any(|o| o == "media=Letter"));
         let auto = with("auto");
         assert!(!auto.iter().any(|o| o.starts_with("media=")), "{auto:?}");
+    }
+
+    #[test]
+    fn colour_asks_for_rgb_only_where_the_printer_lists_it() {
+        let colour = |models: &[&str]| {
+            lp_opts_for(
+                &JobSettings::default(),
+                &PrinterCaps {
+                    color_models: models.iter().map(|m| m.to_string()).collect(),
+                    ..PrinterCaps::unknown()
+                },
+            )
+        };
+        assert!(colour(&["Gray", "RGB"])
+            .iter()
+            .any(|o| o == "ColorModel=RGB"));
+        assert!(
+            colour(&["Gray", "rgb"])
+                .iter()
+                .any(|o| o == "ColorModel=rgb"),
+            "the printer's spelling"
+        );
+        for models in [&["Gray", "CMYK"][..], &[][..]] {
+            let opts = colour(models);
+            assert!(
+                !opts.iter().any(|o| o.starts_with("ColorModel=")),
+                "{models:?}: {opts:?}"
+            );
+        }
+        // Mono stays Gray whatever the printer lists.
+        let mono = lp_opts_for(
+            &JobSettings {
+                color_mode: ColorMode::Monochrome,
+                ..JobSettings::default()
+            },
+            &PrinterCaps {
+                color_models: vec!["RGB".into()],
+                ..PrinterCaps::unknown()
+            },
+        );
+        assert!(mono.iter().any(|o| o == "ColorModel=Gray"));
+        assert!(!mono.iter().any(|o| o == "ColorModel=RGB"));
     }
 
     #[test]

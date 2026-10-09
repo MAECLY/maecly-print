@@ -161,7 +161,7 @@ Flag mapping (`engine/print/cups.rs`), in the exact order `lp_args` emits them:
 | printer | `-d <name>` |
 | title | `-t <title>` |
 | duplex none / long / short | `-o sides=one-sided` / `two-sided-long-edge` / `two-sided-short-edge` |
-| colour | *(omitted — driver default)* |
+| colour | `-o ColorModel=RGB` *only when the printer lists `RGB`; else omitted* |
 | monochrome | `-o ColorModel=Gray` |
 | copies > 1 | `-n <copies>` |
 | paper | `-o media=<the printer's keyword>` *(`auto` omits)* |

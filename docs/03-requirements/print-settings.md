@@ -12,7 +12,7 @@ A print setting is anything that can be different per job: the printer, paper, d
 |---|---|---|---|---|---|---|
 | `printer` | string | system default | `-print-to "<name>"` | `-d <name>` | **Shipped** | no |
 | `duplex` | enum: none / long / short | **none** | `simplex` / `duplex` / `duplexshort` | `-o sides=one-sided \| two-sided-long-edge \| two-sided-short-edge` | **Shipped** | yes (printer must support) |
-| `color_mode` | enum: color / monochrome | color | `color` / `monochrome` | `-o ColorModel=Gray` for mono; **colour omitted** (driver default) | **Shipped** | yes |
+| `color_mode` | enum: color / monochrome | color | `color` / `monochrome` | `-o ColorModel=Gray` for mono; colour sends `-o ColorModel=RGB` **only when the printer lists `RGB`**, else nothing (driver default) | **Shipped** | yes |
 | `copies` | int 1–999 | 1 | `copies=N` (only when N > 1) | `-n N` (only when N > 1) | **Shipped** | no |
 | `page_ranges` | string `1-5,10` | all | bare `1-5,10`, prepended, no key | `-o page-ranges=1-5,10` | **Shipped** | no |
 | `paper_size` | string: any size the printer reports (`A4`, `Letter`, `A6`, `4x6`, `Tabloid`…), or `auto` | A4 | `paper=<A2…A6, letter, legal, tabloid, statement>`; any other size is **not applied** and the preview says so; `auto` emits nothing | `-o media=<the printer's own keyword>`; `auto` emits nothing | **Shipped** | yes — validated against the printer's list when it reports one (`unsupported_setting` pause otherwise) |
@@ -238,7 +238,7 @@ The command is **`lp`**, not `lpr`. Vector: `lp -d <printer> -t <title> <opts…
 | Title | `-t <title>` |
 | Sides (duplex) | `-o sides=one-sided \| two-sided-long-edge \| two-sided-short-edge` — always emitted |
 | Paper | `-o media=<keyword>` in the printer's own spelling (`A4`, `Letter`, `4x6`, `Tabloid`, `w288h432`…); omitted only for `auto` |
-| Monochrome | `-o ColorModel=Gray`; **colour emits nothing** (driver default) |
+| Colour model | Monochrome: `-o ColorModel=Gray`. Colour: `-o ColorModel=RGB` in the printer's spelling **only when the printer lists an `RGB` model** (so a queue that defaults to `Gray` still prints colour); otherwise nothing, and the driver default applies |
 | Copies | `-n N` — `lp`'s own flag, **not** `-o copies=N`; only when N > 1 |
 | Orientation | `-o orientation-requested=3` portrait / `=4` landscape; `auto` emits nothing, so each page keeps its own orientation |
 | Fit-to-page | `-o fit-to-page` for both `fit` and `shrink`; `none` emits nothing |
