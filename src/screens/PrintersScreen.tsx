@@ -281,7 +281,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '120px 1fr',
+        gridTemplateColumns: 'minmax(90px, 120px) minmax(0, 1fr)',
         gap: 14,
         padding: '9px 0',
         borderBottom: '1px solid var(--mp-border)',
@@ -291,7 +291,9 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
       <span style={{ fontSize: 12, color: 'var(--mp-textMuted)' }}>
         {label}
       </span>
-      <span style={{ fontSize: 12.5 }}>{children}</span>
+      <span style={{ fontSize: 12.5, minWidth: 0, overflowWrap: 'anywhere' }}>
+        {children}
+      </span>
     </div>
   );
 }
@@ -741,7 +743,8 @@ export function PrintersScreen() {
         <div
           className="mp-scroll"
           style={{
-            width: 264,
+            // 264 px on a wide window, down to 220 px at the 880 px minimum.
+            width: 'clamp(220px, 24vw, 264px)',
             flexShrink: 0,
             overflow: 'auto',
             borderRight: '1px solid var(--mp-border)',
@@ -802,12 +805,14 @@ export function PrintersScreen() {
                     style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                   >
                     <span
+                      title={p.name}
                       style={{
                         fontSize: 12.5,
                         fontWeight: 500,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
+                        minWidth: 0,
                       }}
                     >
                       {p.name}
@@ -827,18 +832,26 @@ export function PrintersScreen() {
                     <StatusDot status={STATUS_META[p.status].dot} />
                     <span
                       className="mp-mono"
-                      style={{ fontSize: 10, color: 'var(--mp-textDim)' }}
+                      style={{
+                        fontSize: 10,
+                        color: 'var(--mp-textDim)',
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
                     >
                       {t('header.listEntry', {
                         status: t(`status.${p.status}`),
                         type: t(`type.${p.type}`),
                       })}
                     </span>
+                    <MPBadge tone={STATE_TONE[pState]}>
+                      {t(`state.${pState}`)}
+                    </MPBadge>
                   </div>
                 </div>
-                <MPBadge tone={STATE_TONE[pState]}>
-                  {t(`state.${pState}`)}
-                </MPBadge>
               </button>
             );
           })}
@@ -875,11 +888,19 @@ export function PrintersScreen() {
               display: 'flex',
               alignItems: 'flex-start',
               justifyContent: 'space-between',
+              flexWrap: 'wrap',
               marginBottom: 16,
               gap: 12,
             }}
           >
-            <div style={{ display: 'flex', gap: 12, minWidth: 0 }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: 12,
+                minWidth: 0,
+                flex: '1 1 260px',
+              }}
+            >
               <div
                 style={{
                   width: 44,
@@ -914,6 +935,8 @@ export function PrintersScreen() {
                       fontSize: 17,
                       fontWeight: 600,
                       letterSpacing: '-0.01em',
+                      minWidth: 0,
+                      overflowWrap: 'anywhere',
                     }}
                   >
                     {sel.name}
@@ -948,7 +971,15 @@ export function PrintersScreen() {
                 </div>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 6,
+                flexShrink: 0,
+                maxWidth: '100%',
+              }}
+            >
               <MPButton
                 variant="ghost"
                 icon="printer"
@@ -1141,7 +1172,7 @@ export function PrintersScreen() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
               gap: 24,
             }}
           >
