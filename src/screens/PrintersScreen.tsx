@@ -1549,7 +1549,10 @@ interface AddPrinterModalProps {
   onAdded: () => void;
   printers: UiPrinter[];
   prefs: PrinterPrefs;
-  onSavePrefs: (next: PrinterPrefs, success?: string) => void | Promise<void>;
+  onSavePrefs: (
+    next: PrinterPrefs,
+    success?: string,
+  ) => void | Promise<unknown>;
 }
 
 const ADD_TABS: { value: AddTab; mode: PrinterMode }[] = [
@@ -2232,7 +2235,10 @@ function SystemTab({
   printers: UiPrinter[];
   prefs: PrinterPrefs;
   os: OsId;
-  onSavePrefs: (next: PrinterPrefs, success?: string) => void | Promise<void>;
+  onSavePrefs: (
+    next: PrinterPrefs,
+    success?: string,
+  ) => void | Promise<unknown>;
 }) {
   const t = useT('printers');
   const disabled = new Set(prefs.disabled ?? []);
