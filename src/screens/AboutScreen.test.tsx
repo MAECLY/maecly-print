@@ -69,6 +69,10 @@ interface MockOpts {
   updateError?: string;
   /** Version already recorded as skipped in the persisted update state. */
   skippedVersion?: string | null;
+  /** Return value for `install_update`. */
+  installResult?: unknown;
+  /** When set, `install_update` rejects with this IPC error. */
+  installError?: { code: string; message: string };
 }
 
 /** Install IPC mocks (which also flags the Tauri host) and record the calls. */
@@ -90,6 +94,14 @@ function mockAbout(opts: MockOpts = {}): Call[] {
     if (cmd === 'check_for_updates') {
       if (opts.updateError) throw new Error(opts.updateError);
       return opts.update ?? fixtureUpdateCheckUpToDate;
+    }
+    if (cmd === 'install_update') {
+      // A plain object, not an Error: that is how a command-returned IpcError
+      // reaches the bindings, which turn it into `{ status: 'error' }`.
+      if (opts.installError) throw opts.installError;
+      return (
+        opts.installResult ?? { installed: '1.1.0', restart_required: true }
+      );
     }
     // open_external / open_logs_folder / report_issue resolve with null.
     return null;
@@ -446,21 +458,123 @@ describe('AboutScreen', () => {
     ).toBeInTheDocument();
   });
 
-  it('FR-082/FR-083: the update card is honest that it cannot install or verify a download', async () => {
-    mockAbout({ update: fixtureUpdateCheckAvailable });
+  /** A minor update from the running 1.0.0. */
+  const MINOR_UPDATE: UpdateCheck = {
+    ...fixtureUpdateCheckAvailable,
+    latest: '1.1.0',
+    url: 'https://github.com/MAECLY/maecly-print/releases/tag/v1.1.0',
+  };
+
+  async function openUpdateCard() {
+    fireEvent.click(screen.getByRole('button', { name: /check for updates/i }));
+    return screen.findByRole('group', { name: /update available/i });
+  }
+
+  it('FR-084: "Install now" installs the update and offers a restart', async () => {
+    const calls = mockAbout({ update: MINOR_UPDATE });
     renderAbout();
     await waitForAppInfo();
 
-    fireEvent.click(screen.getByRole('button', { name: /check for updates/i }));
-    const card = await screen.findByRole('group', {
-      name: /update available/i,
-    });
+    const card = await openUpdateCard();
+    // FR-082/FR-083 are real now, and the card says so.
+    expect(within(card).getByText(/release signature/i)).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole('button', { name: 'Install now' }));
 
-    // No "Install now" affordance is offered, because there is nothing behind
-    // it: no signed installer, no signature verification (both M4).
-    expect(within(card).queryByRole('button', { name: /install/i })).toBeNull();
-    expect(within(card).getByText(/cannot verify/i)).toBeInTheDocument();
-    expect(within(card).getByText(/download it from the/i)).toBeInTheDocument();
+    expect(await screen.findByText('1.1.0 is installed')).toBeInTheDocument();
+    const install = calls.find((c) => c.cmd === 'install_update');
+    // A minor update needs no extra opt-in.
+    expect(install?.args.allowMajor).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restart now' }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.cmd === 'restart_app')).toBe(true),
+    );
+  });
+
+  it('FR-087: a major update is installed only after a second, explicit confirmation', async () => {
+    const calls = mockAbout({
+      update: fixtureUpdateCheckAvailable, // 1.0.0 → 9.9.9
+      installResult: { installed: '9.9.9', restart_required: true },
+    });
+    renderAbout();
+    await waitForAppInfo();
+
+    const card = await openUpdateCard();
+    fireEvent.click(within(card).getByRole('button', { name: 'Install now' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByText('Install a major update?'),
+    ).toBeInTheDocument();
+    // Nothing is downloaded on the first click.
+    expect(calls.some((c) => c.cmd === 'install_update')).toBe(false);
+
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Install 9.9.9' }),
+    );
+    await waitFor(() => {
+      const install = calls.find((c) => c.cmd === 'install_update');
+      expect(install?.args.allowMajor).toBe(true);
+    });
+  });
+
+  it('FR-087: dismissing the major-update question installs nothing', async () => {
+    const calls = mockAbout({ update: fixtureUpdateCheckAvailable });
+    renderAbout();
+    await waitForAppInfo();
+
+    const card = await openUpdateCard();
+    fireEvent.click(within(card).getByRole('button', { name: 'Install now' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(calls.some((c) => c.cmd === 'install_update')).toBe(false);
+  });
+
+  it('FR-082: a tampered download is rejected with a clear message and a way to the logs', async () => {
+    const calls = mockAbout({
+      update: MINOR_UPDATE,
+      installError: {
+        code: 'UpdateSignatureInvalid',
+        message: 'the downloaded update failed its signature check',
+      },
+    });
+    renderAbout();
+    await waitForAppInfo();
+
+    const card = await openUpdateCard();
+    fireEvent.click(within(card).getByRole('button', { name: 'Install now' }));
+
+    expect(
+      await screen.findByText(
+        /failed its signature check and was not installed/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Nothing on this computer was changed/),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getAllByRole('button', { name: /open (the )?logs folder/i })[0]!,
+    );
+    await waitFor(() =>
+      expect(calls.some((c) => c.cmd === 'open_logs_folder')).toBe(true),
+    );
+  });
+
+  it('FR-084: a platform without an installable artifact says so instead of pretending', async () => {
+    mockAbout({
+      update: MINOR_UPDATE,
+      installResult: { installed: null, restart_required: false },
+    });
+    renderAbout();
+    await waitForAppInfo();
+
+    const card = await openUpdateCard();
+    fireEvent.click(within(card).getByRole('button', { name: 'Install now' }));
+    expect(
+      await screen.findByText(/no installable update for this platform/i),
+    ).toBeInTheDocument();
   });
 
   // -- i18n (FR-092) ------------------------------------------------------

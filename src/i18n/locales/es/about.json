@@ -28,15 +28,29 @@
       "group": "Actualización disponible",
       "title": "La versión {{version}} está disponible",
       "detail": "Tienes la {{current}}.",
-      "installNote": "La instalación desde la app llega con el actualizador automático firmado (M4): esta versión no puede verificar la firma de una descarga ni instalarla por ti. De momento, descárgala desde la página de la publicación.",
       "releaseNotes": "Notas de la versión",
       "remindLater": "Recordármelo más tarde",
-      "skipVersion": "Omitir esta versión"
+      "skipVersion": "Omitir esta versión",
+      "install": "Instalar ahora",
+      "verifiedNote": "Antes de instalar nada, la descarga se comprueba con la firma de las versiones de MaeclyPrint, y no hacen falta permisos de administrador."
     },
     "deferred": "Aviso pospuesto. Puedes volver a comprobarlo cuando quieras.",
     "retry": "Reintentar",
     "skipped": "Omitiendo la {{version}}. Se seguirá avisando de versiones más nuevas.",
-    "undoSkip": "Deshacer"
+    "undoSkip": "Deshacer",
+    "install": {
+      "installing": "Descargando y verificando la {{version}}…",
+      "progress": "{{percent}} %",
+      "majorTitle": "¿Instalar una actualización mayor?",
+      "majorMessage": "La {{version}} es una actualización mayor respecto a la {{current}} y puede cambiar el funcionamiento de MaeclyPrint. Si dependes de un flujo de trabajo concreto, lee antes las notas de la versión.",
+      "majorConfirm": "Instalar la {{version}}",
+      "restartTitle": "La {{version}} está instalada",
+      "restartDetail": "Reinicia MaeclyPrint para empezar a usarla.",
+      "restart": "Reiniciar ahora",
+      "nothing": "Todavía no hay una actualización instalable para esta plataforma. Descárgala desde la página de la publicación.",
+      "signatureInvalid": "La actualización descargada no superó la comprobación de firma y no se ha instalado. No se ha modificado nada en este equipo. Vuelve a intentarlo más tarde o descarga la versión desde la página de la publicación.",
+      "failed": "No se pudo instalar la actualización: {{error}}"
+    }
   },
   "components": {
     "platform": "Plataforma:",

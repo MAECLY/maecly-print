@@ -7,7 +7,9 @@ import { useEffect, useState, version as REACT_VERSION } from 'react';
 import tauriPkg from '@tauri-apps/api/package.json';
 import { toast } from 'sonner';
 import { MPAppIcon } from '@/components/Brand';
+import { ConfirmDialog, type ConfirmState } from '@/components/ConfirmDialog';
 import { Icon } from '@/components/Icon';
+import { events } from '@/ipc/bindings';
 import { MPButton, MPCard, MPSectionLabel, MPTopBar } from '@/components/ui';
 import { useT } from '@/i18n/I18nProvider';
 import type { TranslationKey } from '@/i18n';
@@ -15,10 +17,13 @@ import {
   checkForUpdates,
   fetchAppInfo,
   getUpdateState,
+  installUpdate,
+  ipcErrorCode,
   isTauri,
   openExternal,
   openLogsFolder,
   reportIssue,
+  restartApp,
   setSkippedUpdateVersion,
   type AppInfo,
   type UpdateChannel,
@@ -49,7 +54,29 @@ type UpdateState =
   | { kind: 'done'; check: UpdateCheck }
   | { kind: 'deferred' }
   | { kind: 'skipped'; version: string }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string }
+  // FR-084 "install now": downloading + verifying, with progress when the
+  // server sent a size …
+  | { kind: 'installing'; version: string; percent: number | null }
+  // … installed and waiting for a restart (macOS; Windows exits into the
+  // installer and never gets here) …
+  | { kind: 'installed'; version: string }
+  // … or refused. `message` is already user-facing.
+  | { kind: 'installError'; message: string };
+
+/**
+ * FR-087: whether `latest` is a major jump from `current` (`1.x` → `2.x`).
+ * Mirrors `update::install::is_major_bump`, which enforces it again: the UI
+ * asks, the backend refuses to proceed without the answer. Unparseable
+ * versions count as major — when in doubt, ask.
+ */
+function isMajorUpdate(current: string, latest: string): boolean {
+  const major = (v: string) => /^\s*[vV]?(\d+)\./.exec(v)?.[1];
+  const a = major(current);
+  const b = major(latest);
+  if (a === undefined || b === undefined) return true;
+  return Number(b) > Number(a);
+}
 
 /**
  * FR-084's "skip this version", which only makes sense once the check named a
@@ -115,6 +142,37 @@ export function AboutScreen() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [update, setUpdate] = useState<UpdateState>({ kind: 'idle' });
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+
+  // Download progress for an install in flight. The listener lives as long as
+  // the screen; it only ever updates an `installing` state.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    events.updateDownloadProgress
+      .listen(({ payload }) => {
+        const percent =
+          payload.total && payload.total > 0
+            ? Math.min(
+                100,
+                Math.round((payload.downloaded / payload.total) * 100),
+              )
+            : null;
+        setUpdate((u) => (u.kind === 'installing' ? { ...u, percent } : u));
+      })
+      .then((un) => {
+        if (cancelled) un();
+        else unlisten = un;
+      })
+      .catch(() => {
+        // Progress is cosmetic; the install itself still reports its result.
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   const settings = useSettingsStore((s) => s.settings);
   const initSettings = useSettingsStore((s) => s.init);
@@ -185,6 +243,61 @@ export function AboutScreen() {
     try {
       await setSkippedUpdateVersion(null);
       await runCheck();
+    } catch (e) {
+      toast.error(errText(e));
+    }
+  }
+
+  /**
+   * FR-084 "install now". FR-087: a major jump first asks a second, explicit
+   * question; only a "yes" there passes `allowMajor`, which the backend
+   * requires before it downloads anything.
+   */
+  function requestInstall(check: UpdateCheck) {
+    const version = check.latest ?? UNKNOWN_VERSION;
+    if (isMajorUpdate(check.current, version)) {
+      setConfirm({
+        title: t('updates.install.majorTitle'),
+        message: t('updates.install.majorMessage', {
+          version,
+          current: check.current,
+        }),
+        confirmLabel: t('updates.install.majorConfirm', { version }),
+        run: () => runInstall(version, true),
+      });
+      return;
+    }
+    void runInstall(version, false);
+  }
+
+  async function runInstall(version: string, allowMajor: boolean) {
+    setUpdate({ kind: 'installing', version, percent: null });
+    try {
+      const result = await installUpdate(allowMajor);
+      if (result.installed === null) {
+        setUpdate({
+          kind: 'installError',
+          message: t('updates.install.nothing'),
+        });
+      } else {
+        setUpdate({ kind: 'installed', version: result.installed });
+      }
+    } catch (e) {
+      // A rejected signature is the one failure the user must not misread as
+      // "try again and it will work": say exactly what happened.
+      setUpdate({
+        kind: 'installError',
+        message:
+          ipcErrorCode(e) === 'UpdateSignatureInvalid'
+            ? t('updates.install.signatureInvalid')
+            : t('updates.install.failed', { error: errText(e) }),
+      });
+    }
+  }
+
+  async function restart() {
+    try {
+      await restartApp();
     } catch (e) {
       toast.error(errText(e));
     }
@@ -442,15 +555,21 @@ export function AboutScreen() {
                     {t('updates.available.detail', {
                       current: update.check.current,
                     })}{' '}
-                    {/* FR-082/FR-083 are honest here rather than faked: this
-                        build has no signed installer to verify or run, so the
-                        only truthful action is a link to the release page. */}
-                    {t('updates.available.installNote')}
+                    {/* FR-082/FR-083: signature-checked, per-user install. */}
+                    {t('updates.available.verifiedNote')}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                   <MPButton
                     variant="primary"
+                    size="sm"
+                    icon="download"
+                    onClick={() => requestInstall(update.check)}
+                  >
+                    {t('updates.available.install')}
+                  </MPButton>
+                  <MPButton
+                    variant="secondary"
                     size="sm"
                     icon="page"
                     onClick={() => void open(update.check.url ?? RELEASES_URL)}
@@ -476,6 +595,109 @@ export function AboutScreen() {
                     onSkip={skipVersion}
                   />
                 </div>
+              </div>
+            </MPCard>
+          </>
+        )}
+
+        {update.kind === 'installing' && (
+          <>
+            <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
+            <MPCard padding={14} style={{ marginBottom: 24 }}>
+              <div
+                role="status"
+                style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+              >
+                <Icon name="download" size={16} color="var(--mp-accent)" />
+                <div style={{ flex: 1, fontSize: 12.5 }}>
+                  {t('updates.install.installing', { version: update.version })}
+                </div>
+                {update.percent !== null && (
+                  <span
+                    className="mp-mono"
+                    style={{ fontSize: 11.5, color: 'var(--mp-textMuted)' }}
+                  >
+                    {t('updates.install.progress', { percent: update.percent })}
+                  </span>
+                )}
+              </div>
+            </MPCard>
+          </>
+        )}
+
+        {update.kind === 'installed' && (
+          <>
+            <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
+            <MPCard padding={14} style={{ marginBottom: 24 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Icon name="check" size={16} color="var(--mp-success)" />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>
+                    {t('updates.install.restartTitle', {
+                      version: update.version,
+                    })}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11.5,
+                      color: 'var(--mp-textMuted)',
+                      marginTop: 2,
+                    }}
+                  >
+                    {t('updates.install.restartDetail')}
+                  </div>
+                </div>
+                <MPButton
+                  variant="primary"
+                  size="sm"
+                  icon="rotate"
+                  onClick={() => void restart()}
+                >
+                  {t('updates.install.restart')}
+                </MPButton>
+              </div>
+            </MPCard>
+          </>
+        )}
+
+        {update.kind === 'installError' && (
+          <>
+            <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
+            <MPCard
+              padding={14}
+              style={{
+                marginBottom: 24,
+                background: 'var(--mp-errorSoft)',
+                borderColor: 'var(--mp-error)',
+              }}
+            >
+              <div
+                role="alert"
+                style={{ display: 'flex', alignItems: 'center', gap: 12 }}
+              >
+                <Icon name="alert" size={16} color="var(--mp-error)" />
+                <div
+                  style={{ flex: 1, fontSize: 12.5, color: 'var(--mp-error)' }}
+                >
+                  {update.message}
+                </div>
+                {/* NFR-033: the install is logged step by step. */}
+                <MPButton
+                  variant="secondary"
+                  size="sm"
+                  icon="folder"
+                  onClick={() => void revealLogs()}
+                >
+                  {t('paths.openLogs')}
+                </MPButton>
+                <MPButton
+                  variant="secondary"
+                  size="sm"
+                  icon="page"
+                  onClick={() => void open(RELEASES_URL)}
+                >
+                  {t('links.releaseNotes')}
+                </MPButton>
               </div>
             </MPCard>
           </>
@@ -705,6 +927,9 @@ export function AboutScreen() {
           .
         </div>
       </div>
+      {confirm && (
+        <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} />
+      )}
     </>
   );
 }

@@ -495,7 +495,7 @@ describe('App', () => {
       expect(screen.getByText("You're on 1.0.0.")).toBeInTheDocument();
     });
 
-    it('links to the release page instead of offering an install this build cannot do', async () => {
+    it('links to the release notes and leaves installing to the About screen', async () => {
       const calls: string[] = [];
       mockIPC((cmd, args) => {
         calls.push(cmd);
@@ -511,8 +511,8 @@ describe('App', () => {
       await renderSubscribed();
       emitUpdateAvailable();
 
-      // FR-082/FR-083 land with the signed auto-updater: nothing here may
-      // suggest the app can install anything.
+      // Installing needs the About screen's context (FR-087's major-version
+      // confirmation, progress, restart), so the toast never offers it.
       const action = await screen.findByRole('button', {
         name: 'Release notes',
       });

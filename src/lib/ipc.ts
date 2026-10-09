@@ -29,6 +29,7 @@ import {
   type Selection,
   type Supplies as IpcSupplies,
   type UpdateCheck,
+  type UpdateInstallResult,
   type UpdateState,
 } from '@/ipc/bindings';
 
@@ -68,6 +69,7 @@ export type {
   TelemetryCfg,
   UpdateChannel,
   UpdateCheck,
+  UpdateInstallResult,
   UpdateState,
   Theme,
   Density,
@@ -116,7 +118,39 @@ async function unwrap<T>(
     message: r.error?.message,
     code: r.error?.code,
   };
-  throw new Error(message ?? (code ? `IPC error: ${code}` : 'IPC error'));
+  // The stable `code` rides along on the Error so a screen can tell, say, a
+  // rejected update signature from a network failure and phrase it itself.
+  throw Object.assign(
+    new Error(message ?? (code ? `IPC error: ${code}` : 'IPC error')),
+    { code },
+  );
+}
+
+/** The IPC error code attached by {@link unwrap}, when there is one. */
+export function ipcErrorCode(e: unknown): string | undefined {
+  if (e instanceof Error && 'code' in e) {
+    const code = (e as Error & { code?: unknown }).code;
+    return typeof code === 'string' ? code : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * FR-084 "install now": download, verify (FR-082) and install (FR-083) the
+ * newest release. `allowMajor` is FR-087's explicit opt-in for a major jump.
+ * On Windows the app exits into the installer and this never resolves.
+ */
+export async function installUpdate(
+  allowMajor: boolean,
+): Promise<UpdateInstallResult> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  return unwrap(commands.installUpdate(allowMajor));
+}
+
+/** Relaunch the app so an installed update takes effect. */
+export async function restartApp(): Promise<void> {
+  if (!isTauri()) throw new Error(NO_HOST);
+  await commands.restartApp();
 }
 
 /**

@@ -73,12 +73,12 @@
       "beta": "Beta",
       "nightly": "Nightly"
     },
-    "channelNote": "Channel selection takes effect when the auto-updater ships (M4).",
+    "channelNote": "Every channel receives the stable releases for now; separate beta and nightly feeds are not published yet.",
     "checkOnStartup": {
       "label": "Check on startup",
       "hint": "Asks GitHub for the latest release 30 seconds after launch, at most once every 24 hours."
     },
-    "startupNote": "The launch-time check only reads the number of the latest published release; nothing about you or your documents is sent, and MaeclyPrint never installs anything on its own — it tells you and links to the release notes. Turn it off and no request is made at launch; you can still check whenever you like from the About screen."
+    "startupNote": "The launch-time check only reads the number of the latest published release; nothing about you or your documents is sent, and MaeclyPrint never installs anything on its own — it tells you, and installs only when you choose Install now on the About screen. Turn it off and no request is made at launch; you can still check whenever you like from the About screen."
   },
   "privacy": {
     "crashReports": {

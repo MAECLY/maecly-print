@@ -28,15 +28,29 @@
       "group": "Update available",
       "title": "Version {{version}} is available",
       "detail": "You're on {{current}}.",
-      "installNote": "In-app install arrives with the signed auto-updater (M4) — this build cannot verify a download's signature or install it for you. For now, download it from the release page.",
       "releaseNotes": "Release notes",
       "remindLater": "Remind me later",
-      "skipVersion": "Skip this version"
+      "skipVersion": "Skip this version",
+      "install": "Install now",
+      "verifiedNote": "The download is checked against MaeclyPrint's release signature before anything is installed, and no administrator rights are needed."
     },
     "deferred": "Reminder postponed. Check again whenever you like.",
     "retry": "Retry",
     "skipped": "Skipping {{version}}. A newer release will still be offered.",
-    "undoSkip": "Undo"
+    "undoSkip": "Undo",
+    "install": {
+      "installing": "Downloading and verifying {{version}}…",
+      "progress": "{{percent}} %",
+      "majorTitle": "Install a major update?",
+      "majorMessage": "{{version}} is a major update from {{current}} and may change how MaeclyPrint works. If you rely on a particular workflow, read the release notes first.",
+      "majorConfirm": "Install {{version}}",
+      "restartTitle": "{{version}} is installed",
+      "restartDetail": "Restart MaeclyPrint to start using it.",
+      "restart": "Restart now",
+      "nothing": "There is no installable update for this platform yet. Download it from the release page instead.",
+      "signatureInvalid": "The downloaded update failed its signature check and was not installed. Nothing on this computer was changed. Try again later, or download the release from the release page.",
+      "failed": "The update could not be installed: {{error}}"
+    }
   },
   "components": {
     "platform": "Platform:",

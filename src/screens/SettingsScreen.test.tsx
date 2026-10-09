@@ -564,12 +564,14 @@ describe('SettingsScreen', () => {
 
   // -- notes & edge states -------------------------------------------------
 
-  it('renders the M2/M4 milestone notes and the consent note', async () => {
+  it('renders the channel, M2 milestone and consent notes', async () => {
     mockSettings();
     renderSettings();
     await waitReady();
 
-    expect(screen.getByText(/auto-updater ships \(M4\)/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/separate beta and nightly feeds are not published/),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/these switches record consent only/),
     ).toBeInTheDocument();

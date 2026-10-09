@@ -195,11 +195,10 @@ function App() {
   // (FR-084). All of that policy lives in Rust, so there is nothing to filter
   // here: receiving the event *is* the decision to say something.
   //
-  // The toast deliberately stops at the release page. This build cannot verify
-  // or install a download (FR-082/FR-083 arrive with the signed auto-updater),
-  // and the About screen says so next to its own check; a toast that offered
-  // to "update" would be a promise the app cannot keep. Skipping a version
-  // also stays on that screen, where the full context is visible.
+  // The toast deliberately stops at the release notes. Installing — with
+  // FR-087's extra confirmation for a major jump, progress, and a restart —
+  // and skipping a version live on the About screen, where the full context
+  // is visible; a toast is too small and too fleeting for either.
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
