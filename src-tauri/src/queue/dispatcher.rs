@@ -254,6 +254,10 @@ pub(crate) enum Cmd {
     ConversionDone {
         id: String,
         result: Result<Option<PathBuf>, EngineError>,
+        /// Page count of the converted PDF, measured off the actor (on the
+        /// blocking pool) so a document whose pages were unknown before
+        /// conversion (DOCX, HTML, Markdown, …) shows them afterwards.
+        pages: Option<u32>,
     },
     PrintDone {
         id: String,
@@ -687,7 +691,7 @@ impl Dispatcher {
             Cmd::ClearDone { reply } => {
                 let _ = reply.send(self.on_clear_done());
             }
-            Cmd::ConversionDone { id, result } => self.on_conversion_done(id, result),
+            Cmd::ConversionDone { id, result, pages } => self.on_conversion_done(id, result, pages),
             Cmd::PrintDone { id, result } => self.on_print_done(id, result),
             Cmd::RetryDue { id } => {
                 self.delayed.remove(&id);
@@ -1001,7 +1005,12 @@ impl Dispatcher {
         count
     }
 
-    fn on_conversion_done(&mut self, id: String, result: Result<Option<PathBuf>, EngineError>) {
+    fn on_conversion_done(
+        &mut self,
+        id: String,
+        result: Result<Option<PathBuf>, EngineError>,
+        pages: Option<u32>,
+    ) {
         // The conversion is no longer in flight regardless of outcome. Dropping
         // the throttle entry too keeps `progress_last` bounded by the number of
         // conversions actually in flight.
@@ -1022,6 +1031,12 @@ impl Dispatcher {
                         Ok(cache) => {
                             job.cache_pdf =
                                 cache.as_ref().map(|p| p.to_string_lossy().into_owned());
+                            // The converted PDF is the truth about what will
+                            // print; before it existed a document's count
+                            // was unknown.
+                            if pages.is_some() {
+                                job.pages = pages;
+                            }
                             job.state = JobState::Converted;
                             job.error = None;
                             job.progress = None;
@@ -1428,7 +1443,11 @@ impl Dispatcher {
         }
         self.spawner.spawn_blocking(Box::new(move || {
             let result = runner.convert(&job, flag, progress);
-            let _ = self_tx.send(Cmd::ConversionDone { id, result });
+            let pages = match &result {
+                Ok(Some(pdf)) => converted_page_count(pdf),
+                _ => None,
+            };
+            let _ = self_tx.send(Cmd::ConversionDone { id, result, pages });
         }));
     }
 
@@ -1967,6 +1986,13 @@ fn record_failure(job: &mut Job, e: &EngineError, is_conversion: bool, post: &mu
     }
 }
 
+/// Page count of a freshly converted cache PDF, with the same size ceiling as
+/// the submit-time probe. `None` when it cannot be measured.
+fn converted_page_count(pdf: &Path) -> Option<u32> {
+    let bytes = std::fs::metadata(pdf).ok()?.len();
+    crate::queue::probe_pages(pdf, "pdf", bytes)
+}
+
 /// Map an [`EngineError`] to a persisted [`JobError`] with a stable code.
 fn to_job_error(e: &EngineError) -> JobError {
     let code = match e {
@@ -2007,8 +2033,36 @@ mod tests {
 
     enum ConvertStep {
         Produce,
+        /// Produce a real, parseable PDF with this many pages.
+        ProducePages(u32),
         Passthrough,
         Fail,
+    }
+
+    /// Write a minimal valid PDF with `n` empty pages.
+    fn write_n_page_pdf(path: &Path, n: u32) {
+        use lopdf::{dictionary, Document, Object};
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let kids: Vec<Object> = (0..n)
+            .map(|_| {
+                Object::Reference(doc.add_object(dictionary! {
+                    "Type" => "Page",
+                    "Parent" => Object::Reference(pages_id),
+                    "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
+                }))
+            })
+            .collect();
+        doc.set_object(
+            pages_id,
+            dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => i64::from(n) },
+        );
+        let catalog = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => Object::Reference(pages_id),
+        });
+        doc.trailer.set("Root", Object::Reference(catalog));
+        doc.save(path).unwrap();
     }
 
     enum PrintStep {
@@ -2101,6 +2155,12 @@ mod tests {
                     std::fs::create_dir_all(&self.cache).unwrap();
                     let p = self.cache.join(format!("{}.pdf", job.id));
                     std::fs::write(&p, b"%PDF-1.4 fake").unwrap();
+                    Ok(Some(p))
+                }
+                ConvertStep::ProducePages(n) => {
+                    std::fs::create_dir_all(&self.cache).unwrap();
+                    let p = self.cache.join(format!("{}.pdf", job.id));
+                    write_n_page_pdf(&p, n);
                     Ok(Some(p))
                 }
                 ConvertStep::Passthrough => Ok(None),
@@ -2420,6 +2480,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fr_053_converted_document_reports_the_page_count_of_its_pdf() {
+        let mut h = harness();
+        let j = make_job("report.docx");
+        assert_eq!(
+            j.pages, None,
+            "a document's pages are unknown before conversion"
+        );
+        let id = j.id.clone();
+        h.runner
+            .convert_steps
+            .lock()
+            .unwrap()
+            .push_back(ConvertStep::ProducePages(3));
+        h.submit(vec![j]);
+        h.run_to_idle();
+
+        let job = h.job(&id);
+        assert_eq!(job.state, JobState::Done);
+        assert_eq!(job.pages, Some(3));
+    }
+
+    #[tokio::test]
     async fn two_conversions_start_and_third_waits() {
         let mut h = harness();
         let jobs: Vec<Job> = (0..3).map(|i| make_job(&format!("f{i}.pdf"))).collect();
@@ -2558,6 +2640,7 @@ mod tests {
         h.tx.send(Cmd::ConversionDone {
             id: id.clone(),
             result: Err(EngineError::Cancelled),
+            pages: None,
         })
         .unwrap();
         h.run_to_idle();
