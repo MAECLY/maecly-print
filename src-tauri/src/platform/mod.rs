@@ -114,7 +114,7 @@ pub use cups::{
 #[cfg(windows)]
 pub use windows::{
     add_printer, default_printer, discover_printers, list_printers, open_printer_settings,
-    print_test_page, set_os_default,
+    paper_size_for_driver_name, print_test_page, set_os_default,
 };
 
 // Fallback for any other target so the crate always compiles.
@@ -164,9 +164,15 @@ pub fn printer_caps(p: &crate::ipc::printers::Printer) -> crate::engine::print::
     }
     #[cfg(not(unix))]
     {
+        // Windows driver paper names are localized ("Carta"), so the gate
+        // also gets the canonical name of every sheet the driver lists by id.
+        #[cfg(windows)]
+        let papers = windows::caps_papers(&p.id, &p.papers);
+        #[cfg(not(windows))]
+        let papers = p.papers.clone();
         crate::engine::print::PrinterCaps {
             duplex: p.duplex,
-            papers: p.papers.clone(),
+            papers,
             color_models: printer_color_models(&p.id),
         }
     }

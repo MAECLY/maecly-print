@@ -17,6 +17,7 @@
 //! they are tested on every CI lane; only the FFI is Windows-only.
 
 use super::OsJobState;
+use crate::queue::job::PaperSize;
 
 // `JOB_STATUS_*` (winspool.h). Spelled out here so the pure mapping compiles —
 // and is tested — off Windows too; the values are part of the Win32 ABI.
@@ -114,6 +115,58 @@ pub fn pick_new_job(before: &[u32], after: &[QueuedJob], pdf: &str, user: &str) 
         (Some(job), None) => Some(job.id),
         _ => None,
     }
+}
+
+/// The [`PaperSize`] of a `DMPAPER_*` id, for the ids SumatraPDF's `paper=`
+/// can express. The "small" variants are the same sheet with a different
+/// printable area.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn paper_size_for_dmpaper(id: u16) -> Option<PaperSize> {
+    let name = match id {
+        1 | 2 => "Letter", // DMPAPER_LETTER, DMPAPER_LETTERSMALL
+        3 => "Tabloid",    // DMPAPER_TABLOID
+        5 => "Legal",      // DMPAPER_LEGAL
+        6 => "Statement",  // DMPAPER_STATEMENT
+        8 => "A3",         // DMPAPER_A3
+        9 | 10 => "A4",    // DMPAPER_A4, DMPAPER_A4SMALL
+        11 => "A5",        // DMPAPER_A5
+        66 => "A2",        // DMPAPER_A2
+        70 => "A6",        // DMPAPER_A6
+        _ => return None,
+    };
+    PaperSize::parse(name).ok()
+}
+
+/// The id paired with `name` in two parallel `DeviceCapabilities` arrays
+/// (`DC_PAPERNAMES`/`DC_PAPERS`, `DC_BINNAMES`/`DC_BINS`). Exact match first,
+/// then case-insensitive.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn id_for_name(names: &[String], ids: &[u16], name: &str) -> Option<u16> {
+    let pos = names
+        .iter()
+        .position(|n| n == name)
+        .or_else(|| names.iter().position(|n| n.eq_ignore_ascii_case(name)))?;
+    ids.get(pos).copied()
+}
+
+/// A driver's paper names (`DC_PAPERNAMES`, localized) followed by the
+/// canonical name of every sheet it lists by id (`DC_PAPERS`) that is not
+/// already spelled that way.
+///
+/// The capability gate compares a job's paper (`Letter`, `A4`…) with this
+/// list. Driver names alone fail on a non-English Windows — a Spanish driver
+/// lists "Carta" and "Oficio" — and the job would pause as an unsupported
+/// paper size although the printer has the sheet. Blank names are dropped.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn with_canonical_papers(names: &[String], ids: &[u16]) -> Vec<String> {
+    let mut out: Vec<String> = names.iter().filter(|n| !n.is_empty()).cloned().collect();
+    for size in ids.iter().filter_map(|&id| paper_size_for_dmpaper(id)) {
+        let canonical = size.as_str();
+        if !out.iter().any(|n| n.eq_ignore_ascii_case(canonical)) {
+            out.push(canonical.to_string());
+        }
+    }
+    out
 }
 
 #[cfg(windows)]
@@ -416,5 +469,69 @@ mod tests {
         let anon = vec![job(4, "a.pdf", "")];
         assert_eq!(pick_new_job(&[], &anon, pdf, "me"), Some(4));
         assert_eq!(pick_new_job(&[], &theirs, pdf, ""), Some(9));
+    }
+
+    #[test]
+    fn dmpaper_ids_map_to_what_sumatra_can_name() {
+        assert_eq!(paper_size_for_dmpaper(1), Some(PaperSize::LETTER));
+        assert_eq!(paper_size_for_dmpaper(9), Some(PaperSize::A4));
+        assert_eq!(paper_size_for_dmpaper(5), Some(PaperSize::LEGAL));
+        assert_eq!(paper_size_for_dmpaper(8), Some(PaperSize::A3));
+        assert_eq!(
+            paper_size_for_dmpaper(11).map(|p| p.to_string()),
+            Some("A5".into())
+        );
+        assert_eq!(
+            paper_size_for_dmpaper(70).map(|p| p.to_string()),
+            Some("A6".into())
+        );
+        assert_eq!(
+            paper_size_for_dmpaper(3).map(|p| p.to_string()),
+            Some("Tabloid".into())
+        );
+        // Envelopes, photo sizes: not expressible → None, never "A4".
+        assert_eq!(paper_size_for_dmpaper(20), None);
+    }
+
+    #[test]
+    fn localized_names_pair_with_their_ids() {
+        let names = vec!["Carta".to_string(), "Oficio".into(), "A4".into()];
+        let ids = vec![1u16, 5, 9];
+        assert_eq!(id_for_name(&names, &ids, "Carta"), Some(1));
+        assert_eq!(id_for_name(&names, &ids, "oficio"), Some(5));
+        assert_eq!(id_for_name(&names, &ids, "Tabloid"), None);
+    }
+
+    /// FR-041: on Spanish Windows a driver lists "Carta"/"Oficio"; the gate's
+    /// list must also say Letter/Legal, so a `Letter` profile is not paused as
+    /// an unsupported paper size on a printer that has the sheet.
+    #[test]
+    fn fr_041_a_localized_driver_still_supports_the_canonical_paper() {
+        use crate::engine::print::PrinterCaps;
+        let names = vec![
+            "Carta".to_string(),
+            "Oficio".into(),
+            "A4".into(),
+            String::new(),
+            "Sobre n.º 10".into(),
+        ];
+        let ids = vec![1u16, 5, 9, 0, 20];
+        let papers = with_canonical_papers(&names, &ids);
+        assert_eq!(
+            papers,
+            vec!["Carta", "Oficio", "A4", "Sobre n.º 10", "Letter", "Legal"]
+        );
+        let caps = PrinterCaps {
+            duplex: true,
+            papers,
+            color_models: Vec::new(),
+        };
+        assert!(caps.supports_paper(&PaperSize::LETTER));
+        assert!(caps.supports_paper(&PaperSize::LEGAL));
+        assert!(caps.supports_paper(&PaperSize::parse("Carta").unwrap()));
+        assert!(
+            !caps.supports_paper(&PaperSize::A3),
+            "not listed by id either"
+        );
     }
 }

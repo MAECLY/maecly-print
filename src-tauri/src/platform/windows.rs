@@ -42,6 +42,7 @@ use windows::Win32::Storage::Xps::{
     DC_PAPERNAMES, DC_PAPERS, PRINTER_DEVICE_CAPABILITIES,
 };
 
+use crate::engine::print::windows::{id_for_name, paper_size_for_dmpaper, with_canonical_papers};
 use crate::ipc::printers::{DiscoveredPrinter, Printer, PrinterStatus, Supplies, Tray};
 use crate::platform::{dnssd, infer_kind};
 use crate::queue::job::PaperSize;
@@ -376,43 +377,35 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
 
 /// Map a driver paper name of `printer` to a [`PaperSize`] through its
 /// `DMPAPER_*` id, or `None` when the driver does not list it or SumatraPDF
-/// has no name for it.
-fn paper_size_for_driver_name(printer: &str, paper: &str) -> Option<PaperSize> {
-    let device = wide(printer);
-    let device = PCWSTR(device.as_ptr());
-    let names = dc_names(device, PCWSTR::null(), DC_PAPERNAMES, 64);
-    let ids = dc_ids(device, PCWSTR::null(), DC_PAPERS);
+/// has no name for it. Driver names are localized ("Carta" on Spanish Windows),
+/// so the id — not the string — is what identifies the sheet.
+pub fn paper_size_for_driver_name(printer: &str, paper: &str) -> Option<PaperSize> {
+    let (names, ids) = driver_papers(printer);
     let id = id_for_name(&names, &ids, paper)?;
     paper_size_for_dmpaper(id)
 }
 
-/// The `DMPAPER_*` ids SumatraPDF's `paper=` can express. The "small" variants
-/// are the same sheet with a different printable area.
-fn paper_size_for_dmpaper(id: u16) -> Option<PaperSize> {
-    let name = match id {
-        1 | 2 => "Letter", // DMPAPER_LETTER, DMPAPER_LETTERSMALL
-        3 => "Tabloid",    // DMPAPER_TABLOID
-        5 => "Legal",      // DMPAPER_LEGAL
-        6 => "Statement",  // DMPAPER_STATEMENT
-        8 => "A3",         // DMPAPER_A3
-        9 | 10 => "A4",    // DMPAPER_A4, DMPAPER_A4SMALL
-        11 => "A5",        // DMPAPER_A5
-        66 => "A2",        // DMPAPER_A2
-        70 => "A6",        // DMPAPER_A6
-        _ => return None,
-    };
-    PaperSize::parse(name).ok()
+/// The driver's parallel paper name and `DMPAPER_*` id arrays for `printer`.
+fn driver_papers(printer: &str) -> (Vec<String>, Vec<u16>) {
+    let device = wide(printer);
+    let device = PCWSTR(device.as_ptr());
+    (
+        dc_names(device, PCWSTR::null(), DC_PAPERNAMES, 64),
+        dc_ids(device, PCWSTR::null(), DC_PAPERS),
+    )
 }
 
-/// The id paired with `name` in two parallel `DeviceCapabilities` arrays
-/// (`DC_PAPERNAMES`/`DC_PAPERS`, `DC_BINNAMES`/`DC_BINS`). Exact match first,
-/// then case-insensitive.
-fn id_for_name(names: &[String], ids: &[u16], name: &str) -> Option<u16> {
-    let pos = names
-        .iter()
-        .position(|n| n == name)
-        .or_else(|| names.iter().position(|n| n.eq_ignore_ascii_case(name)))?;
-    ids.get(pos).copied()
+/// The paper list the capability gate checks a job against: the names the
+/// driver shows (localized) **plus** the canonical name of every sheet it
+/// lists by id, so a profile saying `Letter` passes on a Spanish driver that
+/// calls it "Carta" (see [`with_canonical_papers`]). Falls back to `listed`
+/// (what enumeration reported) when the driver cannot be asked.
+pub fn caps_papers(printer: &str, listed: &[String]) -> Vec<String> {
+    let (names, ids) = driver_papers(printer);
+    if names.is_empty() || ids.is_empty() {
+        return listed.to_vec();
+    }
+    with_canonical_papers(&names, &ids)
 }
 
 /// The name paired with `id` in two parallel `DeviceCapabilities` arrays.
@@ -1108,29 +1101,6 @@ mod tests {
         assert_eq!(queue_base_name("a\\b,c", "http://h:631/p"), "a_b_c");
     }
 
-    #[test]
-    fn dmpaper_ids_map_to_what_sumatra_can_name() {
-        assert_eq!(paper_size_for_dmpaper(1), Some(PaperSize::LETTER));
-        assert_eq!(paper_size_for_dmpaper(9), Some(PaperSize::A4));
-        assert_eq!(paper_size_for_dmpaper(5), Some(PaperSize::LEGAL));
-        assert_eq!(paper_size_for_dmpaper(8), Some(PaperSize::A3));
-        // The extra sizes SumatraPDF names since PaperSize became open.
-        assert_eq!(
-            paper_size_for_dmpaper(11).map(|p| p.to_string()),
-            Some("A5".into())
-        );
-        assert_eq!(
-            paper_size_for_dmpaper(70).map(|p| p.to_string()),
-            Some("A6".into())
-        );
-        assert_eq!(
-            paper_size_for_dmpaper(3).map(|p| p.to_string()),
-            Some("Tabloid".into())
-        );
-        // Envelopes, photo sizes: not expressible → None, never "A4".
-        assert_eq!(paper_size_for_dmpaper(20), None);
-    }
-
     /// Localized driver names resolve through the id, not the string:
     /// Spanish Windows calls Letter "Carta".
     #[test]
@@ -1141,10 +1111,28 @@ mod tests {
             id_for_name(&names, &ids, "Carta").and_then(paper_size_for_dmpaper),
             Some(PaperSize::LETTER)
         );
-        assert_eq!(id_for_name(&names, &ids, "oficio"), Some(5));
-        assert_eq!(id_for_name(&names, &ids, "Tabloid"), None);
         assert_eq!(name_for_id(&names, &ids, 9).as_deref(), Some("A4"));
         assert_eq!(name_for_id(&names, &ids, 70), None);
+    }
+
+    /// The gate's list for a real driver (Microsoft Print to PDF, always on
+    /// Windows) carries the canonical names next to the driver's own.
+    #[test]
+    fn fr_041_caps_papers_add_canonical_names_for_a_real_driver() {
+        let papers = caps_papers("Microsoft Print to PDF", &[]);
+        if papers.is_empty() {
+            return; // no such queue on this host
+        }
+        for canonical in ["A4", "Letter"] {
+            assert!(
+                papers.iter().any(|p| p.eq_ignore_ascii_case(canonical)),
+                "{canonical} missing from {papers:?}"
+            );
+        }
+        assert_eq!(
+            paper_size_for_driver_name("Microsoft Print to PDF", "A4"),
+            Some(PaperSize::A4)
+        );
     }
 
     #[test]

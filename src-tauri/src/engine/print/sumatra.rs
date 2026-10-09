@@ -195,19 +195,54 @@ pub fn apply_printer_tray<'a>(
     }
 }
 
+/// Turn a driver paper name SumatraPDF has no keyword for into the canonical
+/// size it stands for, using `driver_paper` (the driver's own name → id →
+/// size lookup on Windows).
+///
+/// Per-printer paper overrides and the sizes the Print Job screen offers are
+/// the *driver's* names, which are localized ("Carta" for Letter on Spanish
+/// Windows) or decorated ("A4 210 x 297 mm"). SumatraPDF's `paper=` only knows
+/// its own keywords, so without this such a job printed on the driver's
+/// default sheet with nothing but a log line to say so. A size SumatraPDF
+/// already names, `auto`, or a name the driver does not resolve is left as is.
+pub fn resolve_paper<'a>(
+    settings: std::borrow::Cow<'a, JobSettings>,
+    driver_paper: impl Fn(&str) -> Option<PaperSize>,
+) -> std::borrow::Cow<'a, JobSettings> {
+    if settings.paper_size.is_auto() || paper_token(&settings.paper_size).is_some() {
+        return settings;
+    }
+    match driver_paper(settings.paper_size.as_str()).filter(|p| paper_token(p).is_some()) {
+        Some(paper) => {
+            let mut owned = settings.into_owned();
+            owned.paper_size = paper;
+            std::borrow::Cow::Owned(owned)
+        }
+        None => settings,
+    }
+}
+
 /// The settings SumatraPDF is actually given for `printer`: the job's own,
-/// plus the printer's saved default tray when the job names none. Used by both
-/// [`spool`] and the honesty preview, so the preview shows the same `bin=`.
+/// plus the printer's saved default tray when the job names none, with a
+/// driver paper name mapped to SumatraPDF's keyword ([`resolve_paper`]). Used
+/// by both [`spool`] and the honesty preview, so the preview shows the same
+/// `bin=` and `paper=`.
 pub fn resolve_for_printer<'a>(
     settings: &'a JobSettings,
     printer: &str,
 ) -> std::borrow::Cow<'a, JobSettings> {
-    if settings.selected_tray().is_some() {
-        return std::borrow::Cow::Borrowed(settings);
-    }
-    let prefs = crate::settings::Config::load_or_default().printers;
-    let tray = prefs.overrides.get(printer).and_then(|o| o.tray.clone());
-    apply_printer_tray(settings, tray.as_deref())
+    let with_tray = if settings.selected_tray().is_some() {
+        std::borrow::Cow::Borrowed(settings)
+    } else {
+        let prefs = crate::settings::Config::load_or_default().printers;
+        let tray = prefs.overrides.get(printer).and_then(|o| o.tray.clone());
+        apply_printer_tray(settings, tray.as_deref())
+    };
+    #[cfg(windows)]
+    let driver_paper = |name: &str| crate::platform::paper_size_for_driver_name(printer, name);
+    #[cfg(not(windows))]
+    let driver_paper = |_: &str| None;
+    resolve_paper(with_tray, driver_paper)
 }
 
 /// The bin name to put in `bin=`, or `None` when there is nothing safe to say.
@@ -646,5 +681,53 @@ mod tests {
     #[test]
     fn locate_is_dependency_missing_off_windows() {
         assert!(matches!(locate(), Err(EngineError::DependencyMissing(_))));
+    }
+
+    /// FR-041: a driver paper name — a per-printer override "Carta", or a
+    /// size picked from the printer's own list — reaches SumatraPDF as the
+    /// keyword for the same sheet instead of being dropped.
+    #[test]
+    fn fr_041_driver_paper_names_reach_sumatra_as_its_keyword() {
+        use std::borrow::Cow;
+        let driver = |name: &str| match name {
+            "Carta" => Some(PaperSize::LETTER),
+            "A4 210 x 297 mm" => Some(PaperSize::A4),
+            "Sobre DL" => None,
+            _ => None,
+        };
+        let job = |paper: &str| JobSettings {
+            paper_size: PaperSize::parse(paper).unwrap(),
+            ..JobSettings::default()
+        };
+
+        let carta = job("Carta");
+        let resolved = resolve_paper(Cow::Borrowed(&carta), driver);
+        assert_eq!(resolved.paper_size, PaperSize::LETTER);
+        assert!(print_settings_string(&resolved).contains("paper=Letter"));
+        assert!(unsupported_notes(&resolved).is_empty());
+
+        let decorated = job("A4 210 x 297 mm");
+        let resolved = resolve_paper(Cow::Borrowed(&decorated), driver);
+        assert!(print_settings_string(&resolved).contains("paper=A4"));
+
+        // Not resolvable: left alone, and the note still says so.
+        let envelope = job("Sobre DL");
+        let resolved = resolve_paper(Cow::Borrowed(&envelope), driver);
+        assert!(matches!(resolved, Cow::Borrowed(_)));
+        assert!(!print_settings_string(&resolved).contains("paper="));
+        assert_eq!(unsupported_notes(&resolved).len(), 1);
+
+        // Already a SumatraPDF keyword, or `auto`: the driver is not asked.
+        let never = |_: &str| -> Option<PaperSize> { panic!("must not be asked") };
+        let a4 = job("A4");
+        assert!(matches!(
+            resolve_paper(Cow::Borrowed(&a4), never),
+            Cow::Borrowed(_)
+        ));
+        let auto = job("auto");
+        assert!(matches!(
+            resolve_paper(Cow::Borrowed(&auto), never),
+            Cow::Borrowed(_)
+        ));
     }
 }

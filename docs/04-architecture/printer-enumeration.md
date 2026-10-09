@@ -62,7 +62,11 @@ A paused queue reads Offline: it accepts jobs but prints none.
 | Max DPI | `DC_ENUMRESOLUTIONS` (LONG x,y pairs) |
 | Default paper / tray | `pDevMode` `dmPaperSize` / `dmDefaultSource` (when set in `dmFields`), named through the id arrays above |
 
-Driver paper names are **localized** (Spanish Windows lists Letter as "Carta"), so anything that has to understand a paper — the test page — maps the name to its `DMPAPER_*` id through `DC_PAPERS` instead of matching the string.
+Driver paper names are **localized** (Spanish Windows lists Letter as "Carta"), so anything that has to understand a paper maps the name to its `DMPAPER_*` id through `DC_PAPERS` instead of matching the string:
+
+- **The capability gate** (`platform::printer_caps` → `windows::caps_papers`) checks a job against the driver's names *plus* the canonical name of every sheet the driver lists by id (`engine::print::windows::with_canonical_papers`). A `Letter` profile therefore passes on a driver that lists only "Carta" and is not paused as an unsupported paper size.
+- **The SumatraPDF job path** (`sumatra::resolve_for_printer` → `resolve_paper`) turns a driver name SumatraPDF has no keyword for (a per-printer override "Carta", a size picked from the printer's own list, "A4 210 x 297 mm") into `paper=letter` / `paper=A4` through the same id. Only a sheet with no SumatraPDF keyword at all (envelopes, photo sizes) is left to the driver default, and the honesty preview says so.
+- **The test page** applies the per-printer paper override the same way.
 
 **`windows` crate gotchas (0.58), discovered via `cargo check --target x86_64-pc-windows-msvc`:** `DeviceCapabilitiesW` and the `DC_*` constants live under `Win32::Storage::Xps` (not `Gdi`); `PRINTER_INFO_2W` needs the `Win32_Security` **and** `Win32_Graphics_Gdi` features; `PRINTER_STATUS_*` / `PRINTER_ATTRIBUTE_*` are plain `u32`; `GetDefaultPrinterW` returns `BOOL`. **Toner/supply levels are not exposed by Win32** (they require SNMP/WMI/IPP) and are left empty. Network **discovery** browses mDNS/DNS-SD for `_ipp._tcp` and `_ipps._tcp` for 4 s with the pure-Rust `mdns-sd` crate (Windows has no `ippfind`). Records become rows in `platform::dnssd` (URI `ipp[s]://<mDNS host>:<port>/<rp>`, kind from the `ty` TXT key), and devices whose queue name, port host or address match an installed printer are hidden. WSD-only devices are not found; Windows' own *Add device* dialog lists them.
 
