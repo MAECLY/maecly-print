@@ -505,13 +505,18 @@ describe('profilesStore', () => {
     mockIPC((cmd) => {
       if (cmd === 'list_profiles') return fixtureProfiles;
       // What a command-returned IpcError looks like on the raw invoke path.
-      throw { code: 'InvalidRequest', message: 'this is not a profile file' };
+      // FR-092: it carries a stable reason the UI translates.
+      throw {
+        code: 'InvalidRequest',
+        reason: 'import_malformed',
+        message: 'this is not a MaeclyPrint profile file: TOML parse error',
+      };
     });
     await useProfilesStore.getState().init();
     const spy = vi.spyOn(toast, 'error').mockReturnValue('id');
 
     expect(await useProfilesStore.getState().importProfiles('/x')).toBeNull();
-    expect(spy).toHaveBeenCalledWith('this is not a profile file');
+    expect(spy).toHaveBeenCalledWith('This is not a MaeclyPrint profile file.');
     spy.mockRestore();
   });
 
