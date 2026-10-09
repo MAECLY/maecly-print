@@ -1,5 +1,8 @@
-import { useEffect, useId, useRef } from 'react';
+import { useId, useRef } from 'react';
+
+import { ModalOverlay, useModalFocus } from '@/components/Modal';
 import { MPButton } from '@/components/ui';
+import { useT } from '@/i18n/I18nProvider';
 
 /** A pending confirmation surfaced by the in-app modal (never window.confirm). */
 export interface ConfirmState {
@@ -9,15 +12,6 @@ export interface ConfirmState {
   run: () => void | Promise<void>;
 }
 
-/** Everything inside the dialog that can hold focus, in document order. */
-function tabbables(root: HTMLElement): HTMLElement[] {
-  return Array.from(
-    root.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    ),
-  ).filter((el) => !el.hasAttribute('disabled'));
-}
-
 /**
  * In-app confirmation dialog. `window.confirm` is a no-op in WKWebView (the
  * macOS Tauri webview), so we render a real modal. Shared across screens that
@@ -25,7 +19,10 @@ function tabbables(root: HTMLElement): HTMLElement[] {
  *
  * Keyboard contract (NFR-040 / NFR-041): focus lands on Cancel — the least
  * destructive action —, Tab cycles inside the dialog, Escape closes it, and
- * the element that opened it gets the focus back on unmount.
+ * the element that opened it gets the focus back on unmount. The backdrop is
+ * portalled over the whole window and the app behind it is inert, whichever
+ * screen opened it, and the app shortcuts stand down while it is open (see
+ * `Modal.tsx`).
  */
 export function ConfirmDialog({
   state,
@@ -34,71 +31,24 @@ export function ConfirmDialog({
   state: ConfirmState;
   onClose: () => void;
 }) {
+  const t = useT('common');
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const messageId = useId();
 
-  useEffect(() => {
-    const opener = document.activeElement;
-    tabbables(dialogRef.current ?? document.body)[0]?.focus();
-    return () => {
-      if (opener instanceof HTMLElement && document.contains(opener)) {
-        opener.focus();
-      }
-    };
-  }, []);
-
-  // Escape and the Tab cycle live on the document so they work no matter
-  // where focus sits while the modal is open.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-        return;
-      }
-      if (e.key !== 'Tab' || !dialogRef.current) return;
-      const items = tabbables(dialogRef.current);
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (!first || !last) return;
-      const active = document.activeElement;
-      const inside = dialogRef.current.contains(active);
-      if (e.shiftKey && (active === first || !inside)) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (active === last || !inside)) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  useModalFocus(dialogRef, { onEscape: onClose });
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'absolute',
-        inset: 0,
-        background: 'rgba(20,18,14,0.42)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 50,
-        backdropFilter: 'blur(2px)',
-      }}
-    >
+    <ModalOverlay onBackdropClick={onClose}>
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={messageId}
-        onClick={(e) => e.stopPropagation()}
         style={{
           width: 360,
+          maxWidth: 'calc(100vw - 32px)',
           background: 'var(--mp-surface)',
           border: '1px solid var(--mp-border)',
           borderRadius: 12,
@@ -125,7 +75,7 @@ export function ConfirmDialog({
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <MPButton variant="ghost" size="sm" onClick={onClose}>
-            Cancel
+            {t('actions.cancel')}
           </MPButton>
           <MPButton
             variant="primary"
@@ -139,6 +89,6 @@ export function ConfirmDialog({
           </MPButton>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

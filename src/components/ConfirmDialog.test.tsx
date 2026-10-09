@@ -3,7 +3,12 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
 
+import { I18nProvider } from '@/i18n/I18nProvider';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { fixtureAppSettings } from '@/test/fixtures';
+
 import { ConfirmDialog, type ConfirmState } from './ConfirmDialog';
+import { useAnyModalOpen } from './Modal';
 
 const STATE: ConfirmState = {
   title: 'Delete profile',
@@ -95,5 +100,87 @@ describe('ConfirmDialog', () => {
 
     expect(run).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('FR-092: the Cancel button follows the UI language', () => {
+    useSettingsStore.setState({
+      status: 'ready',
+      settings: {
+        ...fixtureAppSettings,
+        app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+      },
+      error: undefined,
+    });
+    try {
+      render(
+        <I18nProvider>
+          <ConfirmDialog state={STATE} onClose={() => {}} />
+        </I18nProvider>,
+      );
+      expect(
+        screen.getByRole('button', { name: 'Cancelar' }),
+      ).toBeInTheDocument();
+    } finally {
+      useSettingsStore.setState({ status: 'idle', settings: null });
+    }
+  });
+
+  it('NFR-040: covers the whole window and makes the app behind it inert', () => {
+    const root = document.createElement('div');
+    root.id = 'root';
+    document.body.appendChild(root);
+    try {
+      const { unmount } = render(
+        <ConfirmDialog state={STATE} onClose={() => {}} />,
+        { container: root.appendChild(document.createElement('div')) },
+      );
+      const dialog = screen.getByRole('dialog');
+      // Portalled out of the screen that rendered it…
+      expect(root.contains(dialog)).toBe(false);
+      expect(dialog.parentElement).toHaveStyle({ position: 'fixed' });
+      // …and everything behind it is out of reach.
+      expect(root).toHaveAttribute('inert');
+      unmount();
+      expect(root).not.toHaveAttribute('inert');
+    } finally {
+      root.remove();
+    }
+  });
+
+  it('NFR-034: reports an open modal so app shortcuts can stand down', () => {
+    let open = false;
+    function Probe() {
+      open = useAnyModalOpen();
+      return null;
+    }
+    const { rerender } = render(<Probe />);
+    expect(open).toBe(false);
+    rerender(
+      <>
+        <Probe />
+        <ConfirmDialog state={STATE} onClose={() => {}} />
+      </>,
+    );
+    expect(open).toBe(true);
+    rerender(<Probe />);
+    expect(open).toBe(false);
+  });
+
+  it('NFR-041: one Escape closes only the topmost of two stacked dialogs', async () => {
+    const user = userEvent.setup();
+    const closeBottom = vi.fn();
+    const closeTop = vi.fn();
+    render(
+      <>
+        <ConfirmDialog state={STATE} onClose={closeBottom} />
+        <ConfirmDialog
+          state={{ ...STATE, title: 'Second' }}
+          onClose={closeTop}
+        />
+      </>,
+    );
+    await user.keyboard('{Escape}');
+    expect(closeTop).toHaveBeenCalledTimes(1);
+    expect(closeBottom).not.toHaveBeenCalled();
   });
 });
