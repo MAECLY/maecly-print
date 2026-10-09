@@ -244,9 +244,13 @@ describe('QueueScreen — row actions', () => {
   it('FR-032: Pause, Resume and Retry invoke their per-job command', async () => {
     const calls = await renderReady();
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Pause' })[0]!);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Resume' })[0]!);
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    fireEvent.click(
+      screen.getAllByRole('button', { name: /^Pause (?!queue)/ })[0]!,
+    );
+    fireEvent.click(
+      screen.getAllByRole('button', { name: /^Resume (?!queue)/ })[0]!,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^Retry / }));
 
     await waitFor(() =>
       expect(calls.filter((c) => c.cmd.endsWith('_job')).length).toBe(3),
@@ -268,10 +272,29 @@ describe('QueueScreen — row actions', () => {
 
     // `printing` cannot be paused (the OS owns it) and terminal rows offer
     // nothing but Retry on a failure.
-    expect(screen.getAllByRole('button', { name: 'Pause' })).toHaveLength(3);
-    expect(screen.getAllByRole('button', { name: 'Resume' })).toHaveLength(2);
-    expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(6);
+    expect(
+      screen.getAllByRole('button', { name: /^Pause (?!queue)/ }),
+    ).toHaveLength(3);
+    expect(
+      screen.getAllByRole('button', { name: /^Resume (?!queue)/ }),
+    ).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /^Retry / })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^Cancel / })).toHaveLength(6);
+  });
+
+  it('NFR-044: each row action names the job it acts on', async () => {
+    await renderReady({
+      snapshot: snapshotOf([
+        mkJob({ id: 'a', state: 'queued', file_name: 'a.pdf' }),
+        mkJob({ id: 'b', state: 'queued', file_name: 'b.pdf' }),
+      ]),
+    });
+    expect(
+      screen.getByRole('button', { name: 'Cancel a.pdf' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Cancel b.pdf' }),
+    ).toBeInTheDocument();
   });
 
   it('FR-032: cancelling a non-printing job goes straight to cancel_job', async () => {
@@ -281,7 +304,7 @@ describe('QueueScreen — row actions', () => {
       ]),
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel q.pdf' }));
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await waitFor(() =>
@@ -298,7 +321,7 @@ describe('QueueScreen — row actions', () => {
       ]),
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel invoice.pdf' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/invoice.pdf/)).toBeInTheDocument();
     expect(calls.some((c) => c.cmd === 'cancel_job')).toBe(false);
@@ -318,7 +341,7 @@ describe('QueueScreen — row actions', () => {
       ]),
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel invoice.pdf' }));
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
 
@@ -396,16 +419,20 @@ describe('QueueScreen — alternate views', () => {
       screen.getByText('Board view — kanban across job phases'),
     ).toBeInTheDocument();
     for (const col of ['Queued', 'Converting', 'Printing', 'Done']) {
-      expect(screen.getByText(col)).toBeInTheDocument();
+      expect(screen.getAllByText(col).length).toBeGreaterThan(0);
     }
     expect(screen.getByText('Q3-Financial-Report.pdf')).toBeInTheDocument();
+    // FR-031 / WCAG 1.4.1: mixed columns say each card's state in words, so a
+    // failed job is told apart from a printed one without relying on colour.
+    expect(screen.getAllByText('Failed').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Paused').length).toBeGreaterThan(0);
     // Board and Timeline are read-only: no per-row controls, and the whole-queue
     // controls belong to the List view.
     expect(
       screen.queryByRole('button', { name: 'Pause queue' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'Cancel' }),
+      screen.queryByRole('button', { name: /^Cancel / }),
     ).not.toBeInTheDocument();
   });
 

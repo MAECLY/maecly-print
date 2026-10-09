@@ -177,7 +177,7 @@ function Row({ j, t, onPause, onResume, onRetry, onCancel, busy }: RowProps) {
           <MPIconButton
             icon="pause"
             size={24}
-            label={t('actions.pause')}
+            label={t('rowActions.pause', { file: j.file })}
             disabled={busy}
             onClick={onPause}
           />
@@ -186,7 +186,7 @@ function Row({ j, t, onPause, onResume, onRetry, onCancel, busy }: RowProps) {
           <MPIconButton
             icon="play"
             size={24}
-            label={t('actions.resume')}
+            label={t('rowActions.resume', { file: j.file })}
             disabled={busy}
             onClick={onResume}
           />
@@ -195,7 +195,7 @@ function Row({ j, t, onPause, onResume, onRetry, onCancel, busy }: RowProps) {
           <MPIconButton
             icon="rotate"
             size={24}
-            label={t('actions.retry')}
+            label={t('rowActions.retry', { file: j.file })}
             disabled={busy}
             onClick={onRetry}
           />
@@ -204,7 +204,7 @@ function Row({ j, t, onPause, onResume, onRetry, onCancel, busy }: RowProps) {
           <MPIconButton
             icon="x"
             size={24}
-            label={t('actions.cancel')}
+            label={t('rowActions.cancel', { file: j.file })}
             disabled={busy}
             onClick={onCancel}
           />

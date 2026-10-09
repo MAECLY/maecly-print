@@ -71,8 +71,7 @@
     "pages": "{{count}}p",
     "times": "{{from}} → {{to}}",
     "took": "took {{duration}}",
-    "defaultPrinter": "Default printer",
-    "statusLabel": "Status: {{status}}"
+    "defaultPrinter": "Default printer"
   },
   "duration": {
     "seconds": "{{seconds}}s",

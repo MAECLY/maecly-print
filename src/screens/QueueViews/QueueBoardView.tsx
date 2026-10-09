@@ -115,13 +115,42 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
                 {/* An unknown count is left out, never shown as "0p". */}
                 {j.pages != null && `${t('job.pages', { count: j.pages })} · `}
                 {j.profile}
+                {j.noteKey ? ` · ${t(`note.${j.noteKey}`)}` : ''}
               </div>
+              {/* FR-031 / WCAG 1.4.1: the Queued and Done columns mix several
+                  states, so each card says its state in words — the dot's
+                  colour alone cannot tell failed from printed. */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <StatusDot status={j.status} />
+                <span
+                  style={{
+                    fontSize: 10,
+                    color:
+                      j.status === 'failed'
+                        ? 'var(--mp-error)'
+                        : 'var(--mp-textMuted)',
+                    textTransform: 'uppercase',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {t(`status.${j.status}`)}
+                </span>
                 <div style={{ flex: 1 }}>
                   <JobProgressBar job={j} height={3} t={t} />
                 </div>
               </div>
+              {j.error && (
+                <div
+                  style={{
+                    fontSize: 10.5,
+                    color: 'var(--mp-error)',
+                    marginTop: 6,
+                    overflowWrap: 'anywhere',
+                  }}
+                >
+                  {j.error}
+                </div>
+              )}
             </MPCard>
           ))}
         </div>

@@ -71,8 +71,7 @@
     "pages": "{{count}} pág.",
     "times": "{{from}} → {{to}}",
     "took": "duró {{duration}}",
-    "defaultPrinter": "Impresora predeterminada",
-    "statusLabel": "Estado: {{status}}"
+    "defaultPrinter": "Impresora predeterminada"
   },
   "duration": {
     "seconds": "{{seconds}} s",
