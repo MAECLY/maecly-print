@@ -14,6 +14,7 @@ import {
   isValidPageRange,
   MAX_PROFILE_NAME_CHARS,
   profileNameLength,
+  resolvePrinterId,
   validateProfileName,
 } from '@/lib/profiles';
 import type { PrinterChoice } from '@/lib/printerIdentity';
@@ -28,10 +29,10 @@ interface ProfileEditorProps {
   /** Every stored profile — for the name-uniqueness check. */
   existing: UiProfile[];
   /**
-   * Installed printers for the dropdown (may be empty). The option VALUE is
-   * the spooler queue id — what a profile stores and the spooler addresses —
-   * and the label is the display name. Saving the display name instead made
-   * `lp -d "HP LaserJet Pro"` fail for queue `HP_LaserJet_Pro`.
+   * Installed, enabled printers for the dropdown (may be empty). The option
+   * VALUE is the spooler queue id — what a profile stores and the spooler
+   * addresses — and the label is the display name. Saving the display name
+   * instead made `lp -d "HP LaserJet Pro"` fail for queue `HP_LaserJet_Pro`.
    */
   printers: PrinterChoice[];
   /**
@@ -219,26 +220,31 @@ export function ProfileEditor({
     onWorkingChange?.(form, copiesText);
   }, [form, copiesText, onWorkingChange]);
 
+  // The select works in ids. A profile saved by an older build may hold the
+  // printer's display name; it is shown as that printer, and the next save
+  // stores the id (see `resolvePrinterId`).
+  const printerValue = resolvePrinterId(form.printer, printers);
   // Include the current printer even if it isn't in the enumerated list (a
   // saved profile can name a printer that is currently offline/removed).
-  // A profile saved before ids were stored may hold a display name; the print
-  // path still resolves it, and it stays selectable here under its own text.
-  const savedRef =
-    form.printer &&
-    form.printer !== DEFAULT_PRINTER &&
-    !printers.some((p) => p.id === form.printer)
-      ? form.printer
+  const unknownPrinter =
+    printerValue &&
+    printerValue !== DEFAULT_PRINTER &&
+    !printers.some((p) => p.id === printerValue)
+      ? printerValue
       : null;
   const printerOptions: SelectOption[] = [
     { value: DEFAULT_PRINTER, label: t('option.systemDefault') },
     ...printers.map((p) => ({ value: p.id, label: p.name || p.id })),
-    ...(savedRef ? [{ value: savedRef, label: savedRef }] : []),
+    ...(unknownPrinter
+      ? [{ value: unknownPrinter, label: unknownPrinter }]
+      : []),
   ];
 
   async function submit(): Promise<void> {
     if (!canSave) return;
     const next: UiProfile = {
       ...form,
+      printer: printerValue,
       name: form.name.trim(),
       copies: Number(copiesText.trim()),
       builtin: false,
@@ -275,7 +281,7 @@ export function ProfileEditor({
       <Field label={t('field.printer')}>
         <MPSelect
           fullWidth
-          value={form.printer}
+          value={printerValue}
           onChange={(e) => set('printer', e.target.value)}
           options={printerOptions}
         />

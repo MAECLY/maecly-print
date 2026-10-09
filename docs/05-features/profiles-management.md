@@ -68,7 +68,7 @@ All three share `printer = <default>`, `copies = 1`, `paper = A4`, `orientation 
 Built-ins render a read-only field table with a **Clone** button. Customs (and drafts) render the `ProfileEditor`, a controlled form over a working copy:
 
 - **Name** — validated live (`validateProfileName`): non-empty when trimmed, ≤ 100 chars, and unique case-insensitively against every other profile (the edited profile excludes its own name, so a plain re-save keeps working).
-- **Printer** — a dropdown of `System default` (the `<default>` sentinel) plus the installed printer names from `list_printers`. A profile's own saved printer is always included even if it is currently offline or unlisted.
+- **Printer** — a dropdown of `System default` (the `<default>` sentinel) plus the installed printers from `list_printers`, minus those disabled in MaeclyPrint (`get_printer_prefs`), exactly as on Print Job. Each option is labelled with the printer's display name but its value is the printer **id** (the queue name the spooler needs; on CUPS the display name is `printer-info` and differs from it). A profile's own saved printer is always included even if it is currently offline or unlisted. A profile saved by an older build that holds a display name is shown as the matching printer and stored as its id on the next save (`resolvePrinterId`).
 - **Color, Duplex, Orientation, Scaling, Quality, Paper** — selects over the fixed vocabularies above.
 - **Copies** — buffered as text so an out-of-range keystroke shows an inline error (`Enter a whole number from 1 to 999.`) instead of being silently clamped; only a valid value is submitted.
 - **Tray** — free text, defaulting to `auto`.

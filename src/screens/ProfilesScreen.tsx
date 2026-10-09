@@ -12,7 +12,7 @@ import {
   findProfileIn,
   nextUniqueName,
 } from '@/lib/profiles';
-import { isTauri, listPrinters } from '@/lib/ipc';
+import { getPrinterPrefs, isTauri, listPrinters } from '@/lib/ipc';
 import type { PrinterChoice } from '@/lib/printerIdentity';
 import { useProfilesStore } from '@/stores/profilesStore';
 import type { UiProfile } from '@/types/domain';
@@ -84,16 +84,28 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
     void init();
   }, [init]);
 
-  // Installed printers (queue id + display name) for the editor's dropdown (best-effort;
-  // empty outside Tauri or on failure — the dropdown still offers "default").
-  const [printerChoices, setPrinterChoices] = useState<PrinterChoice[]>([]);
+  // Installed printers for the editor's printer dropdown (best-effort; empty
+  // outside Tauri or on failure — the dropdown still offers "default"). The
+  // profile stores the printer's *id* (the queue name the spooler needs); the
+  // name only labels it — on CUPS the two differ, and a job sent to the label
+  // targets a queue that does not exist. Printers disabled in MaeclyPrint are
+  // left out, exactly as on the Print Job screen.
+  const [printers, setPrinters] = useState<PrinterChoice[]>([]);
   useEffect(() => {
     if (!isTauri()) return;
     let alive = true;
-    listPrinters()
-      .then((ps) => {
-        if (alive)
-          setPrinterChoices(ps.map((p) => ({ id: p.id, name: p.name })));
+    Promise.all([
+      listPrinters(),
+      getPrinterPrefs().catch(() => ({ disabled: [] as string[] })),
+    ])
+      .then(([ps, prefs]) => {
+        if (!alive) return;
+        const disabled = new Set(prefs.disabled ?? []);
+        setPrinters(
+          ps
+            .filter((p) => !disabled.has(p.id))
+            .map((p) => ({ id: p.id, name: p.name })),
+        );
       })
       .catch(() => {
         /* non-fatal: the dropdown just stays on "System default". */
@@ -575,7 +587,7 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
               workingKey={workingKey}
               initial={sel}
               existing={profiles}
-              printers={printerChoices}
+              printers={printers}
               restore={restore}
               setWorking={setWorking}
               onSave={handleSave}

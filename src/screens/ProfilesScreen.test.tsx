@@ -33,7 +33,12 @@ const CUSTOM_ID = '01890a5e-7b2c-7c3d-8e4f-1a2b3c4d5e6f';
 
 /** Stateful profiles backend (upsert/delete/reflag) so refetch sees mutations. */
 function mockProfiles(
-  opts: { fail?: string; list?: Profile[]; printers?: unknown[] } = {},
+  opts: {
+    fail?: string;
+    list?: Profile[];
+    printers?: unknown[];
+    disabledPrinters?: string[];
+  } = {},
 ): Call[] {
   const calls: Call[] = [];
   let list: Profile[] = opts.list ?? fixtureProfiles;
@@ -45,6 +50,8 @@ function mockProfiles(
         return list;
       case 'list_printers':
         return opts.printers ?? [];
+      case 'get_printer_prefs':
+        return { disabled: opts.disabledPrinters ?? [] };
       case 'get_profile': {
         const { id } = args as { id: string };
         const found = list.find((q) => q.id === id);
@@ -488,6 +495,78 @@ describe('ProfilesScreen', () => {
       expect(screen.getByRole('button', { name: 'Clone' })).toBeInTheDocument(),
     );
     expect(calls.filter((c) => c.cmd === 'get_profile')).toHaveLength(before);
+  });
+
+  // ---- FR-023: the stored printer is the queue id ------------------------
+
+  /** The editor's printer <select> (the one offering "System default"). */
+  function printerSelect(): HTMLSelectElement {
+    const sel = screen.getAllByRole('combobox').find((s) =>
+      within(s)
+        .queryAllByRole('option')
+        .some((o) => o.textContent === 'System default'),
+    );
+    if (!sel) throw new Error('no printer select');
+    return sel as HTMLSelectElement;
+  }
+
+  it('FR-023: the editor stores the printer id (queue name), not its display name', async () => {
+    const calls = mockProfiles({
+      printers: fixturePrinters,
+      disabledPrinters: ['HL_L2350'],
+    });
+    render(<Harness />);
+    await screen.findByText('Photo Color');
+
+    fireEvent.click(screen.getByRole('button', { name: 'New profile' }));
+    await waitFor(() =>
+      expect(
+        within(printerSelect()).getByRole('option', {
+          name: 'EPSON L15160 Series',
+        }),
+      ).toBeInTheDocument(),
+    );
+    // A printer disabled in MaeclyPrint is not offered, as on Print Job.
+    expect(
+      within(printerSelect()).queryByRole('option', {
+        name: 'Brother HL-L2350DW',
+      }),
+    ).toBeNull();
+
+    fireEvent.change(printerSelect(), { target: { value: 'EPSON_L15160' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create profile' }));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.cmd === 'save_profile')).toBe(true),
+    );
+    const save = calls.find((c) => c.cmd === 'save_profile')!;
+    expect((save.args.profile as Profile).printer).toBe('EPSON_L15160');
+  });
+
+  it('FR-023: a legacy display-name printer is shown as that printer and saved as its id', async () => {
+    const legacy: Profile = {
+      ...fixtureProfiles[3]!,
+      printer: 'EPSON L15160 Series',
+    };
+    const calls = mockProfiles({
+      list: [...fixtureProfiles.slice(0, 3), legacy],
+      printers: fixturePrinters,
+    });
+    render(<Harness initialId={CUSTOM_ID} />);
+    await screen.findByDisplayValue('Contracts duplex');
+    await waitFor(() => expect(printerSelect().value).toBe('EPSON_L15160'));
+    // Mapping the label to its id is not an edit the user made.
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+
+    fireEvent.change(screen.getByDisplayValue('Contracts duplex'), {
+      target: { value: 'Contracts duplex v2' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.cmd === 'save_profile')).toBe(true),
+    );
+    const save = calls.find((c) => c.cmd === 'save_profile')!;
+    expect((save.args.profile as Profile).printer).toBe('EPSON_L15160');
   });
 
   // ---- Quality / tray honesty --------------------------------------------

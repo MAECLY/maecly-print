@@ -19,6 +19,10 @@ import type {
   PaperSize,
   PrintRequest,
 } from '@/ipc/bindings';
+import {
+  resolvePrinterId as matchPrinterId,
+  type PrinterChoice,
+} from '@/lib/printerIdentity';
 import type { UiProfile } from '@/types/domain';
 
 /**
@@ -324,19 +328,19 @@ export function nextUniqueName(base: string, existing: UiProfile[]): string {
  * Profiles must store the id — it is what the spooler needs (`lp -d`,
  * SumatraPDF `-print-to`); on CUPS the display name (`printer-info`) differs
  * from it, and a job sent to the display name targets a queue that does not
- * exist. Older builds of the editor stored the display name, so a value that
- * matches no id but exactly one printer's name is mapped to that printer's id.
- * Anything else (the default sentinel, an id, an offline printer) is returned
- * unchanged.
+ * exist. Older builds of the editor stored the display name, so a value is
+ * matched with the backend's rules (`printerIdentity.resolvePrinterId`, the
+ * mirror of `ipc::printers::match_installed`): an id, an id ignoring case, or
+ * a display name carried by exactly one printer maps to that printer's id.
+ * Anything else (the default sentinel, an ambiguous name, an offline printer)
+ * is returned unchanged.
  */
 export function resolvePrinterId(
   value: string,
-  printers: readonly { id: string; name: string }[],
+  printers: readonly PrinterChoice[],
 ): string {
   if (!value || value === DEFAULT_PRINTER) return value;
-  if (printers.some((p) => p.id === value)) return value;
-  const byName = printers.filter((p) => p.name === value);
-  return byName.length === 1 && byName[0] ? byName[0].id : value;
+  return matchPrinterId(printers, value) ?? value;
 }
 
 /** UI duplex vocabulary → wire `Duplex`. */
