@@ -41,9 +41,11 @@ Any media name the printer reports can be chosen — the Print Job paper menu li
 
 ### `printer`
 
-The destination printer. On a profile, the sentinel `"<default>"` defers to the app printer and then the OS default at print time; on `JobSettings` the same meaning is carried by `printer: None`. Use `maeclyprint printers list` to enumerate available printers.
+The destination printer. On a profile, the sentinel `"<default>"` defers to the default at print time; on `JobSettings` the same meaning is carried by `printer: None`. Resolution order, defined once in `ipc::printers::resolve_app_printer` and used by the queue, the CLI and the command preview: an explicit printer, then the file-type routing rule, then the org-policy default (`policy.json` `default_printer`), then the app default, then the OS default. Use `maeclyprint printers list` to enumerate available printers.
 
-**Behavior on missing printer.** Not specially handled. A profile naming a printer that no longer exists (uninstalled, renamed) produces a job that fails at the spooler with `EngineError::PrintFailed`. A "pause and prompt for a replacement" flow is desirable — `JobState::Paused` exists and the state machine already permits `Printing → Paused` — but nothing implements it.
+**Identity.** A printer may be named by its spooler **queue id** or by its **display name** (CUPS `printer-info`); both resolve, through `ipc::printers::match_installed`, to the queue id, and the queue id is what is spooled. A display name shared by several queues is treated as unresolved rather than guessed.
+
+**Behavior on missing printer.** When the OS enumerates printers and none matches (or the name is ambiguous), the queue **pauses** the job with `PrinterMissing` so the user can pick a replacement, and the CLI exits with the `Printer` code. A failed or empty enumeration is not treated as proof of absence: the name is then handed to the spooler as is.
 
 ### `duplex`
 

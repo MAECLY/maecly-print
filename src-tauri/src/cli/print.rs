@@ -422,9 +422,13 @@ fn resolve_printer(
     requested: Option<&str>,
     file_name: &str,
 ) -> Result<(String, crate::engine::print::PrinterCaps), CliError> {
-    let prefs = crate::settings::Config::load_from(&paths.config).printers;
     // Same order as the queue: explicit request, then the file-type routing
-    // rule, then the app default — one definition, in `ipc::printers`.
+    // rule, then the default (org policy, else app) — one definition, in
+    // `ipc::printers`.
+    let prefs = crate::ipc::printers::with_policy(
+        crate::settings::Config::load_from(&paths.config).printers,
+        &crate::settings::PrinterPolicy::load(),
+    );
     let name = match crate::ipc::printers::resolve_app_printer(&prefs, requested, file_name) {
         Some(p) => p,
         None => crate::platform::default_printer()
@@ -448,9 +452,21 @@ fn resolve_printer(
     let Some(list) = enumerated else {
         return Ok((name, crate::engine::print::PrinterCaps::unknown()));
     };
-    match list.iter().find(|p| p.id == name || p.name == name) {
-        Some(p) => Ok((name, crate::platform::printer_caps(p))),
-        None => Err(CliError::printer(format!(
+    // `--printer` accepts the id or the display name `printers list` shows,
+    // but `lp -d` only knows the queue id — so spool to the matched id.
+    use crate::ipc::printers::{match_installed, PrinterMatch};
+    match match_installed(&list, &name) {
+        PrinterMatch::Found(p) => {
+            // A display name can hide a queue id the user disabled.
+            crate::ipc::printers::ensure_enabled(&prefs, &p.id)
+                .map_err(|e| CliError::printer(e.to_string()))?;
+            Ok((p.id.clone(), crate::platform::printer_caps(p)))
+        }
+        PrinterMatch::Ambiguous(ids) => Err(CliError::printer(format!(
+            "printer name '{name}' matches several queues ({}) — pass the queue id",
+            ids.join(", ")
+        ))),
+        PrinterMatch::Missing => Err(CliError::printer(format!(
             "printer '{name}' is not installed — choose another printer"
         ))),
     }

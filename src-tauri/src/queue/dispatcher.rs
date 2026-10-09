@@ -416,7 +416,12 @@ impl JobRunner for EngineRunner {
         requested: Option<&str>,
         file_name: &str,
     ) -> Result<ResolvedPrinter, PrintError> {
-        let prefs = crate::settings::Config::load_or_default().printers;
+        // Same order as the CLI: explicit request, then the file-type routing
+        // rule, then the default (the org policy's, else the app's).
+        let prefs = crate::ipc::printers::with_policy(
+            crate::settings::Config::load_or_default().printers,
+            &crate::settings::PrinterPolicy::load(),
+        );
         let name = match crate::ipc::printers::resolve_app_printer(&prefs, requested, file_name) {
             Some(p) => p,
             None => resolve_os_default_printer()?,
@@ -424,24 +429,34 @@ impl JobRunner for EngineRunner {
         // An explicit request, or the OS default, may still name a printer
         // the user disabled in MaeclyPrint: that job pauses with the reason.
         crate::ipc::printers::ensure_enabled(&prefs, &name)?;
-        let overrides = prefs.overrides.get(&name).cloned().unwrap_or_default();
+        let overrides_for = |id: &str| prefs.overrides.get(id).cloned().unwrap_or_default();
         let enumerated = crate::platform::list_printers()
             .ok()
             .filter(|list| !list.is_empty());
         let Some(list) = enumerated else {
             return Ok(ResolvedPrinter {
+                overrides: overrides_for(&name),
                 name,
                 caps: PrinterCaps::unknown(),
-                overrides,
             });
         };
-        match list.iter().find(|p| p.id == name || p.name == name) {
-            Some(p) => Ok(ResolvedPrinter {
-                caps: crate::platform::printer_caps(p),
-                name,
-                overrides,
-            }),
-            None => Err(PrintError::PrinterMissing { printer: name }),
+        // A display name (e.g. from a profile) is accepted but the spooler only
+        // knows queue ids, so spool to the matched printer's id. A name shared
+        // by several queues is not guessed at: the job pauses for a choice.
+        use crate::ipc::printers::{match_installed, PrinterMatch};
+        match match_installed(&list, &name) {
+            PrinterMatch::Found(p) => {
+                // A display name can hide a queue id the user disabled.
+                crate::ipc::printers::ensure_enabled(&prefs, &p.id)?;
+                Ok(ResolvedPrinter {
+                    caps: crate::platform::printer_caps(p),
+                    overrides: overrides_for(&p.id),
+                    name: p.id.clone(),
+                })
+            }
+            PrinterMatch::Ambiguous(_) | PrinterMatch::Missing => {
+                Err(PrintError::PrinterMissing { printer: name })
+            }
         }
     }
 

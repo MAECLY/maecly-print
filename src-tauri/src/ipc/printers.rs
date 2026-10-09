@@ -278,6 +278,85 @@ pub fn resolve_app_printer(
         .map(str::to_string)
 }
 
+/// Fold the organization policy into the app prefs the print path resolves
+/// against: a `policy.json` `default_printer` replaces the user's app default.
+///
+/// That gives the documented precedence for the *default* —
+/// `policy.default_printer ?? prefs.default_printer ?? OS default`
+/// (`docs/05-features/printers-management.md` § Edge states) — while an
+/// explicit request and a file-type route, which are not "the default", still
+/// win as [`resolve_app_printer`] defines. Every print path (queue, CLI, the
+/// command preview) goes through this, so the printer the Printers screen shows
+/// as the locked default is the one jobs actually use.
+pub fn with_policy(
+    mut prefs: crate::settings::PrinterPrefs,
+    policy: &crate::settings::PrinterPolicy,
+) -> crate::settings::PrinterPrefs {
+    if let Some(p) = policy
+        .default_printer
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+    {
+        prefs.default_printer = Some(p.to_string());
+    }
+    prefs
+}
+
+/// How a printer name a user, profile or rule supplied matches the spooler.
+#[derive(Debug)]
+pub enum PrinterMatch<'a> {
+    /// Exactly one installed printer: spool to its [`Printer::id`].
+    Found(&'a Printer),
+    /// The name is the display name of several queues; these are their ids.
+    Ambiguous(Vec<String>),
+    /// No installed printer has that id or display name.
+    Missing,
+}
+
+/// Resolve a printer reference to the installed printer it means.
+///
+/// The spooler only knows queue **ids** (`HP_LaserJet_Pro_M404`), but people
+/// copy what they see — the display name (`HP LaserJet Pro M404`, CUPS's
+/// `printer-info`). Both are accepted, and the caller must spool to the
+/// returned printer's `id`, never to the input. In order:
+///
+/// 1. an exact id;
+/// 2. an id ignoring ASCII case (CUPS resolves queue names case-insensitively);
+/// 3. a display name, exact and then ignoring case — only when exactly one
+///    printer carries it, since several queues may share one description.
+pub fn match_installed<'a>(list: &'a [Printer], name: &str) -> PrinterMatch<'a> {
+    let name = name.trim();
+    if let Some(p) = list.iter().find(|p| p.id == name) {
+        return PrinterMatch::Found(p);
+    }
+    let by_id: Vec<&Printer> = list
+        .iter()
+        .filter(|p| p.id.eq_ignore_ascii_case(name))
+        .collect();
+    if let [p] = by_id.as_slice() {
+        return PrinterMatch::Found(p);
+    }
+    for exact in [true, false] {
+        let hits: Vec<&Printer> = list
+            .iter()
+            .filter(|p| {
+                if exact {
+                    p.name == name
+                } else {
+                    p.name.to_lowercase() == name.to_lowercase()
+                }
+            })
+            .collect();
+        match hits.as_slice() {
+            [] => continue,
+            [p] => return PrinterMatch::Found(p),
+            many => return PrinterMatch::Ambiguous(many.iter().map(|p| p.id.clone()).collect()),
+        }
+    }
+    PrinterMatch::Missing
+}
+
 /// Set the OS user-default printer (no elevation required).
 #[tauri::command]
 #[specta::specta]
@@ -534,6 +613,117 @@ mod tests {
             !reloaded.printers.routes.contains_key(".jpg"),
             "a removed rule must not survive on disk"
         );
+    }
+
+    fn printer(id: &str, name: &str) -> Printer {
+        Printer {
+            id: id.into(),
+            name: name.into(),
+            kind: PrinterKind::Laser,
+            color: false,
+            duplex: true,
+            status: PrinterStatus::Ready,
+            is_default: false,
+            location: String::new(),
+            connection: String::new(),
+            driver: String::new(),
+            shared: false,
+            queued_jobs: 0,
+            max_dpi: None,
+            papers: vec![],
+            trays: vec![],
+            supplies: Supplies::default(),
+            default_tray: None,
+            default_paper: None,
+        }
+    }
+
+    fn found_id(m: PrinterMatch<'_>) -> Option<String> {
+        match m {
+            PrinterMatch::Found(p) => Some(p.id.clone()),
+            _ => None,
+        }
+    }
+
+    /// FR-044: a display name is accepted as input but always resolves to the
+    /// queue id the spooler knows.
+    #[test]
+    fn fr_044_match_installed_resolves_display_names_to_queue_ids() {
+        let list = vec![
+            printer("HP_LaserJet_Pro_M404", "HP LaserJet Pro M404"),
+            printer("Maecly_Hold", "MaeclyPrint hold test queue"),
+        ];
+        for input in [
+            "HP_LaserJet_Pro_M404",
+            "hp_laserjet_pro_m404",
+            "HP LaserJet Pro M404",
+            "hp laserjet pro m404",
+            "  HP LaserJet Pro M404 ",
+        ] {
+            assert_eq!(
+                found_id(match_installed(&list, input)).as_deref(),
+                Some("HP_LaserJet_Pro_M404"),
+                "{input}"
+            );
+        }
+        assert!(matches!(
+            match_installed(&list, "Nope"),
+            PrinterMatch::Missing
+        ));
+    }
+
+    /// An id always beats a display name, and a display name shared by two
+    /// queues is ambiguous rather than silently picking one.
+    #[test]
+    fn fr_044_match_installed_prefers_ids_and_refuses_ambiguous_names() {
+        let list = vec![
+            printer("Office", "Front"),
+            printer("Front", "Office"),
+            printer("A", "Shared name"),
+            printer("B", "Shared name"),
+        ];
+        assert_eq!(
+            found_id(match_installed(&list, "Office")).as_deref(),
+            Some("Office")
+        );
+        match match_installed(&list, "Shared name") {
+            PrinterMatch::Ambiguous(ids) => assert_eq!(ids, vec!["A", "B"]),
+            other => panic!("expected ambiguity, got {other:?}"),
+        }
+    }
+
+    /// The org policy default replaces the app default, but not an explicit
+    /// request or a file-type route.
+    #[test]
+    fn fr_policy_default_beats_app_default_in_the_print_path() {
+        let mut prefs = prefs_with_routes(&[(".pdf", "ROUTED")]);
+        prefs.default_printer = Some("EPSON".into());
+        let policy = crate::settings::PrinterPolicy {
+            default_printer: Some("HP_Office".into()),
+        };
+        let eff = with_policy(prefs.clone(), &policy);
+        assert_eq!(
+            resolve_app_printer(&eff, None, "a.docx").as_deref(),
+            Some("HP_Office")
+        );
+        assert_eq!(
+            resolve_app_printer(&eff, None, "a.pdf").as_deref(),
+            Some("ROUTED")
+        );
+        assert_eq!(
+            resolve_app_printer(&eff, Some("CHOSEN"), "a.docx").as_deref(),
+            Some("CHOSEN")
+        );
+        // No (or a blank) policy leaves the prefs alone.
+        let none = crate::settings::PrinterPolicy::default();
+        assert_eq!(with_policy(prefs.clone(), &none), prefs);
+        let blank = crate::settings::PrinterPolicy {
+            default_printer: Some("  ".into()),
+        };
+        assert_eq!(with_policy(prefs.clone(), &blank), prefs);
+        // Policy also applies when the user set no app default at all.
+        let eff = with_policy(PrinterPrefs::default(), &policy);
+        assert_eq!(eff.default_printer.as_deref(), Some("HP_Office"));
     }
 
     /// The policy loader is documented as never erroring, because the UI relies

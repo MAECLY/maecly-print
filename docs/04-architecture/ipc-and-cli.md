@@ -413,6 +413,8 @@ maeclyprint --help
 - Relative paths are resolved against the working directory **only here**; every other surface refuses them (`util::paths::canonical_input`, NFR-025).
 - `--files-from <PATH>` reads a JSON handoff file instead of argv — how the shell extensions pass a large selection past Windows' 32,767-character argv cap. A handoff file is untrusted input: it must resolve **inside** the per-user handoff directory (`<data dir>/handoff`) and be fresh, or it is refused.
 - `--duplex`, `--paper`, `--scale`, `--orientation`, `--quality` are case-insensitive. `--scale actual` is the engine's `none` — the one deliberate rename.
+- `--printer` accepts the spooler **queue id** (`HP_LaserJet_Pro_M404`) or the **display name** `printers list` shows (`HP LaserJet Pro M404`, CUPS `printer-info`), the id ignoring case as CUPS does. Either way the job is spooled to the matched queue id, never to the text typed. A display name shared by several queues is refused with exit code `Printer` and the candidate ids; pass the id instead. The queue applies the same rule to a profile's printer (an unmatched or ambiguous name pauses the job as `PrinterMissing`).
+- With no `--printer`, the target is the file-type route, then the org-policy default (`policy.json`), then the app default, then the OS default — the same chain the GUI queue uses.
 - `--color` and `--mono` are mutually exclusive; omitting both leaves the profile's value. The same holds for `--collate` / `--no-collate`.
 - `--no-dialog` and `--wait` are accepted for compatibility and are **no-ops**: a headless `print` never opens a window and always runs each file to completion before exiting.
 - `--json` switches every command to JSON on stdout; errors become JSON on stderr.
@@ -432,7 +434,7 @@ maeclyprint print --files report.pdf --printer "HP LaserJet" \
     --duplex long-edge --color --copies 2
 
 # Pipe-friendly listing
-maeclyprint printers list --json | jq -r '.[] | select(.is_default) | .name'
+maeclyprint printers list --json | jq -r '.[] | select(.is_default) | .id'
 
 # Watch the queue
 maeclyprint queue status --watch

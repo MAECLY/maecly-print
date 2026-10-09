@@ -385,7 +385,11 @@ pub async fn inspect_files(paths: Vec<String>) -> Result<Vec<FileInfo>, IpcError
 #[specta::specta]
 pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
     run_blocking(move || {
-        let prefs = crate::settings::Config::load_or_default().printers;
+        // The same default chain the queue resolves: org policy, else app.
+        let prefs = crate::ipc::printers::with_policy(
+            crate::settings::Config::load_or_default().printers,
+            &crate::settings::PrinterPolicy::load(),
+        );
         let os_default = crate::platform::default_printer().ok().flatten();
         Ok(preview_for_files(
             &req.files,
