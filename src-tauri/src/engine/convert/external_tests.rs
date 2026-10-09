@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::*;
 
@@ -140,7 +140,7 @@ printf '%%PDF-1.4\n%%fake\n' > "$out/$stem.pdf""#,
         let work = WorkDir::new("job").unwrap();
         let scratch = work.path().to_path_buf();
         let cancel = AtomicBool::new(false);
-        let started = Instant::now();
+        let started = std::time::Instant::now();
         let err = office::convert_with(
             &soffice,
             &input,
