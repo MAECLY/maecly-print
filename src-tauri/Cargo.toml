@@ -7,6 +7,10 @@ license = "GPL-3.0-only"
 repository = "https://github.com/MAECLY/maecly-print"
 edition = "2021"
 rust-version = "1.89"
+# Two binaries: the app (`maeclyprint`, GUI subsystem on Windows) and the
+# console-subsystem CLI front end (`maeclyprint-cli`, src/bin). `cargo run`
+# and `tauri dev` mean the app.
+default-run = "maeclyprint"
 
 [lib]
 name = "maeclyprint_lib"
@@ -152,8 +156,12 @@ windows = { version = "0.58", features = [
   "Win32_Graphics_Imaging",
   "Win32_Graphics_Printing",
   "Win32_Security",
+  # CONOUT$ for the headless CLI's console attach (cli::console).
+  "Win32_Storage_FileSystem",
   "Win32_Storage_Xps",
   "Win32_System_Com",
+  # AttachConsole / GetStdHandle / SetStdHandle (cli::console).
+  "Win32_System_Console",
 ] }
 # Network printer discovery on Windows: a pure-Rust mDNS/DNS-SD browser for
 # `_ipp._tcp` / `_ipps._tcp` (macOS uses CUPS' own `ippfind`). No async

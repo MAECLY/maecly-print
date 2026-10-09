@@ -165,6 +165,18 @@ pub fn classify<S: AsRef<str>>(args: &[S]) -> Intent {
     Intent::Gui
 }
 
+/// End the process with `code` (FR-009) after flushing stdout and stderr.
+///
+/// `std::process::exit` runs no destructors, so a `print!` without a trailing
+/// newline would still sit in stdout's line buffer and be lost — exactly the
+/// output a script piping `--json` is waiting for.
+pub fn exit_process(code: i32) -> ! {
+    use std::io::Write as _;
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    std::process::exit(code)
+}
+
 /// Decide what this process does, and — in headless mode — do it.
 ///
 /// `argv` includes the program name, exactly as [`std::env::args_os`] yields

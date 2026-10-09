@@ -37,6 +37,7 @@ Whichever way it goes, one constraint binds both options: `SumatraPDF.exe` is **
 
 - `installMode: "currentUser"` is what keeps the no-admin requirement (NFR-020) satisfied: a per-user install under `%LOCALAPPDATA%`, `HKCU` only.
 - `targets: "all"` means the bundler emits every target it can for the host — on Windows that is both the NSIS `setup.exe` and a WiX MSI. Only the NSIS half is configured deliberately; the MSI falls out of `"all"` and has had no design attention.
+- The crate has two binaries, `maeclyprint` (the app) and `maeclyprint-cli` (`src/bin/maeclyprint-cli.rs`, the console-subsystem CLI front end scripts wait on). Tauri's bundler packages every binary of the crate, so the NSIS installer is expected to place `maeclyprint-cli.exe` next to `maeclyprint.exe`; **verify this on the first Windows build.** Neither is added to `PATH` yet.
 - No `plugins.updater` block: the app checks for updates against the GitHub releases API and does not self-install (`src-tauri/src/update/mod.rs`). Nothing in the bundle is updater-signed.
 - Nothing is code-signed. See [ci-cd.md](./ci-cd.md) § *What does not exist yet*.
 
@@ -103,6 +104,7 @@ Notes:
 ```iss
 [Files]
 Source: "..\..\src-tauri\target\release\maeclyprint.exe"; DestDir: "{app}"; Flags: ignoreversion signonce
+Source: "..\..\src-tauri\target\release\maeclyprint-cli.exe"; DestDir: "{app}"; Flags: ignoreversion signonce
 Source: "..\..\src-tauri\target\release\WebView2Loader.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\src-tauri\resources\sumatrapdf\SumatraPDF.exe"; DestDir: "{app}\sumatrapdf"; Flags: ignoreversion
 Source: "..\..\src-tauri\resources\sumatrapdf\LICENSE.txt"; DestDir: "{app}\sumatrapdf"; Flags: ignoreversion
@@ -345,6 +347,7 @@ After install:
 ```
 %LOCALAPPDATA%\Programs\MaeclyPrint\
 ├── maeclyprint.exe              # Main app (Tauri runtime + all logic)
+├── maeclyprint-cli.exe          # Console CLI front end (scripts wait for it; see ipc-and-cli.md §3.1)
 ├── shell_ext_win.dll            # COM in-proc server
 ├── WebView2Loader.dll           # WebView2 (system WebView2 used; this is loader stub)
 ├── LICENSE.txt                  # GPLv3
