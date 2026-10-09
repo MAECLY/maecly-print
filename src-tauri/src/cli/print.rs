@@ -123,9 +123,11 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
         Some(_) => "<per file type>".to_string(),
         None => String::new(),
     };
-    let timeout = match engine.conversion_timeout_seconds {
+    // The spool wait is a print, so it is bounded by the print budget, not the
+    // conversion one (the two used to share a knob).
+    let timeout = match engine.print_timeout_seconds {
         0 => None,
-        secs => Some(std::time::Duration::from_secs(secs as u64)),
+        secs => Some(std::time::Duration::from_secs(u64::from(secs))),
     };
 
     // Private, self-deleting conversion cache — see the module docs.
