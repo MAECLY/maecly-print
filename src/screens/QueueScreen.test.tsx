@@ -279,7 +279,10 @@ describe('QueueScreen — row actions', () => {
       screen.getAllByRole('button', { name: /^Resume (?!queue)/ }),
     ).toHaveLength(2);
     expect(screen.getAllByRole('button', { name: /^Retry / })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: /^Cancel / })).toHaveLength(6);
+    // Row actions are named by file; the toolbar's "Cancel all" is not one.
+    expect(
+      screen.getAllByRole('button', { name: /^Cancel (?!all$)/ }),
+    ).toHaveLength(6);
   });
 
   it('NFR-044: each row action names the job it acts on', async () => {
