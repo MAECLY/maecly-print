@@ -112,8 +112,8 @@ pub async fn default_printer() -> Result<Option<String>, IpcError> {
 }
 
 /// Best-effort network discovery of not-yet-installed printers: mDNS/Bonjour
-/// through `ippfind` on Unix, and an in-process mDNS browse of IPP/IPPS on
-/// Windows (WSD-only devices are not listed).
+/// through `ippfind` on Unix, and the OS DNS-SD client (`DnsServiceBrowse`)
+/// for IPP/IPPS on Windows (WSD-only devices are not listed).
 #[tauri::command]
 #[specta::specta]
 pub async fn discover_printers() -> Result<Vec<DiscoveredPrinter>, IpcError> {

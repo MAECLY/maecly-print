@@ -30,6 +30,8 @@ pub mod macos;
 pub mod testpage;
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+mod windows_dnssd;
 
 use crate::ipc::printers::PrinterKind;
 

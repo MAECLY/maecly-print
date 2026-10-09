@@ -1,7 +1,7 @@
 //! Windows printer backend: enumeration via the print spooler (`EnumPrinters`)
 //! and the GDI `DeviceCapabilities` query, setting the default printer,
-//! adding via PowerShell's `Add-Printer -IppURL`, and network discovery via an
-//! mDNS/DNS-SD browse.
+//! adding via PowerShell's `Add-Printer -IppURL`, and network discovery via
+//! the OS DNS-SD client (`DnsServiceBrowse`).
 //!
 //! The spooler queue itself is never paused, resumed or deleted from here:
 //! *Remove* on the Printers screen is a MaeclyPrint-only soft-disable
@@ -21,7 +21,7 @@
 
 use std::os::windows::process::CommandExt;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Context;
 use windows::core::{PCWSTR, PWSTR};
@@ -191,55 +191,17 @@ const DISCOVERY_WINDOW: Duration = Duration::from_secs(4);
 /// Browse `_ipp._tcp` and `_ipps._tcp` for [`DISCOVERY_WINDOW`] and return the
 /// printers that are not installed yet.
 ///
-/// Windows has no `ippfind`, so this runs its own mDNS browser (`mdns-sd`,
-/// pure Rust, no async runtime). WSD-only devices are not found by it; they
-/// are the ones Windows' own "Add device" dialog lists, which the UI already
-/// offers via "Open printer settings". A failure to open the multicast socket
+/// Windows has no `ippfind`, so this asks the OS DNS-SD client
+/// (`DnsServiceBrowse`, see [`super::windows_dnssd`]). The query runs inside
+/// the DNS Client service, whose firewall rule admits the multicast answers;
+/// an mDNS socket of our own is blocked by Windows Defender Firewall for a
+/// per-user app and used to hear nothing. WSD-only devices are not found by
+/// it; they are the ones Windows' own "Add device" dialog lists, which the UI
+/// already offers via "Open printer settings". A browse that cannot be started
 /// is an error (the UI shows a scan error), not an empty network.
 pub fn discover_printers() -> anyhow::Result<Vec<DiscoveredPrinter>> {
-    use mdns_sd::{ServiceDaemon, ServiceEvent};
-
-    let daemon = ServiceDaemon::new().context("could not start the mDNS browser")?;
-    let ipp = daemon
-        .browse(dnssd::IPP_SERVICE)
-        .context("could not browse for IPP printers")?;
-    let ipps = daemon
-        .browse(dnssd::IPPS_SERVICE)
-        .context("could not browse for IPPS printers")?;
-
-    let mut records = Vec::new();
-    let deadline = Instant::now() + DISCOVERY_WINDOW;
-    loop {
-        let now = Instant::now();
-        if now >= deadline {
-            break;
-        }
-        // Poll both receivers in short slices so neither starves the other.
-        let slice = (deadline - now).min(Duration::from_millis(100));
-        let mut got_any = false;
-        for rx in [&ipp, &ipps] {
-            while let Ok(event) = rx.try_recv() {
-                got_any = true;
-                if let ServiceEvent::ServiceResolved(info) = event {
-                    records.push(dnssd::Resolved {
-                        fullname: info.get_fullname().to_string(),
-                        service_type: info.get_type().to_string(),
-                        host: info.get_hostname().to_string(),
-                        port: info.get_port(),
-                        addresses: info.get_addresses().iter().copied().collect(),
-                        rp: info.get_property_val_str("rp").map(str::to_string),
-                        ty: info.get_property_val_str("ty").map(str::to_string),
-                    });
-                }
-            }
-        }
-        if !got_any {
-            std::thread::sleep(slice);
-        }
-    }
-    let _ = daemon.stop_browse(dnssd::IPP_SERVICE);
-    let _ = daemon.stop_browse(dnssd::IPPS_SERVICE);
-    let _ = daemon.shutdown();
+    let records =
+        super::windows_dnssd::browse(&[dnssd::IPP_SERVICE, dnssd::IPPS_SERVICE], DISCOVERY_WINDOW)?;
 
     // Hide what is already installed. If the spooler cannot be read the scan
     // still returns what it found rather than failing outright.
@@ -1210,7 +1172,7 @@ mod tests {
     /// The browse runs for its window and returns without error on a host with
     /// a network stack (it may find nothing).
     #[test]
-    #[ignore = "opens a multicast socket and waits 4 s; run on the Windows VM"]
+    #[ignore = "waits for the 4 s browse window; run on the Windows VM"]
     fn discover_printers_smoke() {
         let found = discover_printers().expect("mDNS browse should start");
         for p in &found {

@@ -45,7 +45,6 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `uuid` | 1 (`v7`) | MIT / Apache-2.0 | Time-sortable job ids | Yes |
 | `time` | 0.3 | MIT / Apache-2.0 | RFC 3339 timestamps | Yes |
 | `windows` *(Windows targets only)* | 0.58 | MIT / Apache-2.0 | winspool + GDI `DeviceCapabilities`, console attach, policy registry/owner checks | Yes |
-| `mdns-sd` *(Windows targets only)* | 0.13.11 | MIT / Apache-2.0 | mDNS/DNS-SD browse for network printers (`_ipp._tcp`, `_ipps._tcp`) | Yes |
 | `objc2` *(macOS only)* | 0.6 | MIT | Objective-C runtime for the NSServices provider | Yes |
 | `objc2-app-kit`, `objc2-foundation` *(macOS only)* | 0.3 | MIT | AppKit/Foundation bindings (feature-narrowed) | Yes |
 

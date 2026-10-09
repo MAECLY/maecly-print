@@ -158,6 +158,10 @@ windows = { version = "0.58", features = [
   "Win32_Graphics_Gdi",
   "Win32_Graphics_Imaging",
   "Win32_Graphics_Printing",
+  # DnsServiceBrowse / DnsServiceResolve: network printer discovery through the
+  # DNS Client service, whose firewall rule admits the mDNS answers
+  # (platform::windows_dnssd).
+  "Win32_NetworkManagement_Dns",
   "Win32_Security",
   # Owner check on the machine policy file (GetNamedSecurityInfoW).
   "Win32_Security_Authorization",
@@ -170,10 +174,6 @@ windows = { version = "0.58", features = [
   # HKLM\SOFTWARE\Policies\Maecly\MaeclyPrint (settings::policy).
   "Win32_System_Registry",
 ] }
-# Network printer discovery on Windows: a pure-Rust mDNS/DNS-SD browser for
-# `_ipp._tcp` / `_ipps._tcp` (macOS uses CUPS' own `ippfind`). No async
-# runtime and no `log` feature, so it pulls in nothing heavy.
-mdns-sd = { version = "=0.13.11", default-features = false }
 
 [features]
 # By default Tauri uses "custom-protocol" in release builds. Tauri's CLI passes this in.
