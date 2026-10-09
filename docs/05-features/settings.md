@@ -54,7 +54,7 @@ Optional fields that skip-serialize when unset (`density`, both telemetry flags)
 
 Theme is a **3-way** control (Light / Dark / System) driven by `App`'s `useTheme` hook; density is Comfortable / Compact from `useDensity`. Appearance is special: it lives in **two** places and both are written on every change.
 
-1. **Instant-boot cache** — `localStorage` keys `maeclyprint:theme` / `maeclyprint:density` (`src/lib/theme.ts`), applied to the DOM synchronously at boot so there is no theme flash before the backend loads. These hooks are DOM/localStorage-only and never call IPC.
+1. **Instant-boot cache** — `localStorage` keys `maeclyprint:theme` / `maeclyprint:density` (`src/lib/theme.ts`), applied to the DOM synchronously at boot — `bootAppearance()` runs in `main.tsx` before the first render, because the `--mp-*` tokens exist only under the theme class and React effects run after the first paint — so there is no theme flash before the backend loads. These hooks are DOM/localStorage-only and never call IPC.
 2. **Backend source of truth** — the same value is persisted to `config.toml` via `patch({ app: { theme } })` / `patch({ app: { density } })` when the backend is reachable.
 
 On divergence the **backend wins**: once `get_app_settings` resolves, a reconcile effect (in both `SettingsScreen` and `App`) overrides the cache with the persisted value. The reconcile is idempotent, so it settles without fighting a fresh user change. In the standalone preview (backend `unavailable`) appearance stays local-only — no backend write.

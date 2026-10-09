@@ -36,9 +36,30 @@ function getSystemTheme(): ResolvedTheme {
 
 function readStoredTheme(): ThemeMode {
   if (typeof window === 'undefined') return 'system';
-  const v = window.localStorage.getItem(THEME_KEY);
+  let v: string | null = null;
+  try {
+    v = window.localStorage.getItem(THEME_KEY);
+  } catch {
+    /* storage blocked: fall back to the system theme */
+  }
   if (v === 'light' || v === 'dark' || v === 'system') return v;
   return 'system';
+}
+
+/**
+ * Put the cached appearance on the document **before React renders**.
+ *
+ * Every `--mp-*` colour token exists only under `.mp-light` / `.mp-dark`, and
+ * the hooks below apply the class in an effect — which React runs after the
+ * first paint. Without this call that first frame painted with no tokens at
+ * all (a white or transparent canvas, default text) before snapping to the
+ * theme. `main.tsx` calls it synchronously, so the very first frame already
+ * has the right class, colour scheme and density.
+ */
+export function bootAppearance(): void {
+  const mode = readStoredTheme();
+  applyTheme(mode === 'system' ? getSystemTheme() : mode);
+  applyDensity(readStoredDensity());
 }
 
 function applyTheme(resolved: ResolvedTheme) {
@@ -91,8 +112,13 @@ export function useTheme() {
 
 function readStoredDensity(): Density {
   if (typeof window === 'undefined') return 'comfortable';
-  const v = window.localStorage.getItem(DENSITY_KEY);
-  return v === 'compact' ? 'compact' : 'comfortable';
+  try {
+    return window.localStorage.getItem(DENSITY_KEY) === 'compact'
+      ? 'compact'
+      : 'comfortable';
+  } catch {
+    return 'comfortable';
+  }
 }
 
 /**
