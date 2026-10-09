@@ -37,6 +37,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use maeclyprint_lib::engine::print::spool;
+use maeclyprint_lib::platform::queue_of;
 use maeclyprint_lib::queue::job::{
     ColorMode, Duplex, JobSettings, Orientation, PaperSize, Quality, Scaling,
 };
@@ -153,8 +154,17 @@ fn submit(
     let title = format!("maecly-real-printer-{tag}");
     let before = job_ids(queue);
 
-    let outcome = spool(&pdf, queue, settings, &title, Some(Duration::from_secs(30)))
-        .unwrap_or_else(|e| panic!("spool to {queue} failed: {e}"));
+    // The queue's real capabilities, exactly as the dispatcher resolves them.
+    let (_, caps) = queue_of(queue);
+    let outcome = spool(
+        &pdf,
+        queue,
+        settings,
+        &caps,
+        &title,
+        Some(Duration::from_secs(30)),
+    )
+    .unwrap_or_else(|e| panic!("spool to {queue} failed: {e}"));
 
     // Prefer the id the engine parsed; fall back to the queue diff because
     // `lp` localizes its success line on macOS (see the dedicated test below).
@@ -265,12 +275,13 @@ fn fr_040_full_override_set_reaches_cups_as_ipp_attributes() {
         duplex: Duplex::Long,
         color_mode: ColorMode::Monochrome,
         copies: 3,
-        paper_size: PaperSize::Letter,
+        paper_size: PaperSize::LETTER,
         orientation: Orientation::Landscape,
         scaling: Scaling::None,
         page_ranges: Some(" 1-2 ".to_string()),
         quality: Quality::High,
         tray: Some("Rear".to_string()),
+        collate: false,
     };
     let (_guard, attrs) = submit(&queue, "full", &settings);
 
@@ -297,7 +308,7 @@ fn fr_040_short_edge_legal_draft_single_page() {
     let settings = JobSettings {
         printer: Some(queue.clone()),
         duplex: Duplex::Short,
-        paper_size: PaperSize::Legal,
+        paper_size: PaperSize::LEGAL,
         orientation: Orientation::Portrait,
         scaling: Scaling::Shrink,
         page_ranges: Some("2".to_string()),
@@ -342,8 +353,9 @@ fn fr_040_a3_with_multiple_ranges() {
 
 /// FR-032: cancelling a printing job needs the CUPS job id `spool` parses out
 /// of `lp`'s success line. `lp` localizes that line on macOS (it follows the
-/// user's macOS language, not `LC_ALL`/`LANG`), so on a non-English host the
-/// parse can come back empty and the dispatcher loses the handle it would
+/// user's macOS language, not `LC_ALL`/`LANG`), so the parser cannot rely on
+/// the English marker (`cups::parse_request_id`); on a non-English host this
+/// is the end-to-end check that the dispatcher still gets the handle it would
 /// cancel with.
 #[test]
 #[ignore = "submits to a real CUPS hold queue; set MAECLY_REAL_PRINTER=1"]
@@ -355,6 +367,7 @@ fn fr_032_spool_reports_the_cups_job_id() {
         &pdf,
         &queue,
         &JobSettings::default(),
+        &queue_of(&queue).1,
         "maecly-real-printer-request-id",
         Some(Duration::from_secs(30)),
     )
