@@ -32,6 +32,8 @@ import {
   findPageRangeOverflow,
   isValidCopies,
   isValidPageRange,
+  MAX_COPIES,
+  MIN_COPIES,
   printBlocker,
   type PrintJobOverrides,
 } from '@/lib/profiles';
@@ -848,6 +850,8 @@ export function PrintJobScreen({
               }
             }}
             type="number"
+            min={MIN_COPIES}
+            max={MAX_COPIES}
             suffix={t('settings.copiesSuffix')}
             error={copiesError}
           />

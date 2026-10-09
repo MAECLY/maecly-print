@@ -33,6 +33,12 @@ interface MPInputProps {
   'aria-labelledby'?: string | undefined;
   /** Id of the inline error / hint that describes the field. */
   'aria-describedby'?: string | undefined;
+  /**
+   * Bounds of a `type="number"` field: the native spinner stays inside them
+   * and assistive tech announces the real range, not 0–0.
+   */
+  min?: number | undefined;
+  max?: number | undefined;
 }
 
 const SIZES = {
@@ -59,6 +65,8 @@ export function MPInput({
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
   'aria-describedby': ariaDescribedBy,
+  min,
+  max,
 }: MPInputProps) {
   const sizes = SIZES[size];
   const [focus, setFocus] = useState(false);
@@ -107,6 +115,8 @@ export function MPInput({
           ? { 'aria-describedby': ariaDescribedBy }
           : {})}
         {...(error ? { 'aria-invalid': true } : {})}
+        {...(min !== undefined ? { min } : {})}
+        {...(max !== undefined ? { max } : {})}
         onFocus={() => setFocus(true)}
         onBlur={() => setFocus(false)}
         className={mono ? 'mp-mono' : ''}

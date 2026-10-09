@@ -67,6 +67,10 @@ export function isValidHost(s: string): boolean {
   return h.split('.').every((l) => label.test(l));
 }
 
+/** Bounds of a TCP port, for the port field. */
+export const MIN_PORT = 1;
+export const MAX_PORT = 65535;
+
 /**
  * True when `s` is a TCP port: a plain integer from 1 to 65535. Rejects
  * signs, decimals, exponents and blanks so `buildPrinterUri` never emits
@@ -76,7 +80,7 @@ export function isValidPort(s: string): boolean {
   const p = s.trim();
   if (!/^\d{1,5}$/.test(p)) return false;
   const n = Number(p);
-  return n >= 1 && n <= 65535;
+  return n >= MIN_PORT && n <= MAX_PORT;
 }
 
 /**

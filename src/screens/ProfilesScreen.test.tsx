@@ -188,6 +188,8 @@ describe('ProfilesScreen', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New profile' }));
     const copies = screen.getByRole('spinbutton', { name: 'Copies' });
+    expect(copies).toHaveAttribute('min', '1');
+    expect(copies).toHaveAttribute('max', '999');
     fireEvent.change(copies, { target: { value: '0' } });
     expect(copies).toHaveAttribute('aria-invalid', 'true');
     expect(copies).toHaveAccessibleDescription(/whole number from 1 to 999/i);

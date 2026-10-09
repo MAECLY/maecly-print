@@ -19,7 +19,9 @@ import {
   DEFAULT_PRINTER,
   isValidCopies,
   isValidPageRange,
+  MAX_COPIES,
   MAX_PROFILE_NAME_CHARS,
+  MIN_COPIES,
   profileNameLength,
   resolvePrinterId,
   validateProfileName,
@@ -383,6 +385,8 @@ export function ProfileEditor({
             fullWidth
             mono
             type="number"
+            min={MIN_COPIES}
+            max={MAX_COPIES}
             value={copiesText}
             onChange={(e) => setCopiesText(e.target.value)}
             error={copiesError}

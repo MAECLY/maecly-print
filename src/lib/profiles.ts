@@ -170,12 +170,16 @@ export function findProfileByRef(
   return profiles.find((p) => p.name.trim().toLowerCase() === wanted);
 }
 
+/** Bounds of the copies field (the server is authoritative too). */
+export const MIN_COPIES = 1;
+export const MAX_COPIES = 999;
+
 /** Copies must be an integer in `1..=999` (the server is authoritative too). */
 export function isValidCopies(raw: string): boolean {
   const s = raw.trim();
   if (!/^\d+$/.test(s)) return false;
   const n = Number(s);
-  return n >= 1 && n <= 999;
+  return n >= MIN_COPIES && n <= MAX_COPIES;
 }
 
 /** Pages are 1-based u32s, so cap what the backend can actually hold. */

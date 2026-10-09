@@ -939,9 +939,10 @@ describe('PrintJobScreen', () => {
   it('NFR-043: names the copies and page-range fields and the option groups', () => {
     mockJob();
     render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
-    expect(
-      screen.getByRole('spinbutton', { name: 'Copies' }),
-    ).toBeInTheDocument();
+    const copies = screen.getByRole('spinbutton', { name: 'Copies' });
+    // The real range, so a screen reader never announces 0–0.
+    expect(copies).toHaveAttribute('min', '1');
+    expect(copies).toHaveAttribute('max', '999');
     expect(
       screen.getByRole('textbox', { name: 'Page range' }),
     ).toHaveAccessibleDescription();
