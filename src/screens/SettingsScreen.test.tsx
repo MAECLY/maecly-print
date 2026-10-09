@@ -31,6 +31,7 @@ const profilesMock = vi.hoisted(() => {
       { id: 'builtin-duplex-bw', name: 'Duplex BW', default: false },
       { id: 'builtin-photo-color', name: 'Photo Color', default: false },
     ],
+    status: 'ready' as 'ready' | 'loading' | 'error' | 'unavailable',
     setDefault,
     init,
   };
@@ -162,6 +163,7 @@ describe('SettingsScreen', () => {
     });
     profilesMock.setDefault.mockClear();
     profilesMock.init.mockClear();
+    profilesMock.state.status = 'ready';
   });
   afterEach(() => clearMocks());
 
@@ -576,8 +578,17 @@ describe('SettingsScreen', () => {
       screen.getByText(/these switches record consent only/),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/shell integration milestone \(M2\)/),
+      screen.getByText(/Right-click printing uses this profile/),
     ).toBeInTheDocument();
+  });
+
+  it('FR-001: the shell note no longer calls right-click printing a future milestone', async () => {
+    mockSettings();
+    renderSettings();
+    await waitReady();
+
+    expect(screen.getByText(/Finder's Services menu/)).toBeInTheDocument();
+    expect(screen.queryByText(/\(M2\)/)).not.toBeInTheDocument();
   });
 
   it('drops the old shell-integration switches', async () => {
@@ -612,9 +623,17 @@ describe('SettingsScreen', () => {
     // A backend row is visually + interactively disabled.
     expect(controlOf('Crash reports').style.pointerEvents).toBe('none');
     expect(controlOf('Language').style.pointerEvents).toBe('none');
+    // NFR-041: …and out of reach of the keyboard and assistive tech too.
+    expect(controlOf('Crash reports')).toHaveAttribute('inert');
+    expect(controlOf('Crash reports')).toHaveAttribute('aria-disabled', 'true');
+    expect(controlOf('Max file size')).toHaveAttribute('inert');
+    // The preview's built-in list must not make the default-profile row live:
+    // picking one would only bounce off the missing host.
+    expect(controlOf('Default profile')).toHaveAttribute('inert');
 
     // Appearance stays enabled offline (local-only, nothing to revert).
     expect(controlOf('Theme').style.pointerEvents).not.toBe('none');
+    expect(controlOf('Theme')).not.toHaveAttribute('inert');
     fireEvent.click(screen.getByText('Dark'));
     expect(setTheme).toHaveBeenCalledWith('dark');
   });
@@ -647,5 +666,60 @@ describe('SettingsScreen', () => {
     // silently reverted by the arriving backend snapshot.
     expect(controlOf('Theme').style.pointerEvents).toBe('none');
     expect(controlOf('Density').style.pointerEvents).toBe('none');
+    // NFR-041: the keyboard can't reach them either (no Tab + Arrow change).
+    expect(controlOf('Theme')).toHaveAttribute('inert');
+    expect(controlOf('Density')).toHaveAttribute('inert');
+  });
+
+  it('NFR-041: enabled rows carry no inert/aria-disabled once settings load', async () => {
+    mockSettings();
+    renderSettings({ mode: 'light', setMode: vi.fn() });
+    await waitReady();
+
+    for (const label of ['Theme', 'Crash reports', 'Max file size']) {
+      expect(controlOf(label)).not.toHaveAttribute('inert');
+      expect(controlOf(label)).not.toHaveAttribute('aria-disabled');
+    }
+  });
+
+  it('disables the default-profile row while the profile list is not ready', async () => {
+    profilesMock.state.status = 'loading';
+    mockSettings();
+    renderSettings();
+    await waitReady();
+
+    expect(controlOf('Default profile')).toHaveAttribute('inert');
+  });
+
+  it('offers a retry when the profile list failed to load', async () => {
+    profilesMock.state.status = 'error';
+    mockSettings();
+    renderSettings();
+    await waitReady();
+
+    expect(controlOf('Default profile')).toHaveAttribute('inert');
+    expect(
+      screen.getByText(/Couldn't load the profile list/),
+    ).toBeInTheDocument();
+    profilesMock.init.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(profilesMock.init).toHaveBeenCalledTimes(1);
+  });
+
+  it('FR-094: a stored regional tag shows the effective language in the select', async () => {
+    mockSettings({
+      initial: settingsWith({
+        app: { ...fixtureAppSettings.app, locale: 'es-MX' },
+      }),
+    });
+    renderSettings();
+    await waitReady();
+
+    // I18nProvider renders Spanish for es-MX; the select must agree, or
+    // choosing "English" (apparently already selected) could never fire.
+    const select = (await screen.findByRole('combobox', {
+      name: 'Idioma',
+    })) as HTMLSelectElement;
+    expect(select.value).toBe('es-ES');
   });
 });

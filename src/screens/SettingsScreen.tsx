@@ -10,8 +10,8 @@ import {
 import type { Density, ResolvedTheme, ThemeMode } from '@/lib/theme';
 import type { UpdateChannel } from '@/lib/ipc';
 import type { Bounds } from '@/ipc/bindings';
-import { SUPPORTED_LOCALES, type Locale } from '@/i18n';
-import { useT, type TFunction } from '@/i18n/I18nProvider';
+import { SUPPORTED_LOCALES, matchLocale, type Locale } from '@/i18n';
+import { useLocale, useT, type TFunction } from '@/i18n/I18nProvider';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useProfilesStore } from '@/stores/profilesStore';
 
@@ -74,12 +74,30 @@ function Row({ label, hint, disabled, children }: RowProps) {
         )}
       </div>
       <div
+        ref={inertWhen(disabled ?? false)}
+        aria-disabled={disabled ? true : undefined}
         style={disabled ? { opacity: 0.45, pointerEvents: 'none' } : undefined}
       >
         {children}
       </div>
     </div>
   );
+}
+
+/**
+ * A ref callback that toggles the native `inert` attribute. `pointer-events`
+ * alone only stops the mouse: the controls stayed in the tab order, so a
+ * keyboard user could still change a "disabled" setting (and screen readers
+ * announced it as live). `inert` removes the whole subtree from focus,
+ * interaction and the accessibility tree at once. React 18 has no typed
+ * `inert` prop, hence the attribute is set directly.
+ */
+function inertWhen(on: boolean) {
+  return (el: HTMLDivElement | null) => {
+    if (!el) return;
+    if (on) el.setAttribute('inert', '');
+    else el.removeAttribute('inert');
+  };
 }
 
 /** A full-width muted note (milestone caveats, consent copy, load states). */
@@ -95,6 +113,33 @@ function Note({ children }: { children: ReactNode }) {
     >
       {children}
     </div>
+  );
+}
+
+/** An inline, link-styled retry action inside a {@link Note}. */
+function RetryButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: 'none',
+        border: 'none',
+        padding: 0,
+        color: 'var(--mp-accent)',
+        cursor: 'pointer',
+        font: 'inherit',
+        textDecoration: 'underline',
+      }}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -245,12 +290,14 @@ export function SettingsScreen({
   setMode,
 }: SettingsScreenProps) {
   const t = useT('settings');
+  const locale = useLocale();
   const settings = useSettingsStore((s) => s.settings);
   const status = useSettingsStore((s) => s.status);
   const initSettings = useSettingsStore((s) => s.init);
   const patch = useSettingsStore((s) => s.patch);
 
   const profiles = useProfilesStore((s) => s.profiles);
+  const profilesStatus = useProfilesStore((s) => s.status);
   const setDefaultProfile = useProfilesStore((s) => s.setDefault);
   const initProfiles = useProfilesStore((s) => s.init);
 
@@ -411,8 +458,12 @@ export function SettingsScreen({
           hint={t('appearance.language.hint')}
           disabled={backendDisabled}
         >
+          {/* Bound to the EFFECTIVE locale, not the raw stored tag: a stored
+              'es-MX' renders Spanish (matched to es-ES), and a select showing
+              an option that is not the stored value could never fire a change
+              back to it. */}
           <MPSelect
-            value={app?.locale ?? ''}
+            value={matchLocale(app?.locale) ?? locale}
             onChange={(e) => void patch({ app: { locale: e.target.value } })}
             aria-label={t('appearance.language.label')}
             options={SUPPORTED_LOCALES.map((l) => ({
@@ -465,30 +516,27 @@ export function SettingsScreen({
         {status === 'error' && (
           <Note>
             {t('status.error')}{' '}
-            <button
-              type="button"
+            <RetryButton
+              label={t('status.retry')}
               onClick={() => void initSettings()}
-              style={{
-                background: 'none',
-                border: 'none',
-                padding: 0,
-                color: 'var(--mp-accent)',
-                cursor: 'pointer',
-                font: 'inherit',
-                textDecoration: 'underline',
-              }}
-            >
-              {t('status.retry')}
-            </button>
+            />
           </Note>
         )}
 
         <div style={{ height: 24 }} />
         <MPSectionLabel>{t('sections.printing')}</MPSectionLabel>
+        {/* `set_default_profile` writes config.toml, so the row needs both a
+            loaded profile list and a reachable settings backend. In the
+            standalone preview the list is the static built-ins, and picking
+            one would only bounce off a missing host. */}
         <Row
           label={t('printing.defaultProfile.label')}
           hint={t('printing.defaultProfile.hint')}
-          disabled={profiles.length === 0}
+          disabled={
+            backendDisabled ||
+            profilesStatus !== 'ready' ||
+            profiles.length === 0
+          }
         >
           <MPSelect
             value={defaultProfileId}
@@ -497,6 +545,15 @@ export function SettingsScreen({
             options={profiles.map((p) => ({ value: p.id, label: p.name }))}
           />
         </Row>
+        {profilesStatus === 'error' && (
+          <Note>
+            {t('printing.profilesError')}{' '}
+            <RetryButton
+              label={t('status.retry')}
+              onClick={() => void initProfiles()}
+            />
+          </Note>
+        )}
         <Note>{t('printing.shellNote')}</Note>
 
         <div style={{ height: 24 }} />

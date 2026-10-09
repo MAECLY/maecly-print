@@ -39,7 +39,8 @@
       "label": "Default profile",
       "hint": "Applied to a job when no other profile is chosen."
     },
-    "shellNote": "Right-click printing arrives with the shell integration milestone (M2)."
+    "profilesError": "Couldn't load the profile list.",
+    "shellNote": "Right-click printing uses this profile. On macOS it is in the Finder's Services menu; on Windows the Explorer entry appears once the installer registers it."
   },
   "engine": {
     "concurrency": {

@@ -19,7 +19,7 @@ A single scrolling column (max 760 px) of labelled sections, each a stack of lab
 │   Start minimized  Opens minimized from the next launch.     [ ———⬤  ]        │
 │ PRINTING                                                                       │
 │   Default profile   Applied when no profile is chosen.   [ Quick        ▾ ]    │
-│   ⓘ Right-click printing arrives with the shell integration milestone (M2).    │
+│   ⓘ Right-click printing uses this profile (Finder Services / Explorer).      │
 │ ENGINE                                                                         │
 │   Concurrent conversions   Applies to the next conv…     [ 2      ] jobs       │
 │   Conversion timeout       0 disables the timeout.       [ 60     ] seconds    │
@@ -67,7 +67,7 @@ The section also carries the **Native notifications** switch (`app.native_notifi
 
 ### Printing — default profile
 
-A dropdown of every profile from the profiles store; selecting one calls `profilesStore.setDefault` → `set_default_profile`, which writes `config.toml`'s `[engine].default_profile` (the single source of the default — see [profiles-management.md](./profiles-management.md#default-profile-resolution)). Because that command writes the config behind the settings store's back, the store syncs its cached `engine.default_profile` afterward so a later whole-section engine write can't silently revert the default. A muted note points out that right-click printing arrives with **M2**.
+A dropdown of every profile from the profiles store; selecting one calls `profilesStore.setDefault` → `set_default_profile`, which writes `config.toml`'s `[engine].default_profile` (the single source of the default — see [profiles-management.md](./profiles-management.md#default-profile-resolution)). Because that command writes the config behind the settings store's back, the store syncs its cached `engine.default_profile` afterward so a later whole-section engine write can't silently revert the default (`settingsStore.syncDefaultProfile` also rewrites the confirmed baseline and any queued write). The row is disabled until both the profile list and the settings backend are loaded; when the list fails to load, a note with a **Retry** re-runs the profiles store's `init`. A muted note says right-click printing uses this profile: through the Finder's Services menu on macOS, and through the Explorer entry on Windows once the installer registers it ([FR-001](../03-requirements/functional-requirements.md)).
 
 ### Engine — real limits, applied without a restart
 
@@ -105,7 +105,7 @@ On the backend, `set_app_settings` takes the config lock, loads the full config,
 
 ## Edge & empty states
 
-- **Standalone web preview** — status `unavailable`: only Appearance is adjustable (local cache only); a note explains the rest is read from the desktop app, and every backend-backed control is dimmed and non-interactive.
+- **Standalone web preview** — status `unavailable`: only Appearance is adjustable (local cache only); a note explains the rest is read from the desktop app, and every backend-backed control is dimmed and non-interactive: the control cell is `inert` (out of the tab order and the accessibility tree, so the keyboard cannot change it either) and marked `aria-disabled`. The same applies to Theme and Density while the settings are loading.
 - **Loading** — a `Loading settings…` note while `get_app_settings` is in flight.
 - **Error** — a `Couldn't load settings.` note with a **Retry** that re-runs `init` (re-runnable so one transient failure doesn't kill the screen for the session).
 - **Config file missing/corrupt** — the backend degrades to `Config::default()` (FR-101); the screen shows those defaults and the first save materializes the file.
