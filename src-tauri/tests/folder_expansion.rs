@@ -2,8 +2,8 @@
 //!
 //! Covers the two halves of the folder-drop flow:
 //!
-//! - FR-004/FR-007: a dropped directory is split from plain files
-//!   (`classify_selection`) and then walked either one level deep or through
+//! - FR-004/FR-007: a dropped directory (flagged by `inspect_files`, see the
+//!   `ipc::jobs` unit tests) is walked either one level deep or through
 //!   the whole subtree (`expand_folder`), under safety ceilings that keep a
 //!   drop of a disk root from wedging the app.
 //! - FR-005/FR-059: files left out of the selection come back with the reason
@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use maeclyprint_lib::engine::{
     expand_folder, ExpansionLimits, FolderExpansion, FolderScan, SkipReason,
 };
-use maeclyprint_lib::ipc::jobs::{classify_selection, expand_selection};
+use maeclyprint_lib::ipc::jobs::expand_selection;
 use maeclyprint_lib::util::error::IpcError;
 use maeclyprint_lib::util::paths::canonical_input;
 
@@ -331,66 +331,23 @@ fn fr_004_legitimate_symlinks_are_still_followed() {
 }
 
 // ---------------------------------------------------------------------------
-// FR-004 + NFR-025: the IPC-facing selection split.
+// NFR-025: every path from outside the process is resolved before it is used.
+// (The files/folders split itself is `inspect_files`, unit-tested in
+// `ipc::jobs`.)
 // ---------------------------------------------------------------------------
-
-#[test]
-fn fr_004_classify_splits_files_from_folders() {
-    let (_guard, root) = canonical_tempdir();
-    let file = touch(&root, "doc.pdf");
-    let flat = mkdir(&root, "flat");
-    let nested = mkdir(&root, "nested");
-    mkdir(&nested, "inner");
-
-    let sel = classify_selection(&[
-        file.to_string_lossy().into_owned(),
-        flat.to_string_lossy().into_owned(),
-        nested.to_string_lossy().into_owned(),
-    ]);
-
-    assert_eq!(sel.files, [file.to_string_lossy().into_owned()]);
-    assert_eq!(sel.folders.len(), 2);
-    assert!(sel.rejected.is_empty());
-
-    let flat_candidate = sel.folders.iter().find(|f| f.name == "flat").unwrap();
-    assert!(
-        !flat_candidate.has_subfolders,
-        "a flat folder needs no recurse-or-not question"
-    );
-    let nested_candidate = sel.folders.iter().find(|f| f.name == "nested").unwrap();
-    assert!(nested_candidate.has_subfolders);
-}
 
 #[test]
 fn nfr_025_relative_and_missing_paths_are_refused() {
     let (_guard, root) = canonical_tempdir();
     let missing = root.join("ghost.pdf");
 
-    let sel = classify_selection(&[
-        "relative/doc.pdf".to_string(),
-        missing.to_string_lossy().into_owned(),
-    ]);
-
-    assert!(sel.files.is_empty());
-    assert!(sel.folders.is_empty());
-    assert_eq!(sel.rejected.len(), 2);
     assert!(
-        sel.rejected[0].reason.contains("absolute"),
-        "a relative path is refused, never resolved against the cwd: {}",
-        sel.rejected[0].reason
+        matches!(
+            canonical_input("relative/doc.pdf"),
+            Err(IpcError::InvalidRequest(_))
+        ),
+        "a relative path is refused, never resolved against the cwd"
     );
-    assert!(
-        sel.rejected[1].reason.contains("not found")
-            || sel.rejected[1].reason.contains("Not found"),
-        "reason: {}",
-        sel.rejected[1].reason
-    );
-
-    // And the resolver itself agrees on both counts.
-    assert!(matches!(
-        canonical_input("relative/doc.pdf"),
-        Err(IpcError::InvalidRequest(_))
-    ));
     assert!(matches!(
         canonical_input(&missing.to_string_lossy()),
         Err(IpcError::FileNotFound(_))

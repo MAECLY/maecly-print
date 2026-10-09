@@ -48,41 +48,6 @@ pub struct FileInfo {
     pub has_subfolders: bool,
 }
 
-/// A folder the caller dropped or picked, waiting on the FR-004 question.
-#[derive(Debug, Clone, Serialize, Type)]
-pub struct FolderCandidate {
-    /// Canonical path of the folder.
-    pub path: String,
-    /// Folder name, for the prompt.
-    pub name: String,
-    /// Whether it holds subfolders at all — when it does not, the UI can skip
-    /// the recurse-or-not question entirely and expand top-level.
-    pub has_subfolders: bool,
-}
-
-/// A dropped entry that could not be resolved (relative, missing, unreadable).
-/// Reported instead of thrown so one bad path never voids a whole drop
-/// (FR-059).
-#[derive(Debug, Clone, Serialize, Type)]
-pub struct RejectedPath {
-    /// The path exactly as the caller sent it.
-    pub path: String,
-    /// User-facing explanation.
-    pub reason: String,
-}
-
-/// A resolved drop/selection, split into the three things the UI does next:
-/// print the files, ask about the folders, complain about the rest.
-#[derive(Debug, Clone, Serialize, Type)]
-pub struct PathSelection {
-    /// Canonical paths of the entries that are plain files.
-    pub files: Vec<String>,
-    /// Folders the caller must run through [`expand_folders`] first.
-    pub folders: Vec<FolderCandidate>,
-    /// Entries that resolved to nothing usable.
-    pub rejected: Vec<RejectedPath>,
-}
-
 /// Submit a print request. Validates and fans the files out into jobs, returning
 /// the batch id and per-file job ids. Runs the (blocking) validation/probe off
 /// the IPC thread.
@@ -190,47 +155,6 @@ pub async fn expand_folders(
         ))
     })
     .await
-}
-
-/// Path-injected core of [`classify_paths`]: pure resolution, no config, no
-/// Tauri state, so it is directly testable against a tempdir.
-pub fn classify_selection(paths: &[String]) -> PathSelection {
-    let mut out = PathSelection {
-        files: Vec::new(),
-        folders: Vec::new(),
-        rejected: Vec::new(),
-    };
-    for raw in paths {
-        let resolved = match canonical_input(raw) {
-            Ok(p) => p,
-            Err(e) => {
-                out.rejected.push(RejectedPath {
-                    path: raw.clone(),
-                    reason: e.to_string(),
-                });
-                continue;
-            }
-        };
-        let display = resolved.to_string_lossy().into_owned();
-        if resolved.is_dir() {
-            out.folders.push(FolderCandidate {
-                name: resolved
-                    .file_name()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| display.clone()),
-                has_subfolders: has_subfolders(&resolved),
-                path: display,
-            });
-        } else if resolved.is_file() {
-            out.files.push(display);
-        } else {
-            out.rejected.push(RejectedPath {
-                path: raw.clone(),
-                reason: "Not a file or folder".to_string(),
-            });
-        }
-    }
-    out
 }
 
 /// Path-injected core of [`expand_folders`]: the limits and the size ceiling are
@@ -762,6 +686,20 @@ mod tests {
         assert_eq!(info.reason.as_deref(), Some("File not found"));
         assert_eq!(info.name, "ghost.pdf");
         assert!(!info.is_dir);
+    }
+
+    /// NFR-025: a relative path is refused, never resolved against the
+    /// process' working directory — and refused per entry, not for the call.
+    #[test]
+    fn nfr_025_inspect_refuses_a_relative_path() {
+        let info = classify_one("relative/doc.pdf", 100);
+        assert!(!info.supported);
+        assert!(!info.is_dir);
+        assert!(
+            info.reason.as_deref().unwrap_or("").contains("absolute"),
+            "reason: {:?}",
+            info.reason
+        );
     }
 
     #[test]

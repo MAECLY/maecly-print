@@ -332,10 +332,10 @@ fn bindings_ts_is_committed_in_sync() {
 ///
 /// An unregistered command compiles, passes its own unit tests and looks
 /// finished in review, but never reaches `src/ipc/bindings.ts`, so the frontend
-/// has no way to call it. This campaign shipped that bug twice —
-/// `expand_folders` (folder support implemented and unreachable) and
-/// `classify_paths` (dead on arrival) — which is why it is a gate rather than a
-/// habit.
+/// has no way to call it. This campaign shipped that bug twice — once for
+/// `expand_folders` (folder support implemented and unreachable), once for a
+/// path-classification command that was never wired up and has since been
+/// removed — which is why it is a gate rather than a habit.
 ///
 /// The check is textual on purpose: it needs to see the *source*, since an
 /// unregistered command leaves no trace in the compiled artifact to inspect.
