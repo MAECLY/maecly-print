@@ -327,10 +327,17 @@ async expandFolders(paths: string[], scan: FolderScan) : Promise<Result<FolderEx
 },
 /**
  * The exact command MaeclyPrint would run for `req` (honesty policy: no hidden
- * flags). Resolves the printer name the same way the dispatcher will —
- * requested, else the file-type routing rule, else the app default, else the OS
- * default, else a `<default printer>` placeholder — and previews against the
- * first file's name.
+ * flags), for **every** file in the batch.
+ * 
+ * The dispatcher settles three things per file, so the preview does too:
+ * the printer (an explicit request, else the file-type routing rule, else the
+ * app default, else the OS default — a `.pdf → EPSON` rule can split a batch
+ * across printers), the settings narrowed to the input (page ranges are
+ * PDF-only), and the printer's own tray/paper defaults where the job leaves
+ * them open. Files that come out identical share one command; when the batch
+ * splits, each command is preceded by a comment naming its files, so the panel
+ * never shows one file's command as if it were everyone's. See
+ * [`preview_for_files`].
  */
 async previewCommand(req: PrintRequest) : Promise<Result<string, IpcError>> {
     try {
