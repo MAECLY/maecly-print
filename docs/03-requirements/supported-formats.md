@@ -115,6 +115,7 @@ LibreOffice is located at `/Applications/LibreOffice.app/Contents/MacOS/soffice`
 - **Browser.** On Windows, Edge comes first (it is always installed), then Chrome. On macOS the order is Edge, Chrome, then Chromium in `/Applications`. On Linux it is `google-chrome`, `chromium`, `chromium-browser`, then `microsoft-edge` on `PATH`.
 - **Private browser profile.** The user's open browser and its profile are never touched.
 - **The finished PDF ends the step.** Some Chrome builds (seen with Chrome 156 on macOS) write the PDF in about a second and then never exit. The step therefore ends once the PDF has its `%%EOF` trailer and its size has stopped changing between polls. The browser tree is then killed.
+- **The job's paper.** The browser lays pages out on US Letter unless the page sets a size, so an A4 job used to get Letter pages (clipped on the right at actual size). When the job names a paper (`A4`, `Letter`, `Legal`, `A3`, `A5`, `A6`, `B4`, `B5`, `Tabloid`, `Executive`, `4x6`-style inch sizes or CUPS `w<pt>h<pt>` keywords), the browser loads a copy of the page from the scratch folder that starts with `<style>@page { size: <w> <h>; }</style>` (landscape swaps the two) and, if the page has none, a `<base href>` to its own folder so relative links still resolve. The user's file is never changed, and a size the page sets itself still wins. Paper `auto` (printer default) and sizes MaeclyPrint cannot measure keep the browser default. A UTF-16 page is printed as is.
 - **Scripts run** as they would in the browser. Only local files reach this converter; remote `http(s)://` inputs are not accepted. `@media print` styles are respected.
 
 ### Markdown
@@ -126,7 +127,7 @@ pandoc --from=markdown --to=html5 --standalone --metadata=pagetitle:<name> \
        --include-in-header=<scratch>/head.html --output=<scratch>/page.html <input.md>
 ```
 
-The injected header carries `<base href="file:///<folder of the .md>/">`, so relative image links resolve against the Markdown file's folder. It also carries a small print stylesheet (margins, readable type, code blocks, tables). The Pandoc and browser steps share one timeout budget. Pandoc is located on `PATH`, in `/opt/homebrew/bin` or `/usr/local/bin` on macOS, and in `%LOCALAPPDATA%\Pandoc` or `%ProgramFiles%\Pandoc` on Windows. TeX math is passed through as text.
+The injected header carries `<base href="file:///<folder of the .md>/">`, so relative image links resolve against the Markdown file's folder. It also carries a small print stylesheet (margins, readable type, code blocks, tables) and the job's paper size as an `@page` rule, under the same rules as HTML above. The Pandoc and browser steps share one timeout budget. Pandoc is located on `PATH`, in `/opt/homebrew/bin` or `/usr/local/bin` on macOS, and in `%LOCALAPPDATA%\Pandoc` or `%ProgramFiles%\Pandoc` on Windows. TeX math is passed through as text.
 
 ## Out of scope (deferred to v2+ or never)
 

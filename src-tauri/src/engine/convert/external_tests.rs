@@ -183,7 +183,16 @@ done"#,
         let work = WorkDir::new("job").unwrap();
         let cancel = AtomicBool::new(false);
 
-        html::convert_with(&browser, &page, &output, &work, &cancel, None).unwrap();
+        html::convert_with(
+            &browser,
+            &page,
+            &output,
+            &work,
+            &cancel,
+            None,
+            &PageSetup::default(),
+        )
+        .unwrap();
 
         assert!(validate_pdf_header(&output).is_ok());
         let argv = std::fs::read_to_string(&log).unwrap();
@@ -221,7 +230,17 @@ done"#,
         let work = WorkDir::new("job").unwrap();
         let cancel = AtomicBool::new(false);
 
-        markdown::convert_with(&pandoc, &browser, &md, &output, &work, &cancel, None).unwrap();
+        markdown::convert_with(
+            &pandoc,
+            &browser,
+            &md,
+            &output,
+            &work,
+            &cancel,
+            None,
+            &PageSetup::default(),
+        )
+        .unwrap();
 
         assert!(validate_pdf_header(&output).is_ok());
         let argv = std::fs::read_to_string(&log).unwrap();
@@ -257,6 +276,7 @@ done"#,
             &work,
             &cancel,
             None,
+            &PageSetup::default(),
         )
         .unwrap_err();
         assert!(
@@ -306,10 +326,48 @@ done"#,
 const REAL_TIMEOUT: Option<Duration> = Some(Duration::from_secs(180));
 
 fn convert_real(input: &Path, cache: &Path, job: &str) -> PathBuf {
+    convert_real_on(input, cache, job, &PageSetup::default())
+}
+
+fn convert_real_on(input: &Path, cache: &Path, job: &str, page: &PageSetup) -> PathBuf {
     let cancel = AtomicBool::new(false);
-    convert_to_pdf(input, cache, job, &cancel, &no_progress(), REAL_TIMEOUT)
-        .unwrap_or_else(|e| panic!("convert {}: {e}", input.display()))
-        .expect("a converted document yields a cache PDF")
+    convert_to_pdf(
+        input,
+        cache,
+        job,
+        &cancel,
+        &no_progress(),
+        REAL_TIMEOUT,
+        page,
+    )
+    .unwrap_or_else(|e| panic!("convert {}: {e}", input.display()))
+    .expect("a converted document yields a cache PDF")
+}
+
+/// Width and height of the first page's MediaBox, in points, rounded.
+fn first_page_size(pdf: &Path) -> (i64, i64) {
+    let doc = lopdf::Document::load(pdf).expect("a parseable PDF");
+    let (_, page_id) = doc.get_pages().into_iter().next().expect("one page");
+    let page = doc.get_dictionary(page_id).unwrap();
+    let mb = page
+        .get(b"MediaBox")
+        .and_then(|o| o.as_array())
+        .expect("a MediaBox");
+    let n = |o: &lopdf::Object| {
+        o.as_float()
+            .map(f64::from)
+            .or_else(|_| o.as_i64().map(|v| v as f64))
+            .unwrap()
+    };
+    (
+        (n(&mb[2]) - n(&mb[0])).round() as i64,
+        (n(&mb[3]) - n(&mb[1])).round() as i64,
+    )
+}
+
+/// The job's paper for the browser converters: A4 portrait, the default.
+fn a4() -> PageSetup {
+    PageSetup::for_settings(&crate::queue::job::JobSettings::default())
 }
 
 #[test]
@@ -409,8 +467,10 @@ fn fr_055_real_html_prints_through_the_browser() {
         ),
     )
     .unwrap();
-    let pdf = convert_real(&html, &dir.path().join("cache"), "real-html");
+    let pdf = convert_real_on(&html, &dir.path().join("cache"), "real-html", &a4());
     assert!(pages_of(&pdf) >= 1);
+    // An A4 job gets A4 pages, not the browser's US Letter default.
+    assert_eq!(first_page_size(&pdf), (595, 842));
 }
 
 #[test]
@@ -427,8 +487,9 @@ fn fr_056_real_markdown_goes_through_pandoc_and_the_browser() {
         "# Título\n\nSome *emphasis*, a list:\n\n- one\n- two\n\n```rust\nfn main() {}\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n",
     )
     .unwrap();
-    let pdf = convert_real(&md, &dir.path().join("cache"), "real-md");
+    let pdf = convert_real_on(&md, &dir.path().join("cache"), "real-md", &a4());
     assert_eq!(pages_of(&pdf), 1);
+    assert_eq!(first_page_size(&pdf), (595, 842));
 }
 
 #[cfg(target_os = "macos")]
@@ -473,6 +534,7 @@ fn fr_052_corrupt_heic_is_a_conversion_failure_not_a_crash() {
         &cancel,
         &no_progress(),
         REAL_TIMEOUT,
+        &PageSetup::default(),
     )
     .unwrap_err();
     assert!(matches!(err, EngineError::ConversionFailed(_)), "{err:?}");

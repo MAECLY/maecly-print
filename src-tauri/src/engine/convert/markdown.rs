@@ -24,7 +24,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use super::process::run_bounded;
-use super::{file_url, WorkDir};
+use super::{file_url, PageSetup, WorkDir};
 use crate::engine::EngineError;
 
 /// Extensions treated as Markdown.
@@ -53,14 +53,21 @@ fn attr_escape(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
-/// The `<head>` fragment injected by Pandoc: base URL + stylesheet. Pure.
-pub fn head_fragment(source_dir: &Path) -> String {
+/// The `<head>` fragment injected by Pandoc: base URL + stylesheet, plus the
+/// job's paper size when it names one (the browser would otherwise lay the
+/// page out on US Letter). Pure.
+pub fn head_fragment(source_dir: &Path, page: &PageSetup) -> String {
     let mut base = file_url(source_dir);
     if !base.ends_with('/') {
         base.push('/');
     }
+    let size = page
+        .css_size
+        .as_deref()
+        .map(|size| format!("@page {{ size: {size}; }}\n"))
+        .unwrap_or_default();
     format!(
-        "<base href=\"{}\">\n<style>\n{PRINT_CSS}</style>\n",
+        "<base href=\"{}\">\n<style>\n{PRINT_CSS}{size}</style>\n",
         attr_escape(&base)
     )
 }
@@ -89,11 +96,12 @@ pub fn convert_with(
     work: &WorkDir,
     cancel: &AtomicBool,
     timeout: Option<Duration>,
+    page_setup: &PageSetup,
 ) -> Result<(), EngineError> {
     let started = std::time::Instant::now();
     let source_dir = input.parent().unwrap_or_else(|| Path::new("."));
     let header = work.path().join("head.html");
-    std::fs::write(&header, head_fragment(source_dir)).map_err(|e| {
+    std::fs::write(&header, head_fragment(source_dir, page_setup)).map_err(|e| {
         EngineError::ConversionFailed(format!("cannot prepare the conversion folder: {e}"))
     })?;
     let page = work.path().join("page.html");
@@ -119,7 +127,16 @@ pub fn convert_with(
             "Pandoc used the whole conversion time budget".to_string(),
         ));
     }
-    super::html::convert_with(browser, &page, output, work, cancel, remaining)
+    // The page already carries the paper size in its header.
+    super::html::convert_with(
+        browser,
+        &page,
+        output,
+        work,
+        cancel,
+        remaining,
+        &PageSetup::default(),
+    )
 }
 
 #[cfg(test)]
@@ -155,8 +172,14 @@ mod tests {
         } else {
             ("/docs/my notes", "file:///docs/my%20notes/")
         };
-        let head = head_fragment(Path::new(dir));
+        let head = head_fragment(Path::new(dir), &PageSetup::default());
         assert!(head.contains(&format!("<base href=\"{base}\">")), "{head}");
         assert!(head.contains("@page"));
+        assert!(!head.contains("size: 210mm"));
+
+        let a4 = PageSetup {
+            css_size: Some("210mm 297mm".to_string()),
+        };
+        assert!(head_fragment(Path::new(dir), &a4).contains("@page { size: 210mm 297mm; }"));
     }
 }

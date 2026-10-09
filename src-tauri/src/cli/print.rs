@@ -328,6 +328,7 @@ fn print_one(
         &cancel,
         &|_| {},
         timeouts.conversion,
+        &crate::engine::convert::PageSetup::for_settings(settings),
     )?;
 
     let pdf = converted.unwrap_or_else(|| input.to_path_buf());

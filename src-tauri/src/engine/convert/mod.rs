@@ -45,6 +45,93 @@ pub use html::HTML_EXTS;
 pub use markdown::MARKDOWN_EXTS;
 pub use office::OFFICE_EXTS;
 
+/// The page geometry a converter that lays pages out itself must honour.
+///
+/// Office documents carry their own page size, images are fitted by the
+/// printer, but HTML and Markdown are *paginated by the browser*, which
+/// otherwise uses US Letter whatever the job asks for: an A4 job then
+/// printed Letter pages, clipped on the right at actual size. The browser
+/// honours a CSS `@page { size: … }` rule, so this carries that value.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PageSetup {
+    /// The CSS `size` value (`210mm 297mm`), or `None` to leave the
+    /// browser's default (paper `auto`, or a size we cannot measure).
+    pub css_size: Option<String>,
+}
+
+impl PageSetup {
+    /// The page geometry `settings` asks for.
+    pub fn for_settings(settings: &crate::queue::job::JobSettings) -> Self {
+        Self {
+            css_size: css_page_size(&settings.paper_size, settings.orientation),
+        }
+    }
+}
+
+/// Width × height of a paper name in portrait, as CSS lengths. `None` for
+/// `auto` and for names we cannot measure (the browser default then applies).
+///
+/// Knows the ISO A/B sizes, the US sizes, `4x6`-style inch sizes and CUPS'
+/// self-describing `w<pt>h<pt>` keywords, matched case-insensitively; a
+/// Windows name such as `A4 210 x 297 mm` is read by its first word.
+fn paper_dimensions(paper: &crate::queue::job::PaperSize) -> Option<(String, String)> {
+    if paper.is_auto() {
+        return None;
+    }
+    let name = paper.as_str().trim().to_ascii_lowercase();
+    let first = name.split_whitespace().next().unwrap_or("");
+    let mm = |w: &str, h: &str| Some((format!("{w}mm"), format!("{h}mm")));
+    let inch = |w: &str, h: &str| Some((format!("{w}in"), format!("{h}in")));
+    let named = match first {
+        "a3" => mm("297", "420"),
+        "a4" => mm("210", "297"),
+        "a5" => mm("148", "210"),
+        "a6" => mm("105", "148"),
+        "b4" => mm("250", "353"),
+        "b5" => mm("176", "250"),
+        "letter" => inch("8.5", "11"),
+        "legal" => inch("8.5", "14"),
+        "tabloid" | "ledger" => inch("11", "17"),
+        "executive" => inch("7.25", "10.5"),
+        _ => None,
+    };
+    if named.is_some() {
+        return named;
+    }
+    let number = |s: &str| {
+        s.parse::<f64>()
+            .ok()
+            .filter(|v| *v > 0.0)
+            .map(|_| s.to_string())
+    };
+    // `4x6`, `5x7`: inches.
+    if let Some((w, h)) = first.split_once('x') {
+        if let (Some(w), Some(h)) = (number(w), number(h)) {
+            return inch(&w, &h);
+        }
+    }
+    // `w288h432`: points.
+    if let Some((w, h)) = first.strip_prefix('w').and_then(|r| r.split_once('h')) {
+        if let (Some(w), Some(h)) = (number(w), number(h)) {
+            return Some((format!("{w}pt"), format!("{h}pt")));
+        }
+    }
+    None
+}
+
+/// The CSS `@page` `size` for `paper` in `orientation` (`auto` keeps the
+/// paper's own portrait shape). Pure.
+pub fn css_page_size(
+    paper: &crate::queue::job::PaperSize,
+    orientation: crate::queue::job::Orientation,
+) -> Option<String> {
+    let (w, h) = paper_dimensions(paper)?;
+    Some(match orientation {
+        crate::queue::job::Orientation::Landscape => format!("{h} {w}"),
+        _ => format!("{w} {h}"),
+    })
+}
+
 /// Which converter handles a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Route {
@@ -124,7 +211,8 @@ impl WorkDir {
 /// external converter runs (raising it kills the converter). `timeout` bounds
 /// each external converter on its own; the dispatcher additionally raises
 /// `cancel` when its conversion timeout fires. `progress` receives
-/// `0.0..=1.0` updates.
+/// `0.0..=1.0` updates. `page` is the paper the job prints on, which the
+/// browser-based converters (HTML, Markdown) lay their pages out to.
 pub fn convert_to_pdf(
     input: &Path,
     cache_dir: &Path,
@@ -132,6 +220,7 @@ pub fn convert_to_pdf(
     cancel: &AtomicBool,
     progress: &(dyn Fn(f32) + Send + Sync),
     timeout: Option<Duration>,
+    page: &PageSetup,
 ) -> Result<Option<PathBuf>, EngineError> {
     check_cancel(cancel)?;
 
@@ -171,7 +260,7 @@ pub fn convert_to_pdf(
     check_cancel(cancel)?;
 
     let result = run_route(
-        route, &tools, input, &output, job_id, cancel, progress, timeout,
+        route, &tools, input, &output, job_id, cancel, progress, timeout, page,
     )
     .and_then(|()| check_cancel(cancel));
     match result {
@@ -194,6 +283,7 @@ fn run_route(
     cancel: &AtomicBool,
     progress: &(dyn Fn(f32) + Send + Sync),
     timeout: Option<Duration>,
+    page: &PageSetup,
 ) -> Result<(), EngineError> {
     let tool = |i: usize| -> Result<&Path, EngineError> {
         tools.get(i).map(PathBuf::as_path).ok_or_else(|| {
@@ -217,14 +307,23 @@ fn run_route(
         Route::Html => {
             let work = WorkDir::new(job_id)?;
             progress(0.0);
-            html::convert_with(tool(0)?, input, output, &work, cancel, timeout)?;
+            html::convert_with(tool(0)?, input, output, &work, cancel, timeout, page)?;
             progress(1.0);
             Ok(())
         }
         Route::Markdown => {
             let work = WorkDir::new(job_id)?;
             progress(0.0);
-            markdown::convert_with(tool(0)?, tool(1)?, input, output, &work, cancel, timeout)?;
+            markdown::convert_with(
+                tool(0)?,
+                tool(1)?,
+                input,
+                output,
+                &work,
+                cancel,
+                timeout,
+                page,
+            )?;
             progress(1.0);
             Ok(())
         }
@@ -332,6 +431,51 @@ fn check_cancel(cancel: &AtomicBool) -> Result<(), EngineError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FR-055 / FR-056: the browser converters lay pages out on the job's
+    /// paper. An A4 job used to produce US Letter pages.
+    #[test]
+    fn fr_055_page_setup_follows_the_job_paper_and_orientation() {
+        use crate::queue::job::{Orientation, PaperSize};
+        let size = |p: &str, o| css_page_size(&PaperSize::parse(p).unwrap(), o);
+        assert_eq!(
+            size("a4", Orientation::Portrait).as_deref(),
+            Some("210mm 297mm")
+        );
+        assert_eq!(
+            size("A4", Orientation::Auto).as_deref(),
+            Some("210mm 297mm")
+        );
+        assert_eq!(
+            size("letter", Orientation::Landscape).as_deref(),
+            Some("11in 8.5in")
+        );
+        assert_eq!(
+            size("Legal", Orientation::Portrait).as_deref(),
+            Some("8.5in 14in")
+        );
+        assert_eq!(
+            size("4x6", Orientation::Portrait).as_deref(),
+            Some("4in 6in")
+        );
+        assert_eq!(
+            size("w288h432", Orientation::Portrait).as_deref(),
+            Some("288pt 432pt")
+        );
+        assert_eq!(
+            size("A4 210 x 297 mm", Orientation::Portrait).as_deref(),
+            Some("210mm 297mm")
+        );
+        assert_eq!(size("auto", Orientation::Portrait), None, "printer default");
+        assert_eq!(size("Envelope #10 odd", Orientation::Portrait), None);
+
+        let settings = crate::queue::job::JobSettings::default();
+        assert_eq!(
+            PageSetup::for_settings(&settings).css_size.as_deref(),
+            Some("210mm 297mm"),
+            "the default job is A4"
+        );
+    }
     use ::image::{ImageFormat, Rgb, RgbImage};
     use std::path::Path;
     use std::sync::atomic::AtomicBool;
@@ -368,8 +512,16 @@ mod tests {
             ("a.webp", ImageFormat::WebP),
         ] {
             let src = write_image(dir.path(), name, fmt);
-            let out = convert_to_pdf(&src, &cache, "job-1", &cancel, &progress, None)
-                .unwrap_or_else(|e| panic!("convert {name}: {e}"));
+            let out = convert_to_pdf(
+                &src,
+                &cache,
+                "job-1",
+                &cancel,
+                &progress,
+                None,
+                &PageSetup::default(),
+            )
+            .unwrap_or_else(|e| panic!("convert {name}: {e}"));
             let pdf = out.expect("image conversion yields a cache PDF");
             assert!(pdf.exists(), "{name}: cache PDF should exist");
             assert_one_page_pdf(&pdf);
@@ -383,7 +535,16 @@ mod tests {
         std::fs::write(&pdf, b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n").unwrap();
         let cancel = AtomicBool::new(false);
         let progress = |_p: f32| {};
-        let out = convert_to_pdf(&pdf, dir.path(), "job", &cancel, &progress, None).unwrap();
+        let out = convert_to_pdf(
+            &pdf,
+            dir.path(),
+            "job",
+            &cancel,
+            &progress,
+            None,
+            &PageSetup::default(),
+        )
+        .unwrap();
         assert!(out.is_none(), "a real PDF is printed in place");
     }
 
@@ -394,7 +555,16 @@ mod tests {
         std::fs::write(&pdf, b"this is definitely not a pdf").unwrap();
         let cancel = AtomicBool::new(false);
         let progress = |_p: f32| {};
-        let err = convert_to_pdf(&pdf, dir.path(), "job", &cancel, &progress, None).unwrap_err();
+        let err = convert_to_pdf(
+            &pdf,
+            dir.path(),
+            "job",
+            &cancel,
+            &progress,
+            None,
+            &PageSetup::default(),
+        )
+        .unwrap_err();
         assert!(matches!(err, EngineError::ConversionFailed(_)));
     }
 
@@ -413,6 +583,7 @@ mod tests {
             &cancel,
             &progress,
             None,
+            &PageSetup::default(),
         )
         .unwrap_err();
         assert!(matches!(err, EngineError::ConversionFailed(_)));
@@ -425,7 +596,16 @@ mod tests {
         std::fs::write(&exe, b"MZ").unwrap();
         let cancel = AtomicBool::new(false);
         let progress = |_p: f32| {};
-        let err = convert_to_pdf(&exe, dir.path(), "job", &cancel, &progress, None).unwrap_err();
+        let err = convert_to_pdf(
+            &exe,
+            dir.path(),
+            "job",
+            &cancel,
+            &progress,
+            None,
+            &PageSetup::default(),
+        )
+        .unwrap_err();
         assert!(matches!(err, EngineError::UnsupportedFormat(_)));
     }
 
@@ -519,7 +699,16 @@ mod tests {
         std::fs::write(&f, b"all:").unwrap();
         let cancel = AtomicBool::new(false);
         let progress = |_p: f32| {};
-        let err = convert_to_pdf(&f, dir.path(), "job", &cancel, &progress, None).unwrap_err();
+        let err = convert_to_pdf(
+            &f,
+            dir.path(),
+            "job",
+            &cancel,
+            &progress,
+            None,
+            &PageSetup::default(),
+        )
+        .unwrap_err();
         assert!(matches!(err, EngineError::UnsupportedFormat(_)));
     }
 
@@ -529,7 +718,16 @@ mod tests {
         let png = write_image(dir.path(), "x.png", ImageFormat::Png);
         let cancel = AtomicBool::new(true);
         let progress = |_p: f32| {};
-        let err = convert_to_pdf(&png, dir.path(), "job", &cancel, &progress, None).unwrap_err();
+        let err = convert_to_pdf(
+            &png,
+            dir.path(),
+            "job",
+            &cancel,
+            &progress,
+            None,
+            &PageSetup::default(),
+        )
+        .unwrap_err();
         assert!(matches!(err, EngineError::Cancelled));
     }
 }

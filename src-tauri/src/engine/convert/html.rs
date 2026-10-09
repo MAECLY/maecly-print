@@ -20,13 +20,13 @@
 //!   output must match what the browser shows. Remote `http(s)://` *inputs*
 //!   are not accepted — only local files reach this converter.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use super::process::run_until;
-use super::{file_url, WorkDir};
+use super::{file_url, PageSetup, WorkDir};
 use crate::engine::EngineError;
 
 /// Extensions rendered by the browser directly.
@@ -56,7 +56,14 @@ pub fn browser_args(user_data_dir: &Path, output: &Path, page_url: &str) -> Vec<
 }
 
 /// Render the local HTML file `page` with the browser at `browser` into
-/// `output`.
+/// `output`, on the paper `setup` names.
+///
+/// The browser lays pages out on US Letter unless the page says otherwise
+/// with CSS `@page { size: … }`. When the job names a paper, the page is
+/// loaded from a copy in the work directory that starts with that rule (and
+/// a `<base href>` pointing at the original folder, so relative CSS and
+/// images still resolve); the user's file is never modified. A size the page
+/// sets itself still wins, since its own rule comes later in the cascade.
 pub fn convert_with(
     browser: &Path,
     page: &Path,
@@ -64,11 +71,13 @@ pub fn convert_with(
     work: &WorkDir,
     cancel: &AtomicBool,
     timeout: Option<Duration>,
+    setup: &PageSetup,
 ) -> Result<(), EngineError> {
     let produced = work.path().join("out.pdf");
     let profile = work.path().join("browser");
+    let target = staged_page(page, work, setup)?;
     let mut cmd = Command::new(browser);
-    cmd.args(browser_args(&profile, &produced, &file_url(page)))
+    cmd.args(browser_args(&profile, &produced, &file_url(&target)))
         .current_dir(work.path());
     let log = work.path().join("browser.log");
     // Some Chrome builds write the PDF and then never exit; finish as soon as
@@ -77,6 +86,96 @@ pub fn convert_with(
     let done = || pdf_is_complete(&produced, &last_size);
     run_until(cmd, "The browser", cancel, timeout, &log, Some(&done))?;
     super::take_output(&produced, output, "The browser", &log)
+}
+
+/// The file the browser should load: `page` itself, or a copy in the work
+/// directory carrying the job's paper size ([`inject_page_setup`]).
+fn staged_page(page: &Path, work: &WorkDir, setup: &PageSetup) -> Result<PathBuf, EngineError> {
+    let Some(size) = setup.css_size.as_deref() else {
+        return Ok(page.to_path_buf());
+    };
+    let html = std::fs::read(page).map_err(|e| {
+        EngineError::ConversionFailed(format!("cannot read {}: {e}", page.display()))
+    })?;
+    let mut base = file_url(page.parent().unwrap_or_else(|| Path::new(".")));
+    if !base.ends_with('/') {
+        base.push('/');
+    }
+    let Some(staged_html) = inject_page_setup(&html, &base, size) else {
+        return Ok(page.to_path_buf());
+    };
+    let staged = work.path().join("page.html");
+    std::fs::write(&staged, staged_html).map_err(|e| {
+        EngineError::ConversionFailed(format!("cannot prepare the conversion folder: {e}"))
+    })?;
+    Ok(staged)
+}
+
+/// Position just past the `>` of the first tag named `name` (ASCII,
+/// case-insensitive, `name` followed by whitespace, `/` or `>`), if any.
+fn after_tag(html: &[u8], name: &str) -> Option<usize> {
+    let lower: Vec<u8> = html.iter().map(u8::to_ascii_lowercase).collect();
+    let needle = format!("<{name}");
+    let mut from = 0;
+    while let Some(rel) = lower[from..]
+        .windows(needle.len())
+        .position(|w| w == needle.as_bytes())
+    {
+        let start = from + rel;
+        let next = lower.get(start + needle.len()).copied();
+        if matches!(next, Some(b'>' | b'/' | b' ' | b'\t' | b'\n' | b'\r')) {
+            let close = lower[start..].iter().position(|&b| b == b'>')?;
+            return Some(start + close + 1);
+        }
+        from = start + 1;
+    }
+    None
+}
+
+/// `html` with a `<style>@page { size: … }</style>` (and a `<base href>`
+/// when the page has none) inserted at the start of its head. Pure.
+///
+/// The insertion point is just after `<head>`, else after `<html>`, else
+/// after the doctype, else the very start: never before the doctype, which
+/// would drop the page into quirks mode. `None` for a UTF-16 page (a BOM),
+/// where ASCII bytes cannot be spliced in; the original is printed then.
+pub fn inject_page_setup(html: &[u8], base_href: &str, css_size: &str) -> Option<Vec<u8>> {
+    if html.starts_with(&[0xFF, 0xFE]) || html.starts_with(&[0xFE, 0xFF]) {
+        return None;
+    }
+    let escape = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('"', "&quot;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+    };
+    let has_base = after_tag(html, "base").is_some();
+    let mut snippet = String::new();
+    if !has_base {
+        snippet.push_str(&format!("<base href=\"{}\">", escape(base_href)));
+    }
+    let css: String = css_size
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | ' '))
+        .collect();
+    snippet.push_str(&format!("<style>@page {{ size: {css}; }}</style>"));
+
+    let at = after_tag(html, "head")
+        .or_else(|| after_tag(html, "html"))
+        .or_else(|| after_tag(html, "!doctype"))
+        .unwrap_or_else(|| {
+            // Keep a UTF-8 BOM first.
+            if html.starts_with(&[0xEF, 0xBB, 0xBF]) {
+                3
+            } else {
+                0
+            }
+        });
+    let mut out = Vec::with_capacity(html.len() + snippet.len());
+    out.extend_from_slice(&html[..at]);
+    out.extend_from_slice(snippet.as_bytes());
+    out.extend_from_slice(&html[at..]);
+    Some(out)
 }
 
 /// Whether the browser has finished writing `pdf`: the file ends with the
@@ -123,6 +222,45 @@ mod tests {
         assert!(args.contains(&"--user-data-dir=/w/browser".to_string()));
         assert!(args.contains(&"--print-to-pdf=/w/out.pdf".to_string()));
         assert_eq!(args.last().unwrap(), "file:///docs/a%20b.html");
+    }
+
+    #[test]
+    fn fr_055_the_paper_size_is_injected_after_the_head_tag() {
+        let html = b"<!DOCTYPE html><html lang=en><HEAD><title>x</title></head><body><header>h</header></body></html>";
+        let out =
+            String::from_utf8(inject_page_setup(html, "file:///docs/", "210mm 297mm").unwrap())
+                .unwrap();
+        assert!(
+            out.starts_with("<!DOCTYPE html><html lang=en><HEAD><base href=\"file:///docs/\"><style>@page { size: 210mm 297mm; }</style><title>"),
+            "{out}"
+        );
+        assert!(out.ends_with("<body><header>h</header></body></html>"));
+    }
+
+    #[test]
+    fn fr_055_injection_keeps_the_doctype_first_and_an_own_base() {
+        // No head or html tag: after the doctype, never before it.
+        let out = String::from_utf8(
+            inject_page_setup(b"<!doctype html><p>hi", "file:///d/", "8.5in 11in").unwrap(),
+        )
+        .unwrap();
+        assert!(out.starts_with("<!doctype html><base href="), "{out}");
+
+        // The page's own <base> is respected.
+        let out = String::from_utf8(
+            inject_page_setup(
+                b"<html><head><base href='https://x/'></head></html>",
+                "file:///d/",
+                "4in 6in",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(out.matches("<base").count(), 1, "{out}");
+        assert!(out.contains("size: 4in 6in"));
+
+        // UTF-16 cannot be spliced with ASCII bytes.
+        assert!(inject_page_setup(&[0xFF, 0xFE, b'<', 0], "file:///d/", "4in 6in").is_none());
     }
 
     #[test]

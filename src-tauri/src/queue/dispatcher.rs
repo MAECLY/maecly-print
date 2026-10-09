@@ -84,7 +84,7 @@
 //!   arrives, which then cancels the OS job and deletes the cache — so a
 //!   cancelled job can never share the printer with the next one.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -394,6 +394,7 @@ impl JobRunner for EngineRunner {
             &cancel,
             &*progress,
             timeout,
+            &crate::engine::convert::PageSetup::for_settings(&job.settings),
         )
     }
 
@@ -2171,7 +2172,7 @@ fn delete_cache_file(path: &str) {
 mod tests {
     use super::*;
     use crate::queue::job::{Duplex, JobSettings};
-    use std::collections::VecDeque;
+    use std::collections::{HashSet, VecDeque};
     use std::sync::atomic::AtomicUsize;
     use tempfile::TempDir;
 
