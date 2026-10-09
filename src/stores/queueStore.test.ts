@@ -98,6 +98,7 @@ function resetStore() {
     snapshot: null,
     subscribed: false,
     pendingClear: [],
+    pendingIds: [],
     notifiedBatches: [],
     notifiedPaused: [],
     uiJobs: [],
@@ -657,6 +658,109 @@ describe('queueStore — clear done with undo (NFR-032)', () => {
     expect(error).toHaveBeenCalledWith('boom');
     expect(useQueueStore.getState().counts.done).toBe(3);
     expect(useQueueStore.getState().pendingClear).toEqual([]);
+  });
+
+  it('NFR-032: undo reports whether it really cancelled the pending clear', async () => {
+    mockQueue();
+    await useQueueStore.getState().init();
+    const onCommit = vi.fn();
+
+    useQueueStore.getState().requestClearDone(onCommit);
+    expect(useQueueStore.getState().undoClearDone()).toBe(true);
+    expect(onCommit).not.toHaveBeenCalled();
+
+    // Past the window: the backend call already went out, so an Undo (from a
+    // toast kept open by hovering it) must not claim the jobs were kept.
+    useQueueStore.getState().requestClearDone(onCommit);
+    await vi.advanceTimersByTimeAsync(CLEAR_UNDO_MS);
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(useQueueStore.getState().undoClearDone()).toBe(false);
+  });
+});
+
+describe('queueStore — batch totals and row actions', () => {
+  beforeEach(() => resetStore());
+  afterEach(() => {
+    clearMocks();
+    vi.restoreAllMocks();
+  });
+
+  it('FR-070: a batch partly cleared from history is still announced in full', async () => {
+    const batch = (a: Job['state'], b: Job['state'], c: Job['state']) =>
+      snapshotOf([
+        mkJob({ id: 'a', state: a, file_name: 'a.pdf' }),
+        mkJob({ id: 'b', state: b, file_name: 'b.pdf' }),
+        mkJob({ id: 'c', state: c, file_name: 'c.pdf' }),
+      ]);
+    mockQueue({ snapshot: batch('queued', 'queued', 'queued') });
+    const success = vi.spyOn(toast, 'success').mockReturnValue('id');
+    await useQueueStore.getState().init();
+
+    emitQueueUpdated(batch('done', 'done', 'printing'));
+    // "Clear done" removed a and b from the backend snapshot…
+    emitQueueUpdated(
+      snapshotOf([mkJob({ id: 'c', state: 'printing', file_name: 'c.pdf' })]),
+    );
+    // …and then the last one finished.
+    emitQueueUpdated(
+      snapshotOf([mkJob({ id: 'c', state: 'done', file_name: 'c.pdf' })]),
+    );
+
+    expect(success).toHaveBeenCalledTimes(1);
+    expect(success.mock.calls[0]?.[0]).toBe(
+      '3 of 3 files printed successfully',
+    );
+  });
+
+  it('NFR-033: a row action is marked in flight until the backend answers', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    mockIPC(async (cmd) => {
+      if (cmd === 'queue_status') return fixtureQueueSnapshot;
+      if (cmd === 'cancel_job') await held;
+      return null;
+    });
+    await useQueueStore.getState().init();
+
+    const first = useQueueStore.getState().cancelJob('j-queued');
+    expect(useQueueStore.getState().pendingIds).toContain('j-queued');
+    release();
+    await first;
+    expect(useQueueStore.getState().pendingIds).not.toContain('j-queued');
+  });
+
+  it('NFR-033: cancelling a job that already finished is a translated note, not a raw error', async () => {
+    const snap = snapshotOf([
+      mkJob({ id: 'j-1', state: 'printing', file_name: 'report.pdf' }),
+    ]);
+    mockIPC((cmd) => {
+      if (cmd === 'queue_status') return snap;
+      if (cmd === 'cancel_job') {
+        // The job reached Done while the confirm was open.
+        emitQueueUpdated(
+          snapshotOf([
+            mkJob({ id: 'j-1', state: 'done', file_name: 'report.pdf' }),
+          ]),
+        );
+        throw {
+          code: 'InvalidState',
+          message:
+            'job 0192f3aa-0000-7000-8000-000000000000 has already finished',
+        };
+      }
+      return null;
+    });
+    const error = vi.spyOn(toast, 'error').mockReturnValue('id');
+    const info = vi.spyOn(toast, 'info').mockReturnValue('id');
+    vi.spyOn(toast, 'success').mockReturnValue('id');
+    await useQueueStore.getState().init();
+
+    await useQueueStore.getState().cancelJob('j-1');
+
+    expect(error).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(
+      '“report.pdf” had already finished — there was nothing to cancel.',
+    );
   });
 });
 

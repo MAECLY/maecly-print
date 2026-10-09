@@ -99,6 +99,21 @@ export function isTauri(): boolean {
 
 const NO_HOST = 'Not running inside Tauri (standalone Vite preview)';
 
+/**
+ * A command that answered with an [`IpcError`]. Still an `Error` (with the
+ * backend's message), so every existing `e.message` toast keeps working, but
+ * it also carries the machine-readable `code` — the only safe thing to branch
+ * on, since the message is prose and may name internal ids.
+ */
+export class IpcCallError extends Error {
+  readonly code: IpcError['code'] | undefined;
+  constructor(message: string, code: IpcError['code'] | undefined) {
+    super(message);
+    this.name = 'IpcCallError';
+    this.code = code;
+  }
+}
+
 /** Unwrap a tauri-specta `Result`, turning the error branch into a throw. */
 async function unwrap<T>(
   p: Promise<{ status: 'ok'; data: T } | { status: 'error'; error: IpcError }>,
@@ -118,11 +133,9 @@ async function unwrap<T>(
     message: r.error?.message,
     code: r.error?.code,
   };
-  // The stable `code` rides along on the Error so a screen can tell, say, a
-  // rejected update signature from a network failure and phrase it itself.
-  throw Object.assign(
-    new Error(message ?? (code ? `IPC error: ${code}` : 'IPC error')),
-    { code },
+  throw new IpcCallError(
+    message ?? (code ? `IPC error: ${code}` : 'IPC error'),
+    code,
   );
 }
 

@@ -54,6 +54,7 @@ import {
   cancelAll as cancelAllCmd,
   cancelJob as cancelJobCmd,
   clearDone as clearDoneCmd,
+  IpcCallError,
   isTauri,
   notifyNative,
   openLogsFolder,
@@ -105,6 +106,12 @@ interface QueueState {
    */
   pendingClear: string[];
   /**
+   * Job ids with a row action (pause/resume/retry/cancel) still waiting for
+   * the backend, so the row can disable its buttons instead of letting a
+   * double click send the command twice (NFR-033).
+   */
+  pendingIds: string[];
+  /**
    * Batch ids already announced as finished, so one completion produces one
    * toast. A batch that leaves the set (a job was retried) can announce again.
    */
@@ -133,10 +140,19 @@ interface QueueState {
    * Hide every finished job and schedule the real `clear_done` for
    * {@link CLEAR_UNDO_MS} from now. Returns how many jobs were hidden (0 when
    * there was nothing to clear, in which case nothing is scheduled).
+   *
+   * `onCommit` runs the moment the window closes and the backend call goes
+   * out — the screen dismisses its Undo toast there, because a toast can
+   * outlive its nominal duration (it pauses while hovered).
    */
-  requestClearDone: () => number;
-  /** Cancel a pending clear and put the hidden jobs back on screen. */
-  undoClearDone: () => void;
+  requestClearDone: (onCommit?: () => void) => number;
+  /**
+   * Cancel a pending clear and put the hidden jobs back on screen. Returns
+   * `false` when there was nothing left to cancel — the window had closed and
+   * `clear_done` already went out — so the caller never claims the jobs were
+   * kept when they are gone.
+   */
+  undoClearDone: () => boolean;
   /** Resolves to the cancelled count, or `null` when the backend call failed. */
   cancelAll: () => Promise<number | null>;
 }
@@ -309,9 +325,12 @@ function notifyJobNeedsAction(snapshot: QueueSnapshot, jobId: string): void {
  * A batch with failures wins over the success summary: the user needs the
  * error, what to do about it, and a way into the job log — which is the logs
  * folder, the finest-grained entry point the backend exposes today.
+ *
+ * `jobs` is every job the batch has had this session, including ones a
+ * "Clear done" already removed from the snapshot: counting only what is left
+ * would announce "1 of 1" for a batch of three.
  */
-function notifyBatchComplete(snapshot: QueueSnapshot, batchId: string): void {
-  const jobs = snapshot.jobs.filter((j) => j.batch_id === batchId);
+function notifyBatchComplete(jobs: readonly Job[]): void {
   const total = jobs.length;
   if (total === 0) return;
   const done = jobs.filter((j) => j.state === 'done').length;
@@ -363,6 +382,34 @@ function message(e: unknown): string {
 export const useQueueStore = create<QueueState>()((set, get) => {
   /** Timer of the open "Clear done" undo window, if any. */
   let clearTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Called when that window closes and `clear_done` goes out. */
+  let onClearCommit: (() => void) | null = null;
+
+  /**
+   * Every job each batch has had this session, by batch id then job id, last
+   * known state. Survives a "Clear done" that removes a batch's finished jobs
+   * from the snapshot while the rest is still printing, so the completion
+   * toast counts the whole batch (FR-070). Pruned once a batch is entirely
+   * gone from the snapshot; reset when a session's first snapshot is adopted.
+   */
+  const batchMembers = new Map<string, Map<string, Job>>();
+
+  function trackBatches(next: QueueSnapshot, fresh: boolean): void {
+    if (fresh) batchMembers.clear();
+    const live = new Set<string>();
+    for (const job of next.jobs) {
+      live.add(job.batch_id);
+      let members = batchMembers.get(job.batch_id);
+      if (!members) {
+        members = new Map();
+        batchMembers.set(job.batch_id, members);
+      }
+      members.set(job.id, job);
+    }
+    for (const id of [...batchMembers.keys()]) {
+      if (!live.has(id)) batchMembers.delete(id);
+    }
+  }
 
   /**
    * Whether some snapshot — from `queue_status` OR from an event that beat it
@@ -396,6 +443,7 @@ export const useQueueStore = create<QueueState>()((set, get) => {
 
   /** Adopt an authoritative snapshot and announce any batch that just ended. */
   function adopt(next: QueueSnapshot, announce: boolean): void {
+    trackBatches(next, !seeded());
     const complete = completeBatchIds(next);
     const known = get().notifiedBatches;
     const fresh = announce ? complete.filter((id) => !known.includes(id)) : [];
@@ -411,12 +459,17 @@ export const useQueueStore = create<QueueState>()((set, get) => {
       notifiedPaused: stuck,
     });
     for (const id of freshStuck) notifyJobNeedsAction(next, id);
-    for (const id of fresh) notifyBatchComplete(next, id);
+    for (const id of fresh) {
+      notifyBatchComplete([...(batchMembers.get(id)?.values() ?? [])]);
+    }
   }
 
   /** Send the deferred `clear_done` once the undo window has elapsed. */
   async function commitClearDone(): Promise<void> {
     clearTimer = null;
+    const notify = onClearCommit;
+    onClearCommit = null;
+    notify?.();
     if (get().pendingClear.length === 0) return;
     try {
       await clearDoneCmd();
@@ -439,11 +492,44 @@ export const useQueueStore = create<QueueState>()((set, get) => {
     }
   }
 
+  /**
+   * Run one row action for job `id`: at most one in flight per job (a second
+   * click while the first is pending is dropped, and the row disables its
+   * buttons meanwhile), and a refusal that only means "the job moved on
+   * before the command arrived" — it finished, or was removed — becomes a
+   * translated note instead of the backend's English text with a raw UUID.
+   */
+  async function jobAction(
+    id: string,
+    run: (id: string) => Promise<void>,
+  ): Promise<void> {
+    if (get().pendingIds.includes(id)) return;
+    const file = get().snapshot?.jobs.find((j) => j.id === id)?.file_name;
+    set({ pendingIds: [...get().pendingIds, id] });
+    try {
+      await run(id);
+    } catch (e) {
+      const now = get().snapshot?.jobs.find((j) => j.id === id);
+      const movedOn =
+        e instanceof IpcCallError &&
+        (e.code === 'JobNotFound' ||
+          (e.code === 'InvalidState' && (!now || TERMINAL.has(now.state))));
+      if (movedOn) {
+        toast.info(t('notify.alreadyFinished', { file: file ?? '' }));
+      } else {
+        toast.error(message(e));
+      }
+    } finally {
+      set({ pendingIds: get().pendingIds.filter((p) => p !== id) });
+    }
+  }
+
   return {
     snapshot: null,
     status: 'idle',
     subscribed: false,
     pendingClear: [],
+    pendingIds: [],
     notifiedBatches: [],
     notifiedPaused: [],
     uiJobs: [],
@@ -522,14 +608,14 @@ export const useQueueStore = create<QueueState>()((set, get) => {
       }
     },
 
-    pauseJob: (id) => guard(() => pauseJobCmd(id)),
-    resumeJob: (id) => guard(() => resumeJobCmd(id)),
-    cancelJob: (id) => guard(() => cancelJobCmd(id)),
-    retryJob: (id) => guard(() => retryJobCmd(id)),
+    pauseJob: (id) => jobAction(id, pauseJobCmd),
+    resumeJob: (id) => jobAction(id, resumeJobCmd),
+    cancelJob: (id) => jobAction(id, cancelJobCmd),
+    retryJob: (id) => jobAction(id, retryJobCmd),
     pauseQueue: () => guard(() => pauseQueueCmd()),
     resumeQueue: () => guard(() => resumeQueueCmd()),
 
-    requestClearDone: () => {
+    requestClearDone: (onCommit) => {
       // Known limitation of doing this client-side: `clear_done` has no id
       // list, so a job that reaches a terminal state DURING the undo window is
       // swept too even though it was never hidden. Five seconds is short
@@ -541,16 +627,23 @@ export const useQueueStore = create<QueueState>()((set, get) => {
       const pending = [...new Set([...get().pendingClear, ...ids])];
       set(derive(get().snapshot, pending));
       if (clearTimer) clearTimeout(clearTimer);
+      // A superseded window's toast is going away too: let its owner know.
+      onClearCommit?.();
+      onClearCommit = onCommit ?? null;
       clearTimer = setTimeout(() => void commitClearDone(), CLEAR_UNDO_MS);
       return ids.length;
     },
 
     undoClearDone: () => {
-      if (clearTimer) {
-        clearTimeout(clearTimer);
-        clearTimer = null;
-      }
+      // No timer means no window: either nothing was pending, or the backend
+      // call is already out (and its own `finally` restores the view). In both
+      // cases there is nothing to undo, and saying otherwise would be a lie.
+      if (!clearTimer) return false;
+      clearTimeout(clearTimer);
+      clearTimer = null;
+      onClearCommit = null;
       set(derive(get().snapshot, []));
+      return true;
     },
 
     cancelAll: async () => {

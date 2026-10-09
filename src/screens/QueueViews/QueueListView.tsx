@@ -91,9 +91,11 @@ interface RowProps {
   onResume: () => void;
   onRetry: () => void;
   onCancel: () => void;
+  /** A command for this job is still in flight: no second click (NFR-033). */
+  busy: boolean;
 }
 
-function Row({ j, t, onPause, onResume, onRetry, onCancel }: RowProps) {
+function Row({ j, t, onPause, onResume, onRetry, onCancel, busy }: RowProps) {
   const terminal = TERMINAL.has(j.status);
   const canPause =
     j.status === 'queued' ||
@@ -173,6 +175,7 @@ function Row({ j, t, onPause, onResume, onRetry, onCancel }: RowProps) {
             icon="pause"
             size={24}
             label={t('actions.pause')}
+            disabled={busy}
             onClick={onPause}
           />
         )}
@@ -181,6 +184,7 @@ function Row({ j, t, onPause, onResume, onRetry, onCancel }: RowProps) {
             icon="play"
             size={24}
             label={t('actions.resume')}
+            disabled={busy}
             onClick={onResume}
           />
         )}
@@ -189,6 +193,7 @@ function Row({ j, t, onPause, onResume, onRetry, onCancel }: RowProps) {
             icon="rotate"
             size={24}
             label={t('actions.retry')}
+            disabled={busy}
             onClick={onRetry}
           />
         )}
@@ -197,6 +202,7 @@ function Row({ j, t, onPause, onResume, onRetry, onCancel }: RowProps) {
             icon="x"
             size={24}
             label={t('actions.cancel')}
+            disabled={busy}
             onClick={onCancel}
           />
         )}
@@ -211,6 +217,7 @@ export function QueueListView({ jobs, onConfirm }: QueueListViewProps) {
   const resumeJob = useQueueStore((s) => s.resumeJob);
   const retryJob = useQueueStore((s) => s.retryJob);
   const cancelJob = useQueueStore((s) => s.cancelJob);
+  const pendingIds = useQueueStore((s) => s.pendingIds);
 
   const groups = {
     active: jobs.filter((j) =>
@@ -286,6 +293,7 @@ export function QueueListView({ jobs, onConfirm }: QueueListViewProps) {
                   onResume={() => void resumeJob(j.id)}
                   onRetry={() => void retryJob(j.id)}
                   onCancel={() => requestCancel(j)}
+                  busy={pendingIds.includes(j.id)}
                 />
               ))}
             </div>

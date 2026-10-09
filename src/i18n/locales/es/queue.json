@@ -15,6 +15,7 @@
     "pauseQueue": "Pausar cola",
     "resumeQueue": "Reanudar cola",
     "clearDone": "Limpiar terminados",
+    "cancelAll": "Cancelar todo",
     "pause": "Pausar",
     "resume": "Reanudar",
     "retry": "Reintentar",
@@ -82,14 +83,21 @@
     "clearMessage_other": "¿Limpiar {{count}} trabajos terminados? Desaparecerán del historial: tienes {{seconds}} segundos para deshacerlo.",
     "cancelTitle": "¿Cancelar este trabajo?",
     "cancelMessage": "«{{file}}» se está imprimiendo. ¿Lo cancelas? Las páginas que ya se enviaron a la impresora pueden salir igualmente.",
-    "cancelConfirm": "Cancelar trabajo"
+    "cancelConfirm": "Cancelar trabajo",
+    "cancelAllTitle": "¿Cancelar todos los trabajos sin terminar?",
+    "cancelAllMessage_one": "Se cancelará {{count}} trabajo que aún no ha terminado. No se puede deshacer, y las páginas ya enviadas a la impresora pueden salir igualmente.",
+    "cancelAllMessage_other": "Se cancelarán {{count}} trabajos que aún no han terminado. No se puede deshacer, y las páginas ya enviadas a la impresora pueden salir igualmente.",
+    "cancelAllConfirm": "Cancelar todo"
   },
   "toast": {
     "cleared_one": "Se limpió {{count}} trabajo terminado",
     "cleared_other": "Se limpiaron {{count}} trabajos terminados",
     "undo": "Deshacer",
     "restored_one": "Se conservó {{count}} trabajo terminado",
-    "restored_other": "Se conservaron {{count}} trabajos terminados"
+    "restored_other": "Se conservaron {{count}} trabajos terminados",
+    "undoTooLate": "Ya es tarde para deshacer: los trabajos terminados ya se han borrado.",
+    "cancelledAll_one": "Se canceló {{count}} trabajo",
+    "cancelledAll_other": "Se cancelaron {{count}} trabajos"
   },
   "notify": {
     "batchDone_one": "Se imprimió correctamente {{done}} de {{total}} archivo",
@@ -101,6 +109,7 @@
     "batchCancelled_other": "{{count}} trabajos cancelados",
     "jobNeedsAction": "La impresión se detuvo: {{file}} necesita tu atención",
     "jobNeedsActionHint": "{{error}}. Corrígelo y reanuda el trabajo desde la cola.",
-    "openQueue": "Abrir la cola"
+    "openQueue": "Abrir la cola",
+    "alreadyFinished": "«{{file}}» ya había terminado: no había nada que cancelar."
   }
 }

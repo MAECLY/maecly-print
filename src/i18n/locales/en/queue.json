@@ -15,6 +15,7 @@
     "pauseQueue": "Pause queue",
     "resumeQueue": "Resume queue",
     "clearDone": "Clear done",
+    "cancelAll": "Cancel all",
     "pause": "Pause",
     "resume": "Resume",
     "retry": "Retry",
@@ -82,14 +83,21 @@
     "clearMessage_other": "Clear {{count}} finished jobs? They leave the history — you get {{seconds}} seconds to undo.",
     "cancelTitle": "Cancel this job?",
     "cancelMessage": "“{{file}}” is printing. Cancel it? Pages already sent to the printer may still come out.",
-    "cancelConfirm": "Cancel job"
+    "cancelConfirm": "Cancel job",
+    "cancelAllTitle": "Cancel every unfinished job?",
+    "cancelAllMessage_one": "{{count}} job that has not finished will be cancelled. This cannot be undone, and pages already sent to the printer may still come out.",
+    "cancelAllMessage_other": "{{count}} jobs that have not finished will be cancelled. This cannot be undone, and pages already sent to the printer may still come out.",
+    "cancelAllConfirm": "Cancel all"
   },
   "toast": {
     "cleared_one": "Cleared {{count}} finished job",
     "cleared_other": "Cleared {{count}} finished jobs",
     "undo": "Undo",
     "restored_one": "{{count}} finished job kept",
-    "restored_other": "{{count}} finished jobs kept"
+    "restored_other": "{{count}} finished jobs kept",
+    "undoTooLate": "Too late to undo — the finished jobs were already cleared.",
+    "cancelledAll_one": "Cancelled {{count}} job",
+    "cancelledAll_other": "Cancelled {{count}} jobs"
   },
   "notify": {
     "batchDone_one": "{{done}} of {{total}} file printed successfully",
@@ -101,6 +109,7 @@
     "batchCancelled_other": "{{count}} jobs cancelled",
     "jobNeedsAction": "Printing stopped: {{file}} needs your attention",
     "jobNeedsActionHint": "{{error}} — fix it, then resume the job from the queue.",
-    "openQueue": "Open queue"
+    "openQueue": "Open queue",
+    "alreadyFinished": "“{{file}}” had already finished — there was nothing to cancel."
   }
 }
