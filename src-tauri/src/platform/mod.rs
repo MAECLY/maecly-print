@@ -24,6 +24,7 @@
 
 #[cfg(unix)]
 mod cups;
+pub mod dnssd;
 #[cfg(target_os = "macos")]
 pub mod macos;
 pub mod testpage;

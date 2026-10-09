@@ -155,6 +155,10 @@ windows = { version = "0.58", features = [
   "Win32_Storage_Xps",
   "Win32_System_Com",
 ] }
+# Network printer discovery on Windows: a pure-Rust mDNS/DNS-SD browser for
+# `_ipp._tcp` / `_ipps._tcp` (macOS uses CUPS' own `ippfind`). No async
+# runtime and no `log` feature, so it pulls in nothing heavy.
+mdns-sd = { version = "=0.13.11", default-features = false }
 
 [features]
 # By default Tauri uses "custom-protocol" in release builds. Tauri's CLI passes this in.
