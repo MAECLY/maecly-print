@@ -198,10 +198,14 @@ export type QueueSnapshot = { schema_version: number; queue_paused: boolean; job
 export type FileInfo = {
   path: string; name: string; ext: string; bytes: number;
   pages: number | null; supported: boolean; reason: string | null;
+  reason_code: RejectReason | null; // stable form of `reason`, translated by the UI
   is_dir: boolean;               // directories are reported, not rejected
   has_subfolders: boolean;       // only meaningful when is_dir
 };
 
+export type RejectReason =
+  | "not_found" | "invalid_path" | "folder" | "not_a_file"
+  | "too_large" | "heif_unsupported" | "unsupported_type";
 export type FolderScan  = "top_level" | "recursive";
 export type SkipReason  = "unsupported_format" | "too_large" | "unreadable";
 export type SkippedFile = { path: string; name: string; reason: SkipReason; detail: string };
@@ -508,30 +512,40 @@ For batches, `ExitCode::worst` returns the highest code among the files, so one 
 
 ## 4. Error model
 
-A single `IpcError` enum is serialized identically to the webview and to a `--json` CLI run (`src-tauri/src/util/error.rs`):
+A single `IpcError` is serialized identically to the webview and to a `--json` CLI run (`src-tauri/src/util/error.rs`). On the wire it is one flat object:
 
-```rust
-#[derive(thiserror::Error, Debug, Serialize)]
-#[serde(tag = "code", content = "message")]
-pub enum IpcError {
-    #[error("File not found: {0}")]            FileNotFound(String),
-    #[error("Invalid request: {0}")]           InvalidRequest(String),
-    #[error("Unsupported file format: {0}")]   UnsupportedFormat(String),
-    #[error("Conversion failed: {0}")]         ConversionFailed(String),
-    #[error("Printing failed: {0}")]           PrintFailed(String),
-    #[error("Unsupported setting: {0}")]       UnsupportedSetting(String),
-    #[error("Missing dependency: {0}")]        DependencyMissing(String),
-    #[error("Job not found: {0}")]             JobNotFound(String),
-    #[error("Invalid state: {0}")]             InvalidState(String),
-    #[error("Profile not found: {0}")]         ProfileNotFound(String),
-    #[error("Update check failed: {0}")]       UpdateCheckFailed(String),
-    #[error("Update install failed: {0}")]     UpdateInstallFailed(String),
-    #[error("Update signature invalid: {0}")]  UpdateSignatureInvalid(String),
-    #[error("Internal error: {0}")]            Internal(String),
-}
+```ts
+export type IpcErrorCode =
+  | "FileNotFound" | "InvalidRequest" | "UnsupportedFormat" | "ConversionFailed"
+  | "PrintFailed" | "UnsupportedSetting" | "DependencyMissing" | "JobNotFound"
+  | "InvalidState" | "ProfileNotFound" | "UpdateCheckFailed" | "UpdateInstallFailed"
+  | "UpdateSignatureInvalid" | "Internal";
+
+export type IpcError = {
+  code: IpcErrorCode;                      // stable family, never renamed
+  message: string;                         // English detail (logs, CLI, last-resort UI fallback)
+  reason?: string | null;                  // stable sub-code within `code`, never renamed
+  params?: { [key: string]: string } | null; // interpolation values for `reason`
+};
 ```
 
-The webview receives `{"code":"FileNotFound","message":"foo.pdf"}`. The CLI prints the `Display` form to stderr as `error: …`, or — with `--json` — the same payload wrapped as `{"error":{…}}`. `exit::exit_code_for` is the default `IpcError` → exit-code mapping; a call site that knows better overrides it with `CliError::new`.
+In Rust the enum keeps one tuple variant per family (`IpcError::InvalidRequest(String)`, …) plus `IpcError::Localized(Box<LocalizedError>)`, which carries a family `code`, a `&'static str` `reason`, `params` and the English `message`. A `Localized` error serializes with its family `code` (never `"Localized"`), so `IpcError::code()` and `exit::exit_code_for` treat it exactly like the plain variant. A `LocalizedError` is a `std::error::Error`, so `anyhow`-based layers (the platform printer code) can return one and `From<anyhow::Error>` recovers it instead of flattening it to `Internal`.
+
+Examples: `{"code":"FileNotFound","message":"foo.pdf"}`; `{"code":"UpdateCheckFailed","message":"github.com returned an unexpected status (502)","reason":"bad_status","params":{"status":"502"}}`.
+
+Reasons currently emitted:
+
+| `code` | `reason` (params) | Raised by |
+| --- | --- | --- |
+| `UpdateCheckFailed` | `rate_limited`, `offline`, `bad_status` (`status`), `bad_response`, `repo_missing`, `not_configured` | `update::fetch_latest`, `ipc::update` |
+| `Internal` | `open_logs_failed`, `open_link_failed`, `config_corrupt`, `profiles_corrupt`, `profiles_invalid_entries` | `ipc::diag`, settings/profiles/printer prefs writes |
+| `InvalidRequest` | `url_not_allowed`, `unknown_default_profile` (`id`), `builtin_readonly`, `builtin_delete`, `delete_default`, `id_too_long`, `name_empty`, `name_too_long`, `name_taken` (`name`), `copies_out_of_range` (`copies`), `page_range`, `import_too_large`, `import_unreadable`, `import_malformed`, `import_unsupported_version` (`version`), `import_empty`, `import_invalid_profile` (`name`), `add_printer_unsupported_scheme` (`scheme`) | `ipc::diag`, `ipc::settings`, `ipc::profiles`, `platform::{cups,windows}` |
+| `DependencyMissing` | `ippfind_missing` | `platform::cups` discovery |
+| `PrintFailed` | `set_default_failed`, `add_printer_needs_admin` | `platform::windows` |
+
+**Frontend mapping (FR-092).** `unwrap()` in `src/lib/ipc.ts` throws an `IpcFailure` (`src/lib/ipcError.ts`) whose `message` is already in the UI language: `common:ipcErrors.reasons.<code>.<reason>` with `params` when that key exists; otherwise the family sentence `common:ipcErrors.codes.<code>` with the English detail as `{{detail}}`; and only for an unknown `code` the raw `message`. The English detail stays on `IpcFailure.detail`. Per-file refusals use the same idea without an error: `FileInfo.reason_code` / `SkippedFile.reason` are translated by `src/lib/jobFiles.ts`.
+
+The CLI prints the `Display` form to stderr as `error: …`, or — with `--json` — the same payload wrapped as `{"error":{…}}`. `exit::exit_code_for` is the default `IpcError` → exit-code mapping (keyed on `code()`); a call site that knows better overrides it with `CliError::new`.
 
 ## 5. Stability
 
