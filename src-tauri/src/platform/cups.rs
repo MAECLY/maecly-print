@@ -562,9 +562,30 @@ fn max_dpi(caps: &HashMap<String, Cap>) -> Option<u32> {
         .max()
 }
 
+/// Map IPP `printer-state` + `printer-state-reasons` onto the four UI statuses.
+///
+/// - Any reason with the `-error` severity suffix (`media-jam-error`,
+///   `cover-open-error`, `toner-empty-error`, …) is a device fault → `Error`,
+///   whatever the state says. `-report`/`-warning` reasons are informational.
+/// - `offline`/`shutdown` → `Offline`.
+/// - A queue the user **paused** (`cupsdisable`: state 5, reason `paused`) is
+///   not a fault — nothing is wrong with the device, it just won't print, which
+///   is what `Offline` means to the user.
+/// - Otherwise state 4 (processing) → `Busy`, state 5 (stopped) → `Error`.
 fn status_from(state: Option<&str>, reasons: Option<&str>) -> PrinterStatus {
     let reasons = reasons.unwrap_or("").to_ascii_lowercase();
+    let list: Vec<&str> = reasons
+        .split(',')
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+        .collect();
+    if list.iter().any(|r| r.ends_with("-error")) {
+        return PrinterStatus::Error;
+    }
     if reasons.contains("offline") || reasons.contains("shutdown") {
+        return PrinterStatus::Offline;
+    }
+    if list.iter().any(|r| *r == "paused") {
         return PrinterStatus::Offline;
     }
     match state {
@@ -583,6 +604,12 @@ fn parse_supplies(colors: Option<&str>, levels: Option<&str>) -> Supplies {
         let Ok(pct) = lvl.trim().parse::<f64>() else {
             continue;
         };
+        // IPP reserves negative levels for "not a level": -1 unavailable,
+        // -2 unknown, -3 "some remaining". Leaving the channel `None` hides it
+        // instead of painting an empty red bar for a cartridge that is fine.
+        if pct < 0.0 {
+            continue;
+        }
         let frac = (pct / 100.0).clamp(0.0, 1.0);
         match hex.trim().to_ascii_uppercase().as_str() {
             "#000000" => s.black = Some(frac),
@@ -727,6 +754,46 @@ mod tests {
             status_from(Some("3"), Some("offline-report")),
             PrinterStatus::Offline
         ));
+    }
+
+    /// A jam or an open door is an error even while CUPS still says "idle";
+    /// a queue the user paused is not an error at all.
+    #[test]
+    fn fr_regression_status_reads_error_reasons_and_paused_queues() {
+        for reason in [
+            "media-jam-error",
+            "cover-open-error",
+            "none,toner-empty-error",
+        ] {
+            assert!(
+                matches!(status_from(Some("3"), Some(reason)), PrinterStatus::Error),
+                "{reason}"
+            );
+        }
+        assert!(matches!(
+            status_from(Some("5"), Some("paused")),
+            PrinterStatus::Offline
+        ));
+        // Informational reasons keep the printer Ready.
+        assert!(matches!(
+            status_from(Some("3"), Some("media-empty-report,toner-low-warning")),
+            PrinterStatus::Ready
+        ));
+        // A stopped queue that is not merely paused is still an error.
+        assert!(matches!(
+            status_from(Some("5"), Some("none")),
+            PrinterStatus::Error
+        ));
+    }
+
+    /// Negative IPP marker levels mean "unknown", not "empty".
+    #[test]
+    fn fr_regression_unknown_marker_levels_are_not_reported_as_empty() {
+        let s = parse_supplies(Some("#000000,#00FFFF,#FF00FF,#FFFF00"), Some("-1,-2,-3,40"));
+        assert_eq!(s.black, None);
+        assert_eq!(s.cyan, None);
+        assert_eq!(s.magenta, None);
+        assert_eq!(s.yellow, Some(0.40));
     }
 
     #[test]
