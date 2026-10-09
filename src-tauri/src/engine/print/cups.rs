@@ -277,6 +277,12 @@ pub fn spool(
     use crate::engine::EngineError;
     use std::io::Read;
 
+    // `lp` names the IPP document after the file it is given. A converted
+    // job's file is the cache's `<uuid>.pdf`, which printers and the CUPS web
+    // UI then show; a link named after the user's file fixes that. It only
+    // has to live until `lp` has sent the file, which is before it returns.
+    let staged = stage_named(pdf, title);
+    let pdf = staged.as_ref().map_or(pdf, |(_, link)| link.as_path());
     let args = lp_args_for(printer, pdf, settings, caps, title);
     let mut child = Command::new("lp")
         .args(&args)
@@ -314,6 +320,63 @@ pub fn spool(
         })
         .into())
     }
+}
+
+/// The file name a spooled document should carry: the user's file name
+/// (`title`) with a `.pdf` extension, since what is sent is a PDF and CUPS
+/// may type a file by its name. Path separators and control characters
+/// become `_`, and very long names are shortened. Pure.
+pub fn document_file_name(title: &str) -> String {
+    let stem = Path::new(title)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut clean: String = stem
+        .chars()
+        .map(|c| {
+            if c == '/' || c == '\\' || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let trimmed = clean.trim();
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        clean = "document".to_string();
+    } else {
+        clean = trimmed.to_string();
+    }
+    // Leave room for ".pdf" under the usual 255-byte file-name limit.
+    let mut end = clean.len().min(200);
+    while !clean.is_char_boundary(end) {
+        end -= 1;
+    }
+    clean.truncate(end);
+    format!("{clean}.pdf")
+}
+
+/// A symlink to `pdf` named [`document_file_name`]`(title)` in a private
+/// temporary folder (deleted with the returned guard), or `None` when `pdf`
+/// already has that name or the link cannot be made (the original is then
+/// spooled as before).
+#[cfg(unix)]
+fn stage_named(pdf: &Path, title: &str) -> Option<(tempfile::TempDir, std::path::PathBuf)> {
+    let wanted = document_file_name(title);
+    if pdf
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy() == wanted)
+    {
+        return None;
+    }
+    let dir = tempfile::Builder::new()
+        .prefix("maeclyprint-spool-")
+        .tempdir()
+        .ok()?;
+    let link = dir.path().join(&wanted);
+    let target = std::fs::canonicalize(pdf).ok()?;
+    std::os::unix::fs::symlink(&target, &link).ok()?;
+    Some((dir, link))
 }
 
 /// The numeric CUPS job id inside an `lp` request id (`Office-42` → `42`).
@@ -490,6 +553,39 @@ mod tests {
 
     fn strs(v: &[String]) -> Vec<&str> {
         v.iter().map(String::as_str).collect()
+    }
+
+    /// A converted job is spooled under the user's file name, not the cache's
+    /// UUID, so printers and the CUPS web UI show `report.pdf`, not
+    /// `01a1…-0.pdf`.
+    #[test]
+    fn fr_035_the_spooled_document_is_named_after_the_users_file() {
+        assert_eq!(document_file_name("report.docx"), "report.pdf");
+        assert_eq!(document_file_name("Factura 03.xlsx"), "Factura 03.pdf");
+        assert_eq!(document_file_name("notes"), "notes.pdf");
+        assert_eq!(document_file_name("a\u{7}b.md"), "a_b.pdf");
+        assert_eq!(document_file_name(""), "document.pdf");
+        assert!(document_file_name(&"x".repeat(400)).len() <= 204);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fr_035_staging_links_the_cache_pdf_under_the_users_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("01a1-0.pdf");
+        std::fs::write(&cache, b"%PDF-1.4").unwrap();
+
+        let (guard, link) = stage_named(&cache, "report.docx").expect("a link is made");
+        assert_eq!(link.file_name().unwrap(), "report.pdf");
+        assert_eq!(std::fs::read(&link).unwrap(), b"%PDF-1.4");
+        drop(guard);
+        assert!(!link.exists(), "the link folder goes with the guard");
+        assert!(cache.exists(), "the cache PDF itself is untouched");
+
+        // A passthrough PDF already carries the user's name.
+        let own = dir.path().join("report.pdf");
+        std::fs::write(&own, b"%PDF-1.4").unwrap();
+        assert!(stage_named(&own, "report.pdf").is_none());
     }
 
     #[test]
