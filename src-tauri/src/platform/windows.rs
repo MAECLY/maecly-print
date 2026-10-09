@@ -557,9 +557,14 @@ pub fn add_printer(name: &str, uri: &str) -> anyhow::Result<()> {
         .map(|(n, _)| n)
         .collect();
     let queue = unique_queue_name(&base, &existing);
-    let script = add_printer_script(&queue, &url);
 
-    match run_powershell(&script)? {
+    // The name and URL come from the network (a DNS-SD instance name, a TXT
+    // `rp` path) or from the user. They never become PowerShell source: the
+    // script is a constant and reads them from its environment.
+    match run_powershell(
+        ADD_PRINTER_SCRIPT,
+        &[(ENV_PRINTER_NAME, &queue), (ENV_PRINTER_URL, &url)],
+    )? {
         PsOutcome::Ok => Ok(()),
         PsOutcome::Failed { code, message } => match code {
             // Elevation problems can't be retried away, so the guidance is
@@ -588,23 +593,33 @@ enum PsOutcome {
     Failed { code: i32, message: String },
 }
 
-/// Run a Windows PowerShell 5.1 script, returning the exit code and the
-/// script's own error line on failure.
+/// Run a constant Windows PowerShell 5.1 script with `env` set in its
+/// environment, returning the exit code and the script's own error line on
+/// failure.
+///
+/// Values travel **only** as environment variables: PowerShell reads
+/// `$env:NAME` as data, so no quote, Unicode quote (`'` `‘` `’` `‚` `‛`),
+/// `;` or `$(…)` in them can end a literal and run code. The script itself
+/// must never be built from a value.
 ///
 /// The script writes its error text through `[Console]::Error` after switching
-/// the console encoding to UTF-8 (see [`add_printer_script`]), so it is decoded
+/// the console encoding to UTF-8 (see [`ADD_PRINTER_SCRIPT`]), so it is decoded
 /// as UTF-8 here. Without that switch `powershell.exe` writes in the OEM code
 /// page (CP850 on Spanish Windows) and "No se encontró" arrived as "encontr�".
-fn run_powershell(script: &str) -> anyhow::Result<PsOutcome> {
-    let out = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            script,
-        ])
+fn run_powershell(script: &'static str, env: &[(&str, &str)]) -> anyhow::Result<PsOutcome> {
+    let mut command = Command::new("powershell.exe");
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+    ]);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let out = command
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .with_context(|| "failed to spawn powershell.exe")?;
@@ -651,17 +666,78 @@ fn ipp_class_driver_url(uri: &str) -> anyhow::Result<String> {
     if host.is_empty() || host == "[]" {
         anyhow::bail!("URI has no host: {uri}");
     }
+    if !valid_host(&host) {
+        anyhow::bail!("URI has an invalid host: {uri}");
+    }
     let port = if port.is_empty() { "631" } else { port };
     if !port.chars().all(|c| c.is_ascii_digit()) {
         anyhow::bail!("URI has an invalid port: {uri}");
     }
     let path = if path.is_empty() { "ipp/print" } else { path };
-    Ok(format!("{http}://{host}:{port}/{path}"))
+    Ok(format!("{http}://{host}:{port}/{}", encode_path(path)))
+}
+
+/// A DNS name or IPv4 address (letters, digits, `-`, `.`, `_`), or a bracketed
+/// IPv6 address (hex digits, `:`, `.` and a `%zone`). Anything else — a quote,
+/// a space, a non-ASCII character — cannot be a host and is refused.
+fn valid_host(host: &str) -> bool {
+    match host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+        Some(v6) => {
+            let (addr, zone) = v6.split_once('%').unwrap_or((v6, ""));
+            !addr.is_empty()
+                && addr
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.')
+                && zone
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        }
+        None => host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_')),
+    }
+}
+
+/// Percent-encode every byte of `path` outside RFC 3986's path characters
+/// (unreserved, sub-delims except `'`, `:`, `@`, `/`, and an existing `%`).
+/// A TXT `rp` is whatever the device advertises; this keeps quotes, spaces
+/// and non-ASCII text from reaching the spooler as anything but a URL.
+fn encode_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for b in path.bytes() {
+        let keep = b.is_ascii_alphanumeric()
+            || matches!(
+                b,
+                b'-' | b'.'
+                    | b'_'
+                    | b'~'
+                    | b'/'
+                    | b'!'
+                    | b'$'
+                    | b'&'
+                    | b'('
+                    | b')'
+                    | b'*'
+                    | b'+'
+                    | b','
+                    | b';'
+                    | b'='
+                    | b':'
+                    | b'@'
+                    | b'%'
+            );
+        if keep {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 /// The queue name to start from: the user's display name, else the host.
-/// Characters the spooler refuses in a printer name (`\` and `,`) become `_`;
-/// the spooler caps names at 220 characters.
+/// Characters the spooler refuses in a printer name (`\` and `,`) and control
+/// characters become `_`; the spooler caps names at 220 characters.
 fn queue_base_name(name: &str, url: &str) -> String {
     let trimmed = name.trim();
     let raw = if trimmed.is_empty() {
@@ -673,7 +749,13 @@ fn queue_base_name(name: &str, url: &str) -> String {
     };
     let cleaned: String = raw
         .chars()
-        .map(|c| if matches!(c, '\\' | ',') { '_' } else { c })
+        .map(|c| {
+            if matches!(c, '\\' | ',') || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
         .take(220)
         .collect();
     if cleaned.is_empty() {
@@ -700,40 +782,34 @@ fn unique_queue_name(base: &str, existing: &[String]) -> String {
     }
 }
 
-/// Quote a value for a single-quoted PowerShell string literal (embedded single
-/// quotes are doubled, which is PowerShell's own escaping rule).
-fn ps_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
-}
+/// Environment variable carrying the queue name to [`ADD_PRINTER_SCRIPT`].
+const ENV_PRINTER_NAME: &str = "MAECLYPRINT_PRINTER_NAME";
+/// Environment variable carrying the IPP URL to [`ADD_PRINTER_SCRIPT`].
+const ENV_PRINTER_URL: &str = "MAECLYPRINT_PRINTER_URL";
 
-/// The PowerShell script adding queue `name` for the IPP printer at `url`.
+/// The PowerShell script adding a queue for an IPP printer. A constant: the
+/// queue name and URL are read from [`ENV_PRINTER_NAME`] and
+/// [`ENV_PRINTER_URL`], never spliced into the source (see [`run_powershell`]).
 ///
 /// - Output encoding is switched to UTF-8 first, so localized error text
-///   survives the trip (see [`run_powershell`]).
+///   survives the trip.
 /// - Feature detection: `-IppURL` is not on every Windows build; its absence
-///   exits with [`PS_EXIT_NO_IPPURL`].
+///   exits with [`PS_EXIT_NO_IPPURL`] (3).
 /// - Access denied is recognised by HRESULT `0x80070005` or the
 ///   `PermissionDenied` category — never by English words — and exits with
-///   [`PS_EXIT_ACCESS_DENIED`].
+///   [`PS_EXIT_ACCESS_DENIED`] (5).
 /// - Any other failure writes just the exception message to stderr and exits 1.
-fn add_printer_script(name: &str, url: &str) -> String {
-    format!(
-        "$ErrorActionPreference = 'Stop'; \
-         [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; \
-         try {{ \
-           if (-not (Get-Command Add-Printer).Parameters.ContainsKey('IppURL')) {{ exit {no_ipp} }}; \
-           Add-Printer -Name {name} -IppURL {url}; exit 0 \
-         }} catch {{ \
-           $id = \"$($_.FullyQualifiedErrorId) $($_.Exception.HResult) $($_.Exception.MessageId)\"; \
-           if ($_.CategoryInfo.Category -eq 'PermissionDenied' -or $id -match '80070005|-2147024891') {{ exit {denied} }}; \
-           [Console]::Error.WriteLine($_.Exception.Message); exit 1 \
-         }}",
-        no_ipp = PS_EXIT_NO_IPPURL,
-        denied = PS_EXIT_ACCESS_DENIED,
-        name = ps_quote(name),
-        url = ps_quote(url),
-    )
-}
+const ADD_PRINTER_SCRIPT: &str = "$ErrorActionPreference = 'Stop'; \
+     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; \
+     try { \
+       if (-not (Get-Command Add-Printer).Parameters.ContainsKey('IppURL')) { exit 3 }; \
+       Add-Printer -Name $env:MAECLYPRINT_PRINTER_NAME -IppURL $env:MAECLYPRINT_PRINTER_URL; \
+       exit 0 \
+     } catch { \
+       $id = \"$($_.FullyQualifiedErrorId) $($_.Exception.HResult) $($_.Exception.MessageId)\"; \
+       if ($_.CategoryInfo.Category -eq 'PermissionDenied' -or $id -match '80070005|-2147024891') { exit 5 }; \
+       [Console]::Error.WriteLine($_.Exception.Message); exit 1 \
+     }";
 
 // ----------------------------------------------------------------------------
 // Per-printer assembly
@@ -1021,29 +1097,70 @@ mod tests {
         assert!(ipp_class_driver_url("ipp://host:abc/ipp/print").is_err());
     }
 
-    #[test]
-    fn ps_quote_escapes_single_quotes() {
-        assert_eq!(ps_quote("plain"), "'plain'");
-        assert_eq!(ps_quote("O'Brien"), "'O''Brien'");
-    }
-
     /// The script binds the class driver through `-IppURL` — never a Local
     /// Port named after the URL — reports access-denied by exit code, and has
     /// no catch-all that swallows errors.
     #[test]
     fn fr_printers_add_printer_script_uses_ippurl() {
-        let s = add_printer_script("Front Desk", "http://host:631/ipp/print");
+        let s = ADD_PRINTER_SCRIPT;
         assert!(s.starts_with("$ErrorActionPreference = 'Stop';"));
         assert!(s.contains("[Console]::OutputEncoding"));
-        assert!(s.contains("Add-Printer -Name 'Front Desk' -IppURL 'http://host:631/ipp/print'"));
+        assert!(s.contains(&format!(
+            "Add-Printer -Name $env:{ENV_PRINTER_NAME} -IppURL $env:{ENV_PRINTER_URL}"
+        )));
         assert!(!s.contains("Add-PrinterPort"));
         assert!(!s.contains("catch { }"));
         assert!(s.contains(&format!("exit {PS_EXIT_ACCESS_DENIED}")));
         assert!(s.contains(&format!("exit {PS_EXIT_NO_IPPURL}")));
         assert!(s.contains("80070005"));
-        // Hostile names stay inside their literal.
-        let s = add_printer_script("x'; Remove-Item C:\\ -Recurse; '", "http://h:631/p");
-        assert!(s.contains("-Name 'x''; Remove-Item C:\\ -Recurse; '''"));
+    }
+
+    /// A rogue mDNS advert controls the instance name and the TXT `rp`. With
+    /// Unicode single quotes (which PowerShell also treats as delimiters) they
+    /// used to close the literal and run code. Values now never reach the
+    /// script source, the host is validated and the path percent-encoded.
+    #[test]
+    fn fr_printers_hostile_names_and_paths_cannot_become_powershell() {
+        let url = ipp_class_driver_url(
+            "ipp://lab.local:631/ipp/print\u{2019};Start-Process calc;\u{2019}",
+        )
+        .unwrap();
+        assert_eq!(
+            url,
+            "http://lab.local:631/ipp/print%E2%80%99;Start-Process%20calc;%E2%80%99"
+        );
+        assert!(ipp_class_driver_url("ipp://evil'host/ipp/print").is_err());
+        assert!(ipp_class_driver_url("ipp://ev\u{2019}il/ipp/print").is_err());
+        assert!(ipp_class_driver_url("ipp://a b/ipp/print").is_err());
+        assert_eq!(
+            ipp_class_driver_url("ipp://[fe80::1%25en0]:631/ipp/print").unwrap(),
+            "http://[fe80::1%25en0]:631/ipp/print"
+        );
+        // Control characters cannot reach the queue name (an env var value).
+        assert_eq!(queue_base_name("Lab\u{0}\n1", "http://h:631/p"), "Lab__1");
+    }
+
+    /// The real thing, end to end: a name full of PowerShell metacharacters
+    /// travels to a constant script as data and comes back unchanged.
+    #[test]
+    fn fr_printers_values_reach_powershell_as_data() {
+        const ECHO: &str =
+            "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; \
+             [Console]::Error.WriteLine($env:MAECLYPRINT_PRINTER_NAME); exit 7";
+        let marker = std::env::temp_dir().join("maeclyprint-pwned");
+        let _ = std::fs::remove_file(&marker);
+        let hostile = format!(
+            "Lab\u{2019}; New-Item '{}' \u{2018}$(calc)' `\"x",
+            marker.display()
+        );
+        match run_powershell(ECHO, &[(ENV_PRINTER_NAME, &hostile)]).unwrap() {
+            PsOutcome::Failed { code, message } => {
+                assert_eq!(code, 7);
+                assert_eq!(message, hostile);
+            }
+            PsOutcome::Ok => panic!("the probe script exits 7"),
+        }
+        assert!(!marker.exists());
     }
 
     #[test]
