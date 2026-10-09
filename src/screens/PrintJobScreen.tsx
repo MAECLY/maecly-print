@@ -867,6 +867,9 @@ export function PrintJobScreen({
                     color: 'var(--mp-textMuted)',
                     lineHeight: 1.5,
                     wordBreak: 'break-all',
+                    // One command per group of files, with a comment line
+                    // naming them, so line breaks are meaningful.
+                    whiteSpace: 'pre-wrap',
                   }}
                 >
                   {preview}

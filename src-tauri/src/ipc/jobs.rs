@@ -370,53 +370,98 @@ pub async fn inspect_files(paths: Vec<String>) -> Result<Vec<FileInfo>, IpcError
 }
 
 /// The exact command MaeclyPrint would run for `req` (honesty policy: no hidden
-/// flags). Resolves the printer name the same way the dispatcher will —
-/// requested, else the file-type routing rule, else the app default, else the OS
-/// default, else a `<default printer>` placeholder — and previews against the
-/// first file's name.
+/// flags), for **every** file in the batch.
+///
+/// The dispatcher settles three things per file, so the preview does too:
+/// the printer (an explicit request, else the file-type routing rule, else the
+/// app default, else the OS default — a `.pdf → EPSON` rule can split a batch
+/// across printers), the settings narrowed to the input (page ranges are
+/// PDF-only), and the printer's own tray/paper defaults where the job leaves
+/// them open. Files that come out identical share one command; when the batch
+/// splits, each command is preceded by a comment naming its files, so the panel
+/// never shows one file's command as if it were everyone's. See
+/// [`preview_for_files`].
 #[tauri::command]
 #[specta::specta]
 pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
     run_blocking(move || {
-        let first = req.files.first();
-        let display = first
-            .map(|f| {
-                Path::new(f)
-                    .file_name()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| f.clone())
-            })
-            .unwrap_or_else(|| "document.pdf".to_string());
-
         let prefs = crate::settings::Config::load_or_default().printers;
-        let printer = resolve_preview_printer(
+        let os_default = crate::platform::default_printer().ok().flatten();
+        Ok(preview_for_files(
+            &req.files,
+            &req.settings,
             &prefs,
-            req.settings.printer.as_deref(),
-            &display,
-            crate::platform::default_printer().ok().flatten().as_deref(),
-        );
-
-        // Preview what will really run for THIS file: the dispatcher narrows the
-        // settings per input (page ranges are PDF-only), so previewing the raw
-        // batch settings would show an image job a `page-ranges` flag it will
-        // never receive — exactly the drift the honesty panel exists to prevent.
-        let ext = first
-            .map(|f| crate::engine::extension_of(Path::new(f)))
-            .unwrap_or_else(|| "pdf".to_string());
-        let settings = crate::engine::print::effective_settings(&req.settings, &ext);
-        // …and with the printer's own tray/paper defaults filled in where the
-        // job leaves them open, exactly as dispatch does.
-        let settings = crate::engine::print::apply_printer_overrides(
-            &settings,
-            &prefs.overrides.get(&printer).cloned().unwrap_or_default(),
-        );
-
-        let caps = crate::platform::caps_of(&printer);
-        Ok(crate::engine::print::preview_command(
-            &display, &printer, &settings, &caps,
+            os_default.as_deref(),
+            crate::platform::caps_of,
         ))
     })
     .await
+}
+
+/// Pure core of [`preview_command`]: printer capabilities come from `caps_of`
+/// (looked up once per printer) so the grouping is testable without one.
+fn preview_for_files(
+    files: &[String],
+    settings: &crate::queue::job::JobSettings,
+    prefs: &crate::settings::PrinterPrefs,
+    os_default: Option<&str>,
+    caps_of: impl Fn(&str) -> crate::engine::print::PrinterCaps,
+) -> String {
+    use crate::queue::job::JobSettings;
+
+    let placeholder = ["document.pdf".to_string()];
+    let files = if files.is_empty() {
+        &placeholder[..]
+    } else {
+        files
+    };
+
+    // (printer, effective settings) → display names, in batch order.
+    let mut groups: Vec<(String, JobSettings, Vec<String>)> = Vec::new();
+    for file in files {
+        let path = Path::new(file);
+        let display = path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| file.clone());
+        let printer =
+            resolve_preview_printer(prefs, settings.printer.as_deref(), &display, os_default);
+        let ext = crate::engine::extension_of(path);
+        let narrowed = crate::engine::print::effective_settings(settings, &ext);
+        let effective = crate::engine::print::apply_printer_overrides(
+            &narrowed,
+            &prefs.overrides.get(&printer).cloned().unwrap_or_default(),
+        )
+        .into_owned();
+        match groups
+            .iter_mut()
+            .find(|(p, s, _)| *p == printer && *s == effective)
+        {
+            Some((_, _, names)) => names.push(display),
+            None => groups.push((printer, effective, vec![display])),
+        }
+    }
+
+    let mut caps_cache: Vec<(String, crate::engine::print::PrinterCaps)> = Vec::new();
+    let mut blocks = Vec::with_capacity(groups.len());
+    for (printer, effective, names) in &groups {
+        let caps = match caps_cache.iter().find(|(p, _)| p == printer) {
+            Some((_, c)) => c.clone(),
+            None => {
+                let c = caps_of(printer);
+                caps_cache.push((printer.clone(), c.clone()));
+                c
+            }
+        };
+        let command = crate::engine::print::preview_command(&names[0], printer, effective, &caps);
+        if groups.len() == 1 {
+            blocks.push(command);
+        } else {
+            let comment = if cfg!(windows) { "::" } else { "#" };
+            blocks.push(format!("{comment} {}\n{command}", names.join(", ")));
+        }
+    }
+    blocks.join("\n\n")
 }
 
 /// The printer name the preview should show.
@@ -594,6 +639,55 @@ where
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    /// A mixed batch is not previewed as if every file were the first one:
+    /// the PDF's page range and the routed printer show up on their own line.
+    #[test]
+    fn preview_lists_one_command_per_distinct_file_group() {
+        use crate::engine::print::PrinterCaps;
+        use crate::queue::job::JobSettings;
+
+        let mut prefs = crate::settings::PrinterPrefs::default();
+        prefs.routes.insert(".pdf".into(), "EPSON".into());
+        let settings = JobSettings {
+            page_ranges: Some("1-2".into()),
+            ..JobSettings::default()
+        };
+        let files = vec![
+            "/d/chart.png".to_string(),
+            "/d/report.pdf".to_string(),
+            "/d/photo.png".to_string(),
+        ];
+        let out = preview_for_files(&files, &settings, &prefs, Some("Office"), |_| {
+            PrinterCaps::unknown()
+        });
+        let blocks: Vec<&str> = out.split("\n\n").collect();
+        assert_eq!(blocks.len(), 2, "{out}");
+
+        let images = blocks[0];
+        assert!(images.contains("chart.png, photo.png"), "{images}");
+        assert!(images.contains("Office"), "{images}");
+        assert!(
+            !images.contains("page-ranges") && !images.contains("1-2"),
+            "{images}"
+        );
+
+        let pdf = blocks[1];
+        assert!(pdf.contains("report.pdf"), "{pdf}");
+        assert!(pdf.contains("EPSON"), "routed printer shown: {pdf}");
+        assert!(pdf.contains("1-2"), "PDF keeps its range: {pdf}");
+
+        // A uniform batch stays a single, comment-free command.
+        let same = preview_for_files(
+            &["/d/a.pdf".to_string(), "/d/b.pdf".to_string()],
+            &JobSettings::default(),
+            &crate::settings::PrinterPrefs::default(),
+            Some("Office"),
+            |_| PrinterCaps::unknown(),
+        );
+        assert!(!same.contains("\n\n") && !same.starts_with('#'), "{same}");
+        assert!(same.contains("a.pdf"), "{same}");
+    }
 
     /// A 1-page PDF written by the real image converter, so the page count the
     /// bounds check reads is the one production would read.
