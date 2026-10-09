@@ -4,7 +4,8 @@
   "notice": {
     "loadingTitle": "Cargando perfiles…",
     "errorTitle": "Perfiles no disponibles",
-    "readOnly": "Para editar perfiles necesitas la aplicación de escritorio. Estos son los perfiles integrados."
+    "readOnly": "Para editar perfiles necesitas la aplicación de escritorio. Estos son los perfiles integrados.",
+    "loadingBody": "Leyendo tus perfiles guardados."
   },
   "actions": {
     "newProfile": "Nuevo perfil",
@@ -23,7 +24,8 @@
     "id": "id: {{id}}",
     "unsavedId": "(sin guardar)",
     "simplex": "una cara",
-    "copyOf": "Copia de {{name}}"
+    "copyOf": "Copia de {{name}}",
+    "autoTray": "Automática"
   },
   "field": {
     "name": "Nombre",

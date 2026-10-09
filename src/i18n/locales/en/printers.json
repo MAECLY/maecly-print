@@ -9,7 +9,8 @@
     "emptyTitle": "No printers installed",
     "errorTitle": "Printers unavailable",
     "hint": "Use \"Add printer\" to install one from the network or by IP address, or press Rescan.",
-    "noHost": "Printers are read from the operating system — run the MaeclyPrint desktop app to manage them."
+    "noHost": "Printers are read from the operating system — run the MaeclyPrint desktop app to manage them.",
+    "loadingBody": "Reading the system print spooler."
   },
   "actions": {
     "rescan": "Rescan",

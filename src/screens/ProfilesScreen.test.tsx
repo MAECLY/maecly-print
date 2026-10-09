@@ -164,6 +164,41 @@ describe('ProfilesScreen', () => {
     expect(screen.getAllByText('Monochrome').length).toBeGreaterThan(0);
   });
 
+  it('NFR-045: exposes the selected profile and shows sentinels in words', async () => {
+    mockProfiles();
+    render(<Harness />);
+    await screen.findByText('Photo Color');
+
+    const current = screen
+      .getAllByRole('button')
+      .filter((b) => b.getAttribute('aria-current') === 'true');
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveTextContent('Quick');
+
+    // The built-in's printer and tray are the wire sentinels, never shown raw.
+    expect(screen.queryByText('<default>')).not.toBeInTheDocument();
+    expect(screen.getByText('System default')).toBeInTheDocument();
+    expect(screen.getByText('Automatic')).toBeInTheDocument();
+  });
+
+  it('NFR-043: every editor field is named by its caption and described by its error', async () => {
+    mockProfiles();
+    render(<Harness />);
+    await screen.findByText('Photo Color');
+
+    fireEvent.click(screen.getByRole('button', { name: 'New profile' }));
+    const copies = screen.getByRole('spinbutton', { name: 'Copies' });
+    fireEvent.change(copies, { target: { value: '0' } });
+    expect(copies).toHaveAttribute('aria-invalid', 'true');
+    expect(copies).toHaveAccessibleDescription(/whole number from 1 to 999/i);
+    for (const name of ['Name', 'Tray', 'Page range']) {
+      expect(screen.getByRole('textbox', { name })).toBeInTheDocument();
+    }
+    for (const name of ['Printer', 'Color', 'Duplex', 'Paper']) {
+      expect(screen.getByRole('combobox', { name })).toBeInTheDocument();
+    }
+  });
+
   it('marks the default profile with a badge', async () => {
     mockProfiles();
     render(<Harness />);

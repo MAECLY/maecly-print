@@ -4,7 +4,8 @@
   "notice": {
     "loadingTitle": "Loading profiles…",
     "errorTitle": "Profiles unavailable",
-    "readOnly": "Editing profiles requires the desktop app. These are the built-in defaults."
+    "readOnly": "Editing profiles requires the desktop app. These are the built-in defaults.",
+    "loadingBody": "Reading your saved profiles."
   },
   "actions": {
     "newProfile": "New profile",
@@ -23,7 +24,8 @@
     "id": "id: {{id}}",
     "unsavedId": "(unsaved)",
     "simplex": "simplex",
-    "copyOf": "Copy of {{name}}"
+    "copyOf": "Copy of {{name}}",
+    "autoTray": "Automatic"
   },
   "field": {
     "name": "Name",

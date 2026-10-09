@@ -8,7 +8,9 @@ import { MPBadge, MPButton, MPTopBar } from '@/components/ui';
 import { useT, type TFunction } from '@/i18n/I18nProvider';
 import { ProfileEditor } from '@/screens/profiles/ProfileEditor';
 import {
+  AUTO_TRAY,
   BUILT_IN_PROFILES,
+  DEFAULT_PRINTER,
   findProfileIn,
   nextUniqueName,
 } from '@/lib/profiles';
@@ -289,6 +291,7 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
             error={error ?? null}
             icon="sliders"
             loadingTitle={t('notice.loadingTitle')}
+            loadingBody={t('notice.loadingBody')}
             errorTitle={t('notice.errorTitle')}
           />
           {/* `init` is re-runnable after an error; without this the only way
@@ -382,7 +385,9 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
 
   const detailRows = (
     [
-      { label: t('field.printer'), v: sel.printer, mono: true },
+      sel.printer === DEFAULT_PRINTER
+        ? { label: t('field.printer'), v: t('option.systemDefault') }
+        : { label: t('field.printer'), v: sel.printer, mono: true },
       { label: t('field.colorMode'), v: colorLabel(t, sel.color) },
       { label: t('field.duplex'), v: duplexLabel(t, sel.duplex) },
       { label: t('field.copies'), v: sel.copies, mono: true },
@@ -393,7 +398,10 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
       },
       { label: t('field.scaling'), v: scalingLabel(t, sel.scaling) },
       { label: t('field.quality'), v: qualityLabel(t, sel.quality) },
-      { label: t('field.tray'), v: sel.tray },
+      {
+        label: t('field.tray'),
+        v: sel.tray === AUTO_TRAY ? t('detail.autoTray') : sel.tray,
+      },
     ] as const
   ).map((row) => (
     <div
@@ -440,6 +448,9 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
               <button
                 key={p.id}
                 onClick={() => guardDirty(() => select(p.id))}
+                // NFR-045: which profile the detail pane shows is not
+                // conveyed by the row's background alone.
+                {...(a ? { 'aria-current': true } : {})}
                 className="mp-focus"
                 style={{
                   width: '100%',

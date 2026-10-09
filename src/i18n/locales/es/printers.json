@@ -9,7 +9,8 @@
     "emptyTitle": "No hay impresoras instaladas",
     "errorTitle": "Impresoras no disponibles",
     "hint": "Usa «Añadir impresora» para instalar una desde la red o por dirección IP, o pulsa Reexplorar.",
-    "noHost": "Las impresoras se leen del sistema operativo: abre la aplicación de escritorio MaeclyPrint para gestionarlas."
+    "noHost": "Las impresoras se leen del sistema operativo: abre la aplicación de escritorio MaeclyPrint para gestionarlas.",
+    "loadingBody": "Leyendo la cola de impresión del sistema."
   },
   "actions": {
     "rescan": "Reexplorar",

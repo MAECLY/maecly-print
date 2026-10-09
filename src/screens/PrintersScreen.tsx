@@ -422,6 +422,7 @@ export function PrintersScreen() {
           loading={printers === null}
           error={error}
           loadingTitle={t('notice.loadingTitle')}
+          loadingBody={t('notice.loadingBody')}
           emptyTitle={t('notice.emptyTitle')}
           errorTitle={t('notice.errorTitle')}
           hint={t('notice.hint')}

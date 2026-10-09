@@ -1,4 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import {
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useId,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import {
   MPButton,
@@ -102,6 +109,18 @@ function editableKey(p: UiProfile, copies: string, range: string): string {
   });
 }
 
+/** Props a field's single control receives so it is named and described. */
+interface FieldControlProps {
+  'aria-labelledby'?: string;
+  'aria-describedby'?: string;
+}
+
+/**
+ * Caption + control + inline error. The caption names the control and the
+ * error describes it (NFR-043): both are wired onto the child element, so a
+ * screen reader announces "Copies, edit text, invalid, Copies must be …"
+ * instead of an unnamed field.
+ */
 function Field({
   label,
   error,
@@ -111,12 +130,23 @@ function Field({
   error?: string | null;
   children: ReactNode;
 }) {
+  const labelId = useId();
+  const errorId = useId();
+  const control = isValidElement<FieldControlProps>(children)
+    ? cloneElement(children, {
+        'aria-labelledby': labelId,
+        ...(error ? { 'aria-describedby': errorId } : {}),
+      })
+    : children;
   return (
     <div>
-      <MPSectionLabel>{label}</MPSectionLabel>
-      {children}
+      <MPSectionLabel id={labelId}>{label}</MPSectionLabel>
+      {control}
       {error && (
-        <div style={{ fontSize: 11, color: 'var(--mp-error)', marginTop: 4 }}>
+        <div
+          id={errorId}
+          style={{ fontSize: 11, color: 'var(--mp-error)', marginTop: 4 }}
+        >
           {error}
         </div>
       )}
@@ -155,6 +185,7 @@ export function ProfileEditor({
     restore ? restore.copiesText : String(initial.copies),
   );
   const [saving, setSaving] = useState(false);
+  const rangeHintId = useId();
 
   const set = <K extends keyof UiProfile>(key: K, value: UiProfile[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -382,11 +413,14 @@ export function ProfileEditor({
           fullWidth
           mono
           placeholder={t('editor.rangePlaceholder')}
+          aria-label={t('field.pageRange')}
+          aria-describedby={rangeHintId}
           value={rangeText}
           onChange={(e) => set('pageRange', e.target.value)}
           error={rangeError}
         />
         <div
+          id={rangeHintId}
           style={{
             fontSize: 11,
             color: rangeError ? 'var(--mp-error)' : 'var(--mp-textDim)',
