@@ -11,6 +11,7 @@ import type { Density, ResolvedTheme, ThemeMode } from '@/lib/theme';
 import type { UpdateChannel } from '@/lib/ipc';
 import type { Bounds } from '@/ipc/bindings';
 import { SUPPORTED_LOCALES, matchLocale, type Locale } from '@/i18n';
+import { isMacPlatform } from '@/components/AppShell/MPAppShell';
 import { useLocale, useT, type TFunction } from '@/i18n/I18nProvider';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useProfilesStore } from '@/stores/profilesStore';
@@ -576,7 +577,9 @@ export function SettingsScreen({
             />
           </Note>
         )}
-        <Note>{t('printing.shellNote')}</Note>
+        <Note>
+          {t(isMacPlatform() ? 'printing.shellNoteMac' : 'printing.shellNote')}
+        </Note>
 
         <div style={{ height: 24 }} />
         <MPSectionLabel>{t('sections.engine')}</MPSectionLabel>

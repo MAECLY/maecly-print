@@ -40,7 +40,8 @@
       "hint": "Applied to a job when no other profile is chosen."
     },
     "profilesError": "Couldn't load the profile list.",
-    "shellNote": "Right-click printing uses this profile. On macOS it is in the Finder's Services menu; on Windows the Explorer entry appears once the installer registers it."
+    "shellNote": "The Explorer right-click entry is built, but no installer registers it yet, so it does not appear on Windows.",
+    "shellNoteMac": "Right-click printing works from Finder › Services › Print with MaeclyPrint. Those menu titles follow the system language."
   },
   "engine": {
     "concurrency": {

@@ -19,7 +19,8 @@ A single scrolling column (max 760 px) of labelled sections, each a stack of lab
 │   Start minimized  Opens minimized from the next launch.     [ ———⬤  ]        │
 │ PRINTING                                                                       │
 │   Default profile   Applied when no profile is chosen.   [ Quick        ▾ ]    │
-│   ⓘ Right-click printing uses this profile (Finder Services / Explorer).      │
+│   ⓘ macOS: Finder › Services › Print with MaeclyPrint. Windows: the Explorer   │
+│     entry is built but no installer registers it yet.                          │
 │ ENGINE                                                                         │
 │   Concurrent conversions   Applies to the next conv…     [ 2      ] jobs       │
 │   Conversion timeout       0 disables the timeout.       [ 60     ] seconds    │

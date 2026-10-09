@@ -577,18 +577,28 @@ describe('SettingsScreen', () => {
     expect(
       screen.getByText(/these switches record consent only/),
     ).toBeInTheDocument();
+    // FR-001: off macOS the Explorer entry is described as not registered yet.
     expect(
-      screen.getByText(/Right-click printing uses this profile/),
+      screen.getByText(/no installer registers it yet/),
     ).toBeInTheDocument();
   });
 
-  it('FR-001: the shell note no longer calls right-click printing a future milestone', async () => {
-    mockSettings();
-    renderSettings();
-    await waitReady();
-
-    expect(screen.getByText(/Finder's Services menu/)).toBeInTheDocument();
-    expect(screen.queryByText(/\(M2\)/)).not.toBeInTheDocument();
+  it('FR-001: on macOS the shell note points at the Finder Services entry', async () => {
+    const platform = vi
+      .spyOn(window.navigator, 'platform', 'get')
+      .mockReturnValue('MacIntel');
+    try {
+      mockSettings();
+      renderSettings();
+      await waitReady();
+      expect(
+        screen.getByText(/Finder › Services › Print with MaeclyPrint/),
+      ).toBeInTheDocument();
+      // It is not a future milestone any more.
+      expect(screen.queryByText(/\(M2\)/)).not.toBeInTheDocument();
+    } finally {
+      platform.mockRestore();
+    }
   });
 
   it('drops the old shell-integration switches', async () => {

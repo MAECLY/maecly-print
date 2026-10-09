@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Icon, type IconName } from '@/components/Icon';
 import { MPAppIcon } from '@/components/Brand';
-import { shortcutLabel } from '@/components/AppShell/MPAppShell';
+import { isMacPlatform, shortcutLabel } from '@/components/AppShell/MPAppShell';
 import { ModalOverlay } from '@/components/Modal';
 import { MPButton, MPCard } from '@/components/ui';
 import { useModalFocus } from '@/components/useModal';
@@ -15,8 +15,9 @@ import { useProfilesStore } from '@/stores/profilesStore';
  * Every step must describe something this build actually does: the tour is the
  * first thing a user reads, and a promise it cannot keep (a right-click entry
  * that does not exist, a Settings switch that was never shipped) is a broken
- * feature as far as they are concerned. The shell integration is named as
- * planned, in the future tense, and the default profile is read from the real
+ * feature as far as they are concerned. The right-click entry is described per
+ * platform — Finder Services on macOS, where it ships; on Windows it is named
+ * as pending registration — and the default profile is read from the real
  * profile list instead of being retyped here.
  */
 const STEPS = [
@@ -44,6 +45,12 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     command: 'maeclyprint print --files "*.pdf"',
     shortcut: shortcutLabel('newJob'),
   };
+  // FR-001: the right-click entry and "Save as PDF" are platform-specific, so
+  // those two steps have a macOS wording.
+  const bodyKey =
+    isMacPlatform() && (cur.key === 'ready' || cur.key === 'printers')
+      ? (`onboarding.${cur.key}.bodyMac` as const)
+      : (`onboarding.${cur.key}.body` as const);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const bodyId = useId();
@@ -128,7 +135,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                   lineHeight: 1.5,
                 }}
               >
-                {t(`onboarding.${cur.key}.body`, params)}
+                {t(bodyKey, params)}
               </div>
             </div>
           </div>

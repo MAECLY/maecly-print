@@ -69,7 +69,8 @@
   },
   "tip": {
     "label": "Consejo",
-    "body": "MaeclyPrint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. Todavía nada lo añade al PATH, así que llámalo por su ruta completa: la tarjeta «Usar la CLI» copia un comando que ya la incluye. En Mac también puedes seleccionar archivos en el Finder y elegir Servicios ▸ «Print with MaeclyPrint»; esta versión aún no instala la entrada del Explorador de Windows."
+    "body": "MaeclyPrint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. Todavía nada lo añade al PATH, así que llámalo por su ruta completa: la tarjeta «Usar la CLI» copia un comando que ya la incluye. La entrada del menú contextual del Explorador ya está hecha, pero ningún instalador la registra todavía, así que aún no aparece en Windows.",
+    "bodyMac": "MaeclyPrint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. Todavía nada lo añade al PATH, así que llámalo por su ruta completa: la tarjeta «Usar la CLI» copia un comando que ya la incluye. En el Finder, selecciona archivos y elige Servicios › Imprimir con MaeclyPrint en el menú contextual."
   },
   "nav": {
     "home": "Inicio",
@@ -93,7 +94,8 @@
     },
     "printers": {
       "title": "Detecta tus impresoras",
-      "body": "Listaremos todas las impresoras instaladas en tu sistema, incluidas «Microsoft Print to PDF» en Windows y «Guardar como PDF» en Mac."
+      "body": "Listaremos todas las impresoras instaladas en tu sistema, incluida «Microsoft Print to PDF» si está activada.",
+      "bodyMac": "Listaremos todas las impresoras instaladas en tu sistema. Para crear un PDF, usa «Guardar como PDF» en el diálogo de impresión de tus aplicaciones."
     },
     "cli": {
       "title": "Imprime sin ventana",
@@ -105,7 +107,8 @@
     },
     "ready": {
       "title": "Listo para imprimir",
-      "body": "Arrastra los archivos que quieras a la ventana o pulsa {{shortcut}}, elige un perfil y verás cómo se encolan. En Mac también puedes usar Finder ▸ Servicios ▸ «Print with MaeclyPrint»; la entrada del Explorador de Windows está planificada para un hito posterior."
+      "body": "Arrastra los archivos que quieras a la ventana o pulsa {{shortcut}}, elige un perfil y verás cómo se encolan. La entrada del menú contextual del Explorador llegará cuando un instalador la registre.",
+      "bodyMac": "Arrastra los archivos que quieras a la ventana o pulsa {{shortcut}}, elige un perfil y verás cómo se encolan. En el Finder, haz clic derecho sobre los archivos y elige Servicios › Imprimir con MaeclyPrint."
     },
     "skip": "Omitir",
     "back": "Atrás",

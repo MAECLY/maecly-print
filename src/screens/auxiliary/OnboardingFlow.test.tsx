@@ -103,8 +103,25 @@ describe('OnboardingFlow', () => {
     expect(seen).not.toMatch(/adds a "print with maeclyprint" entry/i);
     expect(seen).not.toMatch(/disable it any time in settings/i);
     expect(seen).not.toMatch(/right-click any number of files/i);
-    // Naming it as planned work is fine — and is what the tour now does.
-    expect(seen).toMatch(/planned for a later milestone/i);
+    // Off macOS the Explorer entry is named as pending registration.
+    expect(seen).toMatch(/arrives once an installer registers it/i);
+    // And "Save as PDF" is not promised as a printer on the list.
+    expect(seen).not.toMatch(/'Save as PDF' on Mac/);
+  });
+
+  it('FR-001: on macOS the tour points at Finder › Services, which ships', () => {
+    const platform = vi
+      .spyOn(window.navigator, 'platform', 'get')
+      .mockReturnValue('MacIntel');
+    try {
+      render(<OnboardingFlow onComplete={vi.fn()} />);
+      const seen = walkToEnd();
+      expect(seen).toMatch(/Services › Print with MaeclyPrint/);
+      expect(seen).not.toMatch(/installer registers it/);
+      expect(seen).toMatch(/Save as PDF in your apps' own print dialog/);
+    } finally {
+      platform.mockRestore();
+    }
   });
 
   it('FR-008: advertises the CLI, which this build really has', () => {

@@ -69,7 +69,8 @@
   },
   "tip": {
     "label": "Tip",
-    "body": "MaeclyPrint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. Nothing adds it to your PATH yet, so call it by its full path — the Run from CLI card copies a command that already does. On a Mac you can also select files in the Finder and choose Services ▸ Print with MaeclyPrint; the Windows Explorer entry is not installed by this build yet."
+    "body": "MaeclyPrint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. Nothing adds it to your PATH yet, so call it by its full path — the Run from CLI card copies a command that already does. The Explorer right-click entry is built but not yet registered by an installer, so it does not appear on Windows yet.",
+    "bodyMac": "MaeclyPrint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. Nothing adds it to your PATH yet, so call it by its full path — the Run from CLI card copies a command that already does. In Finder, select files and choose Services › Print with MaeclyPrint from the right-click menu."
   },
   "nav": {
     "home": "Home",
@@ -93,7 +94,8 @@
     },
     "printers": {
       "title": "Detect your printers",
-      "body": "We'll list every printer your system has installed — including 'Microsoft Print to PDF' on Windows and 'Save as PDF' on Mac."
+      "body": "We'll list every printer your system has installed — including 'Microsoft Print to PDF' if it is enabled.",
+      "bodyMac": "We'll list every printer your system has installed. To make a PDF instead, use Save as PDF in your apps' own print dialog."
     },
     "cli": {
       "title": "Print without the window",
@@ -105,7 +107,8 @@
     },
     "ready": {
       "title": "Ready to print",
-      "body": "Drag any number of files onto the window or press {{shortcut}}, pick a profile, and watch them queue up. On a Mac, Finder ▸ Services ▸ Print with MaeclyPrint works too; the Windows Explorer entry is planned for a later milestone."
+      "body": "Drag any number of files onto the window or press {{shortcut}}, pick a profile, and watch them queue up. The Explorer right-click entry arrives once an installer registers it.",
+      "bodyMac": "Drag any number of files onto the window or press {{shortcut}}, pick a profile, and watch them queue up. In Finder, right-click files and choose Services › Print with MaeclyPrint."
     },
     "skip": "Skip",
     "back": "Back",

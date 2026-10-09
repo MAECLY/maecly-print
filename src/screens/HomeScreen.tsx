@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Icon, type IconName } from '@/components/Icon';
 import {
   APP_SHORTCUTS,
+  isMacPlatform,
   shortcutLabel,
   type ShortcutId,
 } from '@/components/AppShell/MPAppShell';
@@ -577,7 +578,11 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
             style={{ fontSize: 12, color: 'var(--mp-info)', lineHeight: 1.5 }}
           >
             <strong>{t('tip.label')} · </strong>
-            {t('tip.body', { command: 'maeclyprint print --files' })}
+            {/* FR-001: the Finder Services entry ships on macOS; the
+                Explorer entry is built but not registered by an installer. */}
+            {t(isMacPlatform() ? 'tip.bodyMac' : 'tip.body', {
+              command: 'maeclyprint print --files',
+            })}
           </div>
         </div>
       </div>

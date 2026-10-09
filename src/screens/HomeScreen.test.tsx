@@ -8,7 +8,13 @@
  * format list from drifting away from what the engine accepts.
  */
 
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import {
+  cleanup,
+  render,
+  screen,
+  fireEvent,
+  within,
+} from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { readFileSync } from 'node:fs';
@@ -424,8 +430,20 @@ describe('HomeScreen', () => {
   it('FR-001: the tip names the Finder entry that ships, and only Windows as missing', () => {
     renderHome();
     const text = document.body.textContent ?? '';
-    expect(text).toMatch(/Services ▸ Print with MaeclyPrint/);
     expect(text).not.toMatch(/Explorer and Finder right-click entry is not/i);
-    expect(text).toMatch(/Windows Explorer entry is not installed/i);
+    expect(text).toMatch(/Explorer right-click entry is built but not yet/i);
+    cleanup();
+
+    const platform = vi
+      .spyOn(window.navigator, 'platform', 'get')
+      .mockReturnValue('MacIntel');
+    try {
+      renderHome();
+      expect(document.body.textContent ?? '').toMatch(
+        /Services › Print with MaeclyPrint/,
+      );
+    } finally {
+      platform.mockRestore();
+    }
   });
 });

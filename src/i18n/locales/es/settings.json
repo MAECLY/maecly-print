@@ -40,7 +40,8 @@
       "hint": "Se aplica al trabajo cuando no se elige otro perfil."
     },
     "profilesError": "No se ha podido cargar la lista de perfiles.",
-    "shellNote": "La impresión con el botón derecho usa este perfil. En macOS está en el menú Servicios del Finder; en Windows, la entrada del Explorador aparece cuando el instalador la registra."
+    "shellNote": "La entrada del menú contextual del Explorador está hecha, pero ningún instalador la registra todavía, así que no aparece en Windows.",
+    "shellNoteMac": "La impresión con el botón derecho funciona desde Finder › Servicios › Imprimir con MaeclyPrint. Esos títulos de menú siguen el idioma del sistema."
   },
   "engine": {
     "concurrency": {
