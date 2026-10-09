@@ -58,6 +58,17 @@ describe('quoteShellArg', () => {
       'C:\\Tools\\maeclyprint.exe',
     );
   });
+
+  it('FR-008: a typographic quote in a profile name cannot end the PowerShell string', () => {
+    expect(quoteShellArg('Office’; Start-Process calc; ’', 'powershell')).toBe(
+      "'Office’’; Start-Process calc; ’’'",
+    );
+    for (const q of ['‘', '‚', '‛']) {
+      expect(quoteShellArg(`a${q}b`, 'powershell')).toBe(`'a${q}${q}b'`);
+    }
+    // POSIX does not treat them as quotes: left alone.
+    expect(quoteShellArg('a’b', 'posix')).toBe("'a’b'");
+  });
 });
 
 describe('cliPrintCommand', () => {
