@@ -1,36 +1,51 @@
 # End-to-end tests
 
-WebdriverIO specs that drive the **real built MaeclyPrint binary** through
-[`tauri-driver`](https://v2.tauri.app/develop/tests/webdriver/) — the WebDriver
-bridge Tauri ships. These cover flows, not features (the feature-level coverage
-lives in the Rust and Vitest unit tests); see
+Two harnesses live here:
+
+- **WebdriverIO specs** (`specs/`) that drive the **real built MaeclyPrint
+  binary** through [`tauri-driver`](https://v2.tauri.app/develop/tests/webdriver/),
+  the WebDriver bridge Tauri ships. Windows and Linux only.
+- **A browser harness** (`browser/`) that serves the real frontend from the
+  Vite dev server with a **fake Tauri host**, for driving the UI from any
+  browser automation on any OS. This is how the UI gets end-to-end coverage
+  on macOS, where WebDriver cannot reach WKWebView.
+
+Both cover flows, not features (feature-level coverage lives in the Rust and
+Vitest unit tests); see
 [`docs/08-development/testing-strategy.md`](../docs/08-development/testing-strategy.md).
 
 ## Layout
 
 ```
 e2e/
-├── wdio.conf.ts         # runner config; spawns/kills tauri-driver, screenshots on failure
-├── tsconfig.json        # standalone TS config (not part of `pnpm typecheck`)
-├── artifacts/           # failure screenshots (gitignored)
-└── specs/
-    ├── helpers.ts       # dismiss onboarding, navigate the sidebar
-    ├── profiles.e2e.ts  # create a custom profile, make it default
-    ├── settings.e2e.ts  # switch theme to dark, assert the dark class
-    └── about.e2e.ts     # About shows a semver version + license/release links
+├── wdio.conf.ts            # runner config; spawns/kills tauri-driver, forces an English UI, screenshots on failure
+├── tsconfig.json           # standalone TS config for the wdio specs (not part of `pnpm typecheck`)
+├── artifacts/              # failure screenshots (gitignored)
+├── specs/
+│   ├── helpers.ts          # dismiss onboarding (EN/ES), navigate the sidebar, forceEnglishUi, restore settings
+│   ├── home.e2e.ts         # formats advertised, shortcut layer (NFR-034), focusable quick actions, live recent activity
+│   ├── print-job.e2e.ts    # drop a file, submit (queue paused, never spooled), see it in the Queue; FR-005; FR-004
+│   ├── queue.e2e.ts        # live queue, List/Board/Timeline views, queue controls and an honest "Clear done"
+│   ├── printers.e2e.ts     # enumeration from the host spooler; add-printer tabs and the Windows transport limit
+│   ├── profiles.e2e.ts     # create a profile and make it default; unsaved edits survive navigation
+│   ├── settings.e2e.ts     # dark theme class; a setting survives relaunch (FR-100); language switch (FR-094)
+│   └── about.e2e.ts        # semver, links (FR-110), log directory (FR-113), versions, live update check
+└── browser/
+    ├── vite-plugin.ts      # injects ipc-stub.ts into index.html, dev server only, only in e2e mode
+    ├── ipc-stub.ts         # installs window.__TAURI_INTERNALS__ and window.__MAECLY_E2E__
+    ├── fake-backend.ts     # in-memory backend seeded from src/test/fixtures.ts
+    └── ipc-stub.test.ts    # the harness's own contract tests (run by `pnpm test`)
 ```
 
-Specs are named `*.e2e.ts` (not `*.spec.ts`) so vitest's default glob never
-picks them up — `pnpm test` stays unit-only and `pnpm test:e2e` is the sole
-E2E entry point.
+The wdio specs are named `*.e2e.ts` (not `*.spec.ts`) so Vitest never picks
+them up: `pnpm test` stays unit-only (plus `browser/*.test.ts`, which are plain
+Vitest), and `pnpm test:e2e` is the sole WebdriverIO entry point.
 
-## Platform support
+## WebdriverIO on Windows
 
-`tauri-driver` supports **Windows and Linux only** — WKWebView on macOS exposes
-no WebDriver endpoint. The CI e2e job runs on Windows and is **non-blocking**
-(`continue-on-error`) because a real GUI driver is inherently flake-prone.
-
-## Running locally (Windows)
+`tauri-driver` supports **Windows and Linux only**. The CI e2e job runs on
+Windows and is **non-blocking** (`continue-on-error`) because a real GUI driver
+is inherently flake-prone.
 
 ```powershell
 # 1. Install the WebDriver bridge (once).
@@ -46,9 +61,80 @@ $env:NATIVE_DRIVER = "C:\path\to\msedgedriver.exe"
 pnpm test:e2e
 ```
 
-Environment variables:
-
 | Var              | Purpose                                                                        |
 | ---------------- | ------------------------------------------------------------------------------ |
 | `TAURI_APP_PATH` | Override the binary path (default `src-tauri/target/debug/maeclyprint[.exe]`). |
 | `NATIVE_DRIVER`  | Path to `msedgedriver.exe` (Windows) passed to `tauri-driver`.                 |
+
+Things to know before running it on your own machine:
+
+- **It writes your real config.** The specs drive the real binary, so they
+  change the per-user `config.toml` (theme, language, a test profile) and
+  restore the defaults afterwards. There is no config-path override.
+- **The UI is switched to English first.** Every spec finds controls by their
+  English labels, and the first launch follows the OS language (FR-093), so
+  the `before` hook in `wdio.conf.ts` selects `en-US` whatever the starting
+  language is. Your language setting ends up as English.
+- **Nothing is printed.** `print-job.e2e.ts` pauses the whole queue before it
+  submits, then cancels the job and resumes. If a run is killed in between,
+  resume the queue from the Queue screen and clear the cancelled job.
+- **If the run seems stuck,** it is usually a lookup waiting out its timeout
+  (10–15 s per step, 60 s per test). Check `e2e/artifacts/` for the failure
+  screenshot, and confirm `NATIVE_DRIVER` matches the installed WebView2
+  version: a mismatched `msedgedriver` makes session creation retry three
+  times over two minutes before failing.
+
+## Browser harness (macOS and anywhere else)
+
+```sh
+pnpm dev:e2e     # = vite --mode e2e  (MAECLY_E2E_STUB=1 pnpm dev is equivalent)
+# then open http://localhost:1421/?e2e-onboarded=1 in any browser
+```
+
+`vite.config.ts` registers the `maeclyE2eStub` plugin, which is
+`apply: 'serve'` and inert unless the server runs in `e2e` mode or with
+`MAECLY_E2E_STUB=1`, so `pnpm dev`, `pnpm tauri dev` and every production build
+are untouched. In e2e mode it prepends `browser/ipc-stub.ts` to `index.html`,
+which installs `window.__TAURI_INTERNALS__` before the app boots. The app then
+believes it runs inside Tauri: every command, event, file dialog and the
+webview's drag-and-drop go to `browser/fake-backend.ts`.
+
+The fake backend mirrors the IPC contract (command names, argument names, wire
+shapes, `IpcError` rejections), not the Rust implementation:
+
+- printers, discovered printers, printer prefs and policy from the fixtures;
+- profiles with create/update/delete, the default flag and its delete guard;
+- settings with the server's engine bounds (out-of-range values are refused);
+- `inspect_files` by extension (`*missing*` is not found, unknown extensions
+  are unsupported) and two fake folders, `/Users/e2e/Documents/Invoices` (has a
+  subfolder) and `/Users/e2e/Documents/Flat`;
+- a queue whose jobs advance on a timer (queued → converting → converted →
+  printing → done, one printing at a time; a file named `*fail*` fails),
+  emitting `queue-updated` and `job-progress-event`, honouring pause/resume,
+  cancel, retry and clear.
+
+A command it does not model rejects with `Internal: not stubbed …`.
+
+Drive it from the page (DevTools, Playwright, the console):
+
+```js
+__MAECLY_E2E__.backend.openPaths = ['/Users/e2e/a.pdf']; // next file picker result
+__MAECLY_E2E__.dropFiles(['/Users/e2e/b.pdf']); // a native drop
+__MAECLY_E2E__.forwardSelection({
+  paths: ['/x.pdf'],
+  action: 'print-default',
+  profile_id: null,
+});
+__MAECLY_E2E__.backend.tick(); // advance the queue by hand
+__MAECLY_E2E__.calls(); // every command the app invoked
+```
+
+| URL flag           | Effect                                                |
+| ------------------ | ----------------------------------------------------- |
+| `?e2e-onboarded=1` | Skip the onboarding overlay                           |
+| `?e2e-seed=1`      | Start from the fixture queue (one job in every state) |
+| `?e2e-tick=0`      | Stop the timer; advance with `backend.tick()`         |
+
+What it does **not** prove: anything below the IPC boundary. Printing,
+spooling and conversion are covered by the Rust suites, including the opt-in
+real-CUPS checks in `src-tauri/tests/real_printer.rs`.

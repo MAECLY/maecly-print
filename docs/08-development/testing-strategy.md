@@ -140,7 +140,9 @@ Test functions that pin a requirement are **named after it** — `fr_020_crud_ro
 
 ### Virtual printer — planned, not built
 
-**Nothing in the suite prints today.** No test spawns SumatraPDF or `lp`; the print backends are covered as *pure argument construction* — `sumatra::print_settings_string`, `sumatra::sumatra_args`, `cups::lp_opts`, `cups::lp_args` are pure functions with co-located unit tests, and only `spool`/`cancel` touch a process, `cfg`-gated per platform.
+**Nothing in the suite prints today.** The default suite spawns neither SumatraPDF nor `lp`; the print backends are covered as *pure argument construction* — `sumatra::print_settings_string`, `sumatra::sumatra_args`, `cups::lp_opts`, `cups::lp_args` are pure functions with co-located unit tests, and only `spool`/`cancel` touch a process, `cfg`-gated per platform.
+
+The one exception is opt-in: **`src-tauri/tests/real_printer.rs`** (Unix only, every test `#[ignore]`d *and* gated on `MAECLY_REAL_PRINTER=1`) spools through the engine's public `engine::print::spool` to a CUPS queue that **holds every job** (`MAECLY_HOLD_QUEUE`, default `Maecly_Hold`, created with `-o job-hold-until-default=indefinite`). It reads each job back with `ipptool … get-job-attributes.test`, asserts the IPP attributes the mapping should produce (`copies`, `sides`, `media`, `ColorModel`/`print-color-mode`, `page-ranges`, `landscape`/`orientation-requested`, `media-source`/`InputSlot`, `print-quality`/`cupsPrintQuality`, `fit-to-page`) and cancels the job, also on panic. It refuses to submit unless `lpoptions -p <queue>` shows `job-hold-until=indefinite`, and asserts every job is `pending-held` before reading it. Nothing reaches paper. Without the env var the tests return immediately, so the weekly `ignored-tests` lane passes them as no-ops. Observed on CUPS 2.x (macOS): `-o landscape` is stored as the `landscape` boolean, not `orientation-requested`; and when both quality spellings are sent, the queue keeps `cupsPrintQuality` and drops `print-quality`.
 
 The design when we do build it:
 
@@ -160,13 +162,14 @@ Installing the tools in CI (`choco install libreoffice-fresh pandoc` on Windows,
 
 ### Ignored tests
 
-Three tests are `#[ignore]`d because they reach outside the process (the comment above the `ignored-tests` job in `ci.yml` still says "two" — it predates `list_printers_smoke`):
+Three unit tests and the `real_printer` integration suite are `#[ignore]`d because they reach outside the process (the comment above the `ignored-tests` job in `ci.yml` still says "two" — it predates `list_printers_smoke`):
 
 | Test | Why | How to run |
 |---|---|---|
 | `update::tests::live_github_release_check` | Hits `api.github.com`; rate limits and third-party downtime must not fail a merge | `cargo test -- --ignored live_github_release_check` |
 | `platform::cups::tests::add_and_remove_real_queue` | Creates a real CUPS queue via `lpadmin` | `cargo test -- --ignored add_and_remove` |
 | `platform::cups::tests::list_printers_smoke` | Shells out to the host's CUPS install; the result depends on the developer's real queues | `cargo test -- --ignored list_printers_smoke` |
+| `tests/real_printer.rs` (5 tests) | Submits held jobs to a real CUPS queue and reads their IPP attributes back (see *Virtual printer* above); a no-op unless `MAECLY_REAL_PRINTER=1` | `MAECLY_REAL_PRINTER=1 cargo test --test real_printer -- --ignored --test-threads=1` |
 
 CI runs them in the **`ignored-tests`** job — `cargo test -- --ignored`, which runs *only* those, on `macos-latest`. That job is `continue-on-error: true` and fires on a weekly schedule (`cron: '0 5 * * 1'`) or `workflow_dispatch`; it never runs on a pull request and never gates a merge. Note the flag: CI uses `-- --ignored` (only the ignored ones — the rest already ran in the blocking lanes), **not** `--include-ignored`.
 
@@ -264,18 +267,24 @@ Those numbers sit just under the measured tree (lines/statements 61.4%, function
 
 ### Platform support — Windows/Linux only
 
-`tauri-driver` supports **Windows and Linux only**; **macOS WKWebView exposes no WebDriver endpoint**, so there is no automated E2E on macOS. macOS is covered instead by the Rust unit/integration suite, the Vitest suite, a **launch smoke** ("does the built app start and stay up"), and manual QA. A parallel **launch smoke** also runs on Windows.
+`tauri-driver` supports **Windows and Linux only**; **macOS WKWebView exposes no WebDriver endpoint**, so the WebdriverIO suite cannot run on macOS. macOS is covered instead by the Rust unit/integration suite, the Vitest suite, a **launch smoke** ("does the built app start and stay up"), the browser harness below, and manual QA. A parallel **launch smoke** also runs on Windows.
+
+### Browser harness (macOS, or any host without a built binary)
+
+`pnpm dev:e2e` (`vite --mode e2e`; `MAECLY_E2E_STUB=1 pnpm dev` is equivalent) serves the real frontend at `http://localhost:1421` with a **fake Tauri host** injected ahead of the app. The `maeclyE2eStub` plugin in `vite.config.ts` (`e2e/browser/vite-plugin.ts`) is `apply: 'serve'` and inert without the flag, so neither `pnpm dev` nor any production build ever contains it. `e2e/browser/ipc-stub.ts` installs `window.__TAURI_INTERNALS__` (invoke, callbacks, the event plugin's listen/unlisten/emit, the dialog plugin, `convertFileSrc`, webview metadata), so `isTauri()` is true and the screens run their real code paths. Every command lands on `e2e/browser/fake-backend.ts`: in-memory printers, profiles (CRUD, default guard), settings (with the server's engine limits), folders and a queue seeded from `src/test/fixtures.ts`. Submitted jobs advance on a timer (queued → converting → converted → printing → done, a file named `*fail*` fails), emitting `queue-updated` and `job-progress-event`. A command it does not model rejects with `Internal`, never resolves `undefined`.
+
+Drive it with any browser automation (Chrome DevTools MCP, Playwright) through `window.__MAECLY_E2E__`: `backend` (state, `tick()`, `openPaths` for the next file picker), `forwardSelection(sel)`, `dropFiles(paths)`, `emit(event, payload)`, `calls()`. URL flags: `?e2e-seed=1` (fixture queue with every job state), `?e2e-tick=0` (manual ticks), `?e2e-onboarded=1` (skip onboarding). It proves GUI ↔ IPC-contract behaviour, not the backend; the harness's own contract tests live in `e2e/browser/ipc-stub.test.ts` and run with `pnpm test`.
 
 ### Coverage scope
 
 E2E specs live in `e2e/specs/` and are named **`*.e2e.ts`**, not `*.spec.ts`. The extension is load-bearing: Vitest's default `{test,spec}` glob would otherwise pick them up and try to run a WebdriverIO suite inside jsdom. `wdio.conf.ts` matches them with `specs: [path.resolve(here, 'specs', '**', '*.e2e.ts')]`.
 
-There is one spec per screen — seven files plus a shared `helpers.ts` (dismiss onboarding, navigate the sidebar):
+There is one spec per screen — seven files plus a shared `helpers.ts` (dismiss onboarding in either language, navigate the sidebar, and `forceEnglishUi`, which the `before` hook in `wdio.conf.ts` runs once per session because the first launch follows the OS language, FR-093):
 
 | Spec | Covers |
 |---|---|
 | `home.e2e.ts` | Home advertises only formats the engine really accepts; the global shortcut layer is bound to a real window (NFR-034); quick actions are focusable buttons (NFR-041); recent activity is fed by a live `queue_status` |
-| `print-job.e2e.ts` | Add a file, submit the batch, see it in the Queue; an unsupported file is refused with a visible reason (FR-005); a dropped folder asks before recursing (FR-004) |
+| `print-job.e2e.ts` | Add a file, submit the batch, see it in the Queue (the queue is paused around the spec so the job never reaches the host's real default printer, then cancelled and resumed); an unsupported file is refused with a visible reason (FR-005); a dropped folder asks before recursing (FR-004) |
 | `queue.e2e.ts` | The live queue renders instead of an "unavailable" notice; switching List / Board / Timeline views; the queue controls, including an honest "Clear done" |
 | `printers.e2e.ts` | Enumeration comes from the host spooler, not mock data; the add-printer methods are tabs and honour the Windows transport limit |
 | `profiles.e2e.ts` | Create a custom profile and make it the default; unsaved edits survive leaving and returning to the screen |
@@ -463,6 +472,8 @@ If a future need for real string snapshots appears (log line format, manifest JS
 | `pnpm test` | Frontend unit tests (`vitest run`) |
 | `pnpm test:coverage` | Frontend tests with V8 coverage (report under `coverage/`); no threshold locally |
 | `pnpm test:e2e` | E2E tests (Windows/Linux; requires a built binary + `tauri-driver` + `NATIVE_DRIVER`) |
+| `pnpm dev:e2e` | Frontend with the fake Tauri host on `:1421`, for browser-driven E2E on any OS |
+| `MAECLY_REAL_PRINTER=1 cargo test --manifest-path src-tauri/Cargo.toml --test real_printer -- --ignored --test-threads=1` | Real-CUPS mapping checks against a hold queue (Unix) |
 | `pnpm check-all` | `lint`, `format:check`, `typecheck`, `test` — **frontend only, no Rust** |
 | `make check` | Everything: the four above plus `cargo fmt --check`, `clippy -D warnings` and `cargo test` |
 
