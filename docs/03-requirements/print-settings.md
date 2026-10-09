@@ -22,7 +22,7 @@ A print setting is anything that can be different per job: the printer, paper, d
 | `tray` | string | the printer's override, else driver default | `bin=<name>`; `auto` emits nothing | `-o InputSlot=<bin> -o media-source=<bin>`; `auto` emits nothing | **Shipped** | yes |
 | `paper_size_custom` | width × height (mm) | — | would need preprocessing | `-o media=Custom.WxHmm` | Not implemented | yes |
 | `n_up` | enum: 1 / 2 / 4 / 6 / 9 | 1 | would need `qpdf`/`pdfjam` preprocessing | `-o number-up=N` | Not implemented | yes |
-| `collate` | bool | true | **not expressible** — a `:: note:` says the driver's collation is used | `-o collate=true\|false` (only when copies > 1) | **Shipped** (CUPS) | yes |
+| `collate` | bool | true | **not expressible** — a `# note:` says the driver's collation is used | `-o collate=true\|false` (only when copies > 1) | **Shipped** (CUPS) | yes |
 | `margins` | object (mm) | driver default | would need preprocessing | not directly | Not implemented | partial |
 | `watermark` | object | none | would need a preprocessing step | same | Not implemented | no (synthesized) |
 | `separator_pages` | bool | false | would need concatenation | same | Not implemented | no (synthesized) |
@@ -76,7 +76,7 @@ There is no `auto` value. On CUPS, `color` emits no flag at all — the driver's
 - `collate = true` (default): full document repeated. (1,2,3 / 1,2,3)
 - `collate = false`: each page repeated. (1,1 / 2,2 / 3,3)
 
-CUPS receives `-o collate=true|false` whenever more than one copy is printed (one copy has nothing to collate, so nothing is sent). SumatraPDF's `-print-settings` has no collate keyword; with several copies the preview carries a `:: note:` saying the driver's own collation is used, in the same spirit as the quality gap.
+CUPS receives `-o collate=true|false` whenever more than one copy is printed (one copy has nothing to collate, so nothing is sent). SumatraPDF's `-print-settings` has no collate keyword; with several copies the preview carries a `# note:` saying the driver's own collation is used, in the same spirit as the quality gap.
 
 ### `page_ranges`
 
@@ -227,7 +227,7 @@ Full argument vector: `-print-to <printer> -print-settings <string> -silent -exi
 | Duplex none / long / short | `simplex` / `duplex` / `duplexshort` — always emitted |
 | Colour / monochrome | `color` / `monochrome` — always emitted |
 | Scaling fit / shrink / none | `fit` / `shrink` / `noscale` — always emitted |
-| Paper size | `paper=A4` (also `Letter`, `Legal`, `A3`, and SumatraPDF's own `A2`, `A5`, `A6`, `tabloid`, `statement`); `auto` emits nothing; any other size cannot be named here, so it is left out and a `:: note:` line in the preview says it is not applied |
+| Paper size | `paper=A4` (also `Letter`, `Legal`, `A3`, and SumatraPDF's own `A2`, `A5`, `A6`, `tabloid`, `statement`); `auto` emits nothing; any other size cannot be named here, so it is left out and a `# note:` line in the preview says it is not applied |
 | Copies | `<N>x` (e.g. `3x`), **only when N > 1** — SumatraPDF silently skips the `copies=N` spelling; collation cannot be expressed (preview note) |
 | Orientation | `landscape` / `portrait`; `auto` emits nothing |
 | Tray (bin) | `bin=<name>` — the job's tray, else the printer's saved default tray; omitted when there is none or the name contains a comma |

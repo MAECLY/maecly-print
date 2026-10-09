@@ -230,16 +230,16 @@ fn bin_token(settings: &JobSettings) -> Option<&str> {
 /// learns to ignore. Anything else is a deliberate choice that will not happen,
 /// and saying so is the whole point.
 ///
-/// Written as a `::` batch comment so the honesty preview stays a single
-/// copy-pasteable command line.
+/// Written as a `#` comment so the honesty preview (a PowerShell line) stays
+/// copy-pasteable.
 pub fn quality_note(settings: &JobSettings) -> Option<&'static str> {
     match settings.quality {
         Quality::Normal => None,
         Quality::Draft => Some(
-            ":: note: SumatraPDF has no print-quality switch, so \"draft\" is NOT applied — the printer's own default quality is used.",
+            "# note: SumatraPDF has no print-quality switch, so \"draft\" is NOT applied — the printer's own default quality is used.",
         ),
         Quality::High => Some(
-            ":: note: SumatraPDF has no print-quality switch, so \"high\" is NOT applied — the printer's own default quality is used.",
+            "# note: SumatraPDF has no print-quality switch, so \"high\" is NOT applied — the printer's own default quality is used.",
         ),
     }
 }
@@ -260,7 +260,7 @@ fn paper_token(paper: &PaperSize) -> Option<&str> {
         .copied()
 }
 
-/// Every setting the SumatraPDF command line cannot carry, as `::` comment
+/// Every setting the SumatraPDF command line cannot carry, as `#` comment
 /// lines for the honesty preview (and the job log): quality, and a paper size
 /// outside SumatraPDF's vocabulary.
 pub fn unsupported_notes(settings: &JobSettings) -> Vec<String> {
@@ -270,14 +270,14 @@ pub fn unsupported_notes(settings: &JobSettings) -> Vec<String> {
         .collect();
     if settings.copies > 1 {
         notes.push(format!(
-            ":: note: SumatraPDF has no collate switch, so \"{}\" is NOT applied — the driver's own collation is used for the {} copies.",
+            "# note: SumatraPDF has no collate switch, so \"{}\" is NOT applied — the driver's own collation is used for the {} copies.",
             if settings.collate { "collated" } else { "uncollated" },
             settings.copies
         ));
     }
     if !settings.paper_size.is_auto() && paper_token(&settings.paper_size).is_none() {
         notes.push(format!(
-            ":: note: SumatraPDF has no keyword for the paper size \"{}\", so it is NOT applied — the printer's own paper setting is used.",
+            "# note: SumatraPDF has no keyword for the paper size \"{}\", so it is NOT applied — the printer's own paper setting is used.",
             settings.paper_size
         ));
     }
@@ -490,7 +490,7 @@ mod tests {
         assert!(quality_note(&with(Quality::Normal, None)).is_none());
         for quality in [Quality::Draft, Quality::High] {
             let note = quality_note(&with(quality, None)).expect("non-default quality is declared");
-            assert!(note.starts_with("::"), "stays copy-pasteable: {note}");
+            assert!(note.starts_with("# "), "stays copy-pasteable: {note}");
             assert!(note.contains("NOT applied"), "{note}");
         }
     }

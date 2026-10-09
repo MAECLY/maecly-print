@@ -426,8 +426,10 @@ fn preview_for_files(
         if groups.len() == 1 {
             blocks.push(command);
         } else {
-            let comment = if cfg!(windows) { "::" } else { "#" };
-            blocks.push(format!("{comment} {}\n{command}", names.join(", ")));
+            // `#` is a comment in both PowerShell and a POSIX shell; a line
+            // break in a file name must not end it and start a command.
+            let names = crate::engine::print::comment_text(&names.join(", "));
+            blocks.push(format!("# {names}\n{command}"));
         }
     }
     blocks.join("\n\n")
