@@ -233,6 +233,10 @@ describe('HomeScreen', () => {
         ),
       );
       expect(card).toHaveTextContent(/full path/i);
+      // …and so does the tip, which only now may say the card includes it.
+      expect(document.body.textContent).toMatch(
+        /the Run from CLI card copies a command that already does/,
+      );
     } finally {
       clearMocks();
       delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
@@ -425,6 +429,16 @@ describe('HomeScreen', () => {
     expect(text).not.toMatch(/adds itself to the right-click menu/i);
     // The CLI, which does exist, is what the tip points at.
     expect(text).toMatch(/maeclyprint print --files/);
+  });
+
+  it('FR-006: without the executable path, the tip does not promise the card has it', () => {
+    renderHome();
+    const text = document.body.textContent ?? '';
+    // The card falls back to the bare name and says so…
+    expect(text).toMatch(/replace maeclyprint with the full path/i);
+    // …so the tip must not claim the card copies the full path.
+    expect(text).not.toMatch(/card copies a command that already does/);
+    expect(text).toMatch(/full path of the app's executable/);
   });
 
   it('FR-001: the tip names the Finder entry that ships, and only Windows as missing', () => {

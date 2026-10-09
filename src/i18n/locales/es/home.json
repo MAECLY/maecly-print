@@ -69,8 +69,10 @@
   },
   "tip": {
     "label": "Consejo",
-    "body": "MaeclyPrint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. Todavía nada lo añade al PATH, así que llámalo por su ruta completa: la tarjeta «Usar la CLI» copia un comando que ya la incluye. La entrada del menú contextual del Explorador ya está hecha, pero ningún instalador la registra todavía, así que aún no aparece en Windows.",
-    "bodyMac": "MaeclyPrint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. Todavía nada lo añade al PATH, así que llámalo por su ruta completa: la tarjeta «Usar la CLI» copia un comando que ya la incluye. En el Finder, selecciona archivos y elige Servicios › Imprimir con MaeclyPrint en el menú contextual."
+    "pathCopied": "Todavía nada lo añade al PATH, así que llámalo por su ruta completa: la tarjeta «Usar la CLI» copia un comando que ya la incluye.",
+    "pathManual": "Todavía nada lo añade al PATH, así que llámalo por la ruta completa del ejecutable de la aplicación.",
+    "body": "MaeclyPrint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. {{path}} La entrada del menú contextual del Explorador ya está hecha, pero ningún instalador la registra todavía, así que aún no aparece en Windows.",
+    "bodyMac": "MaeclyPrint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. {{path}} En el Finder, selecciona archivos y elige Servicios › Imprimir con MaeclyPrint en el menú contextual."
   },
   "nav": {
     "home": "Inicio",

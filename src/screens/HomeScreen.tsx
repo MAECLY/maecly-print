@@ -586,6 +586,9 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
                 Explorer entry is built but not registered by an installer. */}
             {t(isMacPlatform() ? 'tip.bodyMac' : 'tip.body', {
               command: 'maeclyprint print --files',
+              // Same condition as the card's own note: only claim the card
+              // copies the full path when it actually knows it.
+              path: exe.path ? t('tip.pathCopied') : t('tip.pathManual'),
             })}
           </div>
         </div>

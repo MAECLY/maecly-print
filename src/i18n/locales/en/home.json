@@ -69,8 +69,10 @@
   },
   "tip": {
     "label": "Tip",
-    "body": "MaeclyPrint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. Nothing adds it to your PATH yet, so call it by its full path — the Run from CLI card copies a command that already does. The Explorer right-click entry is built but not yet registered by an installer, so it does not appear on Windows yet.",
-    "bodyMac": "MaeclyPrint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. Nothing adds it to your PATH yet, so call it by its full path — the Run from CLI card copies a command that already does. In Finder, select files and choose Services › Print with MaeclyPrint from the right-click menu."
+    "pathCopied": "Nothing adds it to your PATH yet, so call it by its full path — the Run from CLI card copies a command that already does.",
+    "pathManual": "Nothing adds it to your PATH yet, so call it by the full path of the app's executable.",
+    "body": "MaeclyPrint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. {{path}} The Explorer right-click entry is built but not yet registered by an installer, so it does not appear on Windows yet.",
+    "bodyMac": "MaeclyPrint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. {{path}} In Finder, select files and choose Services › Print with MaeclyPrint from the right-click menu."
   },
   "nav": {
     "home": "Home",
