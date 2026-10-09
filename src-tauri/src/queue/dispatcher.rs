@@ -1038,11 +1038,12 @@ impl Dispatcher {
         {
             let mut st = self.state.write().unwrap();
             if !st.queue_paused {
-                let mut converting = st
-                    .jobs
-                    .iter()
-                    .filter(|j| j.state == JobState::Converting)
-                    .count();
+                // Count the conversions actually in flight, not the jobs in the
+                // Converting state: a paused, cancelled or timed-out conversion
+                // is only *flagged* and keeps burning CPU until its next stage
+                // boundary, so it holds its slot until `ConversionDone` removes
+                // it from `self.converting` (FR-037).
+                let mut converting = self.converting.len();
                 while converting < self.limits.max_concurrent {
                     // A Queued job whose id is still in `self.converting` was
                     // paused/resumed — or retried after a conversion timeout —
@@ -2379,6 +2380,50 @@ mod tests {
         h.step();
         assert_eq!(h.count(JobState::Converting), 3);
         assert_eq!(h.count(JobState::Queued), 1);
+    }
+
+    /// FR-037: pausing or cancelling a converting job only *flags* its blocking
+    /// task, which keeps running until its next stage boundary. Those orphans
+    /// still occupy CPU, so they count against `max_concurrent` until their
+    /// `ConversionDone` arrives.
+    #[tokio::test]
+    async fn fr_037_orphaned_conversions_still_count_against_the_cap() {
+        let spawner = Arc::new(DeferredSpawner::default());
+        let mut h = harness_with(spawner.clone(), DispatcherLimits::default());
+        let jobs: Vec<Job> = (0..4).map(|i| make_job(&format!("f{i}.pdf"))).collect();
+        let ids: Vec<String> = jobs.iter().map(|j| j.id.clone()).collect();
+        h.submit(jobs);
+        h.step();
+        assert_eq!(
+            spawner.tasks.lock().unwrap().len(),
+            2,
+            "two conversions run"
+        );
+
+        // Pause one, cancel the other: both tasks are still running.
+        h.request(|reply| Cmd::Pause {
+            id: ids[0].clone(),
+            reply,
+        })
+        .await
+        .unwrap();
+        h.request(|reply| Cmd::Cancel {
+            id: ids[1].clone(),
+            reply,
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            spawner.tasks.lock().unwrap().len(),
+            2,
+            "no new conversion may start while the orphans still run"
+        );
+        assert_eq!(h.count(JobState::Queued), 2);
+
+        // Once an orphan reports back, its slot frees up.
+        spawner.run_next();
+        h.run_to_idle();
+        assert_eq!(h.count(JobState::Converting), 1);
     }
 
     // ---- Conversion timeout ----------------------------------------------
