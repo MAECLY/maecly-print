@@ -28,7 +28,7 @@ These decisions are not up for re-debate during the MVP cycle. They are recorded
 |---|---|---|
 | Product name | **Pluryprint** | — |
 | Application stack | **Tauri 2 + Rust + React (TypeScript)** | [ADR-0001](./adr/0001-stack-tauri-rust-react.md) |
-| License | **GPLv3** | [ADR-0002](./adr/0002-license-gplv3.md) |
+| License | **AGPL-3.0-only**, contributions under a CLA (was GPLv3 until 2026-10-09) | [ADR-0010](./adr/0010-relicense-to-agpl-3.0.md) (supersedes [ADR-0002](./adr/0002-license-gplv3.md)) |
 | Print engine strategy | **Hybrid: SumatraPDF as final hop, format-specific converters upstream** | [ADR-0003](./adr/0003-hybrid-print-engine-strategy.md) |
 | Auto-update | **Tauri Updater plugin (built-in)** | [ADR-0004](./adr/0004-auto-updater-tauri-builtin.md) |
 | Windows shell extension | **Sparse MSIX + IExplorerCommand COM DLL** | [ADR-0005](./adr/0005-shell-extension-sparse-msix.md) |
@@ -112,8 +112,8 @@ These decisions are not up for re-debate during the MVP cycle. They are recorded
 
 ### 09 — Legal
 
-- [License](./09-legal/license.md) — what GPLv3 means in practice
-- [Third-Party Licenses](./09-legal/third-party-licenses.md) — SumatraPDF, LibreOffice, Tauri, etc.
+- [License](./09-legal/license.md) — what the AGPL-3.0 and the CLA mean in practice
+- [Third-Party Licenses](./09-legal/third-party-licenses.md) — SumatraPDF, LibreOffice, Tauri, etc. (the shipped notice is [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md))
 - [Trademark](./09-legal/trademark.md) — name and logo usage policy
 - [Privacy](./09-legal/privacy.md) — telemetry, crash reports, logs
 
@@ -121,12 +121,13 @@ These decisions are not up for re-debate during the MVP cycle. They are recorded
 
 - [ADR Index](./adr/README.md)
 - [0001 — Stack: Tauri + Rust + React](./adr/0001-stack-tauri-rust-react.md)
-- [0002 — License: GPLv3](./adr/0002-license-gplv3.md)
+- [0002 — License: GPLv3](./adr/0002-license-gplv3.md) (superseded by 0010)
 - [0003 — Hybrid print engine strategy](./adr/0003-hybrid-print-engine-strategy.md)
 - [0004 — Auto-updater: Tauri built-in](./adr/0004-auto-updater-tauri-builtin.md)
 - [0005 — Shell extension: Sparse MSIX](./adr/0005-shell-extension-sparse-msix.md)
 - [0006 — Installer: Inno Setup](./adr/0006-installer-inno-setup.md)
 - [0007 — Platform priority: Windows first, macOS second](./adr/0007-windows-first-mac-second.md)
+- [0010 — Relicense to AGPL-3.0](./adr/0010-relicense-to-agpl-3.0.md)
 
 ---
 
@@ -146,4 +147,4 @@ Expect rough edges; expect change. The locked decisions in the table above are s
 
 ## License of this documentation
 
-The documentation in this folder is released under the same license as the code: **[GPLv3](../LICENSE)**.
+The documentation in this folder is released under the same license as the code: **[AGPL-3.0](../LICENSE)**.

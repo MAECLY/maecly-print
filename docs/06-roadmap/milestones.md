@@ -48,7 +48,7 @@ Milestones are strictly sequential. We do not start M(n+1) work until M(n) exit 
 - Every CI job is green on `main`.
 - A new contributor can clone, run `pnpm install && pnpm tauri dev`, and see the app shell within 10 minutes.
 - All cross-document links resolve (no 404s in `docs/`).
-- DCO bot active on PRs.
+- The pull request template asks contributors to agree to the [CLA](../../CLA.md). (M0 shipped a DCO sign-off check; it was retired when the project moved to AGPL-3.0 and the CLA, [ADR-0010](../adr/0010-relicense-to-agpl-3.0.md).)
 
 ### Risks
 
