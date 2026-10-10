@@ -194,3 +194,72 @@ fn fr_027_five_hundred_profiles() {
     assert!(reloaded.profile.iter().any(|p| p.name == "Profile 499"));
     assert_eq!(reloaded, file);
 }
+
+/// FR-001: "Print with «profile»" can name a profile the running app has never
+/// seen — `maeclyprint-cli profiles create` writes `profiles.toml` (and the
+/// shell menu) while the GUI is open. The backend side of that seam must hold:
+/// the read commands go to disk on every call (no in-process cache to go
+/// stale), the handoff carries the reference through verbatim, and a reference
+/// that resolves to nothing is an error, never the default profile.
+#[test]
+fn fr_001_profile_created_out_of_process_is_resolvable_without_restart() {
+    use maeclyprint_lib::cli::args::ContextAction;
+    use maeclyprint_lib::cli::handoff::Handoff;
+    use maeclyprint_lib::cli::{profiles as cli_profiles, selection_from_payload, Paths};
+    use maeclyprint_lib::ipc::profiles::{get_profile_at, list_profiles_at, save_profile_at};
+    use maeclyprint_lib::util::error::IpcError;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths {
+        config: dir.path().join("config.toml"),
+        profiles: dir.path().join("profiles.toml"),
+        queue: dir.path().join("queue.json"),
+    };
+
+    // The app has read its list once: built-ins only.
+    let before = list_profiles_at(&paths.profiles, &paths.config).unwrap();
+    assert!(before.iter().all(|p| p.builtin));
+
+    // Another process (the CLI) creates a profile.
+    let mut p = profile("E2E Hold");
+    p.copies = 2;
+    p.duplex = ProfileDuplex::LongEdge;
+    let saved = save_profile_at(&paths.profiles, &paths.config, p).unwrap();
+
+    // The very next read sees it, by list and by id.
+    let after = list_profiles_at(&paths.profiles, &paths.config).unwrap();
+    let listed = after.iter().find(|q| q.id == saved.id).expect("listed");
+    assert_eq!(listed.name, "E2E Hold");
+    assert_eq!(listed.copies, 2);
+    assert!(
+        !listed.default,
+        "creating a profile never makes it the default"
+    );
+    let got = get_profile_at(&paths.profiles, &paths.config, saved.id.clone()).unwrap();
+    assert_eq!(got.duplex, ProfileDuplex::LongEdge);
+
+    // The handoff forwards the reference untouched for the app to resolve.
+    let selection = selection_from_payload(
+        Handoff {
+            schema_version: 1,
+            source: "windows-explorer".into(),
+            action: Some(ContextAction::PrintDefault),
+            profile_id: Some("E2E Hold".into()),
+            invoked_at: String::new(),
+            paths: vec!["C:\\x.pdf".into()],
+            truncated_from: None,
+        },
+        ContextAction::Configure,
+        None,
+    );
+    assert_eq!(selection.profile_id.as_deref(), Some("E2E Hold"));
+    assert_eq!(selection.action, ContextAction::PrintDefault);
+
+    // By name it resolves; a name that matches nothing is ProfileNotFound.
+    assert_eq!(
+        cli_profiles::resolve(&paths, "e2e hold").unwrap().id,
+        saved.id
+    );
+    let err = cli_profiles::resolve(&paths, "Nope").unwrap_err();
+    assert!(matches!(err.error, IpcError::ProfileNotFound(ref n) if n == "Nope"));
+}
