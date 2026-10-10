@@ -17,6 +17,9 @@ export function Toaster({ theme }: { theme: 'light' | 'dark' }) {
     <SonnerToaster
       theme={theme}
       position="bottom-right"
+      // sonner 2 moved the default inset from 32px to 24px; keep the stack
+      // where the design (and sonner 1) put it.
+      offset={32}
       richColors={false}
       closeButton
       containerAriaLabel={t('toaster.region')}
