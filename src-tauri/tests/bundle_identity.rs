@@ -182,6 +182,61 @@ fn nsis_hook_removes_sumatra_settings_from_the_old_install_folder() {
     assert_eq!(resources["resources/sumatrapdf/*"], "resources/sumatrapdf/");
 }
 
+/// Explorer keeps the old context-menu DLL loaded once its menu was shown, so
+/// the old uninstaller cannot delete it and the old folder stayed behind with
+/// it. The takeover moves it next to the new DLL under the `.old<N>` names
+/// that the next update and the uninstaller already clean up.
+#[test]
+fn nsis_hook_parks_a_loaded_legacy_dll_where_it_gets_cleaned_up() {
+    let nsh = read("windows/installer-hooks.nsh");
+    let code = nsis_code(&nsh);
+    let park = code
+        .iter()
+        .position(|l| *l == r#"!insertmacro PLURY_PARK_LEGACY_DLL "$R1""#)
+        .expect("the takeover parks the old DLL");
+    let ran = code
+        .iter()
+        .position(|l| *l == "plury_unexe_done:")
+        .expect("after the old uninstaller ran");
+    let rmdir = code
+        .iter()
+        .position(|l| *l == r#"RMDir /REBOOTOK "$R1""#)
+        .expect("the old folder is removed");
+    assert!(ran < park && park < rmdir);
+
+    let body = nsh
+        .split("!macro PLURY_PARK_LEGACY_DLL DIR")
+        .nth(1)
+        .and_then(|rest| rest.split("!macroend").next())
+        .expect("macro body");
+    let body = nsis_code(body);
+    let rename = body
+        .iter()
+        .find(|l| l.starts_with("Rename "))
+        .expect("the DLL is moved, which works while it is loaded");
+    assert_eq!(
+        *rename,
+        r#"Rename "${DIR}\${PLURYPRINT_SHELLEXT_DLL}" "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old$R5""#
+    );
+    assert!(
+        body.iter()
+            .any(|l| l.starts_with("IntCmp $R5 ") && l.contains("plury_park_late")),
+        "the search for a free name is bounded"
+    );
+    assert!(
+        body.iter()
+            .any(|l| l.starts_with("IfFileExists \"$INSTDIR\\${PLURYPRINT_SHELLEXT_DLL}.old$R5\"")),
+        "a parked DLL from an earlier run is never overwritten"
+    );
+    // The `.old<N>` files are the ones the existing cleanup deletes.
+    let cleanup = r#"Delete "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old*""#;
+    let un_cleanup = r#"Delete /REBOOTOK "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old*""#;
+    assert!(code.contains(&cleanup), "the next install clears them");
+    assert!(code.contains(&un_cleanup), "the uninstaller clears them");
+    // $R5 is saved and restored around the hook.
+    assert!(code.contains(&"Push $R5") && code.contains(&"Pop $R5"));
+}
+
 /// A per-machine MSI install from before c1466b4 is found by name and offered
 /// for removal (msiexec asks for elevation itself).
 #[test]

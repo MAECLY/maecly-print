@@ -118,6 +118,29 @@
   RMDir "${DIR}\resources"
 !macroend
 
+; Explorer keeps the old context-menu DLL loaded once its menu has been shown,
+; so the old uninstaller cannot delete it, and a per-user process cannot have
+; it deleted at the next restart either (that needs HKLM). A loaded DLL can
+; still be moved within the volume: park it next to ours as
+; shell_ext_win.dll.old<N>, which the next update or uninstall deletes
+; (PLURYPRINT_MOVE_LOADED_DLL_ASIDE, NSIS_HOOK_POSTUNINSTALL). Uses $R5.
+!macro PLURY_PARK_LEGACY_DLL DIR
+  Delete "${DIR}\${PLURYPRINT_SHELLEXT_DLL}"
+  IfFileExists "${DIR}\${PLURYPRINT_SHELLEXT_DLL}" 0 plury_park_done
+  CreateDirectory "$INSTDIR"
+  StrCpy $R5 0
+  plury_park_next:
+    IntOp $R5 $R5 + 1
+    IntCmp $R5 100 plury_park_late 0 plury_park_late
+    IfFileExists "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old$R5" plury_park_next 0
+    ClearErrors
+    Rename "${DIR}\${PLURYPRINT_SHELLEXT_DLL}" "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old$R5"
+    IfErrors 0 plury_park_done
+  plury_park_late:
+    DetailPrint "Could not move ${DIR}\${PLURYPRINT_SHELLEXT_DLL} aside; it stays until Explorer lets go of it"
+  plury_park_done:
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
   Push $R0
   Push $R1
@@ -179,6 +202,7 @@
         ; The old uninstaller does not know that file, so without this its
         ; folders, and the install folder, would stay behind.
         !insertmacro PLURY_REMOVE_SUMATRA_SETTINGS "$R1"
+        !insertmacro PLURY_PARK_LEGACY_DLL "$R1"
         RMDir /REBOOTOK "$R1"
       ${Else}
         DetailPrint "${PLURY_LEGACY_PRODUCT} was not removed; it stays in Apps & features"
