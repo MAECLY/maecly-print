@@ -1,12 +1,13 @@
+import { defineConfig } from 'eslint/config';
 import js from '@eslint/js';
 import globals from 'globals';
 import jsxA11y from 'eslint-plugin-jsx-a11y';
 import reactHooks from 'eslint-plugin-react-hooks';
-import reactRefresh from 'eslint-plugin-react-refresh';
+import { reactRefresh } from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
-import prettier from 'eslint-config-prettier';
+import prettier from 'eslint-config-prettier/flat';
 
-export default tseslint.config(
+export default defineConfig(
   {
     ignores: [
       'dist',
@@ -24,22 +25,24 @@ export default tseslint.config(
     ],
   },
   {
+    files: ['**/*.{ts,tsx}'],
     extends: [
       js.configs.recommended,
-      ...tseslint.configs.recommended,
+      tseslint.configs.recommended,
+      // The Rules of Hooks plus the React Compiler checks (refs read or
+      // written during render, setState called synchronously in an effect,
+      // impure render code, ...), as errors.
+      reactHooks.configs.flat.recommended,
       prettier,
     ],
-    files: ['**/*.{ts,tsx}'],
     languageOptions: {
       ecmaVersion: 2022,
       globals: globals.browser,
     },
     plugins: {
-      'react-hooks': reactHooks,
-      'react-refresh': reactRefresh,
+      'react-refresh': reactRefresh.plugin,
     },
     rules: {
-      ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },

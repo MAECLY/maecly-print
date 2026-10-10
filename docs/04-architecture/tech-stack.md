@@ -136,7 +136,7 @@ The frontend is a small SPA: a print dialog, a profile editor, a queue viewer, a
 | `zustand` 5                  | Cross-route state (queue, profiles, settings stores) |
 | `sonner` 1.7                 | Toasts |
 
-**Build / dev only:** `vite` 7, `typescript` 5.7, `tailwindcss` 3.4 + `postcss` + `autoprefixer`, `eslint` 9 (+ react, react-hooks, jsx-a11y, react-refresh plugins), `prettier`, `vitest` 5 + `@vitest/coverage-v8` + `jsdom` 30, `@testing-library/{react,jest-dom,user-event}`, `@wdio/*` 9 for e2e, `husky` + `lint-staged` + `@commitlint/*`, `@tauri-apps/cli`.
+**Build / dev only:** `vite` 7, `typescript` 5.7, `tailwindcss` 3.4 + `postcss` + `autoprefixer`, `eslint` 10 (+ react-hooks 7 with the React Compiler rules, jsx-a11y, react-refresh plugins), `prettier`, `vitest` 5 + `@vitest/coverage-v8` + `jsdom` 30, `@testing-library/{react,jest-dom,user-event}`, `@wdio/*` 9 for e2e, `husky` + `lint-staged` + `@commitlint/*`, `@tauri-apps/cli`.
 
 Packages named in earlier drafts and **not** used: `@radix-ui/*`, `react-hook-form`, `@tanstack/react-query`, `lucide-react`, `clsx`, `tailwind-merge`, `react-i18next`, `playwright`.
 
