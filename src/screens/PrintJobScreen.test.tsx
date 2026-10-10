@@ -93,7 +93,8 @@ interface MockOpts {
   printError?: string;
   jobIds?: string[];
   /** Dependency reports `app_info` answers with (FR-058). */
-  dependencies?: DependencyReport[];
+  /** What `app_info` reports; a function is asked again on every probe. */
+  dependencies?: DependencyReport[] | (() => DependencyReport[]);
 }
 
 /** A `FolderExpansion` with everything empty unless overridden. */
@@ -178,10 +179,15 @@ function mockJob(opts: MockOpts = {}): Call[] {
       // The screen probes external dependencies (FR-058) through app_info;
       // answering with the real shape keeps that path exercised rather than
       // failing on a null payload.
-      case 'app_info':
-        return opts.dependencies
-          ? { ...fixtureAppInfo, dependencies: opts.dependencies }
+      case 'app_info': {
+        const deps =
+          typeof opts.dependencies === 'function'
+            ? opts.dependencies()
+            : opts.dependencies;
+        return deps
+          ? { ...fixtureAppInfo, dependencies: deps }
           : fixtureAppInfo;
+      }
       default:
         return null;
     }
@@ -1191,6 +1197,91 @@ describe('PrintJobScreen', () => {
     ).toBeInTheDocument();
     // Opening the dialog installs nothing.
     expect(calls.some((c) => c.cmd === 'install_dependency')).toBe(false);
+  });
+
+  it('FR-058: after an install outside the app, coming back to the window checks again', async () => {
+    let installed = false;
+    const calls = mockJob({
+      dependencies: () => [
+        installed ? { ...missingOffice, found: true } : missingOffice,
+      ],
+    });
+    render(<Harness initial={[uiFile('/docs/report.docx')]} />);
+    await screen.findByRole('alert', { name: 'Missing dependency' });
+
+    installed = true; // finished in the Store / download page
+    fireEvent.focus(window);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('alert', { name: 'Missing dependency' }),
+      ).toBeNull(),
+    );
+    expect(calls.filter((c) => c.cmd === 'app_info').length).toBe(2);
+  });
+
+  it('FR-058: "Check again" probes the dependency anew', async () => {
+    let installed = false;
+    mockJob({
+      dependencies: () => [
+        installed ? { ...missingOffice, found: true } : missingOffice,
+      ],
+    });
+    render(<Harness initial={[uiFile('/docs/report.docx')]} />);
+    const panel = await screen.findByRole('alert', {
+      name: 'Missing dependency',
+    });
+    installed = true;
+    fireEvent.click(within(panel).getByRole('button', { name: 'Check again' }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('alert', { name: 'Missing dependency' }),
+      ).toBeNull(),
+    );
+  });
+
+  it('FR-058: adding files again checks the dependencies again', async () => {
+    let installed = false;
+    const calls = mockJob({
+      dependencies: () => [
+        installed ? { ...missingOffice, found: true } : missingOffice,
+      ],
+    });
+    function Grow() {
+      const [files, setFiles] = useState<UiFile[]>([
+        uiFile('/docs/report.docx'),
+      ]);
+      const [profile, setProfile] = useState('builtin-quick');
+      const [overrides, setOverrides] = useState<PrintJobOverrides>({});
+      return (
+        <I18nProvider>
+          <button
+            type="button"
+            onClick={() => setFiles((f) => [...f, uiFile('/docs/letter.docx')])}
+          >
+            add again
+          </button>
+          <PrintJobScreen
+            files={files}
+            setFiles={setFiles}
+            profile={profile}
+            setProfile={setProfile}
+            overrides={overrides}
+            setOverrides={setOverrides}
+            onPrint={() => {}}
+          />
+        </I18nProvider>
+      );
+    }
+    render(<Grow />);
+    await screen.findByRole('alert', { name: 'Missing dependency' });
+    installed = true;
+    fireEvent.click(screen.getByRole('button', { name: 'add again' }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('alert', { name: 'Missing dependency' }),
+      ).toBeNull(),
+    );
+    expect(calls.filter((c) => c.cmd === 'app_info').length).toBe(2);
   });
 
   it('FR-058: chromium_pandoc_not_required — HTML and Markdown raise no dependency panel', async () => {

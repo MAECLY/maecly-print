@@ -12,6 +12,7 @@ import {
   FileGlyph,
 } from '@/components/ui';
 import {
+  useCallback,
   useEffect,
   useId,
   useRef,
@@ -56,6 +57,7 @@ import { resolvePrinterId } from '@/lib/printerIdentity';
 import type { DependencyReport } from '@/ipc/bindings';
 import { isMacPlatform } from '@/components/AppShell/MPAppShell';
 import { DependencyInstallDialog } from '@/components/DependencyInstallDialog';
+import { remediationKey } from '@/lib/deps';
 import { Icon } from '@/components/Icon';
 import { useT } from '@/i18n/I18nProvider';
 import { useProfilesStore } from '@/stores/profilesStore';
@@ -323,29 +325,41 @@ export function PrintJobScreen({
   ];
 
   // FR-058: the external programs the print pipeline shells out to, probed by
-  // the backend (`engine::deps`) and shipped on `app_info`. Fetched once; a
-  // dependency is not something that appears mid-session, and a failed fetch
-  // leaves the list empty, which surfaces no warning — the honest fallback,
-  // since we then know nothing rather than know it is missing.
+  // the backend (`engine::deps`) and shipped on `app_info`. Probed on mount
+  // and again whenever a missing one could have been installed meanwhile: the
+  // user adds files again, comes back to the window (a Store or web install
+  // finishes outside the app), or presses "Check again". A failed fetch
+  // leaves the last answer in place — with nothing known yet that is an empty
+  // list, which surfaces no warning: we then know nothing rather than know it
+  // is missing.
   const [dependencies, setDependencies] = useState<DependencyReport[]>([]);
+  const [probing, setProbing] = useState(false);
   // FR-058 / D13: the dependency the user asked to install (consent dialog).
   const [installing, setInstalling] = useState<DependencyReport | null>(null);
   const replaceDependency = (fresh: DependencyReport) =>
     setDependencies((all) => all.map((d) => (d.id === fresh.id ? fresh : d)));
-  useEffect(() => {
+  const probeAlive = useRef(true);
+  const probeDependencies = useCallback(() => {
     if (!isTauri()) return;
-    let alive = true;
+    setProbing(true);
     fetchAppInfo()
       .then((info) => {
-        if (alive) setDependencies(info.dependencies ?? []);
+        if (probeAlive.current) setDependencies(info.dependencies ?? []);
       })
       .catch((e) => {
         console.error('dependency probe failed', e);
+      })
+      .finally(() => {
+        if (probeAlive.current) setProbing(false);
       });
-    return () => {
-      alive = false;
-    };
   }, []);
+  useEffect(() => {
+    probeAlive.current = true;
+    probeDependencies();
+    return () => {
+      probeAlive.current = false;
+    };
+  }, [probeDependencies]);
 
   // Only dependencies that actually gate a file the user added are shown: the
   // backend lists what each missing program blocks *today* (never what it would
@@ -361,6 +375,28 @@ export function PrintJobScreen({
       d.remediation !== null &&
       d.blocks.some((ext) => jobExts.has(ext)),
   );
+
+  // While something is missing, look again when it may have been fixed: files
+  // added (the "opened" install result asks for exactly that) or the window
+  // regaining focus after the Store / download page.
+  const anyBlocking = blockingDependencies.length > 0;
+  const fileCount = files.length;
+  const seenFiles = useRef(fileCount);
+  useEffect(() => {
+    const grew = fileCount > seenFiles.current;
+    seenFiles.current = fileCount;
+    if (grew && dependencies.some((d) => d.applicable && !d.found)) {
+      probeDependencies();
+    }
+    // `dependencies` is read, not watched: a probe must not trigger a probe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileCount, probeDependencies]);
+  useEffect(() => {
+    if (!anyBlocking) return;
+    const onFocus = () => probeDependencies();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [anyBlocking, probeDependencies]);
 
   // An image is one page; a PDF too large or broken to probe has no known
   // count, and must neither be shown as an image nor counted as one page.
@@ -680,7 +716,7 @@ export function PrintJobScreen({
                         (`common:deps.<id>.remediation`, FR-092): it names the
                         program and what it blocks. */}
                     <div style={{ fontSize: 12.5 }}>
-                      {tCommon(`deps.${dep.id}.remediation`)}
+                      {tCommon(remediationKey(dep.id))}
                     </div>
                     <div
                       style={{
@@ -704,6 +740,17 @@ export function PrintJobScreen({
                           {t('dependencies.installButton')}
                         </MPButton>
                       )}
+                      <MPButton
+                        variant="ghost"
+                        size="sm"
+                        icon="rotate"
+                        disabled={probing}
+                        onClick={probeDependencies}
+                      >
+                        {probing
+                          ? t('dependencies.checking')
+                          : t('dependencies.checkAgain')}
+                      </MPButton>
                     </div>
                   </div>
                 );
