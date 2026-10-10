@@ -4,12 +4,19 @@
 //! icon: the activation policy is `Prohibited`):
 //!
 //! 1. A content rule list ([`super::webkit_rule_list`]) is compiled into a
-//!    store inside the job's work folder; it blocks every load that is not a
-//!    host-less `file:` URL or `data:`.
+//!    store inside the job's work folder; it blocks every load that is not
+//!    under the document's folder (its exact `file:` URL as WebKit spells it),
+//!    `data:`, `blob:` or `about:blank`: the network, a `file:` URL with a host
+//!    (a share) and any other local file, the folder's parent included.
 //! 2. A `WKWebView` with content JavaScript off, a non-persistent website data
 //!    store (no cookies, caches or storage written anywhere) and that rule
 //!    list loads the staged page **as data** with the document's folder as
-//!    its base URL. WebKit grants the page read access to that folder only.
+//!    its base URL. WebKit grants the page read access to that folder only
+//!    (`loadFileURL:allowingReadAccessToURL:` on the folder itself, never its
+//!    parent), and a navigation delegate ([`NavigationGuard`]) cancels every
+//!    navigation the worker did not start itself (a refresh, a frame, a link
+//!    target), writing each one it refused to stderr (the job's
+//!    `render.log`).
 //! 3. When loading ends, an `NSPrintOperation` from
 //!    `printOperationWithPrintInfo:` writes the paginated PDF straight to the
 //!    output file (`NSPrintSaveJob`), with no panel. It runs modally for the
@@ -35,12 +42,13 @@ use objc2_app_kit::{
     NSWindowStyleMask,
 };
 use objc2_foundation::{
-    ns_string, NSData, NSDate, NSDefaultRunLoopMode, NSError, NSObject, NSPoint, NSRect, NSRunLoop,
-    NSSize, NSString, NSURL,
+    ns_string, NSData, NSDate, NSDefaultRunLoopMode, NSError, NSObject, NSObjectProtocol, NSPoint,
+    NSRect, NSRunLoop, NSSize, NSString, NSURL,
 };
 use objc2_web_kit::{
-    WKContentRuleList, WKContentRuleListStore, WKWebView, WKWebViewConfiguration,
-    WKWebpagePreferences, WKWebsiteDataStore,
+    WKContentRuleList, WKContentRuleListStore, WKNavigationAction, WKNavigationActionPolicy,
+    WKNavigationDelegate, WKWebView, WKWebViewConfiguration, WKWebpagePreferences,
+    WKWebsiteDataStore,
 };
 
 use super::RenderRequest;
@@ -92,10 +100,12 @@ fn file_url(path: &Path, is_dir: bool) -> Retained<NSURL> {
     NSURL::fileURLWithPath_isDirectory(&NSString::from_str(&path.to_string_lossy()), is_dir)
 }
 
-/// Compile the rule list that keeps the page off the network (module docs).
+/// Compile the rule list that keeps the page inside `folder_url`, its
+/// document's folder (module docs).
 fn compile_rules(
     mtm: MainThreadMarker,
     store_dir: &Path,
+    folder_url: &str,
 ) -> Result<Retained<WKContentRuleList>, String> {
     std::fs::create_dir_all(store_dir)
         .map_err(|e| format!("cannot create the web view folder: {e}"))?;
@@ -121,7 +131,7 @@ fn compile_rules(
     unsafe {
         store.compileContentRuleListForIdentifier_encodedContentRuleList_completionHandler(
             Some(ns_string!("pluryprint-offline")),
-            Some(&NSString::from_str(super::webkit_rule_list())),
+            Some(&NSString::from_str(&super::webkit_rule_list(folder_url))),
             Some(&handler),
         );
     }
@@ -150,7 +160,13 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
         .map(|(w, h)| (w * 72.0, h * 72.0))
         .unwrap_or(LETTER_PT);
 
-    let rules = compile_rules(mtm, &request.data_dir.join("rules"))?;
+    let base = file_url(&request.base_dir, true);
+    let folder_url = base
+        .absoluteString()
+        .map(|u| u.to_string())
+        .ok_or("the document's folder has no file URL")?;
+    let rules = compile_rules(mtm, &request.data_dir.join("rules"), &folder_url)?;
+    let guard = NavigationGuard::new(mtm, folder_url.clone());
 
     let view_frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height));
     // SAFETY: plain WebKit object construction and configuration on the main
@@ -164,6 +180,9 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
         config.userContentController().addContentRuleList(&rules);
         WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), view_frame, &config)
     };
+    // SAFETY: the guard outlives the web view (both live to the end of this
+    // function; the view only keeps a weak reference).
+    unsafe { webview.setNavigationDelegate(Some(ProtocolObject::from_ref(&*guard))) };
 
     // An off-screen, never-shown window: printing needs the view in a window.
     let frame = NSRect::new(
@@ -186,17 +205,18 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
 
     let charset = super::sniff_charset(&html);
     let data = NSData::with_bytes(&html);
-    let base = file_url(&request.base_dir, true);
     // WebKit's content process may read a local file only under a folder the
     // app granted with `loadFileURL:allowingReadAccessToURL:`; loading data
     // with a file base URL merely *assumes* such a grant exists. Grant the
     // document's folder (and nothing else) by "loading" it first.
+    guard.expect_load();
     // SAFETY: both URLs are valid file URLs.
     unsafe {
         webview.loadFileURL_allowingReadAccessToURL(&base, &base);
     }
     // SAFETY: isLoading is a plain property read on the main thread.
     pump_until(Duration::from_secs(10), || unsafe { !webview.isLoading() });
+    guard.expect_load();
     // SAFETY: all arguments are valid objects.
     unsafe {
         webview.loadData_MIMEType_characterEncodingName_baseURL(
@@ -223,10 +243,91 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
         deadline,
     );
     window.close();
+    // SAFETY: plain property write on the main thread.
+    unsafe { webview.setNavigationDelegate(None) };
     printed?;
     match std::fs::metadata(&request.output) {
         Ok(meta) if meta.len() > 0 => Ok(()),
         _ => Err("the web view printed nothing".into()),
+    }
+}
+
+/// State of the [`NavigationGuard`].
+struct GuardIvars {
+    /// The document folder's URL: the only URL the worker itself loads
+    /// (`loadFileURL` on the folder, then the page as data with that base).
+    folder_url: String,
+    /// Navigations the worker started and that have not been decided yet.
+    expected: Cell<u32>,
+}
+
+define_class!(
+    // SAFETY: NSObject has no subclassing requirements; the class adds no
+    // Drop and only implements optional WKNavigationDelegate methods with
+    // their declared signatures.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "PluryprintRenderNavigationGuard"]
+    #[ivars = GuardIvars]
+    struct NavigationGuard;
+
+    unsafe impl NSObjectProtocol for NavigationGuard {}
+
+    unsafe impl WKNavigationDelegate for NavigationGuard {
+        // SAFETY: matches WebKit's
+        // - (void)webView:(WKWebView *)webView
+        //   decidePolicyForNavigationAction:(WKNavigationAction *)action
+        //   decisionHandler:(void (^)(WKNavigationActionPolicy))handler
+        #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
+        fn decide_policy(
+            &self,
+            _web_view: &WKWebView,
+            action: &WKNavigationAction,
+            handler: &block2::DynBlock<dyn Fn(WKNavigationActionPolicy)>,
+        ) {
+            // SAFETY: plain property reads of a live navigation action.
+            let url = unsafe { action.request() }
+                .URL()
+                .and_then(|u| u.absoluteString())
+                .map(|u| u.to_string())
+                .unwrap_or_default();
+            let policy = if self.allows(&url) {
+                WKNavigationActionPolicy::Allow
+            } else {
+                eprintln!("pluryprint render: navigation refused: {url}");
+                WKNavigationActionPolicy::Cancel
+            };
+            handler.call((policy,));
+        }
+    }
+);
+
+impl NavigationGuard {
+    fn new(mtm: MainThreadMarker, folder_url: String) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(GuardIvars {
+            folder_url,
+            expected: Cell::new(0),
+        });
+        // SAFETY: NSObject's designated initializer.
+        unsafe { msg_send![super(this), init] }
+    }
+
+    /// The worker is about to load the folder or the page itself.
+    fn expect_load(&self) {
+        let ivars = self.ivars();
+        ivars.expected.set(ivars.expected.get() + 1);
+    }
+
+    /// Whether a navigation to `url` is one the worker started: the folder's
+    /// own URL, while a load of ours is pending. Anything else, and the
+    /// folder URL once our loads are done (a refresh to it), is refused.
+    fn allows(&self, url: &str) -> bool {
+        let ivars = self.ivars();
+        let ours = ivars.expected.get() > 0 && url == ivars.folder_url;
+        if ours {
+            ivars.expected.set(ivars.expected.get() - 1);
+        }
+        ours
     }
 }
 

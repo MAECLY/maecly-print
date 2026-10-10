@@ -403,3 +403,100 @@ fn nfr_001_worker_startup_time_is_measured() {
     eprintln!("NFR-001 render worker, tiny page: {took:?}");
     assert!(took < Duration::from_secs(60), "{took:?}");
 }
+
+/// Round 6: the web view's own network layer is the boundary, not a text
+/// pre-pass. Every way a page has been seen to reach out (a share named by
+/// `file://host/`, a UNC path, a protocol-relative `@import`, an SVG
+/// `<style>` whose `@import` is spelled with character references, a frame
+/// on a local system file, a script `fetch`) points at a listener that must
+/// stay untouched, and the page still prints.
+#[test]
+fn nfr_security_network_layer_blocks_every_reference_form() {
+    let wire = Tripwire::new();
+    let port = wire.port();
+    let dir = tempfile::tempdir().unwrap();
+    let html = dir.path().join("vectors.html");
+    let system_file = if cfg!(windows) {
+        "file:///C:/Windows/win.ini"
+    } else {
+        "file:///etc/hosts"
+    };
+    std::fs::write(
+        &html,
+        format!(
+            "<!doctype html><html><head><meta charset=utf-8>\
+             <link rel=stylesheet href=\"\\\\127.0.0.1:{port}\\s\\a.css\">\
+             <link rel=preload as=image href=\"http://127.0.0.1:{port}/preload.png\">\
+             <style>@import url(//127.0.0.1:{port}/import.css);</style></head>\
+             <body><p>vectors</p>\
+             <img src=\"file://127.0.0.1:{port}/s/x.png\">\
+             <img srcset=\"http://127.0.0.1:{port}/set.png 1x\">\
+             <video poster=\"http://127.0.0.1:{port}/poster.png\"></video>\
+             <svg><style>@import url(&#47;&#47;127.0.0.1:{port}/svg.css);\
+             rect{{fill:url(&#x2F;&#x2F;127.0.0.1:{port}/p.svg#a)}}</style>\
+             <rect width=9 height=9/></svg>\
+             <iframe src=\"{system_file}\"></iframe>\
+             <a href=\"http://127.0.0.1:{port}/link\" target=_blank>link</a>\
+             <script>fetch('http://127.0.0.1:{port}/fetch');\
+             new Image().src='//127.0.0.1:{port}/js.png';</script>\
+             </body></html>"
+        ),
+    )
+    .unwrap();
+    let pdf = convert(&html, &PageSetup::default()).unwrap();
+    assert_eq!(pages(&pdf), 1);
+    std::thread::sleep(Duration::from_millis(300));
+    wire.assert_untouched();
+}
+
+/// Round 6: only the document's folder is readable. A picture in the
+/// folder's parent (by `../`, by an absolute `file:` URL, and through a
+/// stylesheet that sits in the parent) never loads, while one inside the
+/// folder does.
+#[test]
+fn nfr_security_only_the_document_folder_is_readable() {
+    let root = tempfile::tempdir().unwrap();
+    let parent = root.path().canonicalize().unwrap();
+    let doc = parent.join("doc");
+    std::fs::create_dir_all(&doc).unwrap();
+    red_png(&parent.join("secret.png"));
+    red_png(&doc.join("inside.png"));
+    std::fs::write(
+        parent.join("outside.css"),
+        "body { background: url(secret.png); }",
+    )
+    .unwrap();
+    let secret_url = url::Url::from_file_path(parent.join("secret.png"))
+        .unwrap()
+        .to_string();
+    let page = doc.join("page.html");
+    std::fs::write(
+        &page,
+        format!(
+            "<!doctype html><html><head><meta charset=utf-8>\
+             <link rel=stylesheet href=\"../outside.css\"></head><body>\
+             <img src=\"inside.png\"><img src=\"../secret.png\">\
+             <img src=\"{secret_url}\"></body></html>"
+        ),
+    )
+    .unwrap();
+    let pdf = convert(&page, &PageSetup::default()).unwrap();
+    // The control: the same page with the outside references pointing at
+    // files that do not exist (WebView2 draws its broken-image icon for
+    // either).
+    let control = doc.join("control.html");
+    std::fs::write(
+        &control,
+        "<!doctype html><html><head><meta charset=utf-8></head><body>\
+         <img src=\"inside.png\"><img src=\"missing-1.png\">\
+         <img src=\"missing-2.png\"></body></html>",
+    )
+    .unwrap();
+    let control_pdf = convert(&control, &PageSetup::default()).unwrap();
+    assert!(images(&pdf) >= 1, "the picture inside the folder loads");
+    assert_eq!(
+        images(&pdf),
+        images(&control_pdf),
+        "nothing from the parent folder is loaded"
+    );
+}

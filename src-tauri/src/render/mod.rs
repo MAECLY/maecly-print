@@ -6,33 +6,48 @@
 //!
 //! The engine ([`crate::engine::convert::html`]) stages the page it wants
 //! printed (the user's HTML, or the HTML made from Markdown or text) in the
-//! job's work directory and hands the worker a [`RenderRequest`]. The worker
-//! loads that page with:
+//! job's work directory and hands the worker a [`RenderRequest`].
+//!
+//! **The boundary is the web view's network layer** (round 6). What a page
+//! may fetch is decided on the exact URL the web view resolved, at the point
+//! it would fetch it, never by a text pre-scan of the HTML (a second parser
+//! always disagrees with the real one somewhere; security notes 5-7). The
+//! worker loads the staged page with:
 //!
 //! - **no script**: the web view's own switch (`IsScriptEnabled = false`,
 //!   `allowsContentJavaScript = false`), on top of the page's
 //!   `script-src 'none'` policy;
-//! - **no network**: every request that is not the page's own folder or a
-//!   `data:` URI is refused before it leaves the process (a WebView2
-//!   `WebResourceRequested` filter; a `WKContentRuleList` on macOS), and so is
-//!   any navigation away from the page (a `<meta http-equiv=refresh>`);
+//! - **an allow-list of fetches**: on Windows a WebView2
+//!   `WebResourceRequested` filter on `*` for every resource kind answers
+//!   **every** request itself ([`is_allowed_request`]): the private origin
+//!   ([`DOC_HOST`]) from the staged page and the document's folder
+//!   ([`serve`]); `data:`, `blob:` and `about:blank` load as they are;
+//!   anything else (another host, `http`, `ws`, `file:`, a UNC path) gets a
+//!   synthetic 403 and is written to the worker's stderr (the job's
+//!   `render.log`). On macOS a `WKContentRuleList` ([`webkit_rule_list`])
+//!   blocks every load that is not under the document folder's own `file:`
+//!   URL, `data:`, `blob:` or `about:blank`;
+//! - **no navigation**: every navigation other than the worker's own load of
+//!   the page (a `<meta http-equiv=refresh>`, a frame, a link target, a new
+//!   window) is cancelled, and refused ones are logged;
 //! - **no file share**: a reference such as `//host/x.png` or
 //!   `file://host/share/x.png` would make Windows open `\\host\share` over SMB
 //!   or WebDAV and hand the user's NTLM credentials to that host. On Windows
 //!   the page is therefore not loaded from `file:` at all: the worker serves
-//!   it, and the document's folder, itself on one private `https` origin
-//!   ([`DOC_HOST`], [`serve`]), from which Chromium refuses every `file:`
-//!   sub-resource, and a protocol-relative reference resolves to `https:`,
-//!   which the request filter refuses. Every path it serves is checked by the
-//!   shared share predicate ([`crate::engine::convert::local_ref`]). On macOS
-//!   a `file:` URL with a host is refused by the rule list (and macOS does not
-//!   mount shares for a web view anyway).
+//!   it, and the document's folder, itself on one private `https` origin,
+//!   from which Chromium refuses every `file:` sub-resource, and a
+//!   protocol-relative reference resolves to `https:`, which the filter
+//!   refuses. Every path it serves is checked by the shared share predicate
+//!   ([`crate::engine::convert::local_ref`]). On macOS a `file:` URL with a
+//!   host is outside the folder prefix, so the rule list refuses it.
 //! - **one origin**: the staged page and the document's folder share that
 //!   origin, so same-folder web fonts (CORS-mode requests) and external SVG
 //!   `<use>` (same-origin only) load as they do from the user's folder.
 //! - **only the page's folder readable**: the worker serves the staged page
 //!   and files inside the document's folder, nothing else; WebKit gets read
-//!   access to the base folder only.
+//!   access to the base folder only, and its rule list refuses the folder's
+//!   parent too (a round-6 test showed read access alone let a `../` picture
+//!   through).
 //! - **bounded**: the worker gives up by itself after the job's conversion
 //!   timeout ([`RenderRequest::timeout_secs`], none when the setting is 0),
 //!   printing [`TIMEOUT_MARKER`] so the engine reports a timeout (terminal),
@@ -349,17 +364,48 @@ pub fn content_type(path: &Path) -> &'static str {
     }
 }
 
-/// The content rule list (WebKit's JSON) that blocks every load except
-/// `data:` URIs and host-less `file:` URLs, so nothing reaches the network or
-/// a file share (module docs). Pure.
-pub fn webkit_rule_list() -> &'static str {
-    r#"[
-  {"trigger": {"url-filter": ".*"}, "action": {"type": "block"}},
-  {"trigger": {"url-filter": "^file:///"}, "action": {"type": "ignore-previous-rules"}},
-  {"trigger": {"url-filter": "^file:////"}, "action": {"type": "block"}},
-  {"trigger": {"url-filter": "^data:"}, "action": {"type": "ignore-previous-rules"}},
-  {"trigger": {"url-filter": "^about:blank"}, "action": {"type": "ignore-previous-rules"}}
-]"#
+/// The content rule list (WebKit's JSON) for a page whose document folder is
+/// `folder_url` (its `file:` URL as WebKit spells it, ending in `/`): every
+/// load is blocked except one under that folder, a `data:` or `blob:` URI and
+/// `about:blank`. A file anywhere else (the folder's parent included), a
+/// `file:` URL with a host (a share), and every network scheme are refused
+/// before they are fetched. The folder rule is case-sensitive, so a sibling
+/// whose name differs only in case is not let through. Pure.
+pub fn webkit_rule_list(folder_url: &str) -> String {
+    let mut folder = folder_url.to_string();
+    if !folder.ends_with('/') {
+        folder.push('/');
+    }
+    let rules = serde_json::json!([
+        {"trigger": {"url-filter": ".*"}, "action": {"type": "block"}},
+        {
+            "trigger": {
+                "url-filter": format!("^{}", webkit_regex_escape(&folder)),
+                "url-filter-is-case-sensitive": true
+            },
+            "action": {"type": "ignore-previous-rules"}
+        },
+        {"trigger": {"url-filter": "^data:"}, "action": {"type": "ignore-previous-rules"}},
+        {"trigger": {"url-filter": "^blob:"}, "action": {"type": "ignore-previous-rules"}},
+        {"trigger": {"url-filter": "^about:blank$"}, "action": {"type": "ignore-previous-rules"}}
+    ]);
+    rules.to_string()
+}
+
+/// `text` with every character WebKit's `url-filter` regular expressions
+/// treat specially escaped, so it matches only itself. Pure.
+fn webkit_regex_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() * 2);
+    for c in text.chars() {
+        if matches!(
+            c,
+            '.' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|' | '\\'
+        ) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// The text encoding a staged page is declared in, for a web view that needs
@@ -580,22 +626,57 @@ mod tests {
         }
     }
 
+    /// Round 6: WebKit may load the document's folder and inline data only;
+    /// the folder's parent, another folder, a share and the network are all
+    /// blocked by the rule list before any fetch.
     #[test]
-    fn fr_055_webkit_rule_list_blocks_everything_but_local_files_and_data() {
-        let rules: serde_json::Value = serde_json::from_str(webkit_rule_list()).unwrap();
+    fn fr_055_webkit_rule_list_allows_only_the_document_folder_and_data() {
+        let list = webkit_rule_list("file:///Users/me/My%20Docs/a.b+(c)/");
+        let rules: serde_json::Value = serde_json::from_str(&list).unwrap();
         let rules = rules.as_array().unwrap();
         assert_eq!(rules[0]["trigger"]["url-filter"], ".*");
         assert_eq!(rules[0]["action"]["type"], "block");
-        // A file URL with a host (file:////host) is blocked again after the
-        // host-less file exemption.
-        let filters: Vec<&str> = rules
+        let allowed: Vec<&str> = rules[1..]
             .iter()
+            .inspect(|r| assert_eq!(r["action"]["type"], "ignore-previous-rules"))
             .map(|r| r["trigger"]["url-filter"].as_str().unwrap())
             .collect();
-        let block_unc = filters.iter().position(|f| *f == "^file:////").unwrap();
-        let allow_file = filters.iter().position(|f| *f == "^file:///").unwrap();
-        assert!(block_unc > allow_file);
-        assert!(!filters.iter().any(|f| f.contains("http")));
+        assert_eq!(
+            allowed,
+            [
+                r"^file:///Users/me/My%20Docs/a\.b\+\(c\)/",
+                "^data:",
+                "^blob:",
+                "^about:blank$"
+            ]
+        );
+        assert_eq!(rules[1]["trigger"]["url-filter-is-case-sensitive"], true);
+        // Nothing else is exempted: no other file: prefix, no network scheme.
+        assert!(!list.contains("^file:///\""), "{list}");
+        assert!(!list.contains("http"), "{list}");
+
+        // A folder URL without its slash gets one, so `/docs` never admits
+        // `/docs-evil`.
+        let list = webkit_rule_list("file:///docs");
+        assert!(list.contains(r#""^file:///docs/""#), "{list}");
+
+        // Emulate WebKit's anchored match on the escaped prefix.
+        let prefix = |url: &str| {
+            let rules: serde_json::Value =
+                serde_json::from_str(&webkit_rule_list("file:///d/a.b/")).unwrap();
+            let filter = rules[1]["trigger"]["url-filter"].as_str().unwrap();
+            let literal = filter[1..].replace('\\', "");
+            url.starts_with(&literal)
+        };
+        assert!(prefix("file:///d/a.b/img/x.png"));
+        for refused in [
+            "file:///d/secret.png",
+            "file:///d/a.b-evil/x.png",
+            "file://host/d/a.b/x.png",
+            "https://doc.pluryprint.example/d/a.b/x.png",
+        ] {
+            assert!(!prefix(refused), "{refused}");
+        }
     }
 
     #[test]
