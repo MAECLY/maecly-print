@@ -49,8 +49,7 @@ use super::{RenderRequest, Served};
 /// passes by default (replaced, not added to, when switches are given). The
 /// rest is defence in depth behind the request filter: no background
 /// fetches, no component updates, and any request that still got out would
-/// meet a dead proxy on loopback and a resolver that resolves nothing (the
-/// same switches the browser fallback uses, [`crate::engine::convert::html`]).
+/// meet a dead proxy on loopback and a resolver that resolves nothing.
 const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
      --disable-background-networking --disable-component-update --disable-sync \
      --no-first-run --proxy-server=127.0.0.1:9 --proxy-bypass-list=<-loopback> \

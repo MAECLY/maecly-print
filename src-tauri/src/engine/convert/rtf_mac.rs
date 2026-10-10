@@ -108,16 +108,7 @@ pub fn convert_with(
     // The input copy is not a resource of the page.
     let _ = std::fs::remove_file(&staged);
     let remaining = timeout.map(|t| t.saturating_sub(started.elapsed()));
-    super::html::render_document(
-        &html,
-        &dir,
-        output,
-        work,
-        cancel,
-        remaining,
-        page,
-        super::html::configured_renderer(),
-    )
+    super::html::render_document(&html, &dir, output, work, cancel, remaining, page)
 }
 
 #[cfg(test)]

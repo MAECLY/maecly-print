@@ -133,27 +133,6 @@ pub fn convert(
     timeout: Option<Duration>,
     page: &PageSetup,
 ) -> Result<(), EngineError> {
-    convert_with_renderer(
-        input,
-        output,
-        work,
-        cancel,
-        timeout,
-        page,
-        super::html::configured_renderer(),
-    )
-}
-
-/// [`convert`] with an explicit renderer.
-pub fn convert_with_renderer(
-    input: &Path,
-    output: &Path,
-    work: &WorkDir,
-    cancel: &AtomicBool,
-    timeout: Option<Duration>,
-    page: &PageSetup,
-    renderer: crate::settings::HtmlRenderer,
-) -> Result<(), EngineError> {
     let bytes = std::fs::read(input).map_err(|e| {
         EngineError::ConversionFailed(
             Failure::new(
@@ -178,7 +157,6 @@ pub fn convert_with_renderer(
         cancel,
         timeout,
         page,
-        renderer,
     )
 }
 

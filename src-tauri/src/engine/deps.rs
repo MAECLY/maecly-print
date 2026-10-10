@@ -2,8 +2,8 @@
 //!
 //! The hybrid engine (ADR-0003) shells out to programs we do not compile: the
 //! final PDF printer on Windows (SumatraPDF) and the best-of-breed converters
-//! the architecture reserves for Office/HTML/Markdown (LibreOffice, a
-//! Chromium-class browser, Pandoc). None of them is guaranteed to exist on a
+//! the architecture reserves for Office documents (LibreOffice) and, on
+//! Windows, HEIF/HEVC codecs. None of them is guaranteed to exist on a
 //! user's machine, so every one of them is *resolved* before it is *run*, and a
 //! missing one produces a remediation message instead of an opaque
 //! "failed to spawn" deep inside a job.
@@ -87,9 +87,11 @@ pub enum Dependency {
     SumatraPdf,
     /// Office → PDF converter (`soffice --headless --convert-to pdf`).
     LibreOffice,
-    /// Edge or Chrome: only the hidden `html_renderer = "browser"` fallback
-    /// (D15) uses it; HTML, Markdown and text print through the system web
-    /// view by default, so it is not in [`ALL`] and blocks nothing.
+    /// No longer used: Edge or Chrome served only the headless-browser
+    /// fallback for HTML (D15), which was removed (round 6, ADR-0012); HTML,
+    /// Markdown and text print through the system web view. Kept so a
+    /// `queue.json` that names it still loads, and its reason stays valid. It
+    /// is not in [`ALL`] and blocks nothing.
     Chromium,
     /// No longer used: Markdown converts in-process (FR-056). Kept so a
     /// `queue.json` that names it still loads, and its reason stays valid.
@@ -627,7 +629,7 @@ pub fn spec(dep: Dependency, os: Os) -> Spec {
             },
             codec: false,
             bundle_subdir: "chromium",
-            // Only the hidden browser fallback needs it (D15).
+            // Nothing needs it any more (the browser fallback was removed).
             blocks: &[],
             effect: "HTML and Markdown files cannot be printed with the browser \
                      renderer until one is installed. Install Microsoft Edge \

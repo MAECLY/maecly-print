@@ -1,5 +1,5 @@
-//! Bounded execution of an external converter (LibreOffice, Chromium, Pandoc,
-//! `sips`).
+//! Bounded execution of an external converter (LibreOffice, `sips`, `textutil`,
+//! the render and SVG workers).
 //!
 //! Every converter that shells out goes through [`run_bounded`], which is where
 //! the three promises of `docs/03-requirements/supported-formats.md` live:
@@ -76,10 +76,10 @@ pub fn run_bounded(
 /// answers `true` the child (and its helpers) are killed and the run counts as
 /// a success.
 ///
-/// This exists for headless Chromium, which on some versions writes the
-/// `--print-to-pdf` file in about a second and then never exits (seen with
-/// Chrome 156 on macOS). Waiting for the exit would turn every HTML job into a
-/// conversion timeout; waiting for the finished output does not.
+/// It was written for headless Chromium, which on some versions wrote its
+/// `--print-to-pdf` file and then never exited; the browser fallback is gone,
+/// and the render worker exits by itself, so every caller now passes `None`.
+/// Kept for a converter whose output is complete before it exits.
 pub fn run_until(
     mut cmd: Command,
     label: &str,
@@ -124,7 +124,6 @@ pub fn dependency_id_of(label: &str) -> Option<&'static str> {
         "LibreOffice" => "libre-office",
         "Pandoc" => "pandoc",
         "sips" => "sips",
-        "The browser" => "chromium",
         _ => return None,
     })
 }
@@ -1004,7 +1003,7 @@ mod reason_tests {
     /// Every label a converter is run under maps to a registered dependency.
     #[test]
     fn fr_058_known_converter_labels_map_to_registered_dependency_ids() {
-        for label in ["LibreOffice", "Pandoc", "sips", "The browser"] {
+        for label in ["LibreOffice", "Pandoc", "sips"] {
             let id = dependency_id_of(label).expect(label);
             assert!(
                 crate::util::reasons::is_job_reason("dependency_missing", id),

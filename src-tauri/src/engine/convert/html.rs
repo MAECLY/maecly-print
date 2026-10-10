@@ -26,48 +26,26 @@
 //!   like any converter ([`super::process::run_until`]): a page that hangs or
 //!   crashes the web view kills the worker, never the app.
 //!
-//! ## The browser fallback (hidden, one version, D15)
+//! - Text pre-scanning is **not** the security boundary. An HTML parser that
+//!   is not the web view's own will always read some page differently from
+//!   it, so the guarantees above are enforced where the web view fetches:
+//!   its request filter and navigation hooks ([`crate::render`]). The staged
+//!   page's policy and base ([`inject_head`]) are defence in depth behind
+//!   them.
 //!
-//! With `[engine] html_renderer = "browser"` in `config.toml` (or
-//! `PLURYPRINT_HTML_RENDERER=browser`), the staged page goes to a headless
-//! Chromium-class browser instead — Microsoft Edge, Google Chrome or Chromium,
-//! the pre-round-3 path:
+//! The headless Edge/Chrome fallback (`[engine] html_renderer = "browser"`,
+//! D15) is gone: it loaded the page from `file:` with nothing but a text
+//! pre-pass between a share reference and SMB, and that pre-pass kept losing
+//! to parser differentials (security notes 5-7). A stored `"browser"` is
+//! ignored, and the app says so once ([`crate::settings::EngineCfg`]).
 //!
-//! ```text
-//! <browser> --headless --disable-gpu --no-pdf-header-footer
-//!           --user-data-dir=<work>/browser --no-first-run ...
-//!           --print-to-pdf=<work>/out.pdf file:///<work>/stage/page.html
-//! ```
-//!
-//! - `--user-data-dir` points at a throwaway directory whose `Local State` is
-//!   seeded first so Edge skips its blank-password logon probe, which otherwise
-//!   records a failed Windows logon per conversion and locks the account after
-//!   ten ([`crate::util::chromium`]).
-//! - The step ends when the PDF is complete, not when the browser exits
-//!   ([`pdf_is_complete`]): some Chrome builds write it and then idle forever.
-//! - Every `http(s)`/`ws` request goes to a dead proxy on loopback and no host
-//!   name resolves ([`SANDBOX_ARGS`]); the staged page's CSP forbids script.
-//!   The browser loads the page from `file:`, so unlike the system renderer it
-//!   cannot keep a `file://host/…` or `//host/…` sub-resource off a file share
-//!   by itself. The page is therefore rewritten first ([`guard_browser_page`]):
-//!   every reference the shared predicate ([`super::local_ref`]) calls a share
-//!   is removed, and a local stylesheet that names one refuses the page
-//!   (`share_reference_refused`). The check **fails closed**: the page is
-//!   decoded by its real encoding first (a UTF-16 page used to pass unread)
-//!   and staged as UTF-8 with a byte-order mark, so the browser parses the
-//!   bytes that were checked; and a stylesheet that cannot be checked
-//!   completely (too large, too many, an unreadable encoding or `@import`)
-//!   refuses the page with `page_not_checkable` instead of loading unchecked.
-//!   Still one more reason it is only a fallback: an external SVG `<use>`
-//!   document's own references are not inspected.
-//!
-//! ## Both renderers
+//! ## The staged page
 //!
 //! The staged page is always UTF-8 with a byte-order mark
 //! ([`super::html_scan::decode_page`]), and the policy must land as its very
-//! first element: a page whose encoding cannot be read, or that leaves no
-//! safe place for the policy (a doctype that never closes), is refused with
-//! `page_not_checkable` ([`inject_head`]) rather than rendered without it.
+//! first element: a page that leaves no safe place for the policy (a doctype
+//! that never closes) is refused with `page_not_checkable` ([`inject_head`])
+//! rather than rendered without it.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -75,16 +53,11 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use super::process::run_until;
-use super::{file_url, PageSetup, WorkDir};
+use super::{PageSetup, WorkDir};
 use crate::engine::{EngineError, Failure};
-use crate::settings::HtmlRenderer;
 
 /// Extensions rendered as HTML directly.
 pub const HTML_EXTS: &[&str] = &["html", "htm"];
-
-/// Environment variable that overrides the configured renderer
-/// (`system` or `browser`), for diagnostics.
-pub const RENDERER_ENV: &str = "PLURYPRINT_HTML_RENDERER";
 
 /// Environment variable naming the executable that runs the render worker.
 /// Unset in the shipped app (the worker is the app itself); tests point it at
@@ -93,31 +66,6 @@ pub const WORKER_EXE_ENV: &str = "PLURYPRINT_WORKER_EXE";
 
 /// Label of the render worker in messages.
 const RENDERER_LABEL: &str = "The page renderer";
-
-/// Which renderer prints pages: [`RENDERER_ENV`] when set, else the hidden
-/// `[engine] html_renderer` of `config.toml` (D15), else the system web view.
-pub fn configured_renderer() -> HtmlRenderer {
-    match std::env::var(RENDERER_ENV)
-        .ok()
-        .map(|v| v.trim().to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("browser") => return HtmlRenderer::Browser,
-        Some("system") => return HtmlRenderer::System,
-        _ => {}
-    }
-    // Unit tests never read the developer's own configuration.
-    #[cfg(not(test))]
-    {
-        crate::settings::Config::load_or_default()
-            .engine
-            .html_renderer
-    }
-    #[cfg(test)]
-    {
-        HtmlRenderer::System
-    }
-}
 
 /// Convert the HTML page at `input` into a PDF at `output`, laid out on the
 /// job's paper. The route's entry point.
@@ -139,22 +87,12 @@ pub fn convert(
         )
     })?;
     let base_dir = input.parent().unwrap_or_else(|| Path::new("."));
-    render_document(
-        &html,
-        base_dir,
-        output,
-        work,
-        cancel,
-        timeout,
-        setup,
-        configured_renderer(),
-    )
+    render_document(&html, base_dir, output, work, cancel, timeout, setup)
 }
 
 /// Print the HTML document `html`, whose relative references resolve against
-/// `base_dir`, into `output` with `renderer`. The shared back half of the
-/// HTML, Markdown and text routes.
-#[allow(clippy::too_many_arguments)]
+/// `base_dir`, into `output` with the system web view. The shared back half
+/// of the HTML, Markdown, text and RTF routes.
 pub fn render_document(
     html: &[u8],
     base_dir: &Path,
@@ -163,35 +101,28 @@ pub fn render_document(
     cancel: &AtomicBool,
     timeout: Option<Duration>,
     setup: &PageSetup,
-    renderer: HtmlRenderer,
 ) -> Result<(), EngineError> {
-    // One decoding for every check and for the renderer (the staged page is
+    // One decoding for the staging and for the renderer (the staged page is
     // UTF-8 with a byte-order mark, which the renderer has to obey).
     let html = super::html_scan::decode_page(html)
         .ok_or_else(|| not_checkable("the page declares a text encoding that cannot be read"))?;
-    let html = &html[..];
-    match renderer {
-        HtmlRenderer::System => render_system_with(
-            &worker_exe()?,
-            html,
-            base_dir,
-            output,
-            work,
-            cancel,
-            timeout,
-            setup,
-        ),
-        HtmlRenderer::Browser => {
-            let mut base = file_url(base_dir);
-            if !base.ends_with('/') {
-                base.push('/');
-            }
-            let html = guard_browser_page(html, &base)?;
-            let page = stage_page(&html, &base, setup, work)?;
-            let browser = super::locate(crate::engine::deps::Dependency::Chromium)?;
-            convert_with(&browser, &page, output, work, cancel, timeout)
-        }
-    }
+    render_system_with(
+        &worker_exe()?,
+        &html,
+        base_dir,
+        output,
+        work,
+        cancel,
+        timeout,
+        setup,
+    )
+}
+
+/// The `page_not_checkable` refusal: no safe place for the page's policy, so
+/// it is not printed (fail closed).
+fn not_checkable(detail: impl Into<String>) -> EngineError {
+    tracing::warn!(event = "html_page_not_checkable");
+    EngineError::ConversionFailed(Failure::new("page_not_checkable", detail))
 }
 
 /// The executable that runs the render worker: [`WORKER_EXE_ENV`], else this
@@ -320,284 +251,6 @@ pub(crate) fn render_system_with(
         Err(other) => return Err(other),
     }
     super::take_output(&produced, output, RENDERER_LABEL, &log)
-}
-
-/// The browser's argument vector for printing `page_url` to `output`. Pure.
-///
-/// Both spellings of "no header/footer" are passed: Chrome ≥ 112 understands
-/// `--no-pdf-header-footer`, older builds `--print-to-pdf-no-header`, and each
-/// ignores the flag it does not know.
-///
-/// [`SANDBOX_ARGS`] turn networking off; see the module docs.
-pub fn browser_args(user_data_dir: &Path, output: &Path, page_url: &str) -> Vec<String> {
-    let mut args = vec![
-        "--headless".to_string(),
-        "--disable-gpu".to_string(),
-        "--no-pdf-header-footer".to_string(),
-        "--print-to-pdf-no-header".to_string(),
-        format!("--user-data-dir={}", user_data_dir.display()),
-        "--no-first-run".to_string(),
-        "--no-default-browser-check".to_string(),
-        "--disable-extensions".to_string(),
-        "--disable-background-networking".to_string(),
-        "--disable-sync".to_string(),
-        "--mute-audio".to_string(),
-    ];
-    args.extend(SANDBOX_ARGS.iter().map(|a| a.to_string()));
-    args.push(format!("--print-to-pdf={}", output.display()));
-    args.push(page_url.to_string());
-    args
-}
-
-/// The flags that keep a printed page from reaching the network in the
-/// browser fallback (module docs).
-///
-/// - All proxied traffic goes to the discard port on loopback, where nothing
-///   listens, and `<-loopback>` removes Chrome's implicit "never proxy
-///   localhost" rule so local services are refused the same way.
-/// - `MAP * ~NOTFOUND` makes every host name fail to resolve, so not even a
-///   DNS lookup leaks the page's links.
-/// - WebRTC is the one API that can send UDP straight to an IP address
-///   around a proxy; `disable_non_proxied_udp` closes that, and QUIC is off.
-/// - Web fonts are a fetch the proxy would refuse anyway; turning them off
-///   avoids waiting on them, as does turning off preconnect/prefetch.
-pub const SANDBOX_ARGS: &[&str] = &[
-    "--proxy-server=127.0.0.1:9",
-    "--proxy-bypass-list=<-loopback>",
-    "--host-resolver-rules=MAP * ~NOTFOUND",
-    "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-    "--disable-quic",
-    "--disable-remote-fonts",
-    "--disable-features=NetworkPrediction",
-];
-
-/// Print the staged page `page` with the browser at `browser` into `output`
-/// (the browser fallback, module docs).
-pub fn convert_with(
-    browser: &Path,
-    page: &Path,
-    output: &Path,
-    work: &WorkDir,
-    cancel: &AtomicBool,
-    timeout: Option<Duration>,
-) -> Result<(), EngineError> {
-    let produced = work.path().join("out.pdf");
-    let profile = work.path().join("browser");
-    // Without this, every conversion records a failed Windows logon for the
-    // user (Chromium's blank-password probe) and ten of them lock the account.
-    if let Err(e) = crate::util::chromium::suppress_blank_password_probe(&profile) {
-        tracing::warn!(event = "browser_logon_probe_suppress_failed", error = %e);
-    }
-    let mut cmd = Command::new(browser);
-    cmd.args(browser_args(&profile, &produced, &file_url(page)))
-        .current_dir(work.path());
-    let log = work.path().join("browser.log");
-    // Some Chrome builds write the PDF and then never exit; finish as soon as
-    // the file is complete instead of waiting for an exit that may not come.
-    let last_size = std::cell::Cell::new(None);
-    let done = || pdf_is_complete(&produced, &last_size);
-    run_until(cmd, "The browser", cancel, timeout, &log, Some(&done))?;
-    super::take_output(&produced, output, "The browser", &log)
-}
-
-/// Most stylesheets [`guard_browser_page`] reads for one page.
-const MAX_STYLESHEETS: usize = 64;
-
-/// Largest stylesheet [`guard_browser_page`] reads.
-const MAX_STYLESHEET_BYTES: u64 = 8 * 1024 * 1024;
-
-/// The `page_not_checkable` refusal: the page, or something it loads, could
-/// not be checked completely, so it is not printed (fail closed).
-fn not_checkable(detail: impl Into<String>) -> EngineError {
-    tracing::warn!(event = "html_page_not_checkable");
-    EngineError::ConversionFailed(Failure::new("page_not_checkable", detail))
-}
-
-/// The `share_reference_refused` refusal for the stylesheet at `what`.
-fn share_refused(what: &str) -> EngineError {
-    tracing::warn!(event = "html_share_ref_in_stylesheet");
-    EngineError::ConversionFailed(Failure::new(
-        "share_reference_refused",
-        format!("a stylesheet of the page refers to a network share: {what}"),
-    ))
-}
-
-/// The bytes of a `data:` URL (`data:[<type>][;base64],<body>`), or `None`
-/// when it is not one or its base64 is malformed. Pure.
-fn data_url_bytes(url: &str) -> Option<Vec<u8>> {
-    let rest = url.trim().get(5..).filter(|_| {
-        url.trim()
-            .get(..5)
-            .is_some_and(|s| s.eq_ignore_ascii_case("data:"))
-    })?;
-    let (meta, body) = rest.split_once(',')?;
-    let body = percent_encoding::percent_decode_str(body).collect::<Vec<u8>>();
-    if !meta.to_ascii_lowercase().trim_end().ends_with(";base64") {
-        return Some(body);
-    }
-    let mut out = Vec::with_capacity(body.len() * 3 / 4);
-    let (mut acc, mut bits) = (0u32, 0u32);
-    for b in body {
-        let v = match b {
-            b'A'..=b'Z' => b - b'A',
-            b'a'..=b'z' => b - b'a' + 26,
-            b'0'..=b'9' => b - b'0' + 52,
-            b'+' | b'-' => 62,
-            b'/' | b'_' => 63,
-            b'=' | b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' => continue,
-            _ => return None,
-        };
-        acc = (acc << 6) | u32::from(v);
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-        }
-    }
-    Some(out)
-}
-
-/// Make `html` (as [`super::html_scan::decode_page`] returns it) safe for
-/// the browser fallback, which loads the page from `file:` and so cannot keep
-/// a share reference off SMB the way the system renderer does (module docs):
-/// every share reference in the page is neutralised
-/// ([`super::html_scan::neutralize_share_refs`]), and the local stylesheets
-/// it loads (`<link>` and `@import`, recursively, `data:` ones included) are
-/// decoded and read. One that names a share refuses the page with
-/// `share_reference_refused`, since it cannot be rewritten in place.
-///
-/// **Fails closed.** Whatever cannot be checked completely refuses the page
-/// with `page_not_checkable` instead of being loaded unchecked: a stylesheet
-/// over [`MAX_STYLESHEET_BYTES`], more than [`MAX_STYLESHEETS`] of them, one
-/// that cannot be read or decoded faithfully
-/// ([`super::html_scan::decode_stylesheet`]), and an `@import` whose target
-/// cannot be parsed. `base_url` is the document folder's `file:` URL.
-pub fn guard_browser_page(html: &[u8], base_url: &str) -> Result<Vec<u8>, EngineError> {
-    use super::{html_scan, local_ref};
-    let html = html_scan::decode_page(html)
-        .ok_or_else(|| not_checkable("the page declares a text encoding that cannot be read"))?;
-    let neutralized = html_scan::neutralize_share_refs(&html);
-    if neutralized.removed > 0 {
-        tracing::info!(
-            event = "html_share_refs_removed",
-            count = neutralized.removed
-        );
-    }
-    if html_scan::style_blocks(&neutralized.html)
-        .iter()
-        .any(|css| html_scan::has_unreadable_import(css))
-    {
-        return Err(not_checkable(
-            "a style block imports a stylesheet whose name cannot be read",
-        ));
-    }
-    let base = url::Url::parse(&effective_base(&neutralized.html, base_url))
-        .map_err(|_| not_checkable("the page's folder has no usable address"))?;
-    let base_dir = url::Url::parse(base_url)
-        .ok()
-        .and_then(|u| u.to_file_path().ok());
-    let mut pending: Vec<(url::Url, String)> = html_scan::stylesheet_refs(&neutralized.html)
-        .into_iter()
-        .map(|r| (base.clone(), r))
-        .collect();
-    let mut seen = std::collections::HashSet::new();
-    let mut read = 0usize;
-    while let Some((from, reference)) = pending.pop() {
-        if !local_ref::is_local_ref(&reference) {
-            // http(s) and other schemes: the browser's network is off. A
-            // share named in the page was neutralised above (what is left is
-            // text, such as an `@import` quoted in a code sample), and one
-            // named in a stylesheet refused the page already.
-            continue;
-        }
-        // A reference the browser cannot resolve is one it cannot load.
-        let Ok(url) = from.join(reference.trim()) else {
-            continue;
-        };
-        if !seen.insert(url.to_string()) {
-            continue;
-        }
-        read += 1;
-        if read > MAX_STYLESHEETS {
-            return Err(not_checkable(format!(
-                "the page loads more than {MAX_STYLESHEETS} stylesheets"
-            )));
-        }
-        let (css, label) = if url.scheme() == "data" {
-            let bytes = data_url_bytes(url.as_str())
-                .ok_or_else(|| not_checkable("an inline stylesheet cannot be decoded"))?;
-            // Relative references in a `data:` stylesheet resolve against the
-            // page (a superset: the browser resolves none of them).
-            (bytes, "an inline stylesheet".to_string())
-        } else if url.scheme() == "file" {
-            // `file://host/...` is a share whatever the predicate said.
-            let path = url
-                .to_file_path()
-                .map_err(|()| share_refused(url.as_str()))?;
-            // A share is never opened, except the document's own folder when
-            // the user printed it from one.
-            let allowed = match base_dir.as_deref() {
-                Some(dir) => local_ref::may_open(&path, dir),
-                None => !local_ref::is_remote_path(&path),
-            };
-            if !allowed {
-                return Err(share_refused(&path.display().to_string()));
-            }
-            let meta = match std::fs::metadata(&path) {
-                Ok(meta) => meta,
-                // Nothing there: nothing the browser could load either.
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(e) => {
-                    return Err(not_checkable(format!(
-                        "cannot read the stylesheet {}: {e}",
-                        path.display()
-                    )))
-                }
-            };
-            if meta.is_dir() {
-                continue;
-            }
-            if meta.len() > MAX_STYLESHEET_BYTES {
-                return Err(not_checkable(format!(
-                    "the stylesheet {} is larger than {} MB",
-                    path.display(),
-                    MAX_STYLESHEET_BYTES / (1024 * 1024)
-                )));
-            }
-            let bytes = std::fs::read(&path).map_err(|e| {
-                not_checkable(format!(
-                    "cannot read the stylesheet {}: {e}",
-                    path.display()
-                ))
-            })?;
-            if bytes.len() as u64 > MAX_STYLESHEET_BYTES {
-                return Err(not_checkable(format!(
-                    "the stylesheet {} grew past the limit while it was read",
-                    path.display()
-                )));
-            }
-            (bytes, path.display().to_string())
-        } else {
-            continue;
-        };
-        let text = html_scan::decode_stylesheet(&css)
-            .ok_or_else(|| not_checkable(format!("the text encoding of {label} cannot be read")))?;
-        if html_scan::css_has_share_ref(&text) {
-            return Err(share_refused(&label));
-        }
-        if html_scan::has_unreadable_import(&text) {
-            return Err(not_checkable(format!(
-                "{label} imports a stylesheet whose name cannot be read"
-            )));
-        }
-        let from = if url.scheme() == "data" { from } else { url };
-        pending.extend(
-            html_scan::stylesheet_refs(text.as_bytes())
-                .into_iter()
-                .map(|r| (from.clone(), r)),
-        );
-    }
-    Ok(neutralized.html)
 }
 
 /// The Content-Security-Policy every staged page carries: no script, plugin,
@@ -738,33 +391,6 @@ pub fn inject_head(
     Ok(out)
 }
 
-/// Whether the browser has finished writing `pdf`: the file ends with the
-/// `%%EOF` trailer and its size did not change since the previous poll
-/// (tracked in `last_size`), so a half-flushed file is never taken.
-pub fn pdf_is_complete(pdf: &Path, last_size: &std::cell::Cell<Option<u64>>) -> bool {
-    use std::io::{Read, Seek, SeekFrom};
-    let Ok(meta) = std::fs::metadata(pdf) else {
-        return false;
-    };
-    let size = meta.len();
-    let stable = last_size.replace(Some(size)) == Some(size);
-    if !stable || size < 8 {
-        return false;
-    }
-    let Ok(mut file) = std::fs::File::open(pdf) else {
-        return false;
-    };
-    let tail_len = size.min(1024);
-    if file.seek(SeekFrom::End(-(tail_len as i64))).is_err() {
-        return false;
-    }
-    let mut tail = Vec::with_capacity(tail_len as usize);
-    if file.read_to_end(&mut tail).is_err() {
-        return false;
-    }
-    tail.windows(5).any(|w| w == b"%%EOF")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -781,141 +407,6 @@ mod tests {
             EngineError::ConversionFailed(f) => f.reason,
             _ => None,
         }
-    }
-
-    /// A browser-fallback test folder and its `file:` base URL.
-    fn fallback_dir() -> (tempfile::TempDir, String) {
-        let dir = tempfile::tempdir().unwrap();
-        let base = format!("{}/", file_url(&dir.path().canonicalize().unwrap()));
-        (dir, base)
-    }
-
-    fn utf16le(text: &str) -> Vec<u8> {
-        let mut out = vec![0xFF, 0xFE];
-        for unit in text.encode_utf16() {
-            out.extend_from_slice(&unit.to_le_bytes());
-        }
-        out
-    }
-
-    /// Round-5 finding: a UTF-16 page reached the share filter undecoded and
-    /// kept its `//host` reference. It is decoded first now, on every route.
-    #[test]
-    fn nfr_security_browser_fallback_decodes_a_utf16_page_before_the_filter() {
-        let (_dir, base) = fallback_dir();
-        let page =
-            utf16le("<p>x</p><img src=\"//attacker/x.png\"><img src=\"file://attacker/y.png\">");
-        let out = guard_browser_page(&page, &base).unwrap();
-        assert!(out.starts_with(b"\xEF\xBB\xBF"));
-        let text = String::from_utf8(out[3..].to_vec()).unwrap();
-        assert!(!text.contains("attacker"), "{text}");
-        assert!(text.contains("<p>x</p>"), "{text}");
-        // The staged page stays UTF-8 (no second decoding by its old label).
-        let staged = inject_head(&out, &base, None).unwrap();
-        assert!(!String::from_utf8_lossy(&staged).contains("attacker"));
-    }
-
-    /// Round-5 finding: every way a stylesheet used to escape the check
-    /// (too large, too many, UTF-16, an obfuscated `@import`, an unknown
-    /// encoding) now refuses the page instead of loading it unchecked.
-    #[test]
-    fn nfr_security_browser_fallback_fails_closed_on_unchecked_stylesheets() {
-        let page = br#"<link rel="stylesheet" href="a.css"><p>x"#;
-        let refused = |setup: &dyn Fn(&Path)| {
-            let (dir, base) = fallback_dir();
-            setup(dir.path());
-            reason(&guard_browser_page(page, &base).unwrap_err())
-        };
-
-        // (a) over the size cap.
-        assert_eq!(
-            refused(&|d| {
-                let f = std::fs::File::create(d.join("a.css")).unwrap();
-                f.set_len(MAX_STYLESHEET_BYTES + 1).unwrap();
-            }),
-            Some("page_not_checkable")
-        );
-        // (b) more stylesheets than the cap, the share in the last one.
-        assert_eq!(
-            refused(&|d| {
-                let mut chain = String::new();
-                for i in 0..=MAX_STYLESHEETS {
-                    chain.push_str(&format!("@import 's{i}.css';"));
-                    std::fs::write(d.join(format!("s{i}.css")), "p{}").unwrap();
-                }
-                std::fs::write(d.join("a.css"), chain).unwrap();
-            }),
-            Some("page_not_checkable")
-        );
-        // (c) a UTF-16 stylesheet that names a share is decoded and caught.
-        assert_eq!(
-            refused(&|d| {
-                std::fs::write(
-                    d.join("a.css"),
-                    utf16le("p{background:url(//attacker/x.png)}"),
-                )
-                .unwrap()
-            }),
-            Some("share_reference_refused")
-        );
-        // ... and one without a BOM cannot be read faithfully.
-        assert_eq!(
-            refused(&|d| {
-                std::fs::write(
-                    d.join("a.css"),
-                    &utf16le("p{background:url(//attacker/x.png)}")[2..],
-                )
-                .unwrap()
-            }),
-            Some("page_not_checkable")
-        );
-        // (d) `@import/**/` reaches the imported file.
-        assert_eq!(
-            refused(&|d| {
-                std::fs::write(d.join("a.css"), "@import/**/\"evil.css\";").unwrap();
-                std::fs::write(d.join("evil.css"), "p{background:url(//attacker/x.png)}").unwrap();
-            }),
-            Some("share_reference_refused")
-        );
-        // An `@import` whose target cannot be parsed.
-        assert_eq!(
-            refused(&|d| std::fs::write(d.join("a.css"), "@import foo;").unwrap()),
-            Some("page_not_checkable")
-        );
-        // An unknown `@charset`.
-        assert_eq!(
-            refused(&|d| std::fs::write(d.join("a.css"), "@charset \"x-nope\"; p{}").unwrap()),
-            Some("page_not_checkable")
-        );
-        // A `data:` stylesheet is read like a file (percent-encoded or base64).
-        for href in [
-            "data:text/css,p%7Bbackground:url(%22%2F%2Fattacker%2Fx.png%22)%7D",
-            "data:text/css;base64,cHtiYWNrZ3JvdW5kOnVybCgvL2F0dGFja2VyL3gucG5nKX0=",
-        ] {
-            let (_dir, base) = fallback_dir();
-            let page = format!("<link rel=stylesheet href=\"{href}\">");
-            let err = guard_browser_page(page.as_bytes(), &base).unwrap_err();
-            assert_eq!(reason(&err), Some("share_reference_refused"), "{href}");
-        }
-        // A style block with an unreadable import.
-        let (_dir, base) = fallback_dir();
-        let err = guard_browser_page(b"<style>@import/**/foo;</style>", &base).unwrap_err();
-        assert_eq!(reason(&err), Some("page_not_checkable"));
-        // A page whose declared encoding is unknown.
-        let err = guard_browser_page(b"<meta charset=x-nope><p>x", &base).unwrap_err();
-        assert_eq!(reason(&err), Some("page_not_checkable"));
-
-        // A clean page with clean stylesheets still prints, and an `@import`
-        // quoted in the page's text is not mistaken for one.
-        let (dir, base) = fallback_dir();
-        std::fs::write(dir.path().join("a.css"), "@import 'b.css'; p{}").unwrap();
-        std::fs::write(dir.path().join("b.css"), "p{color:red}").unwrap();
-        let ok =
-            br#"<link rel="stylesheet" href="a.css"><pre>@import url(//fonts.example/x);</pre>"#;
-        assert!(guard_browser_page(ok, &base).is_ok());
-        // A stylesheet that does not exist cannot be loaded either.
-        let (_dir, base) = fallback_dir();
-        assert!(guard_browser_page(page, &base).is_ok());
     }
 
     /// Security note 6: the default renderer's injection fails closed when
@@ -944,43 +435,6 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(reason(&err), Some("page_not_checkable"));
-    }
-
-    #[test]
-    fn fr_055_browser_args_print_headless_with_a_private_profile() {
-        let args = browser_args(
-            Path::new("/w/browser"),
-            Path::new("/w/out.pdf"),
-            "file:///docs/a%20b.html",
-        );
-        for flag in ["--headless", "--disable-gpu", "--no-pdf-header-footer"] {
-            assert!(args.contains(&flag.to_string()), "{flag}");
-        }
-        assert!(args.contains(&"--user-data-dir=/w/browser".to_string()));
-        assert!(args.contains(&"--print-to-pdf=/w/out.pdf".to_string()));
-        assert_eq!(args.last().unwrap(), "file:///docs/a%20b.html");
-    }
-
-    /// A printed page reaches no network (loopback included), whatever it
-    /// asks for.
-    #[test]
-    fn fr_055_browser_runs_without_network() {
-        let args = browser_args(Path::new("/w/b"), Path::new("/w/o.pdf"), "file:///p.html");
-        for flag in [
-            "--proxy-server=127.0.0.1:9",
-            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-            "--proxy-bypass-list=<-loopback>",
-            "--host-resolver-rules=MAP * ~NOTFOUND",
-            "--disable-remote-fonts",
-        ] {
-            assert!(args.contains(&flag.to_string()), "{flag}: {args:?}");
-        }
-        // This switch makes headless --print-to-pdf hang (Chrome 154).
-        assert!(
-            !args.iter().any(|a| a.contains("scriptEnabled")),
-            "{args:?}"
-        );
-        assert_eq!(args.last().unwrap(), "file:///p.html");
     }
 
     #[test]
@@ -1085,38 +539,6 @@ mod tests {
             .find("<base href=\"https://doc.pluryprint.example/assets/\">")
             .unwrap();
         assert!(ours < out.find("<base href=\"assets/\">").unwrap(), "{out}");
-    }
-
-    /// Security finding: the browser fallback loads the page from `file:`,
-    /// so a share reference would reach SMB. The page is rewritten first, and
-    /// a local stylesheet that names a share refuses it.
-    #[test]
-    fn nfr_security_browser_fallback_never_hands_a_share_to_the_browser() {
-        let dir = tempfile::tempdir().unwrap();
-        let base = format!("{}/", file_url(&dir.path().canonicalize().unwrap()));
-        let page =
-            br#"<img src="//host/x.png"><img src="file:///%5C%5Chost/y.png"><img src="ok.png">"#;
-        let out = String::from_utf8(guard_browser_page(page, &base).unwrap()).unwrap();
-        assert!(!out.contains("host"), "{out}");
-        assert!(out.contains("ok.png"), "{out}");
-
-        std::fs::write(dir.path().join("a.css"), "@import 'b.css';").unwrap();
-        std::fs::write(
-            dir.path().join("b.css"),
-            "@font-face { src: url(\\2f\\2fhost/f.woff) }",
-        )
-        .unwrap();
-        let page = br#"<link rel="stylesheet" href="a.css"><p>x"#;
-        let err = guard_browser_page(page, &base).unwrap_err();
-        assert!(
-            matches!(&err, EngineError::ConversionFailed(f) if f.reason == Some("share_reference_refused")),
-            "{err:?}"
-        );
-        std::fs::write(dir.path().join("b.css"), "p { color: red }").unwrap();
-        assert_eq!(
-            guard_browser_page(page, &base).unwrap(),
-            [&b"\xEF\xBB\xBF"[..], page].concat()
-        );
     }
 
     /// The worker's own watchdog is a timeout (terminal), never a render
@@ -1282,21 +704,5 @@ mod tests {
             .iter()
             .any(|(code, reason, _)| *code == "conversion_failed"
                 && *reason == "render_worker_missing"));
-    }
-
-    #[test]
-    fn fr_055_a_pdf_counts_as_complete_only_with_a_trailer_and_a_stable_size() {
-        let dir = tempfile::tempdir().unwrap();
-        let pdf = dir.path().join("out.pdf");
-        let last = std::cell::Cell::new(None);
-        assert!(!pdf_is_complete(&pdf, &last), "absent");
-
-        std::fs::write(&pdf, b"%PDF-1.4\n1 0 obj").unwrap();
-        assert!(!pdf_is_complete(&pdf, &last), "first sighting");
-        assert!(!pdf_is_complete(&pdf, &last), "no trailer yet");
-
-        std::fs::write(&pdf, b"%PDF-1.4\n1 0 obj\n%%EOF\n").unwrap();
-        assert!(!pdf_is_complete(&pdf, &last), "size just changed");
-        assert!(pdf_is_complete(&pdf, &last), "trailer + stable size");
     }
 }

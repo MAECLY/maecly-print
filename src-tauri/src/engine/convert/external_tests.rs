@@ -162,79 +162,6 @@ printf '%%PDF-1.4\n%%fake\n' > "$out/$stem.pdf""#,
         );
     }
 
-    /// The browser fallback (D15) prints the staged page, never the user's
-    /// file, and returns its PDF.
-    #[test]
-    fn fr_055_html_fallback_spawns_the_browser_on_the_staged_page() {
-        let dir = tempfile::tempdir().unwrap();
-        let log = dir.path().join("argv");
-        let browser = script(
-            dir.path(),
-            "chrome",
-            &format!(
-                r#"printf '%s\n' "$@" > '{log}'
-for a in "$@"; do
-  case "$a" in --print-to-pdf=*) printf '%%PDF-1.4\n' > "${{a#--print-to-pdf=}}";; esac
-done"#,
-                log = log.display()
-            ),
-        );
-        let page = dir.path().join("my page.html");
-        std::fs::write(&page, "<h1>hi</h1>").unwrap();
-        let output = dir.path().join("out.pdf");
-        let work = WorkDir::new("job").unwrap();
-        let cancel = AtomicBool::new(false);
-
-        html::convert_with(&browser, &page, &output, &work, &cancel, None).unwrap();
-
-        assert!(validate_pdf_header(&output).is_ok());
-        let argv = std::fs::read_to_string(&log).unwrap();
-        assert!(argv.contains("--headless\n"));
-        assert!(argv.contains("--no-pdf-header-footer\n"));
-        assert!(argv.trim_end().ends_with(&file_url(&page)), "{argv}");
-        assert!(file_url(&page).contains("my%20page.html"));
-    }
-
-    /// The browser starts on a profile whose `Local State` already disables
-    /// the blank-password logon probe (one failed Windows logon per run
-    /// otherwise; ten lock the account).
-    #[test]
-    fn fr_055_the_browser_profile_is_seeded_before_launch() {
-        let dir = tempfile::tempdir().unwrap();
-        let seen = dir.path().join("local-state");
-        let browser = script(
-            dir.path(),
-            "chrome",
-            &format!(
-                r#"for a in "$@"; do
-  case "$a" in
-    --user-data-dir=*) cat "${{a#--user-data-dir=}}/Local State" > '{seen}';;
-    --print-to-pdf=*) printf '%%PDF-1.4\n%%%%EOF\n' > "${{a#--print-to-pdf=}}";;
-  esac
-done"#,
-                seen = seen.display()
-            ),
-        );
-        let page = dir.path().join("p.html");
-        std::fs::write(&page, "<p>x</p>").unwrap();
-        let work = WorkDir::new("job").unwrap();
-        html::convert_with(
-            &browser,
-            &page,
-            &dir.path().join("out.pdf"),
-            &work,
-            &AtomicBool::new(false),
-            None,
-        )
-        .unwrap();
-        let state: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&seen).unwrap()).unwrap();
-        assert_eq!(
-            state["password_manager"]["os_password_last_changed"],
-            crate::util::chromium::FAR_FUTURE_LAST_CHANGED
-        );
-    }
-
     /// A fake render worker: records its argv and the staged page it was
     /// given, and writes a PDF at `--out`.
     fn fake_worker(dir: &Path) -> PathBuf {
@@ -458,32 +385,6 @@ fn convert_real_on(input: &Path, cache: &Path, job: &str, page: &PageSetup) -> P
     .expect("a converted document yields a cache PDF")
 }
 
-/// Width and height of the first page's MediaBox, in points, rounded.
-fn first_page_size(pdf: &Path) -> (i64, i64) {
-    let doc = lopdf::Document::load(pdf).expect("a parseable PDF");
-    let (_, page_id) = doc.get_pages().into_iter().next().expect("one page");
-    let page = doc.get_dictionary(page_id).unwrap();
-    let mb = page
-        .get(b"MediaBox")
-        .and_then(|o| o.as_array())
-        .expect("a MediaBox");
-    let n = |o: &lopdf::Object| {
-        o.as_float()
-            .map(f64::from)
-            .or_else(|_| o.as_i64().map(|v| v as f64))
-            .unwrap()
-    };
-    (
-        (n(&mb[2]) - n(&mb[0])).round() as i64,
-        (n(&mb[3]) - n(&mb[1])).round() as i64,
-    )
-}
-
-/// The job's paper for the page renderers: A4 portrait, the default.
-fn a4() -> PageSetup {
-    PageSetup::for_settings(&crate::queue::job::JobSettings::default())
-}
-
 /// RTF goes to LibreOffice where the OS has no converter of its own (on
 /// macOS it is `textutil`, tested with the render worker in
 /// `tests/render_worker.rs`).
@@ -594,80 +495,6 @@ fn fr_053_real_libreoffice_fetches_no_linked_resource() {
     match listener.accept() {
         Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
         other => panic!("LibreOffice fetched the linked picture: {other:?}"),
-    }
-}
-
-/// The browser fallback (D15) still prints a page on the job's paper.
-#[test]
-fn fr_055_real_html_prints_through_the_browser_fallback() {
-    if tool_or_skip(Dependency::Chromium, "html").is_none() {
-        return;
-    }
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("style.css"), "h1 { color: #036; }").unwrap();
-    let sections: String = (1..=80).map(|i| format!("<p>Paragraph {i}</p>")).collect();
-    let html = format!(
-        "<!doctype html><html><head><meta charset=utf-8>\
-         <link rel=stylesheet href=style.css></head>\
-         <body><h1>Título</h1>{sections}</body></html>"
-    );
-    let work = WorkDir::new("real-html-browser").unwrap();
-    let pdf = dir.path().join("out.pdf");
-    html::render_document(
-        html.as_bytes(),
-        dir.path(),
-        &pdf,
-        &work,
-        &AtomicBool::new(false),
-        REAL_TIMEOUT,
-        &a4(),
-        crate::settings::HtmlRenderer::Browser,
-    )
-    .unwrap();
-    assert!(pages_of(&pdf) >= 1);
-    // An A4 job gets A4 pages, not the browser's US Letter default.
-    assert_eq!(first_page_size(&pdf), (595, 842));
-}
-
-/// The browser fallback reaches no network, loopback included: its
-/// stylesheet, its image, a script `fetch` and a WebSocket all point at a
-/// local listener that must never see a connection.
-#[test]
-fn fr_055_real_html_fallback_reaches_no_network() {
-    if tool_or_skip(Dependency::Chromium, "html-sandbox").is_none() {
-        return;
-    }
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let port = listener.local_addr().unwrap().port();
-
-    let dir = tempfile::tempdir().unwrap();
-    let html = format!(
-        "<!doctype html><html><head><meta charset=utf-8>\
-         <link rel=stylesheet href=\"http://localhost:{port}/x.css\"></head>\
-         <body><p>static</p>\
-         <img src=\"http://127.0.0.1:{port}/beacon.png\">\
-         <script>fetch('http://127.0.0.1:{port}/fetch').catch(() => {{}});\
-         try {{ new WebSocket('ws://127.0.0.1:{port}/ws'); }} catch (e) {{}}</script>\
-         </body></html>"
-    );
-    let work = WorkDir::new("real-html-browser-sandbox").unwrap();
-    let pdf = dir.path().join("out.pdf");
-    html::render_document(
-        html.as_bytes(),
-        dir.path(),
-        &pdf,
-        &work,
-        &AtomicBool::new(false),
-        REAL_TIMEOUT,
-        &PageSetup::default(),
-        crate::settings::HtmlRenderer::Browser,
-    )
-    .unwrap();
-    assert_eq!(pages_of(&pdf), 1);
-    match listener.accept() {
-        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-        other => panic!("the page reached the network: {other:?}"),
     }
 }
 

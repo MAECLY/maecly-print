@@ -15,13 +15,11 @@ use std::time::{Duration, Instant};
 use pluryprint_lib::engine::convert::{convert_to_pdf, PageSetup};
 use pluryprint_lib::engine::EngineError;
 
-/// Point the engine at the binary cargo built for this test run, and pin the
-/// renderer to the system web view whatever the machine's config says.
+/// Point the engine at the binary cargo built for this test run.
 fn setup() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         std::env::set_var("PLURYPRINT_WORKER_EXE", env!("CARGO_BIN_EXE_pluryprint"));
-        std::env::set_var("PLURYPRINT_HTML_RENDERER", "system");
     });
 }
 

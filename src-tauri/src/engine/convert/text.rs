@@ -72,27 +72,6 @@ pub fn convert(
     timeout: Option<Duration>,
     page: &PageSetup,
 ) -> Result<(), EngineError> {
-    convert_with_renderer(
-        input,
-        output,
-        work,
-        cancel,
-        timeout,
-        page,
-        super::html::configured_renderer(),
-    )
-}
-
-/// [`convert`] with an explicit renderer.
-pub fn convert_with_renderer(
-    input: &Path,
-    output: &Path,
-    work: &WorkDir,
-    cancel: &AtomicBool,
-    timeout: Option<Duration>,
-    page: &PageSetup,
-    renderer: crate::settings::HtmlRenderer,
-) -> Result<(), EngineError> {
     let bytes = std::fs::read(input).map_err(|e| {
         EngineError::ConversionFailed(
             Failure::new(
@@ -122,7 +101,6 @@ pub fn convert_with_renderer(
         cancel,
         timeout,
         page,
-        renderer,
     )
 }
 
@@ -181,14 +159,13 @@ mod tests {
         let input = dir.path().join("x.txt");
         std::fs::write(&input, b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").unwrap();
         let work = WorkDir::new("txt-bin").unwrap();
-        let err = convert_with_renderer(
+        let err = convert(
             &input,
             &dir.path().join("o.pdf"),
             &work,
             &AtomicBool::new(false),
             None,
             &PageSetup::default(),
-            crate::settings::HtmlRenderer::System,
         )
         .unwrap_err();
         assert!(
