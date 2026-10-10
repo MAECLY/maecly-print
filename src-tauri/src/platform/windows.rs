@@ -66,14 +66,31 @@ fn pwstr(p: PWSTR) -> String {
     }
 }
 
-/// Turn a spooler failure into an error the UI can show. A stopped spooler
-/// gets a sentence of its own; anything else keeps the OS message.
+/// Turn a spooler failure into an error the UI can show in the user's
+/// language (FR-092). A stopped spooler gets a sentence of its own
+/// (`spooler_down`); anything else is `printer_query_failed`, with the OS
+/// message as the technical detail.
 fn spooler_error(e: windows::core::Error, what: &str) -> anyhow::Error {
     if e.code() == windows::core::HRESULT::from_win32(RPC_S_SERVER_UNAVAILABLE) {
-        anyhow::anyhow!(SPOOLER_DOWN)
+        spooler_down().into()
     } else {
-        anyhow::anyhow!("{what} failed: {e}")
+        printer_query_failed(format!("{what} failed: {e}")).into()
     }
+}
+
+/// The Print Spooler service is stopped (FR-092 `spooler_down`).
+fn spooler_down() -> LocalizedError {
+    LocalizedError::new(IpcErrorCode::PrintFailed, "spooler_down", SPOOLER_DOWN)
+}
+
+/// Windows refused to describe its printers (FR-092 `printer_query_failed`).
+fn printer_query_failed(detail: String) -> LocalizedError {
+    LocalizedError::new(
+        IpcErrorCode::Internal,
+        "printer_query_failed",
+        detail.clone(),
+    )
+    .param("detail", detail)
 }
 
 /// `EnumPrinters` level 2 into a buffer that is correctly aligned for
@@ -120,7 +137,12 @@ fn enum_printers_level2() -> anyhow::Result<(Vec<u64>, u32)> {
             Err(e) => return Err(spooler_error(e, "EnumPrinters")),
         }
     }
-    anyhow::bail!("the printer list kept changing while it was being read; try again")
+    Err(LocalizedError::new(
+        IpcErrorCode::Internal,
+        "printer_list_unstable",
+        "the printer list kept changing while it was being read; try again",
+    )
+    .into())
 }
 
 /// Visit every `PRINTER_INFO_2W` record of an enumeration.
@@ -164,10 +186,14 @@ pub fn default_printer() -> anyhow::Result<Option<String>> {
             return Ok(None);
         }
         if err.0 == RPC_S_SERVER_UNAVAILABLE {
-            anyhow::bail!(SPOOLER_DOWN);
+            return Err(spooler_down().into());
         }
         if err != ERROR_INSUFFICIENT_BUFFER {
-            anyhow::bail!("GetDefaultPrinter failed: {}", err.to_hresult().message());
+            return Err(printer_query_failed(format!(
+                "GetDefaultPrinter failed: {}",
+                err.to_hresult().message()
+            ))
+            .into());
         }
     }
     if len == 0 {
@@ -291,13 +317,22 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
         tray: over.tray.clone(),
     });
 
-    let mut tmp = tempfile::Builder::new()
+    let tmp = tempfile::Builder::new()
         .prefix("pluryprint-testpage-")
         .suffix(".pdf")
         .tempfile()
-        .with_context(|| "failed to create temp PDF")?;
-    tmp.write_all(&pdf)?;
-    tmp.flush()?;
+        .and_then(|mut tmp| {
+            tmp.write_all(&pdf)?;
+            tmp.flush()?;
+            Ok(tmp)
+        })
+        .map_err(|e| {
+            LocalizedError::new(
+                IpcErrorCode::PrintFailed,
+                "test_page_failed",
+                format!("failed to create the test page PDF: {e}"),
+            )
+        })?;
 
     let paper_size = over
         .paper
@@ -431,7 +466,13 @@ pub fn add_printer(name: &str, uri: &str) -> anyhow::Result<()> {
         .into());
     }
 
-    let url = ipp_class_driver_url(uri)?;
+    let url = ipp_class_driver_url(uri).map_err(|e| {
+        LocalizedError::new(
+            IpcErrorCode::InvalidRequest,
+            "printer_uri_invalid",
+            e.to_string(),
+        )
+    })?;
     let base = queue_base_name(name, &url);
     let existing: Vec<String> = installed_names_and_ports()?
         .into_iter()
@@ -457,13 +498,30 @@ pub fn add_printer(name: &str, uri: &str) -> anyhow::Result<()> {
                  settings\" to add it from Windows.",
             )
             .into()),
-            PS_EXIT_NO_IPPURL => anyhow::bail!(
+            PS_EXIT_NO_IPPURL => Err(LocalizedError::new(
+                IpcErrorCode::PrintFailed,
+                "add_printer_no_ippurl",
                 "This version of Windows cannot add an IPP printer from Pluryprint \
                  (Add-Printer has no -IppURL). Use \"Open printer settings\" to add it from \
-                 Windows."
-            ),
-            _ if message.is_empty() => anyhow::bail!("Add-Printer failed (exit code {code})"),
-            _ => anyhow::bail!("{message}"),
+                 Windows.",
+            )
+            .into()),
+            _ => {
+                // The spooler's own words (in the OS language) stay the
+                // technical detail under the translated sentence.
+                let detail = if message.is_empty() {
+                    format!("Add-Printer failed (exit code {code})")
+                } else {
+                    message
+                };
+                Err(LocalizedError::new(
+                    IpcErrorCode::PrintFailed,
+                    "add_printer_failed",
+                    detail.clone(),
+                )
+                .param("detail", detail)
+                .into())
+            }
         },
     }
 }

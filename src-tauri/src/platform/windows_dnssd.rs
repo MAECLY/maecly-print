@@ -228,9 +228,17 @@ pub fn browse(service_types: &[&str], window: Duration) -> anyhow::Result<Vec<dn
         let rc = unsafe { DnsServiceBrowse(&request, &mut cancel) };
         if rc != DNS_REQUEST_PENDING {
             lock().browses.remove(&id);
-            started = Err(anyhow::anyhow!(
-                "could not browse for {service_type} printers (DNS-SD error {rc})"
-            ));
+            // FR-092: a scan that could not start is `discovery_failed`; the
+            // DNS-SD code is the technical detail under that sentence.
+            let detail =
+                format!("could not browse for {service_type} printers (DNS-SD error {rc})");
+            started = Err(crate::util::error::LocalizedError::new(
+                crate::util::error::IpcErrorCode::Internal,
+                "discovery_failed",
+                detail.clone(),
+            )
+            .param("detail", detail)
+            .into());
             break;
         }
         running.push((id, service_type, cancel, name));

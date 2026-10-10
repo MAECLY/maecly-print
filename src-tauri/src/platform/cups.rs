@@ -47,27 +47,50 @@ fn run_ok(program: &str, args: &[&str]) -> anyhow::Result<()> {
     }
 }
 
-/// Run a CLI and, on failure, surface its captured stderr verbatim as the error.
+/// Run a CLI and, on failure, report it as `reason` (FR-092) with the tool's
+/// captured stderr verbatim as the English message and the `detail` param.
 ///
-/// Unlike [`run_ok`], this lets the tool's own diagnostic (e.g. lpadmin's
-/// "Unable to connect to ...") reach the caller — and thus the UI toast —
-/// unaltered. Keeps the `LC_ALL=C` locale so messages are not localized.
-fn run_ok_capture(program: &str, args: &[&str]) -> anyhow::Result<()> {
+/// The UI says `reason` in the user's language and shows the tool's own
+/// diagnostic (e.g. lpadmin's "Unable to connect to ...") under it as the
+/// technical detail. Keeps the `LC_ALL=C` locale so that detail is stable.
+/// A tool that cannot even be started means CUPS itself is not answering
+/// (`cups_unavailable`).
+fn run_ok_capture(program: &str, args: &[&str], reason: &'static str) -> anyhow::Result<()> {
     let out = Command::new(program)
         .args(args)
         .env("LC_ALL", "C")
         .env("LANG", "C")
         .output()
-        .with_context(|| format!("failed to spawn `{program}`"))?;
+        .map_err(|e| {
+            LocalizedError::new(
+                IpcErrorCode::PrintFailed,
+                "cups_unavailable",
+                format!("failed to spawn `{program}`: {e}"),
+            )
+        })?;
     if out.status.success() {
         return Ok(());
     }
-    let stderr = String::from_utf8_lossy(&out.stderr);
+    Err(tool_failure(
+        reason,
+        program,
+        &out.status.to_string(),
+        &String::from_utf8_lossy(&out.stderr),
+    )
+    .into())
+}
+
+/// The `PrintFailed` error a CUPS tool that exited with `status` becomes:
+/// `reason`, with what the tool printed (or its status) as the message and
+/// the `detail` param. Pure.
+fn tool_failure(reason: &'static str, program: &str, status: &str, stderr: &str) -> LocalizedError {
     let msg = stderr.trim();
-    if msg.is_empty() {
-        anyhow::bail!("`{program}` exited with {}", out.status);
-    }
-    anyhow::bail!("{msg}");
+    let detail = if msg.is_empty() {
+        format!("`{program}` exited with {status}")
+    } else {
+        msg.to_string()
+    };
+    LocalizedError::new(IpcErrorCode::PrintFailed, reason, detail.clone()).param("detail", detail)
 }
 
 /// Set the CUPS *user* default — writes `~/.cups/lpoptions`, no privileges.
@@ -75,7 +98,7 @@ fn run_ok_capture(program: &str, args: &[&str]) -> anyhow::Result<()> {
 /// Like every user-triggered spooler action here, failures carry the tool's
 /// own stderr ([`run_ok_capture`]) so the toast can say *why*.
 pub fn set_os_default(name: &str) -> anyhow::Result<()> {
-    run_ok_capture("lpoptions", &["-d", name])
+    run_ok_capture("lpoptions", &["-d", name], "set_default_failed")
 }
 
 /// Print the branded Pluryprint test page, applying the user's configured
@@ -101,13 +124,22 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
         tray: over.tray.clone(),
     });
 
-    let mut tmp = tempfile::Builder::new()
+    let tmp = tempfile::Builder::new()
         .prefix("pluryprint-testpage-")
         .suffix(".pdf")
         .tempfile()
-        .with_context(|| "failed to create temp PDF")?;
-    tmp.write_all(&pdf)?;
-    tmp.flush()?;
+        .and_then(|mut tmp| {
+            tmp.write_all(&pdf)?;
+            tmp.flush()?;
+            Ok(tmp)
+        })
+        .map_err(|e| {
+            LocalizedError::new(
+                IpcErrorCode::PrintFailed,
+                "test_page_failed",
+                format!("failed to create the test page PDF: {e}"),
+            )
+        })?;
     let path = tmp.path().to_string_lossy().into_owned();
 
     // `lp` spools (copies) the file before returning, so the temp file can be
@@ -121,19 +153,26 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
     // The saved names go to `lp -o`, which splits a value on whitespace into
     // extra options; refuse anything that is not a single CUPS keyword.
     use crate::engine::print::cups::check_option_value;
+    let invalid_option = |e: String| {
+        LocalizedError::new(
+            IpcErrorCode::InvalidRequest,
+            "printer_option_invalid",
+            format!("invalid {e}"),
+        )
+    };
     if let Some(paper) = &over.paper {
-        check_option_value("media", paper).map_err(|e| anyhow::anyhow!("invalid {e}"))?;
+        check_option_value("media", paper).map_err(|e| invalid_option(e.to_string()))?;
         args.push("-o".into());
         args.push(format!("media={paper}"));
     }
     if let Some(tray) = &over.tray {
-        check_option_value("InputSlot", tray).map_err(|e| anyhow::anyhow!("invalid {e}"))?;
+        check_option_value("InputSlot", tray).map_err(|e| invalid_option(e.to_string()))?;
         args.push("-o".into());
         args.push(format!("InputSlot={tray}"));
     }
     args.push(path);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_ok_capture("lp", &arg_refs)
+    run_ok_capture("lp", &arg_refs, "spooler_rejected")
 }
 
 /// Open the OS "Printers" settings so the user can add one manually.
@@ -174,7 +213,7 @@ pub fn add_printer(name: &str, uri: &str) -> anyhow::Result<()> {
     };
     let args = lpadmin_args(&queue, uri, &display)?;
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_ok_capture("lpadmin", &arg_refs)
+    run_ok_capture("lpadmin", &arg_refs, "add_printer_failed")
 }
 
 /// Turn a free-form display name into a legal CUPS queue id.
@@ -320,7 +359,7 @@ fn run_ippfind(args: &[&str]) -> anyhow::Result<String> {
             )
             .into())
         }
-        Err(e) => anyhow::bail!("failed to run `ippfind`: {e}"),
+        Err(e) => return Err(discovery_failed(format!("failed to run `ippfind`: {e}")).into()),
     };
     classify_ippfind(
         out.status.code(),
@@ -343,10 +382,19 @@ fn classify_ippfind(
         return Ok(stdout);
     }
     let msg = stderr.trim();
-    if msg.is_empty() {
-        anyhow::bail!("`ippfind` exited with {status_text}");
-    }
-    anyhow::bail!("{msg}");
+    let detail = if msg.is_empty() {
+        format!("`ippfind` exited with {status_text}")
+    } else {
+        msg.to_string()
+    };
+    Err(discovery_failed(detail).into())
+}
+
+/// A network scan that could not run (FR-092 `discovery_failed`), with the
+/// tool's own words as the technical detail.
+fn discovery_failed(detail: String) -> LocalizedError {
+    LocalizedError::new(IpcErrorCode::Internal, "discovery_failed", detail.clone())
+        .param("detail", detail)
 }
 
 /// Scan the local network for IPP/IPPS printers via `ippfind` (about four
@@ -1174,10 +1222,37 @@ mod tests {
     /// a bare "exited with exit status: 1".
     #[test]
     fn fr_regression_spooler_failures_surface_the_tool_stderr() {
-        let e = run_ok_capture("sh", &["-c", "echo 'lp: no such printer' >&2; exit 1"])
-            .expect_err("a non-zero exit is a failure");
-        assert_eq!(e.to_string(), "lp: no such printer");
-        assert!(run_ok_capture("sh", &["-c", "exit 0"]).is_ok());
+        let e = run_ok_capture(
+            "sh",
+            &["-c", "echo 'lp: no such printer' >&2; exit 1"],
+            "spooler_rejected",
+        )
+        .expect_err("a non-zero exit is a failure");
+        // FR-092: the toast's sentence is translated from the reason, and the
+        // tool's own words ride along as the technical detail under it.
+        let e = crate::util::error::IpcError::from(e);
+        assert_eq!(e.code(), IpcErrorCode::PrintFailed);
+        assert_eq!(e.reason(), Some("spooler_rejected"));
+        assert_eq!(e.message(), "lp: no such printer");
+        let wire = serde_json::to_value(&e).unwrap();
+        assert_eq!(wire["params"]["detail"], "lp: no such printer");
+        assert!(run_ok_capture("sh", &["-c", "exit 0"], "spooler_rejected").is_ok());
+    }
+
+    /// FR-092: a CUPS tool that is not there says CUPS is not answering.
+    #[test]
+    fn fr_092_a_cups_tool_that_cannot_start_is_cups_unavailable() {
+        let e = run_ok_capture("/nonexistent/lpoptions", &[], "set_default_failed")
+            .expect_err("spawn fails");
+        let e = crate::util::error::IpcError::from(e);
+        assert_eq!(e.code(), IpcErrorCode::PrintFailed);
+        assert_eq!(e.reason(), Some("cups_unavailable"));
+        let silent = tool_failure("add_printer_failed", "lpadmin", "exit status: 1", " ");
+        assert_eq!(silent.reason, "add_printer_failed");
+        assert_eq!(
+            silent.params["detail"],
+            "`lpadmin` exited with exit status: 1"
+        );
     }
 
     #[test]
@@ -1217,7 +1292,9 @@ mod tests {
     fn fr_classify_ippfind_surfaces_real_failures() {
         let e = classify_ippfind(Some(2), "exit status: 2", String::new(), "bad argument")
             .expect_err("a non-0/1 exit is a failed scan");
-        assert_eq!(e.to_string(), "bad argument");
+        let e = crate::util::error::IpcError::from(e);
+        assert_eq!(e.reason(), Some("discovery_failed"));
+        assert_eq!(e.message(), "bad argument");
 
         // Killed by a signal (no exit code) with nothing on stderr.
         let e = classify_ippfind(None, "signal: 9", String::new(), "  ")
