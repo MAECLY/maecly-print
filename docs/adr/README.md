@@ -19,6 +19,7 @@
 | 0011 | [Release channel on GitHub Releases, beta manifest, no OS code signing](./0011-release-channel.md) | Accepted | 2026-10-10 |
 | 0012 | [The system web view renders HTML, Markdown and text, in a worker process](./0012-system-web-view-renderer.md) | Accepted | 2026-10-10 |
 | 0013 | [The Explorer command ships as a per-user registry verb](./0013-explorer-command-per-user-verb.md) | Accepted | 2026-10-10 |
+| 0014 | [The SVG worker process is the resource boundary](./0014-svg-worker-resource-boundary.md) | Accepted | 2026-10-10 |
 
 ## Format
 
