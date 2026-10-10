@@ -36,7 +36,9 @@ pub(crate) const MAX_PDF_PROBE_BYTES: u64 = 100 * 1024 * 1024;
 /// callback.
 #[derive(Debug, Clone)]
 pub struct QueueState {
+    /// Whether the user has paused the whole queue (no new job starts).
     pub queue_paused: bool,
+    /// Every job the dispatcher knows about, in queue order.
     pub jobs: Vec<Job>,
 }
 

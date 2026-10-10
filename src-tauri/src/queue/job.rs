@@ -136,9 +136,13 @@ pub enum ColorMode {
 pub struct PaperSize(std::borrow::Cow<'static, str>);
 
 impl PaperSize {
+    /// ISO 216 A4 (210 × 297 mm).
     pub const A4: PaperSize = PaperSize(std::borrow::Cow::Borrowed("A4"));
+    /// US Letter (8.5 × 11 in).
     pub const LETTER: PaperSize = PaperSize(std::borrow::Cow::Borrowed("Letter"));
+    /// US Legal (8.5 × 14 in).
     pub const LEGAL: PaperSize = PaperSize(std::borrow::Cow::Borrowed("Legal"));
+    /// ISO 216 A3 (297 × 420 mm).
     pub const A3: PaperSize = PaperSize(std::borrow::Cow::Borrowed("A3"));
     /// No explicit size: the printer's override (Printers screen) or, failing
     /// that, the printer's own default applies, and no media flag is sent.
@@ -215,8 +219,11 @@ impl<'de> Deserialize<'de> for PaperSize {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum Orientation {
+    /// Pick per page from the source's aspect ratio.
     Auto,
+    /// Force portrait.
     Portrait,
+    /// Force landscape.
     Landscape,
 }
 
@@ -239,12 +246,17 @@ pub enum Scaling {
 pub struct JobSettings {
     /// Target printer id, or `None` to use the app/OS default at dispatch time.
     pub printer: Option<String>,
+    /// Double-sided mode.
     pub duplex: Duplex,
+    /// Colour or grayscale output.
     pub color_mode: ColorMode,
     /// Number of copies, `1..=999`.
     pub copies: u16,
+    /// Paper size, or [`PaperSize::AUTO`] for the printer's own default.
     pub paper_size: PaperSize,
+    /// Page orientation.
     pub orientation: Orientation,
+    /// How pages are fitted to the paper.
     pub scaling: Scaling,
     /// Page-range expression (e.g. `"1-5,8"`), or `None` for all pages. The
     /// *syntax* is validated by the engine's parser, not here — see
@@ -348,6 +360,7 @@ impl JobSettings {
 pub struct PrintRequest {
     /// Absolute paths of the files to print.
     pub files: Vec<String>,
+    /// The settings every file in the batch is printed with.
     pub settings: JobSettings,
     /// Name of the profile these settings were derived from, for the log/UI.
     pub profile_name: Option<String>,
@@ -375,7 +388,9 @@ pub struct PrintRequest {
 /// failure.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct JobError {
+    /// Stable machine-readable failure family, e.g. `"conversion_failed"`.
     pub code: String,
+    /// English detail for logs, the CLI and the UI's last-resort fallback.
     pub message: String,
     /// Stable variant within `code` (e.g. `"no_printer"`). Never renamed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -422,7 +437,9 @@ impl JobError {
 /// `queue.json` still works: a stored number deserializes into `Some`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 pub struct JobProgress {
+    /// Short label of the step, e.g. `"converting"` or `"printing"`.
     pub phase: String,
+    /// Fraction done in `0.0..=1.0`, or `None` when the phase cannot measure one.
     pub percent: Option<f32>,
 }
 
@@ -453,6 +470,7 @@ pub struct Job {
     pub id: String,
     /// Groups all jobs submitted together in one [`PrintRequest`].
     pub batch_id: String,
+    /// Where the job is in its lifecycle.
     pub state: JobState,
     /// Absolute path of the source file.
     pub input_path: String,
@@ -467,6 +485,7 @@ pub struct Job {
     pub pages: Option<u32>,
     /// Absolute path of the converted PDF in the cache, once produced.
     pub cache_pdf: Option<String>,
+    /// The resolved settings this job prints with.
     pub settings: JobSettings,
     /// Profile name these settings came from, for the log/UI.
     pub profile_name: Option<String>,
@@ -480,7 +499,9 @@ pub struct Job {
     pub os_job_id: Option<String>,
     /// Number of times this job has been started (for retry/backoff, FR-034).
     pub attempts: u32,
+    /// Why the job last failed or paused, when it did.
     pub error: Option<JobError>,
+    /// Live progress while converting or printing; `None` otherwise.
     pub progress: Option<JobProgress>,
     /// RFC 3339 UTC timestamp of submission.
     pub submitted_at: String,
@@ -543,7 +564,9 @@ impl Job {
 /// jobs it produced (one per input file).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct JobBatch {
+    /// Id shared by every job of the batch.
     pub batch_id: String,
+    /// One job id per input file, in input order.
     pub job_ids: Vec<String>,
 }
 
@@ -552,9 +575,11 @@ pub struct JobBatch {
 /// `queue.json` (reused by [`crate::queue::persist`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 pub struct QueueSnapshot {
+    /// Format version of `queue.json` (see [`SCHEMA_VERSION`]).
     pub schema_version: u32,
     /// Whether the whole queue is paused (FR-033).
     pub queue_paused: bool,
+    /// Every job the queue knows about, in queue order.
     pub jobs: Vec<Job>,
 }
 

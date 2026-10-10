@@ -1185,7 +1185,11 @@ id: string;
 /**
  * Groups all jobs submitted together in one [`PrintRequest`].
  */
-batch_id: string; state: JobState; 
+batch_id: string; 
+/**
+ * Where the job is in its lifecycle.
+ */
+state: JobState; 
 /**
  * Absolute path of the source file.
  */
@@ -1210,7 +1214,11 @@ pages: number | null;
 /**
  * Absolute path of the converted PDF in the cache, once produced.
  */
-cache_pdf: string | null; settings: JobSettings; 
+cache_pdf: string | null; 
+/**
+ * The resolved settings this job prints with.
+ */
+settings: JobSettings; 
 /**
  * Profile name these settings came from, for the log/UI.
  */
@@ -1229,7 +1237,15 @@ os_job_id?: string | null;
 /**
  * Number of times this job has been started (for retry/backoff, FR-034).
  */
-attempts: number; error: JobError | null; progress: JobProgress | null; 
+attempts: number; 
+/**
+ * Why the job last failed or paused, when it did.
+ */
+error: JobError | null; 
+/**
+ * Live progress while converting or printing; `None` otherwise.
+ */
+progress: JobProgress | null; 
 /**
  * RFC 3339 UTC timestamp of submission.
  */
@@ -1246,7 +1262,15 @@ finished_at: string | null }
  * The result of submitting a [`PrintRequest`]: the batch id and the ids of the
  * jobs it produced (one per input file).
  */
-export type JobBatch = { batch_id: string; job_ids: string[] }
+export type JobBatch = { 
+/**
+ * Id shared by every job of the batch.
+ */
+batch_id: string; 
+/**
+ * One job id per input file, in input order.
+ */
+job_ids: string[] }
 /**
  * A structured job error. `code` is a stable machine-readable identifier;
  * `message` is the English detail (logs, the CLI, and the UI's fallback).
@@ -1262,7 +1286,15 @@ export type JobBatch = { batch_id: string; job_ids: string[] }
  * app was last closed; the UI treats it as resumable rather than a hard
  * failure.
  */
-export type JobError = { code: string; message: string; 
+export type JobError = { 
+/**
+ * Stable machine-readable failure family, e.g. `"conversion_failed"`.
+ */
+code: string; 
+/**
+ * English detail for logs, the CLI and the UI's last-resort fallback.
+ */
+message: string; 
 /**
  * Stable variant within `code` (e.g. `"no_printer"`). Never renamed.
  */
@@ -1282,7 +1314,15 @@ params?: Partial<{ [key in string]: string }> | null }
  * return a job id), so inventing a number would be a lie. Reading a v1
  * `queue.json` still works: a stored number deserializes into `Some`.
  */
-export type JobProgress = { phase: string; percent: number | null }
+export type JobProgress = { 
+/**
+ * Short label of the step, e.g. `"converting"` or `"printing"`.
+ */
+phase: string; 
+/**
+ * Fraction done in `0.0..=1.0`, or `None` when the phase cannot measure one.
+ */
+percent: number | null }
 /**
  * Fine-grained, in-flight progress for a single converting job. Emitted
  * throttled (≥100 ms per job) and NOT persisted — it is advisory UI sugar on
@@ -1311,11 +1351,31 @@ export type JobSettings = {
 /**
  * Target printer id, or `None` to use the app/OS default at dispatch time.
  */
-printer: string | null; duplex: Duplex; color_mode: ColorMode; 
+printer: string | null; 
+/**
+ * Double-sided mode.
+ */
+duplex: Duplex; 
+/**
+ * Colour or grayscale output.
+ */
+color_mode: ColorMode; 
 /**
  * Number of copies, `1..=999`.
  */
-copies: number; paper_size: PaperSize; orientation: Orientation; scaling: Scaling; 
+copies: number; 
+/**
+ * Paper size, or [`PaperSize::AUTO`] for the printer's own default.
+ */
+paper_size: PaperSize; 
+/**
+ * Page orientation.
+ */
+orientation: Orientation; 
+/**
+ * How pages are fitted to the paper.
+ */
+scaling: Scaling; 
 /**
  * Page-range expression (e.g. `"1-5,8"`), or `None` for all pages. The
  * *syntax* is validated by the engine's parser, not here — see
@@ -1390,7 +1450,19 @@ export type JobState =
  * Page orientation. [`Auto`](Orientation::Auto) lets the engine pick per page
  * based on the source aspect ratio.
  */
-export type Orientation = "auto" | "portrait" | "landscape"
+export type Orientation = 
+/**
+ * Pick per page from the source's aspect ratio.
+ */
+"auto" | 
+/**
+ * Force portrait.
+ */
+"portrait" | 
+/**
+ * Force landscape.
+ */
+"landscape"
 /**
  * Target paper size: any media name the printer reports — a CUPS `PageSize`
  * keyword (`A4`, `Letter`, `A6`, `4x6`, `Tabloid`, `w288h432`) or a Windows
@@ -1415,7 +1487,11 @@ export type PrintRequest = {
 /**
  * Absolute paths of the files to print.
  */
-files: string[]; settings: JobSettings; 
+files: string[]; 
+/**
+ * The settings every file in the batch is printed with.
+ */
+settings: JobSettings; 
 /**
  * Name of the profile these settings were derived from, for the log/UI.
  */
@@ -1699,11 +1775,19 @@ export type Quality =
  * command and pushed via the `queue-updated` event. Also the on-disk shape of
  * `queue.json` (reused by [`crate::queue::persist`]).
  */
-export type QueueSnapshot = { schema_version: number; 
+export type QueueSnapshot = { 
+/**
+ * Format version of `queue.json` (see [`SCHEMA_VERSION`]).
+ */
+schema_version: number; 
 /**
  * Whether the whole queue is paused (FR-033).
  */
-queue_paused: boolean; jobs: Job[] }
+queue_paused: boolean; 
+/**
+ * Every job the queue knows about, in queue order.
+ */
+jobs: Job[] }
 /**
  * The whole queue changed: a job transitioned, was submitted, cancelled,
  * cleared, or the queue was paused/resumed. Carries the full
