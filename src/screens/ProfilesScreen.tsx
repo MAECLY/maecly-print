@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useLatest } from '@/lib/useLatest';
 import { toast } from 'sonner';
 
 import { Icon } from '@/components/Icon';
@@ -146,8 +147,7 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
   // The latest selection, so a refresh that resolves after the user moved on
   // is ignored. (Not an effect-cleanup flag: a `missing` outcome reloads the
   // list, which flips `selectedIsCustom` and would cancel its own handling.)
-  const selectedRef = useRef(selectedId);
-  selectedRef.current = selectedId;
+  const selectedRef = useLatest(selectedId);
   useEffect(() => {
     if (!selectedIsCustom) return;
     const id = selectedId;

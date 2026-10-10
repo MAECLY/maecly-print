@@ -69,7 +69,7 @@ The COM export check that an earlier `shell-ext-win` CI lane ran was itself brok
 
 ## Caching
 
-The `backend` job uses `actions/cache@v4` directly (not `Swatinem/rust-cache`) over `~/.cargo/{registry/index,registry/cache,git/db}` plus `src-tauri/target/` and `shell-ext-win/target/`, keyed on `${{ runner.os }}-cargo-` and both lockfiles. pnpm modules are cached by `actions/setup-node@v4` with `cache: pnpm`. The release jobs use no cache.
+The `backend` job uses `actions/cache@v6` directly (not `Swatinem/rust-cache`) over `~/.cargo/{registry/index,registry/cache,git/db}` plus `src-tauri/target/` and `shell-ext-win/target/`, keyed on `${{ runner.os }}-cargo-` and both lockfiles. pnpm modules are cached by `actions/setup-node@v7` with `cache: pnpm`. The release jobs use no cache: their `setup-node` steps set `package-manager-cache: false`.
 
 ## What does **not** exist yet
 

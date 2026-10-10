@@ -10,7 +10,7 @@ Everything in this table is declared in `src-tauri/Cargo.toml`, `shell-ext-win/C
 | ---------------------- | ------------------------------------------------------- |
 | Application shell      | **Tauri 2.1** (Rust host + system webview)              |
 | Backend / core logic   | **Rust 1.78+** (stable, edition 2021)                   |
-| Frontend / UI          | **React 18 + TypeScript 5 + Vite 5 + Tailwind CSS 3** (layout utilities only; design tokens are CSS custom properties, Tailwind `preflight` disabled) |
+| Frontend / UI          | **React 19 + TypeScript 5 + Vite 7 + Tailwind CSS 3** (layout utilities only; design tokens are CSS custom properties, Tailwind `preflight` disabled) |
 | Frontend state         | `zustand` 5; toasts via `sonner`                        |
 | Localization           | **In-house** (`src/i18n/`, JSON catalogues per screen) — no i18n library |
 | Typed IPC              | `tauri-specta` + `specta` (pinned `=` pre-release) → generated `src/ipc/bindings.ts` |
@@ -108,7 +108,7 @@ The Rust core handles file enumeration, format detection, conversion orchestrati
 | `uuid` 1 (`v7`)                        | Time-sortable job ids — queue ordering falls out of the id |
 | `time` 0.3                             | RFC 3339 timestamps |
 | `thiserror` 2 / `anyhow` 1             | Library / application error types |
-| `directories` 5                        | Per-OS config, data, cache paths |
+| `directories` 6                        | Per-OS config, data, cache paths |
 | `tempfile` 3                           | Atomic writes and the CLI's private conversion cache |
 | `windows` 0.58 *(Windows only)*        | winspool `EnumPrinters` + GDI `DeviceCapabilities` |
 | `objc2` + `objc2-app-kit` / `objc2-foundation` *(macOS only)* | NSServices provider (FR-001) |
@@ -136,7 +136,7 @@ The frontend is a small SPA: a print dialog, a profile editor, a queue viewer, a
 | `zustand` 5                  | Cross-route state (queue, profiles, settings stores) |
 | `sonner` 1.7                 | Toasts |
 
-**Build / dev only:** `vite` 5, `typescript` 5.7, `tailwindcss` 3.4 + `postcss` + `autoprefixer`, `eslint` 9 (+ react, react-hooks, jsx-a11y, react-refresh plugins), `prettier`, `vitest` 2 + `@vitest/coverage-v8` + `jsdom`, `@testing-library/{react,jest-dom,user-event}`, `@wdio/*` 9 for e2e, `husky` + `lint-staged` + `@commitlint/*`, `@tauri-apps/cli`.
+**Build / dev only:** `vite` 7, `typescript` 5.7, `tailwindcss` 3.4 + `postcss` + `autoprefixer`, `eslint` 10 (+ react-hooks 7 with the React Compiler rules, jsx-a11y, react-refresh plugins), `prettier`, `vitest` 5 + `@vitest/coverage-v8` + `jsdom` 30, `@testing-library/{react,jest-dom,user-event}`, `@wdio/*` 9 for e2e, `husky` + `lint-staged` + `@commitlint/*`, `@tauri-apps/cli`.
 
 Packages named in earlier drafts and **not** used: `@radix-ui/*`, `react-hook-form`, `@tanstack/react-query`, `lucide-react`, `clsx`, `tailwind-merge`, `react-i18next`, `playwright`.
 
@@ -219,7 +219,7 @@ Packages named in earlier drafts and **not** used: `@radix-ui/*`, `react-hook-fo
 | Tool          | Required version    |
 | ------------- | ------------------- |
 | Rust          | 1.78 stable+        |
-| Node.js       | 20 LTS+             |
+| Node.js       | 24 LTS (CI); 22.22.2+ minimum |
 | pnpm          | 9.x (preferred over npm/yarn) |
 | Tauri CLI     | 2.x                 |
 | Visual Studio Build Tools | 2022 (Win)         |
@@ -227,7 +227,7 @@ Packages named in earlier drafts and **not** used: `@radix-ui/*`, `react-hook-fo
 | WebView2 Runtime | Evergreen (auto-installed by Win 11; bootstrapper for Win 10) |
 | Xcode         | 15+ (Mac)           |
 
-`package.json` pins the package manager (`pnpm@9.15.0`) and declares `engines.node >= 20`; both `Cargo.toml`s declare `rust-version = "1.78"`. There is **no `rust-toolchain.toml`** in the repo, so the Rust version CI uses is whatever `.github/workflows/ci.yml` installs — adding one is an open item (see [`security-model.md`](./security-model.md) §9). Inno Setup is not part of the toolchain; the Windows installer comes from Tauri's NSIS target.
+`package.json` pins the package manager (`pnpm@9.15.0`) and declares `engines.node >= 22.22.2` (the floor jsdom 30 and Vitest 5 set for the test toolchain); both `Cargo.toml`s declare `rust-version = "1.78"`. There is **no `rust-toolchain.toml`** in the repo, so the Rust version CI uses is whatever `.github/workflows/ci.yml` installs — adding one is an open item (see [`security-model.md`](./security-model.md) §9). Inno Setup is not part of the toolchain; the Windows installer comes from Tauri's NSIS target.
 
 ## 7. Where this decision is recorded
 

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Dependencies: React 19.3 and sonner 2 in the UI; tauri plugins, serde_json, tokio, `directories` 6 and `toml` 1 in the Rust host. The config, cache and log folders and the `config.toml` / `profiles.toml` formats written by 0.0.1 are unchanged, and tests now pin both.
+- Development: building from source now needs Node.js 22.22.2 or newer (CI uses Node.js 24 LTS). The test and lint toolchain moved to Vite 7, Vitest 5, jsdom 30 and ESLint 10 with the React Compiler hook rules.
+- CI: GitHub Actions moved to their Node.js 24 releases, and Dependabot now sends one minor-and-patch pull request per ecosystem each week, with majors on their own.
+
 ## [0.0.1] - 2026-10-10
 
 First public preview of Pluryprint: batch printing of PDFs, images, Office/OpenDocument, HTML, Markdown, text, SVG and HEIC files from the app, the CLI and the Windows Explorer / macOS Finder menus, on Windows 10/11 (x64, ARM64) and macOS (Apple silicon, Intel). Installers are not signed with an Apple or Microsoft certificate; update artifacts are signed and verified by the app.

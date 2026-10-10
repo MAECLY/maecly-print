@@ -240,6 +240,50 @@ mod tests {
         }
     }
 
+    /// The user's data location, byte for byte, as `directories` 5 resolved it
+    /// in 0.0.1. Spelled out as literals on purpose, not through the constants
+    /// or `ProjectDirs`: installed copies, the Explorer shell extension, the
+    /// NSIS uninstall hooks and `util::legacy` all know these exact strings, so
+    /// a `directories` upgrade (or a constant edit) that moves any of them must
+    /// fail here rather than strand the user's settings and queue.
+    #[test]
+    fn data_location_is_pinned_byte_for_byte() {
+        #[cfg(target_os = "macos")]
+        {
+            let home = std::env::var("HOME").expect("HOME is set");
+            let s = |p: PathBuf| p.to_string_lossy().into_owned();
+            assert_eq!(
+                s(config_dir()),
+                format!("{home}/Library/Application Support/com.Maecly.Pluryprint")
+            );
+            assert_eq!(
+                s(data_dir()),
+                format!("{home}/Library/Application Support/com.Maecly.Pluryprint")
+            );
+            assert_eq!(
+                s(cache_dir()),
+                format!("{home}/Library/Caches/com.Maecly.Pluryprint")
+            );
+            assert_eq!(s(log_dir()), format!("{home}/Library/Logs/Pluryprint"));
+        }
+        #[cfg(windows)]
+        {
+            let roaming = std::env::var("APPDATA").expect("APPDATA is set");
+            let local = std::env::var("LOCALAPPDATA").expect("LOCALAPPDATA is set");
+            let s = |p: PathBuf| p.to_string_lossy().into_owned();
+            assert_eq!(
+                s(config_dir()),
+                format!(r"{roaming}\Maecly\Pluryprint\config")
+            );
+            assert_eq!(s(data_dir()), format!(r"{local}\Maecly\Pluryprint\data"));
+            assert_eq!(s(cache_dir()), format!(r"{local}\Maecly\Pluryprint\cache"));
+            assert_eq!(
+                s(log_dir()),
+                format!(r"{local}\Maecly\Pluryprint\data\logs")
+            );
+        }
+    }
+
     #[test]
     fn dirs_have_app_segment() {
         // All resolved dirs should contain the literal "Pluryprint" segment somewhere.

@@ -171,14 +171,16 @@ export function DependencyInstallDialog({
   useEffect(() => watch(report.id, handlers), [watch, report.id, handlers]);
 
   // Show an end that happens while this dialog is open.
-  const shownSeq = useRef(seenSeq);
-  useEffect(() => {
-    if (!last || last.seq <= shownSeq.current) return;
-    shownSeq.current = last.seq;
-    if (last.id !== report.id) return;
-    setOutcome(last.outcome ?? null);
-    setFailure(last.failure ?? null);
-  }, [last, report.id]);
+  // Adjusted while rendering (React's "storing information from previous
+  // renders" pattern), so the end shows in the same commit that brought it.
+  const [shownSeq, setShownSeq] = useState(seenSeq);
+  if (last && last.seq > shownSeq) {
+    setShownSeq(last.seq);
+    if (last.id === report.id) {
+      setOutcome(last.outcome ?? null);
+      setFailure(last.failure ?? null);
+    }
+  }
 
   // The result shown here already says the installer may still be running.
   const showFinishing =

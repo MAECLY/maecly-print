@@ -18,7 +18,13 @@
  *   a genuine surprise.
  */
 
-import { useEffect, useRef, useSyncExternalStore, type RefObject } from 'react';
+import {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from 'react';
+import { useLatest } from '@/lib/useLatest';
 
 // ---------------------------------------------------------------------------
 // Open-modal stack
@@ -100,9 +106,8 @@ export function useModalFocus(
   dialogRef: RefObject<HTMLElement | null>,
   { onEscape, initialFocus, initialFocusSelector }: ModalFocusOptions = {},
 ): void {
-  const id = useRef(Symbol('modal')).current;
-  const escape = useRef(onEscape);
-  escape.current = onEscape;
+  const [id] = useState(() => Symbol('modal'));
+  const escape = useLatest(onEscape);
 
   useEffect(() => {
     const opener = document.activeElement;
@@ -165,5 +170,5 @@ export function useModalFocus(
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [id, dialogRef]);
+  }, [id, dialogRef, escape]);
 }

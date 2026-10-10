@@ -106,7 +106,8 @@ describe('MPSegmented', () => {
     expect(group.style.width).toBe('100%');
     expect(group.style.maxWidth).toBe('100%');
     const option = screen.getByRole('radio', { name: 'Borde corto' });
-    expect(option.style.minWidth).toBe('0');
+    // The CSSOM serialises a zero length as "0px", as browsers do.
+    expect(option.style.minWidth).toBe('0px');
     expect(option.style.textOverflow).toBe('ellipsis');
     // An ellipsized label stays readable on hover.
     expect(option).toHaveAttribute('title', 'Borde corto');

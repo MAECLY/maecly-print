@@ -106,10 +106,13 @@ function Row({ label, hint, disabled, children }: RowProps) {
       </div>
       {/* A disabled fieldset takes its controls out of the tab order and
           announces them as unavailable (NFR-041); `inert` also covers custom
-          widgets that are not form controls, and no pointer gets through. */}
+          widgets that are not form controls, and no pointer gets through.
+          `pointer-events` alone would only stop the mouse: `inert` takes the
+          whole subtree out of focus, interaction and the accessibility tree
+          (React 19 renders the boolean prop as the native attribute). */}
       <fieldset
         disabled={disabled}
-        ref={inertWhen(disabled ?? false)}
+        inert={disabled ?? false}
         aria-disabled={disabled ? true : undefined}
         style={{
           border: 'none',
@@ -123,22 +126,6 @@ function Row({ label, hint, disabled, children }: RowProps) {
       </fieldset>
     </div>
   );
-}
-
-/**
- * A ref callback that toggles the native `inert` attribute. `pointer-events`
- * alone only stops the mouse: the controls stayed in the tab order, so a
- * keyboard user could still change a "disabled" setting (and screen readers
- * announced it as live). `inert` removes the whole subtree from focus,
- * interaction and the accessibility tree at once. React 18 has no typed
- * `inert` prop, hence the attribute is set directly.
- */
-function inertWhen(on: boolean) {
-  return (el: HTMLElement | null) => {
-    if (!el) return;
-    if (on) el.setAttribute('inert', '');
-    else el.removeAttribute('inert');
-  };
 }
 
 /** A full-width muted note (milestone caveats, consent copy, load states). */
@@ -274,10 +261,13 @@ function EngineField({
   const [error, setError] = useState(false);
   const errorId = useId();
 
-  useEffect(() => {
+  // Re-synced while rendering, so the stale text never paints.
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (syncedValue !== value) {
+    setSyncedValue(value);
     setText(value === undefined ? '' : String(value));
     setError(false);
-  }, [value]);
+  }
 
   const commit = () => {
     const s = text.trim();

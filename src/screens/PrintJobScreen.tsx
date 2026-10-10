@@ -23,6 +23,7 @@ import {
   type ReactNode,
   type SetStateAction,
 } from 'react';
+import { useLatest } from '@/lib/useLatest';
 import { toast } from 'sonner';
 import {
   builtInProfiles,
@@ -184,8 +185,7 @@ export function PrintJobScreen({
 
   // What is in the job right now, for the "added N files" counts: a folder
   // dropped twice must not claim to have added its files the second time.
-  const filesRef = useRef(files);
-  filesRef.current = files;
+  const filesRef = useLatest(files);
   const currentPaths = () => new Set(filesRef.current.map((f) => f.path));
 
   // Profiles come from the shared store (built-ins + customs). Init is
@@ -336,33 +336,37 @@ export function PrintJobScreen({
   // list, which surfaces no warning: we then know nothing rather than know it
   // is missing.
   const [dependencies, setDependencies] = useState<DependencyReport[]>([]);
-  const [probing, setProbing] = useState(false);
+  // Every probe asked for bumps `probeRequest`; the effect below runs the
+  // newest one and drops the answer of any it superseded. The mount probe is
+  // asked for by the initial state.
+  const [probeRequest, setProbeRequest] = useState(() => (isTauri() ? 1 : 0));
+  const [probing, setProbing] = useState(isTauri);
   // FR-058 / D13: the dependency the user asked to install (consent dialog).
   const [installing, setInstalling] = useState<DependencyReport | null>(null);
   const replaceDependency = (fresh: DependencyReport) =>
     setDependencies((all) => all.map((d) => (d.id === fresh.id ? fresh : d)));
-  const probeAlive = useRef(true);
   const probeDependencies = useCallback(() => {
     if (!isTauri()) return;
     setProbing(true);
+    setProbeRequest((n) => n + 1);
+  }, []);
+  useEffect(() => {
+    if (probeRequest === 0) return;
+    let current = true;
     fetchAppInfo()
       .then((info) => {
-        if (probeAlive.current) setDependencies(info.dependencies ?? []);
+        if (current) setDependencies(info.dependencies ?? []);
       })
       .catch((e) => {
         console.error('dependency probe failed', e);
       })
       .finally(() => {
-        if (probeAlive.current) setProbing(false);
+        if (current) setProbing(false);
       });
-  }, []);
-  useEffect(() => {
-    probeAlive.current = true;
-    probeDependencies();
     return () => {
-      probeAlive.current = false;
+      current = false;
     };
-  }, [probeDependencies]);
+  }, [probeRequest]);
 
   // Only dependencies that actually gate a file the user added are shown: the
   // backend lists what each missing program blocks *today* (never what it would
@@ -384,16 +388,18 @@ export function PrintJobScreen({
   // check the "opened" install result promises).
   const anyBlocking = blockingDependencies.length > 0;
   const fileCount = files.length;
-  const seenFiles = useRef(fileCount);
-  useEffect(() => {
-    const grew = fileCount > seenFiles.current;
-    seenFiles.current = fileCount;
-    if (grew && dependencies.some((d) => d.applicable && !d.found)) {
+  // Noticed while rendering; `dependencies` is read, not watched, so a probe
+  // never triggers a probe.
+  const [seenFiles, setSeenFiles] = useState(fileCount);
+  if (fileCount !== seenFiles) {
+    setSeenFiles(fileCount);
+    if (
+      fileCount > seenFiles &&
+      dependencies.some((d) => d.applicable && !d.found)
+    ) {
       probeDependencies();
     }
-    // `dependencies` is read, not watched: a probe must not trigger a probe.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileCount, probeDependencies]);
+  }
   useEffect(() => {
     if (!anyBlocking) return;
     const onFocus = () => probeDependencies();
@@ -553,11 +559,11 @@ export function PrintJobScreen({
   // while a field is invalid; a failed preview shows nothing (it is advisory).
   const [preview, setPreview] = useState('');
   const canPreview = tauri && files.length > 0 && !copiesError && !rangeError;
+  // A preview that can no longer be shown is dropped while rendering, so it
+  // never flashes back when previewing becomes possible again.
+  if (!canPreview && preview !== '') setPreview('');
   useEffect(() => {
-    if (!canPreview) {
-      setPreview('');
-      return;
-    }
+    if (!canPreview) return;
     const req = buildPrintRequest(
       files.map((f) => f.path),
       profileObj,

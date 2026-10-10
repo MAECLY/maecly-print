@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useLatest } from '@/lib/useLatest';
 
 import { ModalOverlay } from '@/components/Modal';
 import { useModalFocus } from '@/components/useModal';
@@ -93,8 +94,7 @@ export function PdfPasswordDialog({
    * means the password was wrong.
    */
   const watch = useRef({ active: false, left: false });
-  const close = useRef(onClose);
-  close.current = onClose;
+  const close = useLatest(onClose);
   /**
    * Close from the job watcher, once: closing updates the store (the prompt
    * lives there), and that update reaches the watcher again.
@@ -151,7 +151,7 @@ export function PdfPasswordDialog({
     return useQueueStore.subscribe((s) =>
       onJob(s.snapshot?.jobs.find((j) => j.id === jobId)),
     );
-  }, [jobId, t]);
+  }, [jobId, t, close]);
 
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();

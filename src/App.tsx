@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import { useLatest } from '@/lib/useLatest';
 import { toast } from 'sonner';
 
 import { MPSidebar, type ScreenId } from '@/components/AppShell/MPSidebar';
@@ -151,8 +158,7 @@ function App() {
   const tSettings = useT('settings');
   // An install picked up after a reload is announced like the dialog would.
   const tPrintJob = useT('printJob');
-  const tPrintJobRef = useRef(tPrintJob);
-  tPrintJobRef.current = tPrintJob;
+  const tPrintJobRef = useLatest(tPrintJob);
   const { mode, resolved, setMode } = useTheme();
   const { density, setDensity } = useDensity();
   const [active, setActive] = useState<ScreenId>('home');
@@ -178,9 +184,11 @@ function App() {
   // The job as of the last render, for async code that must not act on the
   // stale list its closure captured (a submit that resolves after more files
   // arrived, the "added N files" counts).
-  const filesRef = useRef(files);
-  filesRef.current = files;
-  const currentPaths = () => new Set(filesRef.current.map((f) => f.path));
+  const filesRef = useLatest(files);
+  const currentPaths = useCallback(
+    () => new Set(filesRef.current.map((f) => f.path)),
+    [filesRef],
+  );
 
   // Folder walks still running: the job is still growing.
   const expanding = useSyncExternalStore(subscribeExpanding, getExpandingCount);
@@ -270,7 +278,7 @@ function App() {
           tPrintJobRef.current('install.result.unknownEnd', { name }),
       })
       .catch((e: unknown) => logError('app.install-hydrate', e));
-  }, []);
+  }, [tPrintJobRef]);
 
   // Load profiles and app settings once (both idempotent, retryable).
   useEffect(() => {
@@ -295,12 +303,15 @@ function App() {
   // when the store is authoritative ('ready'); while it is loading/error/
   // unavailable the list can be transiently empty or stale, and clearing an
   // explicit choice then would wipe the user's selection for no reason.
-  useEffect(() => {
-    if (profilesStatus !== 'ready') return;
-    if (profileChoice && !profiles.some((p) => p.id === profileChoice)) {
-      setProfileChoice(null);
-    }
-  }, [profiles, profileChoice, profilesStatus]);
+  // Adjusted while rendering rather than in an effect, so no frame shows the
+  // job pointing at a profile that no longer exists.
+  if (
+    profilesStatus === 'ready' &&
+    profileChoice &&
+    !profiles.some((p) => p.id === profileChoice)
+  ) {
+    setProfileChoice(null);
+  }
 
   // App-level drag & drop (FR-007): the Home screen advertises "drag them
   // here", so drops must work from any screen, not only while the Print Job
@@ -333,7 +344,7 @@ function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, []);
+  }, [currentPaths]);
 
   // FR-080: the backend runs the launch-time update check (delayed, throttled
   // to once per 24h) and pushes this event only when there is something the
@@ -614,8 +625,7 @@ function App() {
 
   // Kept in a ref so the subscription below can stay mounted for the life of
   // the window while still calling the current closure.
-  const applySelectionRef = useRef(applySelection);
-  applySelectionRef.current = applySelection;
+  const applySelectionRef = useLatest(applySelection);
 
   // FR-001/NFR-014: pick up the context-menu selections the backend parked.
   //
@@ -689,7 +699,7 @@ function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, []);
+  }, [applySelectionRef]);
 
   /**
    * Open the OS picker and feed the selection into the job pipeline.

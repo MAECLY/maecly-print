@@ -1,4 +1,16 @@
 import '@testing-library/jest-dom/vitest';
+import { toast } from 'sonner';
+import { afterEach } from 'vitest';
+
+// sonner keeps its toasts in a module-level store, and since 2.0.8 a `Toaster`
+// replays every toast still active in it when it mounts (so a toast raised
+// before the Toaster subscribed is not lost). A toast a test left on screen
+// would then reappear in the next test's Toaster: retire them all after every
+// test. This hook is registered before Testing Library's, so with Vitest's
+// stacked hooks it runs after the tree is unmounted.
+afterEach(() => {
+  toast.dismiss();
+});
 
 // jsdom runs on an opaque origin (about:blank), where `window.localStorage`
 // is not exposed. The app guards its own access in try/catch, but tests need

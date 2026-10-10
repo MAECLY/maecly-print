@@ -18,7 +18,7 @@
  * setting without being handed it as a prop.
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useSyncExternalStore } from 'react';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
@@ -32,6 +32,14 @@ function getSystemTheme(): ResolvedTheme {
   return window.matchMedia('(prefers-color-scheme: dark)').matches
     ? 'dark'
     : 'light';
+}
+
+/** Calls `onChange` whenever the OS switches between light and dark. */
+function subscribeSystemTheme(onChange: () => void): () => void {
+  if (typeof window === 'undefined' || !window.matchMedia) return () => {};
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  mq.addEventListener('change', onChange);
+  return () => mq.removeEventListener('change', onChange);
 }
 
 function readStoredTheme(): ThemeMode {
@@ -73,30 +81,18 @@ function applyTheme(resolved: ResolvedTheme) {
 
 export function useTheme() {
   const [mode, setMode] = useState<ThemeMode>(readStoredTheme);
-  const [resolved, setResolved] = useState<ResolvedTheme>(() =>
-    readStoredTheme() === 'system'
-      ? getSystemTheme()
-      : (readStoredTheme() as ResolvedTheme),
+  // The OS theme is external state: read it as a store, so a change re-renders
+  // with the new value instead of being copied into state by an effect.
+  const system = useSyncExternalStore(
+    subscribeSystemTheme,
+    getSystemTheme,
+    () => 'light' as const,
   );
+  const resolved: ResolvedTheme = mode === 'system' ? system : mode;
 
   useEffect(() => {
-    const next: ResolvedTheme = mode === 'system' ? getSystemTheme() : mode;
-    setResolved(next);
-    applyTheme(next);
-  }, [mode]);
-
-  useEffect(() => {
-    if (mode !== 'system') return;
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = () => {
-      const next: ResolvedTheme = mq.matches ? 'dark' : 'light';
-      setResolved(next);
-      applyTheme(next);
-    };
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, [mode]);
+    applyTheme(resolved);
+  }, [resolved]);
 
   const set = useCallback((m: ThemeMode) => {
     setMode(m);

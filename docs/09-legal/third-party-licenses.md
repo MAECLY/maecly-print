@@ -22,12 +22,12 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `tauri-plugin-notification` | ~2.4 | MIT / Apache-2.0 | Native OS notifications (FR-072) | Yes |
 | `tauri-plugin-updater` | ~2.12 | MIT / Apache-2.0 | Signed update download, verification and install (FR-082/083) | Yes |
 | `serde`, `serde_json` | 1 | MIT / Apache-2.0 | Serialization | Yes |
-| `toml` | 0.8 | MIT / Apache-2.0 | `config.toml`, `profiles.toml` | Yes |
+| `toml` | 1 | MIT / Apache-2.0 | `config.toml`, `profiles.toml` | Yes |
 | `tokio` | 1.41 | MIT | Async runtime (queue dispatcher) | Yes |
 | `tracing`, `tracing-subscriber`, `tracing-appender` | 0.1 / 0.3 / 0.2 | MIT | Structured logging | Yes |
 | `thiserror` | **2** | MIT / Apache-2.0 | Library error types | Yes |
 | `anyhow` | 1 | MIT / Apache-2.0 | Application error wrapping | Yes |
-| `directories` | 5 | MIT / Apache-2.0 | Per-OS config/data/cache/log paths | Yes |
+| `directories` | 6 | MIT / Apache-2.0 | Per-OS config/data/cache/log paths | Yes |
 | `tempfile` | 3 | MIT / Apache-2.0 | Atomic writes, private conversion cache | Yes |
 | `walkdir` | 2 | MIT / Unlicense | Folder expansion (FR-004) | Yes |
 | `clap` | 4 (`derive`) | MIT / Apache-2.0 | Headless CLI surface | Yes |
@@ -67,7 +67,7 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `serde`, `serde_json` | 1 | MIT / Apache-2.0 | The handoff payload |
 | `uuid` | 1 (`v7`) | MIT / Apache-2.0 | Handoff file names |
 | `time` | 0.3 | MIT / Apache-2.0 | `invoked_at` stamps |
-| `directories` | 5 | MIT / Apache-2.0 | Resolving the handoff directory identically to the app |
+| `directories` | 6 | MIT / Apache-2.0 | Resolving the handoff directory identically to the app |
 | `windows`, `windows-core` *(Windows only)* | 0.58 | MIT / Apache-2.0 | COM / `IExplorerCommand` |
 | `embed-resource` *(build-dependency)* | 3 | MIT | Embeds `res/shellext.rc`, including the side-by-side `<msix>` manifest |
 | `tempfile` *(dev-dependency)* | 3 | MIT / Apache-2.0 | Tests only; not distributed |
@@ -78,11 +78,11 @@ This crate is deliberately **not** a workspace member (see [`../04-architecture/
 
 | Package | Declared version | License | Used for |
 |---|---|---|---|
-| `react`, `react-dom` | ^18.3.1 | MIT | UI runtime |
+| `react`, `react-dom` | ^19.3.0 | MIT | UI runtime |
 | `@tauri-apps/api` | ^2.1.1 | MIT / Apache-2.0 | IPC + event bridge |
 | `@tauri-apps/plugin-dialog` | ^2.7.1 | MIT / Apache-2.0 | File picker binding |
 | `zustand` | ^5.0.14 | MIT | Frontend state |
-| `sonner` | ^1.7.1 | MIT | Toasts |
+| `sonner` | ^2.0.8 | MIT | Toasts |
 | JetBrains Mono (font, bundled `.woff2`) | — | SIL OFL 1.1 | Monospace typeface shipped offline |
 
 Localization is **in-house** (`src/i18n/`), not `react-i18next`; there is no i18n runtime dependency.
