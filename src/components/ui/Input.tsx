@@ -19,7 +19,28 @@ interface MPInputProps {
   prefix?: ReactNode;
   autoFocus?: boolean;
   onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
-  error?: boolean;
+  /** Marks the value invalid: red border and `aria-invalid` (NFR-043). */
+  error?: boolean | undefined;
+  /** Native disabled: out of the tab order and announced as unavailable. */
+  disabled?: boolean | undefined;
+  id?: string | undefined;
+  /**
+   * Accessible name. Most captions in the app are rendered apart from the
+   * control (a row label, a section heading), so callers pass the caption
+   * here or point at it with `aria-labelledby` (NFR-043).
+   */
+  'aria-label'?: string | undefined;
+  'aria-labelledby'?: string | undefined;
+  /** Id of the inline error / hint that describes the field. */
+  'aria-describedby'?: string | undefined;
+  /**
+   * Bounds of a `type="number"` field: the native spinner stays inside them
+   * and assistive tech announces the real range, not 0–0.
+   */
+  min?: number | undefined;
+  max?: number | undefined;
+  /** Native `autocomplete` (e.g. `off` for a one-off secret). */
+  autoComplete?: string | undefined;
 }
 
 const SIZES = {
@@ -41,6 +62,14 @@ export function MPInput({
   autoFocus,
   onKeyDown,
   error,
+  disabled,
+  id,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledBy,
+  'aria-describedby': ariaDescribedBy,
+  min,
+  max,
+  autoComplete,
 }: MPInputProps) {
   const sizes = SIZES[size];
   const [focus, setFocus] = useState(false);
@@ -58,12 +87,13 @@ export function MPInput({
             ? 'var(--mp-error)'
             : focus
               ? 'var(--mp-focus)'
-              : 'var(--mp-border)'
+              : 'var(--mp-borderStrong)'
         }`,
         borderRadius: 6,
         width: fullWidth ? '100%' : 'auto',
         transition: 'border-color .12s, box-shadow .12s',
         boxShadow: focus ? '0 0 0 3px var(--mp-accentSoft)' : 'none',
+        opacity: disabled ? 0.55 : 1,
       }}
     >
       {prefix && (
@@ -78,6 +108,19 @@ export function MPInput({
         type={type}
         autoFocus={autoFocus}
         onKeyDown={onKeyDown}
+        disabled={disabled}
+        {...(id !== undefined ? { id } : {})}
+        {...(ariaLabel !== undefined ? { 'aria-label': ariaLabel } : {})}
+        {...(ariaLabelledBy !== undefined
+          ? { 'aria-labelledby': ariaLabelledBy }
+          : {})}
+        {...(ariaDescribedBy !== undefined
+          ? { 'aria-describedby': ariaDescribedBy }
+          : {})}
+        {...(error ? { 'aria-invalid': true } : {})}
+        {...(min !== undefined ? { min } : {})}
+        {...(max !== undefined ? { max } : {})}
+        {...(autoComplete !== undefined ? { autoComplete } : {})}
         onFocus={() => setFocus(true)}
         onBlur={() => setFocus(false)}
         className={mono ? 'mp-mono' : ''}

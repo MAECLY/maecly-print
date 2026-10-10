@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Side-by-side assembly manifest embedded in shell_ext_win.dll.
+
+  The <msix> element is what gives the DLL package identity when it is loaded
+  out of a sparse ("packaging with external location") package. Without it
+  Explorer will not load the extension and Package.Current is null.
+
+  The three attributes below MUST match, character for character:
+    publisher     <-> AppxManifest.xml  Identity/@Publisher
+    packageName   <-> AppxManifest.xml  Identity/@Name
+    applicationId <-> AppxManifest.xml  Applications/Application/@Id
+
+  A mismatch shows up as 0x80073D54 (or as an extension that simply never
+  appears), so any change here has to be made in installers/windows/sparse-msix/
+  in the same commit. The identical manifest must also be embedded in
+  pluryprint.exe.
+
+  The identity was "MaeclyPrint" before ADR-0009. Registering the package must
+  first remove a package left under that name (it claims the same CLSID); see
+  shell-ext-win/README.md.
+-->
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity
+      type="win32"
+      name="Maecly.Pluryprint.ShellExtension"
+      version="0.0.1.0" />
+  <msix xmlns="urn:schemas-microsoft-com:msix.v1"
+        publisher="CN=Maecly, O=Maecly, C=ES"
+        packageName="Pluryprint"
+        applicationId="Pluryprint" />
+</assembly>

@@ -1,5 +1,5 @@
 /**
- * WebdriverIO configuration for MaeclyPrint end-to-end tests.
+ * WebdriverIO configuration for Pluryprint end-to-end tests.
  *
  * These drive the *real built binary* through `tauri-driver` (the WebDriver
  * bridge Tauri ships), not the Vite dev server. `tauri-driver` is a cargo
@@ -31,7 +31,7 @@ const exe = isWindows ? '.exe' : '';
 // in target/debug; override with TAURI_APP_PATH to point at a release build.
 const application =
   process.env.TAURI_APP_PATH ??
-  path.resolve(here, '..', 'src-tauri', 'target', 'debug', `maeclyprint${exe}`);
+  path.resolve(here, '..', 'src-tauri', 'target', 'debug', `pluryprint${exe}`);
 
 /** Prefer `tauri-driver` on PATH, else the default cargo bin location. */
 function tauriDriverBin(): string {
@@ -63,6 +63,11 @@ export const config: WebdriverIO.Config = {
       'tauri:options': { application },
       // tauri-driver ignores browserName, but wdio requires a value.
       browserName: 'wry',
+      // WebDriver BiDi does not reach the app's WebView2 through
+      // msedgedriver: its commands target a browsing context that does not
+      // exist ("Cannot find context with specified id") and the specs read a
+      // blank page. Classic WebDriver addresses the window that is there.
+      'wdio:enforceWebDriverClassic': true,
     } as WebdriverIO.Capabilities,
   ],
 
@@ -90,6 +95,13 @@ export const config: WebdriverIO.Config = {
       console.error('Failed to start tauri-driver:', err);
       process.exit(1);
     });
+  },
+
+  // Every spec addresses controls by their English labels; switch the UI to
+  // English first so a Spanish host (or config) does not fail the suite.
+  before: async () => {
+    const { forceEnglishUi } = await import('./specs/helpers.js');
+    await forceEnglishUi();
   },
 
   // Capture a screenshot into e2e/artifacts/ for any failing test, so a CI

@@ -6,7 +6,7 @@
 //! version, and that a pre-settings (v1) file still loads with the new sections
 //! defaulted.
 
-use maeclyprint_lib::settings::{AppSettings, Config, Density, PrinterPrefs, Theme, UpdateChannel};
+use pluryprint_lib::settings::{AppSettings, Config, Density, PrinterPrefs, Theme, UpdateChannel};
 
 #[test]
 fn fr_100_toml_shape_human_readable() {
@@ -124,12 +124,14 @@ fn default_app_settings() -> AppSettings {
         engine: cfg.engine,
         updater: cfg.updater,
         telemetry: cfg.telemetry,
+        // Server-computed annotations; a client sends whatever a read gave it.
+        meta: Default::default(),
     }
 }
 
 #[test]
 fn fr_regression_fix1_set_app_settings_refuses_corrupt_config() {
-    use maeclyprint_lib::ipc::settings::set_app_settings_at;
+    use pluryprint_lib::ipc::settings::set_app_settings_at;
 
     let dir = tempfile::tempdir().unwrap();
     let config_path = dir.path().join("config.toml");
@@ -147,7 +149,7 @@ fn fr_regression_fix1_set_app_settings_refuses_corrupt_config() {
 
 #[test]
 fn fr_regression_fix1_set_printer_prefs_refuses_corrupt_config() {
-    use maeclyprint_lib::ipc::printers::set_printer_prefs_at;
+    use pluryprint_lib::ipc::printers::set_printer_prefs_at;
 
     let dir = tempfile::tempdir().unwrap();
     let config_path = dir.path().join("config.toml");
@@ -164,8 +166,8 @@ fn fr_regression_fix1_set_printer_prefs_refuses_corrupt_config() {
 
 #[test]
 fn fr_regression_fix1_set_default_profile_refuses_corrupt_config() {
-    use maeclyprint_lib::ipc::profiles::set_default_profile_at;
-    use maeclyprint_lib::profiles::BUILTIN_QUICK;
+    use pluryprint_lib::ipc::profiles::set_default_profile_at;
+    use pluryprint_lib::profiles::BUILTIN_QUICK;
 
     let dir = tempfile::tempdir().unwrap();
     let config_path = dir.path().join("config.toml");

@@ -11,5 +11,6 @@
     "noEmit": true,
     "types": ["node", "mocha", "@wdio/globals/types"]
   },
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts"],
+  "exclude": ["browser"]
 }

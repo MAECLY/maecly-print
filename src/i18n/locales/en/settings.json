@@ -1,0 +1,117 @@
+{
+  "title": "Settings",
+  "sections": {
+    "appearance": "Appearance",
+    "printing": "Printing",
+    "engine": "Engine",
+    "updates": "Updates",
+    "privacy": "Privacy"
+  },
+  "appearance": {
+    "theme": {
+      "label": "Theme",
+      "hint": "Follows your OS by default.",
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    },
+    "density": {
+      "label": "Density",
+      "hint": "Compact tightens the spacing of rows and file lists.",
+      "comfortable": "Comfortable",
+      "compact": "Compact"
+    },
+    "language": {
+      "label": "Language",
+      "hint": "Applies immediately, across the whole app."
+    },
+    "launchMinimized": {
+      "label": "Start minimized",
+      "hint": "Opens the window minimized to the taskbar or Dock, from the next launch. Opening files from the right-click menu still shows it."
+    },
+    "nativeNotifications": {
+      "label": "Native notifications",
+      "hint": "Show a system notification when a batch finishes, fails or needs your attention while Pluryprint is in the background."
+    }
+  },
+  "printing": {
+    "defaultProfile": {
+      "label": "Default profile",
+      "hint": "Applied to a job when no other profile is chosen."
+    },
+    "profilesError": "Couldn't load the profile list.",
+    "shellNote": "The installer adds Pluryprint to the Explorer right-click menu: on Windows 11 it is under Show more options (or Shift+F10), on Windows 10 in the menu itself.",
+    "shellNoteMac": "Right-click printing works from Finder › Services › Print with Pluryprint. Those menu titles follow the system language."
+  },
+  "engine": {
+    "concurrency": {
+      "label": "Concurrent conversions",
+      "hint": "Applies to the next conversion, no restart needed.",
+      "suffix": "jobs"
+    },
+    "timeout": {
+      "label": "Conversion timeout",
+      "hint": "0 disables the timeout. Applies to the next conversion.",
+      "suffix": "seconds"
+    },
+    "printTimeout": {
+      "label": "Print timeout",
+      "hint": "0 disables it. Counts from sending the file until the printer finishes the job.",
+      "suffix": "seconds"
+    },
+    "maxFileSize": {
+      "label": "Max file size",
+      "hint": "Largest input accepted for printing. Applies immediately.",
+      "suffix": "MB"
+    },
+    "range": "Enter a whole number from {{min}} to {{max}}.",
+    "rangeOrZero": "Enter 0, or a whole number from {{min}} to {{max}}.",
+    "wholeNumber": "Enter a whole number."
+  },
+  "updates": {
+    "channel": {
+      "label": "Channel",
+      "stable": "Stable",
+      "beta": "Beta",
+      "nightly": "Nightly"
+    },
+    "channelNote": "Stable receives final releases only. Beta also receives every pre-release, and moves on to the stable release of the same version. No nightly builds are published, so Nightly follows the beta feed.",
+    "lowerChannel": {
+      "title": "Switch to {{channel}}?",
+      "message": "Pluryprint stays on the version you have now: switching never installs an older one. You will be offered an update again only when the {{channel}} channel publishes a version newer than this one, which can take a while if {{current}} is ahead of it.",
+      "confirm": "Switch to {{channel}}"
+    },
+    "checkOnStartup": {
+      "label": "Check on startup",
+      "hint": "Asks GitHub for the latest release 30 seconds after launch, at most once every 24 hours."
+    },
+    "startupNote": "The launch-time check only reads the number of the latest published release; nothing about you or your documents is sent, and Pluryprint never installs anything on its own — it tells you, and installs only when you choose Install now on the About screen. Turn it off and no request is made at launch; you can still check whenever you like from the About screen."
+  },
+  "privacy": {
+    "crashReports": {
+      "label": "Crash reports",
+      "hint": "Off by default. Nothing is sent in this version."
+    },
+    "usageMetrics": {
+      "label": "Anonymous usage metrics",
+      "hint": "Pluryprint never enables this without consent."
+    },
+    "note": "No data is sent in this version — these switches record consent only."
+  },
+  "status": {
+    "unavailable": "Settings below are read from the desktop app. In this preview only appearance is adjustable.",
+    "loading": "Loading settings…",
+    "error": "Couldn't load settings.",
+    "retry": "Retry"
+  },
+  "config": {
+    "corruptTitle": "Your settings file could not be read",
+    "corruptBody": "The values below are the defaults, not your saved settings, and changes cannot be saved until the file is fixed or removed. Close Pluryprint, then repair or delete this file — a new one is written from the defaults on the next save."
+  },
+  "notices": {
+    "htmlRendererRetired": {
+      "title": "Web pages now print with the system renderer",
+      "detail": "Your config.toml asked for the headless Edge/Chrome renderer for HTML, Markdown and text. That option has been removed because it could not keep pages away from network shares safely. Pluryprint now always uses the operating system's own web view, which needs nothing installed; your other settings are unchanged."
+    }
+  }
+}

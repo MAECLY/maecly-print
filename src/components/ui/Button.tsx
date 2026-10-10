@@ -27,7 +27,11 @@ const SIZES = {
 
 const VARIANTS: Record<ButtonVariant, { bg: string; fg: string; bd: string }> =
   {
-    primary: { bg: 'var(--mp-accent)', fg: '#FFF', bd: 'var(--mp-accent)' },
+    primary: {
+      bg: 'var(--mp-accent)',
+      fg: 'var(--mp-onAccent)',
+      bd: 'var(--mp-accent)',
+    },
     secondary: {
       bg: 'var(--mp-surface)',
       fg: 'var(--mp-text)',

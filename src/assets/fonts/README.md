@@ -3,13 +3,13 @@
 ## JetBrains Mono
 
 - **Source:** https://github.com/JetBrains/JetBrainsMono
-- **License:** SIL Open Font License 1.1 (compatible with GPLv3)
+- **License:** SIL Open Font License 1.1 (compatible with the AGPL-3.0)
 - **Files:**
   - `JetBrainsMono-Regular.woff2`
   - `JetBrainsMono-Medium.woff2`
   - `JetBrainsMono-SemiBold.woff2`
 
-The full license text and copyright notice will be enumerated in `docs/09-legal/third-party-licenses.md` once that doc is finalized.
+The copyright notice and the full license text are in `LICENSES/OFL-1.1.txt` at the repository root, which ships in the app bundle; `THIRD-PARTY-NOTICES.md` lists the fonts.
 
 To refresh the bundled files (e.g. when JetBrains ships a new version):
 

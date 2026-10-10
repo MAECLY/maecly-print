@@ -1,6 +1,19 @@
 # Code Signing
 
-> **TL;DR.** Windows binaries are signed with an Extended Validation (EV) certificate (~$300/year) for instant SmartScreen reputation; macOS uses Apple Developer ID Application certs ($99/year, mandatory) plus Apple notarization. Private keys live in HSMs or in CI secrets behind tight access controls. Self-signed certs are used only for nightly builds.
+> **TL;DR.** **Not in use:** releases carry no Authenticode or Developer ID signature (ADR-0011); updates are signed with Pluryprint's own minisign key, see the status section below. The design for when certificates exist: Windows binaries are signed with an Extended Validation (EV) certificate (~$300/year) for instant SmartScreen reputation; macOS uses Apple Developer ID Application certs ($99/year, mandatory) plus Apple notarization. Private keys live in HSMs or in CI secrets behind tight access controls. Self-signed certs are used only for nightly builds.
+
+## Status: no OS code signing (ADR-0011)
+
+**Nothing described below the next heading is in use.** [ADR-0011](../adr/0011-release-channel.md) (2026-10-10) releases Pluryprint the way Versorium is released, without Apple or Microsoft certificates:
+
+| What | How it is done today |
+|---|---|
+| Windows installers | **Not Authenticode-signed.** SmartScreen shows "Windows protected your PC"; the release notes (English and Spanish) say to choose **More info → Run anyway**. The installer is per user and asks for no administrator rights. |
+| macOS bundles | **Signed ad hoc** (`bundle.macOS.signingIdentity: "-"` in `tauri.conf.json`), which Apple silicon needs to run the app at all. Not notarized: ad hoc signatures cannot be. The release notes give the `xattr -rd com.apple.quarantine` step that Gatekeeper requires. |
+| Updates | Every updater artifact is signed with Pluryprint's own **minisign** key (`TAURI_SIGNING_PRIVATE_KEY`, a GitHub secret); the app verifies it against the public key compiled in (`plugins.updater.pubkey`) and refuses anything else. `release.yml` verifies every signature, and that a tampered copy fails, before the draft is finished. |
+| Integrity of downloads | `SHA256SUMS` is attached to every release. |
+
+The full procedure is the runbook [releasing.md](./releasing.md). The rest of this document is the certificate-based design, kept for the day certificates are bought (it would also unblock the signed sparse package of [shell-extensions.md §2.5](../04-architecture/shell-extensions.md)). Treat its statements as a plan, not a description.
 
 This document covers code signing across both platforms: cert types, costs, procurement, signing tools, CI integration, and common pitfalls. It complements the OS-specific build documentation in [installer-windows.md](./installer-windows.md) and [installer-macos.md](./installer-macos.md).
 
@@ -57,18 +70,18 @@ signtool sign `
   /fd SHA256 `
   /td SHA256 `
   /tr "http://timestamp.sectigo.com" `
-  /d "MaeclyPrint" `
+  /d "Pluryprint" `
   /du "https://maecly.com" `
   setup.exe
 ```
 
 | Flag | Purpose |
 |---|---|
-| `/sha1 <thumbprint>` | Selects the cert by its SHA-1 thumbprint. Alternative: `/n "MaeclyPrint Project"` to select by subject name. |
+| `/sha1 <thumbprint>` | Selects the cert by its SHA-1 thumbprint. Alternative: `/n "Pluryprint Project"` to select by subject name. |
 | `/fd SHA256` | File digest algorithm (signed hash of file contents). |
 | `/td SHA256` | Timestamp digest algorithm. |
 | `/tr <url>` | Timestamp authority URL. **Critical**: without a timestamp, the signature expires when the cert does, and existing signed binaries become "invalid" overnight. With a timestamp, the signature remains valid forever (the timestamp proves the signature was made while the cert was valid). |
-| `/d "MaeclyPrint"` | Description shown in UAC dialog. |
+| `/d "Pluryprint"` | Description shown in UAC dialog. |
 | `/du <url>` | Description URL (clickable in some dialogs). |
 
 We sign every `.exe` and every `.dll` we ship: the main app, the shell extension DLL, the installer, and the bundled SumatraPDF (re-signing it does not violate its license; we ship it as-is and add our signature on top).
@@ -195,8 +208,8 @@ Standard signing of an `.app`:
 ```bash
 codesign --force --options runtime --timestamp \
   --entitlements installers/macos/resources/entitlements.plist \
-  --sign "Developer ID Application: MaeclyPrint Project (TEAMID)" \
-  MaeclyPrint.app
+  --sign "Developer ID Application: Pluryprint Project (TEAMID)" \
+  Pluryprint.app
 ```
 
 | Flag | Purpose |
@@ -214,7 +227,7 @@ codesign --force --options runtime --timestamp \
 Apple's notarization service scans the binary for malware and known security issues. As of macOS 10.15+, it is **mandatory** for Gatekeeper to allow apps from outside the Mac App Store.
 
 ```bash
-xcrun notarytool submit MaeclyPrint-1.1.0.pkg \
+xcrun notarytool submit Pluryprint-1.1.0.pkg \
   --apple-id "$APPLE_ID" \
   --team-id "$APPLE_TEAM_ID" \
   --password "$APPLE_APP_PASSWORD" \
@@ -231,8 +244,8 @@ xcrun notarytool submit MaeclyPrint-1.1.0.pkg \
 After notarization succeeds, **staple** the ticket to the artifact:
 
 ```bash
-xcrun stapler staple MaeclyPrint-1.1.0.pkg
-xcrun stapler validate MaeclyPrint-1.1.0.pkg
+xcrun stapler staple Pluryprint-1.1.0.pkg
+xcrun stapler validate Pluryprint-1.1.0.pkg
 ```
 
 Stapling embeds the notarization ticket in the artifact so Gatekeeper can verify offline. Without stapling, Gatekeeper has to phone home on first launch, which fails on offline machines.
@@ -243,14 +256,14 @@ Both `.pkg` and `.dmg` must be notarized and stapled separately. The `.app` insi
 
 ```bash
 # Verify signature
-codesign --verify --deep --strict --verbose=2 MaeclyPrint.app
+codesign --verify --deep --strict --verbose=2 Pluryprint.app
 
 # Verify Gatekeeper acceptance
-spctl --assess --type execute --verbose MaeclyPrint.app
-spctl --assess --type install --verbose MaeclyPrint-1.1.0.pkg
+spctl --assess --type execute --verbose Pluryprint.app
+spctl --assess --type install --verbose Pluryprint-1.1.0.pkg
 
 # Verify notarization stapled
-stapler validate MaeclyPrint-1.1.0.pkg
+stapler validate Pluryprint-1.1.0.pkg
 ```
 
 All four commands must succeed before shipping.
@@ -291,7 +304,7 @@ jobs:
           SSL_COM_TOTP_SECRET: ${{ secrets.SSL_COM_TOTP_SECRET }}
         run: ./scripts/sign-windows.ps1
       - name: Verify signature
-        run: signtool verify /pa /v dist/MaeclyPrint-Setup.exe
+        run: signtool verify /pa /v dist/Pluryprint-Setup.exe
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64-signed
@@ -316,8 +329,8 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           ./installers/macos/codesign.sh
-          ./installers/macos/notarize.sh dist/MaeclyPrint-1.1.0.pkg
-          ./installers/macos/notarize.sh dist/MaeclyPrint-1.1.0.dmg
+          ./installers/macos/notarize.sh dist/Pluryprint-1.1.0.pkg
+          ./installers/macos/notarize.sh dist/Pluryprint-1.1.0.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: macos-universal-signed
@@ -335,7 +348,7 @@ Generation (one-time):
 ```powershell
 $cert = New-SelfSignedCertificate `
   -Type CodeSigningCert `
-  -Subject "CN=MaeclyPrint Nightly, O=MaeclyPrint Project, C=US" `
+  -Subject "CN=Pluryprint Nightly, O=Pluryprint Project, C=US" `
   -KeyAlgorithm RSA `
   -KeyLength 4096 `
   -HashAlgorithm SHA256 `

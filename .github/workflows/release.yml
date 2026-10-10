@@ -1,0 +1,573 @@
+# Builds a signed Pluryprint release into a DRAFT on GitHub Releases.
+#
+# Push a tag `vX.Y.Z` for a stable release, or `vX.Y.Z-beta.N` for the beta
+# channel (scripts/bump-version.sh writes the version, docs/07-build-and-release/
+# releasing.md is the runbook). Nothing is published by this workflow: a person
+# checks the draft and publishes it, because the updater offers a version the
+# moment it is public. Publishing it then runs release-channels.yml, which
+# points the beta channel's manifest at it.
+#
+# `workflow_dispatch` builds every target as workflow artifacts without
+# touching a release, to check that the pipeline still compiles. It needs no
+# secret.
+#
+# There is no Apple Developer ID and no Windows code-signing certificate
+# (decision D2, as in Versorium): macOS bundles are signed ad hoc
+# (tauri.conf.json `signingIdentity: "-"`), the installers are not
+# Authenticode-signed, and the release notes say how to get past Gatekeeper and
+# SmartScreen. Every UPDATE artifact is signed with the project's own minisign
+# key, which the app verifies before installing, and SHA256SUMS covers every
+# asset.
+#
+# Who holds what (least privilege):
+#
+# - build compiles thousands of third-party crates and npm packages (build
+#   scripts, proc macros, the bundler). It gets a read-only token, no stored
+#   git credentials and no secret: tauri needs a key to make the update
+#   artifacts, so each build signs with a throwaway key generated on the spot,
+#   and those signatures are thrown away.
+# - sign runs no build. It downloads the finished files and signs them with
+#   the real key, which exists only in the environment of that one step.
+# - publish is the only job with `contents: write`. It runs no third-party
+#   code: it creates the draft, uploads the files, writes latest.json and
+#   SHA256SUMS, and checks every signature against the key the app carries.
+#
+# Every action is pinned to a full commit SHA (the tag it was is in the
+# comment), and the release jobs use no cache, so nothing a pull request or
+# another workflow wrote can reach a release build.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch:
+
+# Nothing by default; each job asks for what it needs.
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The one place the repository is named. `github.repository` is right for
+  # any fork; the app's own endpoints are compiled in (update/install.rs).
+  REPO: ${{ github.repository }}
+
+jobs:
+  # Refuse to build before spending four runners on artifacts the updater
+  # would reject. An unsigned release is worse than no release: it installs,
+  # and then no installed copy can ever verify an update from it.
+  guard:
+    name: Guard (secret + versions + notices)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Signing key must be configured
+        env:
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set. See docs/07-build-and-release/releasing.md: an unsigned build is rejected by every updater client."
+            exit 1
+          fi
+
+      # Cargo.toml is the only version source of the app: tauri.conf.json has
+      # no `version`, so the bundles, the updater and CARGO_PKG_VERSION all
+      # read Cargo.toml. package.json is kept equal by scripts/bump-version.sh.
+      - name: Tag must match the app version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          crate=$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d'"' -f2)
+          pkg=$(python3 -c "import json;print(json.load(open('package.json'))['version'])")
+          conf=$(python3 -c "import json;print(json.load(open('src-tauri/tauri.conf.json')).get('version',''))")
+          echo "tag=$tag  Cargo.toml=$crate  package.json=$pkg  tauri.conf.json=${conf:-<none>}"
+          if [ -n "$conf" ]; then
+            echo "::error::tauri.conf.json pins version $conf; Cargo.toml must be the only source."
+            exit 1
+          fi
+          if [ "$tag" != "$crate" ]; then
+            echo "::error::Tag $tag does not match Cargo.toml version $crate. The updater would never offer this release."
+            exit 1
+          fi
+          if [ "$crate" != "$pkg" ]; then
+            echo "::error::Versions disagree: Cargo.toml=$crate package.json=$pkg. Run scripts/bump-version.sh."
+            exit 1
+          fi
+
+      # THIRD-PARTY-NOTICES.md ships in every bundle and is generated from the
+      # lockfiles (scripts/licenses/generate-notices.sh). A dependency change
+      # that is not reflected in it would ship without the notices its licence
+      # requires, so no release is built from a stale copy.
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      # No dependency cache in a release (see the header): no `cache:` here.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning]
+        with:
+          node-version: 20
+
+      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: cargo-about@0.9.2
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Third-party notices must be current
+        run: scripts/licenses/generate-notices.sh --check
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: [guard]
+    # guard is skipped on workflow_dispatch; only a real failure stops us.
+    if: always() && needs.guard.result != 'failure' && needs.guard.result != 'cancelled'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      # `label` names every file a build stages, Pluryprint_<version>_<label>
+      # plus the extension, so a download says which computer it is for. The
+      # names and the latest.json key each one serves are listed in
+      # releasing.md section 6 and in scripts/release/release_tools.py
+      # (PLATFORMS); src-tauri/tests/release_pipeline.rs checks they cannot
+      # collide.
+      matrix:
+        include:
+          - name: macOS (Apple silicon)
+            platform: macos-latest
+            target: aarch64-apple-darwin
+            args: '--target aarch64-apple-darwin --bundles app,dmg'
+            label: apple_silicon
+            python: python3
+          - name: macOS (Intel)
+            platform: macos-latest
+            target: x86_64-apple-darwin
+            args: '--target x86_64-apple-darwin --bundles app,dmg'
+            label: apple_intel
+            python: python3
+          - name: Windows (x64)
+            platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: '--target x86_64-pc-windows-msvc --bundles nsis'
+            label: windows_x64
+            arch: x64
+            python: python
+          - name: Windows (ARM64)
+            # Cross-compiled on the x64 runner: clang (for ring) and the MSVC
+            # ARM64 libraries are on windows-latest, as ci.yml's aarch64 lane
+            # shows. The NSIS installer itself is x86 and runs emulated on ARM;
+            # what it installs is native ARM64.
+            platform: windows-latest
+            target: aarch64-pc-windows-msvc
+            args: '--target aarch64-pc-windows-msvc --bundles nsis'
+            label: windows_arm64
+            arch: arm64
+            python: python
+    runs-on: ${{ matrix.platform }}
+    env:
+      # Must equal bundle.macOS.minimumSystemVersion in tauri.conf.json.
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      # The release profile strips binaries; stripping the host's proc-macro
+      # dylibs broke a cross build to x86_64-apple-darwin on a macOS 27 host
+      # ("mis-aligned LINKEDIT string pool"). Build scripts and proc macros
+      # never ship, so they are left unstripped.
+      CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP: 'false'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      # No dependency cache in a release build (see the header). setup-node v4 caches only when `cache:` is given (the automatic
+      # package-manager cache came in v5), so nothing is cached here.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning]
+        with:
+          node-version: 20
+
+      # rustup is on every hosted runner, so the toolchain needs no action.
+      # The Windows jobs also build the Explorer DLL for the other
+      # architecture (both ship in every installer, see below).
+      - name: Rust toolchain
+        shell: bash
+        env:
+          TARGETS: ${{ startsWith(matrix.platform, 'windows') && 'x86_64-pc-windows-msvc aarch64-pc-windows-msvc' || matrix.target }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          for t in $TARGETS; do rustup target add --toolchain stable "$t"; done
+          rustc --version
+
+      # --ignore-scripts: no package's install script runs. None is needed to
+      # build: esbuild and the tauri CLI ship their binaries as platform
+      # packages, and the scripts that exist download WebDriver binaries for
+      # the E2E suite or install git hooks.
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # Without SumatraPDF every print on Windows fails (ADR-0003). The script
+      # pins the archive, the licence files and writes the GPL source offer.
+      - name: Fetch SumatraPDF (${{ matrix.arch }})
+        if: startsWith(matrix.platform, 'windows')
+        shell: powershell
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: ./scripts/fetch-sumatrapdf.ps1 -Arch $env:ARCH
+
+      # The Explorer handler. Every installer carries both DLLs under
+      # resources/shellext/<arch>/ because Explorer on Windows on ARM is a
+      # native ARM64 process and cannot load the x64 DLL, even when the x64
+      # installer ran there under emulation; the installer registers the one
+      # that matches the OS. build-shell-ext.ps1 -Arch all builds both and puts
+      # them where the NSIS hooks look for them.
+      - name: Build the Explorer extension (x64 + ARM64)
+        if: startsWith(matrix.platform, 'windows')
+        shell: pwsh
+        env:
+          PLURYPRINT_REQUIRE_RESOURCES: '1'
+        run: |
+          ./scripts/build-shell-ext.ps1 -Arch all
+          Get-ChildItem -Recurse src-tauri/resources/shellext -Filter *.dll | ForEach-Object { "$($_.FullName) $($_.Length)" }
+
+      # Explorer instantiates the handler through these two exports; a DLL
+      # without them registers fine and never shows the menu. `dumpbin`
+      # reads both architectures from the x64 runner.
+      - name: Explorer DLLs export the COM entry points
+        if: startsWith(matrix.platform, 'windows')
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $dumpbin = Get-ChildItem -Path $vs -Filter dumpbin.exe -Recurse -ErrorAction SilentlyContinue |
+                     Where-Object { $_.FullName -match 'Hostx64\\x64' } |
+                     Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dumpbin) { throw "dumpbin.exe not found under $vs" }
+          foreach ($arch in 'x64', 'arm64') {
+            $dll = "src-tauri/resources/shellext/$arch/shell_ext_win.dll"
+            if (-not (Test-Path $dll)) { throw "$dll was not built" }
+            # One string, not an array: `-notmatch` on an array filters it
+            # instead of answering yes or no.
+            $exports = (& $dumpbin /EXPORTS $dll) -join "`n"
+            foreach ($symbol in 'DllGetClassObject', 'DllCanUnloadNow') {
+              if ($exports -notmatch "\b$symbol\b") { throw "$dll does not export $symbol" }
+            }
+            Write-Host "$dll exports DllGetClassObject and DllCanUnloadNow"
+          }
+
+      # With createUpdaterArtifacts on, `tauri build` signs the update
+      # artifacts and refuses to bundle without a key (and `--no-sign` would
+      # also drop the macOS ad hoc signature). So the build gets a key nobody
+      # keeps: generated here, with a random password (ADR-0008: Windows has
+      # no empty environment variables), deleted afterwards. The real key
+      # never reaches this job; the sign job replaces every signature.
+      - name: Build (update artifacts signed with a throwaway key)
+        shell: bash
+        env:
+          ARGS: ${{ matrix.args }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/throwaway.key"
+          pass=$(openssl rand -hex 24)
+          pnpm tauri signer generate --ci --force -p "$pass" -w "$key"
+          TAURI_SIGNING_PRIVATE_KEY="$(cat "$key")"
+          export TAURI_SIGNING_PRIVATE_KEY
+          export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$pass"
+          rm -f "$key" "$key.pub"
+          # shellcheck disable=SC2086 # ARGS is a list of arguments
+          pnpm tauri build $ARGS --ci
+
+      # NFR-006: the Windows installer must stay within 15 MB. The size is
+      # written to the job summary every time; over budget is an error, and
+      # a red build means no draft is made.
+      - name: Installer size budget (NFR-006)
+        if: startsWith(matrix.platform, 'windows')
+        shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          $budget = 15MB
+          $exe = Get-ChildItem "src-tauri/target/$env:TARGET/release/bundle/nsis" -Filter *-setup.exe | Select-Object -First 1
+          if (-not $exe) { throw "no NSIS installer was built" }
+          $mib = [math]::Round($exe.Length / 1MB, 2)
+          "| Installer | Size | Budget |`n|---|---|---|`n| $($exe.Name) | $mib MiB ($($exe.Length) bytes) | 15 MiB |" >> $env:GITHUB_STEP_SUMMARY
+          if ($exe.Length -gt $budget) { Write-Host "::error::$($exe.Name) is $mib MiB, over the 15 MiB budget of NFR-006"; exit 1 }
+
+      # Both Windows installers must carry SumatraPDF, its licence and source
+      # offer, and both Explorer DLLs.
+      - name: Installer contents (Windows)
+        if: startsWith(matrix.platform, 'windows')
+        shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          foreach ($f in 'sumatrapdf/SumatraPDF.exe', 'sumatrapdf/LICENSE.txt', 'sumatrapdf/SOURCE-OFFER.txt', 'shellext/x64/shell_ext_win.dll', 'shellext/arm64/shell_ext_win.dll') {
+            if (-not (Test-Path "src-tauri/target/$env:TARGET/release/resources/$f")) { throw "the bundle has no resources/$f" }
+          }
+
+      # Each Mac build is the architecture its name says, the CLI included,
+      # and the Intel build starts under Rosetta on the Apple silicon runner.
+      - name: Architecture and Rosetta smoke (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          app=$(ls -d "src-tauri/target/$TARGET/release/bundle/macos/"*.app)
+          want=$([ "$TARGET" = x86_64-apple-darwin ] && echo x86_64 || echo arm64)
+          for b in "$app"/Contents/MacOS/*; do
+            got=$(lipo -archs "$b")
+            echo "$b: $got"
+            [ "$got" = "$want" ] || { echo "::error::$b is $got, expected $want"; exit 1; }
+          done
+          # SumatraPDF is a Windows program; it must never end up in a Mac app.
+          if [ -e "$app/Contents/Resources/resources/sumatrapdf/SumatraPDF.exe" ]; then
+            echo "::error::the macOS bundle carries SumatraPDF.exe"; exit 1
+          fi
+          if [ "$want" = x86_64 ]; then
+            arch -x86_64 "$app/Contents/MacOS/pluryprint" --version
+          else
+            "$app/Contents/MacOS/pluryprint" --version
+          fi
+
+      # The release names, and no throwaway signature among them.
+      - name: Stage the release files
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          LABEL: ${{ matrix.label }}
+          PYTHON: ${{ matrix.python }}
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d'"' -f2)
+          "$PYTHON" -I scripts/release/release_tools.py stage-bundle \
+            --bundle-dir "src-tauri/target/$TARGET/release/bundle" \
+            --label "$LABEL" --version "$version" --out dist
+          ls -la dist
+
+      - name: Upload the unsigned files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: unsigned-${{ matrix.label }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  # The only place the real key exists: one step, on a runner that has built
+  # nothing and runs nothing but the tauri CLI.
+  sign:
+    name: Sign the update artifacts
+    needs: [build]
+    if: github.event_name == 'push' && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      # setup-node v4 caches only when `cache:` is given (the automatic
+      # package-manager cache came in v5), so nothing is cached here.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning]
+        with:
+          node-version: 20
+
+      # The tauri CLI at the version the lockfile pins, with no install
+      # script run.
+      - name: Install the tauri CLI
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: unsigned-*
+          path: unsigned
+          merge-multiple: true
+
+      - name: Sign with the release key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p signatures
+          shopt -s nullglob
+          n=0
+          for f in unsigned/*.app.tar.gz unsigned/*.exe; do
+            pnpm --silent tauri signer sign "$f"
+            mv "$f.sig" signatures/
+            n=$((n + 1))
+          done
+          if [ "$n" -ne 4 ]; then
+            echo "::error::signed $n update artifacts, expected 4 (two .app.tar.gz, two .exe)"
+            exit 1
+          fi
+          ls -la signatures
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: update-signatures
+          path: signatures/
+          if-no-files-found: error
+          retention-days: 7
+
+  # After every build was signed: the draft, the manifest in the form the app
+  # downloads, its signatures verified against the key compiled into the app,
+  # checksums, and the Corresponding Source of everything the installers
+  # carry.
+  publish:
+    name: Upload the draft
+    needs: [build, sign]
+    if: github.event_name == 'push' && needs.sign.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the one job that writes: creates the draft, uploads its files
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: unsigned-*
+          path: assets
+          merge-multiple: true
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: update-signatures
+          path: assets
+
+      # The notes come from .github/release-notes.md with the version filled
+      # in. A re-run reuses the draft; a release that is already published is
+      # never touched.
+      - name: Create the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          sed -e "s/<version>/$version/g" -e "s/<versión>/$version/g" .github/release-notes.md > release-notes.md
+          if draft=$(gh release view "$GITHUB_REF_NAME" --repo "$REPO" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$draft" != true ]; then
+              echo "::error::$GITHUB_REF_NAME is already published; a release is never rebuilt in place"
+              exit 1
+            fi
+            echo "reusing the draft for $GITHUB_REF_NAME"
+          else
+            prerelease=()
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
+            gh release create "$GITHUB_REF_NAME" --repo "$REPO" --draft --verify-tag \
+              --title "Pluryprint $GITHUB_REF_NAME" --notes-file release-notes.md "${prerelease[@]}"
+          fi
+          ls -la assets
+          gh release upload "$GITHUB_REF_NAME" assets/* --repo "$REPO" --clobber
+
+      # The release body is copied into latest.json's notes, which the update
+      # dialog shows. Releases are looked up in the listing, because
+      # releases/tags/<tag> answers 404 for a draft.
+      - name: Write latest.json with API asset URLs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          release_id=$(gh api --paginate "repos/$REPO/releases" --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id" | head -n1)
+          test -n "$release_id" || { echo "::error::no release for $GITHUB_REF_NAME"; exit 1; }
+          gh api --paginate "repos/$REPO/releases/$release_id/assets" --jq '[.[] | {name, id}]' | jq -s add > release-assets.json
+          gh api "repos/$REPO/releases/$release_id" --jq '.body // ""' > release-body.md
+          python3 -I scripts/release/release_tools.py make-manifest \
+            --dir assets --version "${GITHUB_REF_NAME#v}" \
+            --assets release-assets.json --repo "$REPO" \
+            --body-file release-body.md --out latest.json \
+            --require darwin-aarch64 --require darwin-x86_64 \
+            --require windows-x86_64 --require windows-aarch64
+          python3 -I scripts/release/release_tools.py check-manifest \
+            --manifest latest.json --version "${GITHUB_REF_NAME#v}" \
+            --require darwin-aarch64 --require darwin-x86_64 \
+            --require windows-x86_64 --require windows-aarch64
+          cat latest.json
+
+      # NFR-022: every update artifact verifies against the public key the app
+      # carries (tauri.conf.json), and a one-byte change does not. This is
+      # also what catches a build whose throwaway signature slipped through.
+      - name: Verify the update signatures
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq minisign
+          python3 -c "import json,base64,sys;sys.stdout.buffer.write(base64.b64decode(json.load(open('src-tauri/tauri.conf.json'))['plugins']['updater']['pubkey']))" > updater.pub
+          # The signatures and the tampered copy stay out of assets/, which
+          # SHA256SUMS covers.
+          python3 -I scripts/release/release_tools.py extract-signatures \
+            --manifest latest.json --assets release-assets.json --out sigcheck \
+            --require darwin-aarch64 --require darwin-x86_64 \
+            --require windows-x86_64 --require windows-aarch64 > sigcheck.txt
+          while read -r p name; do
+            test -f "assets/$name" || { echo "::error::$p names $name, which was not downloaded"; exit 1; }
+            echo "$p: $name"
+            minisign -V -p updater.pub -m "assets/$name" -x "sigcheck/$p.minisig"
+          done < sigcheck.txt
+          read -r p name < sigcheck.txt
+          cp "assets/$name" sigcheck/tampered
+          printf '\x00' | dd of=sigcheck/tampered bs=1 seek=100 conv=notrunc 2>/dev/null
+          if minisign -V -p updater.pub -m sigcheck/tampered -x "sigcheck/$p.minisig"; then
+            echo "::error::a tampered artifact verified"; exit 1
+          fi
+
+      # AGPL-3.0 and GPL-3.0 section 6: the Corresponding Source of what the
+      # release conveys travels with it. The SumatraPDF commit is the one the
+      # fetch script pins (the source offer in the installer names it too).
+      - name: Attach the Corresponding Source
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p sources
+          git archive --format=tar.gz --prefix="pluryprint-$version/" \
+            -o "sources/pluryprint-$version-source.tar.gz" HEAD
+          sumatra_version=$(sed -n 's/^VERSION="\(.*\)"$/\1/p' scripts/fetch-sumatrapdf.sh)
+          sumatra_commit=$(sed -n 's/^SOURCE_COMMIT="\(.*\)"$/\1/p' scripts/fetch-sumatrapdf.sh)
+          test -n "$sumatra_version" && test -n "$sumatra_commit"
+          curl --fail --location --silent --show-error \
+            -o "sources/SumatraPDF-$sumatra_version-source.tar.gz" \
+            "https://codeload.github.com/sumatrapdfreader/sumatrapdf/tar.gz/$sumatra_commit"
+          ls -la sources
+
+      # Spec: minisign AND sha256. The .sig files are the first half; this is
+      # the second, over every file of the release.
+      - name: Write SHA256SUMS
+        run: |
+          set -euo pipefail
+          rm -f assets/SHA256SUMS assets/latest.json
+          cp sources/* assets/
+          (cd assets && sha256sum -- * > ../SHA256SUMS)
+          cat SHA256SUMS
+
+      - name: Upload SHA256SUMS, latest.json and the sources
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" SHA256SUMS latest.json sources/* \
+            --repo "$REPO" --clobber
+
+      - name: Summary
+        run: |
+          {
+            echo "### Pluryprint $GITHUB_REF_NAME is built and waiting as a draft"
+            echo
+            echo "Check it before publishing: docs/07-build-and-release/releasing.md, section 6."
+            echo "Publishing it moves the beta channel (release-channels.yml)."
+            echo
+            echo '```'
+            cat SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

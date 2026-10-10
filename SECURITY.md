@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-MaeclyPrint is in pre-alpha. Once the first stable release ships, this section will list which versions receive security fixes.
+Pluryprint is in pre-alpha. Once the first stable release ships, this section will list which versions receive security fixes.
 
 | Version | Status                                 |
 | ------- | -------------------------------------- |

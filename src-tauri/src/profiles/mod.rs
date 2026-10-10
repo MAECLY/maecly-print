@@ -53,9 +53,12 @@ pub(crate) static PROFILES_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(()
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProfileDuplex {
+    /// Single-sided.
     #[default]
     Off,
+    /// Two-sided, bound on the long edge.
     LongEdge,
+    /// Two-sided, bound on the short edge.
     ShortEdge,
 }
 
@@ -63,9 +66,12 @@ pub enum ProfileDuplex {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Quality {
+    /// Fastest, lowest ink use.
     Draft,
+    /// The driver's standard quality.
     #[default]
     Normal,
+    /// Best quality the driver offers.
     High,
 }
 
@@ -75,7 +81,10 @@ pub enum Quality {
 /// effective default).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct Profile {
+    /// Stable id. Built-ins use a `builtin-` prefix; a custom profile gets a
+    /// generated UUID unless the caller supplied an id.
     pub id: String,
+    /// Display name, unique case-insensitively across all profiles.
     pub name: String,
     /// True for the three built-in presets. Server-computed; ignored on input.
     pub builtin: bool,
@@ -84,45 +93,74 @@ pub struct Profile {
     pub default: bool,
     /// Printer id, or the `"<default>"` sentinel to defer to the app/OS default.
     pub printer: String,
+    /// Colour or grayscale output.
     pub color_mode: ColorMode,
+    /// Double-sided mode.
     pub duplex: ProfileDuplex,
+    /// Number of copies (1-999).
     pub copies: u16,
+    /// Paper size, or `auto` for the printer's own default.
     pub paper_size: PaperSize,
+    /// Page orientation.
     pub orientation: Orientation,
+    /// How pages are fitted to the paper.
     pub scaling: Scaling,
     /// Page-range expression (engine grammar), or `None` for all pages. Omitted
     /// from the wire when `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_range: Option<String>,
+    /// Print-quality preset.
     pub quality: Quality,
+    /// Input tray name, or `"auto"` to let the driver choose.
     pub tray: String,
+    /// Collate multiple copies (see [`crate::queue::job::JobSettings::collate`]).
+    /// Defaults to `true` so a profile saved before the field existed loads.
+    #[serde(default = "crate::queue::job::default_collate")]
+    pub collate: bool,
 }
 
 /// On-disk profile: [`Profile`] minus the two server-computed flags. This is the
 /// `[[profile]]` array-of-tables entry in `profiles.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoredProfile {
+    /// Stable id of a custom profile (built-ins are never stored).
     pub id: String,
+    /// Same as [`Profile::name`].
     pub name: String,
+    /// Same as [`Profile::printer`].
     pub printer: String,
+    /// Same as [`Profile::color_mode`].
     pub color_mode: ColorMode,
+    /// Same as [`Profile::duplex`].
     pub duplex: ProfileDuplex,
+    /// Same as [`Profile::copies`].
     pub copies: u16,
+    /// Same as [`Profile::paper_size`].
     pub paper_size: PaperSize,
+    /// Same as [`Profile::orientation`].
     pub orientation: Orientation,
+    /// Same as [`Profile::scaling`].
     pub scaling: Scaling,
+    /// Same as [`Profile::page_range`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_range: Option<String>,
+    /// Same as [`Profile::quality`].
     pub quality: Quality,
+    /// Same as [`Profile::tray`].
     pub tray: String,
+    /// Same as [`Profile::collate`].
+    #[serde(default = "crate::queue::job::default_collate")]
+    pub collate: bool,
 }
 
 /// The whole `profiles.toml`: a schema version plus the custom profiles. The
 /// field is named `profile` (singular) so TOML renders it as `[[profile]]`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfilesFile {
+    /// Format version of the file; a newer one is refused rather than misread.
     #[serde(default = "default_profiles_schema_version")]
     pub schema_version: u32,
+    /// The custom profiles, in the order the user created them.
     #[serde(default)]
     pub profile: Vec<StoredProfile>,
 }
@@ -176,12 +214,13 @@ impl StoredProfile {
             color_mode: self.color_mode,
             duplex: self.duplex,
             copies: self.copies,
-            paper_size: self.paper_size,
+            paper_size: self.paper_size.clone(),
             orientation: self.orientation,
             scaling: self.scaling,
             page_range: self.page_range.clone(),
             quality: self.quality,
             tray: self.tray.clone(),
+            collate: self.collate,
         }
     }
 }
@@ -196,12 +235,13 @@ impl Profile {
             color_mode: self.color_mode,
             duplex: self.duplex,
             copies: self.copies,
-            paper_size: self.paper_size,
+            paper_size: self.paper_size.clone(),
             orientation: self.orientation,
             scaling: self.scaling,
             page_range: self.page_range.clone(),
             quality: self.quality,
             tray: self.tray.clone(),
+            collate: self.collate,
         }
     }
 }
@@ -227,6 +267,7 @@ pub fn builtins() -> Vec<Profile> {
             page_range: None,
             quality: Quality::Normal,
             tray: "auto".to_string(),
+            collate: true,
         },
         Profile {
             id: BUILTIN_DUPLEX_BW.to_string(),
@@ -243,6 +284,7 @@ pub fn builtins() -> Vec<Profile> {
             page_range: None,
             quality: Quality::Normal,
             tray: "auto".to_string(),
+            collate: true,
         },
         Profile {
             id: BUILTIN_PHOTO_COLOR.to_string(),
@@ -259,8 +301,47 @@ pub fn builtins() -> Vec<Profile> {
             page_range: None,
             quality: Quality::High,
             tray: "auto".to_string(),
+            collate: true,
         },
     ]
+}
+
+/// The built-in profiles' display names in every UI language: id, English
+/// (what [`builtins`] carries), Spanish. A built-in is listed under the name
+/// of the app's language ([`localize_builtins`]); every one of these names is
+/// reserved, whatever the language, so a custom profile can never take one.
+const BUILTIN_NAMES: [(&str, &str, &str); 3] = [
+    (BUILTIN_QUICK, "Quick", "R\u{e1}pido"),
+    (BUILTIN_DUPLEX_BW, "Duplex BW", "Doble cara B/N"),
+    (BUILTIN_PHOTO_COLOR, "Photo Color", "Foto color"),
+];
+
+/// The name of built-in `id` in `locale` (`es-ES` → Spanish, anything else
+/// English), or `None` for an id that is not built in. Pure.
+pub fn builtin_name(id: &str, locale: &str) -> Option<&'static str> {
+    let spanish = crate::settings::locale::match_locale(locale) == Some("es-ES");
+    BUILTIN_NAMES
+        .iter()
+        .find(|(b, _, _)| *b == id)
+        .map(|(_, en, es)| if spanish { *es } else { *en })
+}
+
+/// Name the built-ins in `profiles` in `locale` (FR-093); customs keep theirs.
+pub fn localize_builtins(profiles: &mut [Profile], locale: &str) {
+    for p in profiles.iter_mut() {
+        if let Some(name) = builtin_name(&p.id, locale) {
+            p.name = name.to_string();
+        }
+    }
+}
+
+/// The built-in whose name, in any language, is `name` (case-insensitively).
+pub fn builtin_id_by_any_name(name: &str) -> Option<&'static str> {
+    let lc = name.trim().to_lowercase();
+    BUILTIN_NAMES
+        .iter()
+        .find(|(_, en, es)| en.to_lowercase() == lc || es.to_lowercase() == lc)
+        .map(|(id, _, _)| *id)
 }
 
 /// True iff `id` names a built-in profile.
@@ -320,36 +401,34 @@ pub fn validate_and_normalize(
     mut p: Profile,
     existing: &[StoredProfile],
     self_id: Option<&str>,
-) -> Result<Profile, String> {
+) -> Result<Profile, ProfileInvalid> {
     let name = p.name.trim();
     if name.is_empty() {
-        return Err("profile name must not be empty".to_string());
+        return Err(ProfileInvalid::NameEmpty);
     }
-    if name.chars().count() > 100 {
-        return Err("profile name must be 100 characters or fewer".to_string());
+    if name.chars().count() > MAX_NAME_CHARS {
+        return Err(ProfileInvalid::NameTooLong);
     }
     let name_lc = name.to_lowercase();
-    let clashes_builtin = builtins().iter().any(|b| b.name.to_lowercase() == name_lc);
+    // In any language: the built-ins are listed under the UI language's name.
+    let clashes_builtin = builtin_id_by_any_name(name).is_some();
     let clashes_custom = existing
         .iter()
         .any(|e| Some(e.id.as_str()) != self_id && e.name.trim().to_lowercase() == name_lc);
     if clashes_builtin || clashes_custom {
-        return Err(format!("a profile named \"{name}\" already exists"));
+        return Err(ProfileInvalid::NameTaken(name.to_string()));
     }
     p.name = name.to_string();
 
     if !(1..=999).contains(&p.copies) {
-        return Err(format!(
-            "copies must be between 1 and 999, got {}",
-            p.copies
-        ));
+        return Err(ProfileInvalid::Copies(p.copies));
     }
 
     // A blank/whitespace range means "all pages" (None); a non-blank one must
     // parse against the engine grammar.
     p.page_range = match p.page_range.as_deref() {
         Some(s) if !s.trim().is_empty() => {
-            crate::engine::pagerange::parse(s)?;
+            crate::engine::pagerange::parse(s).map_err(|e| ProfileInvalid::PageRange(e.message))?;
             Some(s.trim().to_string())
         }
         _ => None,
@@ -365,16 +444,42 @@ pub fn validate_and_normalize(
     Ok(p)
 }
 
+/// Why [`validate_and_normalize`] rejected a profile. `Display` is the English,
+/// user-facing sentence (CLI, logs); the IPC layer maps each variant to a stable
+/// reason the UI translates (FR-092).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ProfileInvalid {
+    /// The (trimmed) name is empty.
+    #[error("profile name must not be empty")]
+    NameEmpty,
+    /// The name is longer than 100 characters.
+    #[error("profile name must be 100 characters or fewer")]
+    NameTooLong,
+    /// The (trimmed) name collides case-insensitively with another profile.
+    #[error("a profile named \"{0}\" already exists")]
+    NameTaken(String),
+    /// `copies` is outside `1..=999`; the payload is the rejected value.
+    #[error("copies must be between 1 and 999, got {0}")]
+    Copies(u16),
+    /// The page-range grammar rejected the value; the payload is its message.
+    #[error("{0}")]
+    PageRange(String),
+}
+
 /// Why a [`upsert`] was rejected. The command layer maps each to an
 /// [`crate::util::error::IpcError`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum UpsertError {
     /// The id names a built-in profile, which cannot be modified.
     Builtin,
+    /// The id is not one a custom profile may own (a `builtin-` prefix). Such
+    /// a row would be hidden by every read and make every later mutation
+    /// refuse the file, so it is never written.
+    ReservedId,
     /// A provided (non-empty) id is longer than 100 characters.
     IdTooLong,
-    /// Validation failed; the message is user-facing.
-    Invalid(String),
+    /// Validation failed; `Display` is user-facing.
+    Invalid(ProfileInvalid),
 }
 
 /// Create or update a custom profile in `file` (upsert), returning the
@@ -389,6 +494,11 @@ pub fn upsert(file: &mut ProfilesFile, profile: Profile) -> Result<Profile, Upse
     if !requested_id.is_empty() {
         if is_builtin_id(&requested_id) {
             return Err(UpsertError::Builtin);
+        }
+        // The loader's own predicate: anything it would refuse to load for a
+        // mutation must never be stored in the first place.
+        if is_invalid_stored_id(&requested_id) {
+            return Err(UpsertError::ReservedId);
         }
         if requested_id.chars().count() > 100 {
             return Err(UpsertError::IdTooLong);
@@ -521,6 +631,170 @@ pub fn save(path: &Path, file: &ProfilesFile) -> std::io::Result<()> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Import / export (FR-024)
+// ---------------------------------------------------------------------------
+
+/// Largest importable profile document, in bytes. Import is **untrusted input**
+/// (a file the user received from someone else), so an oversized document is
+/// refused before it is read into memory. A profile is a few hundred bytes; 1
+/// MiB already allows thousands of them.
+pub const MAX_IMPORT_BYTES: u64 = 1024 * 1024;
+
+/// Why an import was refused. Every variant leaves `profiles.toml` untouched:
+/// the document is parsed and every entry validated *before* anything is
+/// written, and one bad entry rejects the whole file (an import is all or
+/// nothing, so a half-applied file never has to be undone by hand).
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ImportError {
+    /// The file is larger than [`MAX_IMPORT_BYTES`].
+    #[error("the file is too large to be a profile document")]
+    TooLarge,
+    /// The file could not be read at all.
+    #[error("the file could not be read: {0}")]
+    Unreadable(String),
+    /// The file is not a profile document (bad TOML, or missing/ill-typed
+    /// fields).
+    #[error("this is not a Pluryprint profile file: {0}")]
+    Malformed(String),
+    /// The document was written by a newer Pluryprint.
+    #[error("the file uses profile format version {0}, which this version cannot read")]
+    UnsupportedVersion(u32),
+    /// The document parsed but holds no `[[profile]]` entry.
+    #[error("the file contains no profiles")]
+    Empty,
+    /// One entry failed the same validation a hand-typed profile faces.
+    #[error("the profile \"{name}\" is not valid: {reason}")]
+    InvalidProfile {
+        /// Name of the offending entry, as written in the file.
+        name: String,
+        /// Why validation rejected it (the [`ProfileInvalid`] sentence).
+        reason: String,
+    },
+}
+
+/// Every profile name currently taken (case-insensitively): the three built-ins
+/// in every UI language plus the customs in `file`. The uniqueness domain the importer renames
+/// against.
+fn taken_names(file: &ProfilesFile) -> std::collections::HashSet<String> {
+    BUILTIN_NAMES
+        .iter()
+        .flat_map(|(_, en, es)| [en.to_lowercase(), es.to_lowercase()])
+        .chain(file.profile.iter().map(|c| c.name.trim().to_lowercase()))
+        .collect()
+}
+
+/// The first of `base`, `"base 2"`, `"base 3"`… that is not in `taken`
+/// (which holds **lowercased** names). Mirrors `nextUniqueName` in
+/// `src/lib/profiles.ts` so an imported profile is renamed exactly the way a
+/// cloned one is — including the length rule: the base is shortened (never the
+/// counter, and never inside a character) so `"<base> N"` still fits in
+/// [`MAX_NAME_CHARS`]. Re-importing a valid 99/100-character name would
+/// otherwise produce an over-long name and reject the whole document.
+pub fn unique_name(base: &str, taken: &std::collections::HashSet<String>) -> String {
+    let first = truncate_chars(base, MAX_NAME_CHARS).trim_end().to_string();
+    if !taken.contains(&first.to_lowercase()) {
+        return first;
+    }
+    let mut n = 2u32;
+    loop {
+        let suffix = format!(" {n}");
+        let room = MAX_NAME_CHARS.saturating_sub(suffix.chars().count());
+        let candidate = format!("{}{suffix}", truncate_chars(&first, room).trim_end());
+        if !taken.contains(&candidate.to_lowercase()) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+/// The longest profile name accepted, in characters (`chars().count()`).
+pub const MAX_NAME_CHARS: usize = 100;
+
+/// `s` cut to at most `max` characters, on a char boundary.
+fn truncate_chars(s: &str, max: usize) -> &str {
+    match s.char_indices().nth(max) {
+        Some((byte, _)) => &s[..byte],
+        None => s,
+    }
+}
+
+/// The standalone document an export writes: the same versioned shape as
+/// `profiles.toml`, holding just the exported profile. Reusing the shape makes
+/// export/import symmetric and means a user can also hand-concatenate several
+/// exports into one bundle and import it in a single step.
+pub fn export_document(p: &Profile) -> ProfilesFile {
+    ProfilesFile {
+        schema_version: PROFILES_SCHEMA_VERSION,
+        profile: vec![p.to_stored()],
+    }
+}
+
+/// Read and structurally validate a profile document at `path`.
+///
+/// This is the untrusted-input gate: size cap, TOML parse, schema-version
+/// check, non-empty check. It performs **no** mutation, so every failure here
+/// is inherently safe. Per-profile validation happens later, in
+/// [`merge_imported`].
+pub fn read_document(path: &Path) -> Result<ProfilesFile, ImportError> {
+    let meta = std::fs::metadata(path).map_err(|e| ImportError::Unreadable(e.to_string()))?;
+    if meta.len() > MAX_IMPORT_BYTES {
+        return Err(ImportError::TooLarge);
+    }
+    let raw = std::fs::read_to_string(path).map_err(|e| ImportError::Unreadable(e.to_string()))?;
+    let doc: ProfilesFile =
+        toml::from_str(&raw).map_err(|e| ImportError::Malformed(e.to_string()))?;
+    if doc.schema_version > PROFILES_SCHEMA_VERSION {
+        return Err(ImportError::UnsupportedVersion(doc.schema_version));
+    }
+    if doc.profile.is_empty() {
+        return Err(ImportError::Empty);
+    }
+    Ok(doc)
+}
+
+/// Merge `incoming` into `file`, returning the profiles as they were stored.
+/// Pure — no I/O — so the command owns locking and persistence.
+///
+/// Collision policy, deliberately additive (an import never overwrites or
+/// deletes anything the user already has):
+///
+/// - **Ids are discarded.** Every imported profile gets a fresh UUIDv7. A file
+///   from another machine carries ids that mean nothing here: honouring one
+///   would silently overwrite an unrelated local profile, and a hand-written
+///   `builtin-*` id would squat a reserved slot. Built-ins therefore can never
+///   be touched by an import — they are code, not rows.
+/// - **Names are de-duplicated,** case-insensitively against the built-ins and
+///   the existing customs (and against earlier entries of the same document),
+///   using the same `"{name} 2"` scheme as Clone. Importing the same file twice
+///   yields two profiles rather than an error or a silent overwrite.
+/// - **One invalid entry rejects the whole document** — the caller must not
+///   persist `file` when this returns `Err`, which is why it is the caller that
+///   writes.
+pub fn merge_imported(
+    file: &mut ProfilesFile,
+    incoming: &[StoredProfile],
+) -> Result<Vec<Profile>, ImportError> {
+    let mut saved = Vec::with_capacity(incoming.len());
+    for entry in incoming {
+        let mut p = entry.to_profile(false, false);
+        p.id = String::new();
+        p.name = unique_name(entry.name.trim(), &taken_names(file));
+        let stored = upsert(file, p).map_err(|e| ImportError::InvalidProfile {
+            name: entry.name.trim().to_string(),
+            reason: match e {
+                UpsertError::Builtin | UpsertError::ReservedId => {
+                    "it claims a reserved built-in id".to_string()
+                }
+                UpsertError::IdTooLong => "its id is too long".to_string(),
+                UpsertError::Invalid(why) => why.to_string(),
+            },
+        })?;
+        saved.push(stored);
+    }
+    Ok(saved)
+}
+
 /// True iff `id` is one a mutation must reject: a custom profile can never own a
 /// blank/whitespace id (unaddressable) nor a `builtin-` prefixed id (reserved
 /// for the built-in presets — such a row can never be edited or deleted).
@@ -607,6 +881,7 @@ mod tests {
             page_range: None,
             quality: Quality::Normal,
             tray: "auto".to_string(),
+            collate: true,
         }
     }
 
@@ -870,6 +1145,35 @@ mod tests {
         assert!(validate_and_normalize(p, &[], None).is_err());
     }
 
+    /// FR-093: a built-in's name is reserved in every UI language, so the
+    /// list never shows two "Rápido" after the language changes.
+    #[test]
+    fn fr_093_builtin_names_are_reserved_in_every_language() {
+        for name in ["r\u{e1}pido", "FOTO COLOR", " Doble cara B/N ", "duplex bw"] {
+            assert!(
+                validate_and_normalize(sample_profile(name), &[], None).is_err(),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            builtin_id_by_any_name("Foto Color"),
+            Some(BUILTIN_PHOTO_COLOR)
+        );
+        assert_eq!(builtin_id_by_any_name("Quick"), Some(BUILTIN_QUICK));
+        assert_eq!(builtin_id_by_any_name("Rapido"), None);
+        assert_eq!(builtin_name(BUILTIN_QUICK, "es-MX"), Some("R\u{e1}pido"));
+        assert_eq!(builtin_name(BUILTIN_QUICK, "en-US"), Some("Quick"));
+        assert_eq!(builtin_name(BUILTIN_QUICK, "fr-FR"), Some("Quick"));
+        assert_eq!(builtin_name("c-1", "es-ES"), None);
+        // `builtins()` carries the English names (src/lib/profiles.ts mirror).
+        for b in builtins() {
+            assert_eq!(builtin_name(&b.id, "en-US"), Some(b.name.as_str()));
+        }
+        // An import of a profile called like a built-in in Spanish is renamed.
+        let taken = taken_names(&ProfilesFile::default());
+        assert!(taken.contains("foto color") && taken.contains("photo color"));
+    }
+
     #[test]
     fn validate_rejects_name_clash_with_other_custom_but_allows_self() {
         let existing = vec![
@@ -971,6 +1275,46 @@ mod tests {
     }
 
     #[test]
+    fn upsert_rejects_a_builtin_prefixed_id_the_loader_would_refuse() {
+        // Accepting it used to persist a row that every read hides and every
+        // later mutation refuses (InvalidEntries), bricking all profile writes.
+        let mut file = ProfilesFile::default();
+        let mut p = sample_profile("Squatter");
+        p.id = "builtin-foo".to_string();
+        assert_eq!(upsert(&mut file, p), Err(UpsertError::ReservedId));
+        assert!(file.profile.is_empty(), "nothing written");
+    }
+
+    #[test]
+    fn fr_024_unique_name_keeps_a_renamed_import_within_100_chars() {
+        let long = "x".repeat(100);
+        let taken: std::collections::HashSet<String> = [long.clone()].into_iter().collect();
+        let renamed = unique_name(&long, &taken);
+        assert_eq!(renamed.chars().count(), 100);
+        assert!(renamed.ends_with(" 2"));
+
+        // Multi-byte characters are cut on char boundaries, never mid-scalar.
+        let emoji = "😀".repeat(100);
+        let taken: std::collections::HashSet<String> = [emoji.clone()].into_iter().collect();
+        assert_eq!(
+            unique_name(&emoji, &taken),
+            format!("{} 2", "😀".repeat(98))
+        );
+    }
+
+    #[test]
+    fn fr_024_reimporting_a_100_char_profile_succeeds() {
+        let long = "y".repeat(100);
+        let mut file = ProfilesFile::default();
+        upsert(&mut file, sample_profile(&long)).unwrap();
+        let incoming = vec![file.profile[0].clone()];
+        let saved = merge_imported(&mut file, &incoming).expect("import must not fail");
+        assert_eq!(saved.len(), 1);
+        assert!(saved[0].name.chars().count() <= 100);
+        assert_eq!(file.profile.len(), 2);
+    }
+
+    #[test]
     fn delete_rejects_builtin_default_and_unknown() {
         let mut file = ProfilesFile {
             schema_version: 1,
@@ -1017,5 +1361,327 @@ mod tests {
         // The default flag is stamped on exactly the effective default.
         assert!(list[0].default, "Quick is the default here");
         assert_eq!(list.iter().filter(|p| p.default).count(), 1);
+    }
+
+    // -- Built-ins: TS/Rust cross-check ------------------------------------
+
+    /// The frontend keeps a copy of the built-ins in `src/lib/profiles.ts` for
+    /// the offline fallback, and that copy is served in production (the
+    /// standalone preview, the "New profile" clone seed). Duplicated constants
+    /// drift silently, so this test reads the real TypeScript file and compares
+    /// it field by field with [`builtins`].
+    ///
+    /// The `default` flag is deliberately **excluded**: Rust leaves it `false`
+    /// and computes it per request ([`effective_default_id`]), while the TS
+    /// fallback hardcodes `default: true` on `builtin-quick` so `findProfileIn`
+    /// still resolves a default with no backend to ask.
+    #[test]
+    fn builtins_match_the_typescript_fallback_field_by_field() {
+        use std::collections::BTreeMap;
+
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/profiles.ts");
+        let src = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+
+        assert!(
+            src.contains("export const DEFAULT_PRINTER = '<default>';"),
+            "the TS DEFAULT_PRINTER sentinel changed; this test's substitution is stale"
+        );
+
+        // `BUILT_IN_PROFILES` is a flat array of flat object literals, one
+        // `key: value,` per line — parse it rather than snapshotting the file,
+        // so reformatting the array does not fail the build.
+        let body = src
+            .split_once("BUILT_IN_PROFILES: UiProfile[] = [")
+            .expect("BUILT_IN_PROFILES array literal in src/lib/profiles.ts")
+            .1
+            .split_once("\n];")
+            .expect("BUILT_IN_PROFILES array literal is terminated")
+            .0;
+
+        let mut parsed: Vec<BTreeMap<String, String>> = Vec::new();
+        let mut current: Option<BTreeMap<String, String>> = None;
+        for line in body.lines() {
+            let line = line.trim();
+            if line == "{" {
+                current = Some(BTreeMap::new());
+                continue;
+            }
+            if line.starts_with('}') {
+                if let Some(entry) = current.take() {
+                    parsed.push(entry);
+                }
+                continue;
+            }
+            let Some((key, value)) = line.split_once(':') else {
+                continue;
+            };
+            let value = value.trim().trim_end_matches(',').trim();
+            let value = value.trim_matches(|c| c == '\'' || c == '"');
+            let value = if value == "DEFAULT_PRINTER" {
+                "<default>"
+            } else {
+                value
+            };
+            if let Some(entry) = current.as_mut() {
+                entry.insert(key.trim().to_string(), value.to_string());
+            }
+        }
+
+        let rust = builtins();
+        assert_eq!(
+            parsed.len(),
+            rust.len(),
+            "src/lib/profiles.ts has {} built-ins, Rust has {}",
+            parsed.len(),
+            rust.len()
+        );
+
+        /// The wire string serde produces for an enum value.
+        fn wire<T: Serialize>(v: T) -> String {
+            serde_json::to_value(v)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+
+        for (i, (ts, rs)) in parsed.iter().zip(rust.iter()).enumerate() {
+            let get = |k: &str| -> String {
+                ts.get(k)
+                    .unwrap_or_else(|| panic!("built-in #{i} in src/lib/profiles.ts has no `{k}`"))
+                    .clone()
+            };
+            let at = |field: &str| format!("built-in #{i} ({}) field `{field}`", rs.id);
+
+            assert_eq!(get("id"), rs.id, "{}", at("id"));
+            assert_eq!(get("name"), rs.name, "{}", at("name"));
+            assert_eq!(get("builtin"), "true", "{}", at("builtin"));
+            assert_eq!(get("printer"), rs.printer, "{}", at("printer"));
+            assert_eq!(get("color"), wire(rs.color_mode), "{}", at("color"));
+            assert_eq!(get("duplex"), wire(rs.duplex), "{}", at("duplex"));
+            assert_eq!(get("copies"), rs.copies.to_string(), "{}", at("copies"));
+            // The UI carries the display-cased paper name ("A4"); the wire is
+            // lowercase. `toUiProfile` re-cases, so compare case-insensitively.
+            assert_eq!(
+                get("paper").to_lowercase(),
+                wire(rs.paper_size.clone()),
+                "{}",
+                at("paper")
+            );
+            assert_eq!(
+                get("orientation"),
+                wire(rs.orientation),
+                "{}",
+                at("orientation")
+            );
+            assert_eq!(get("scaling"), wire(rs.scaling), "{}", at("scaling"));
+            assert_eq!(get("quality"), wire(rs.quality), "{}", at("quality"));
+            assert_eq!(get("tray"), rs.tray, "{}", at("tray"));
+            assert!(
+                !ts.contains_key("pageRange"),
+                "{}: built-ins must not carry a page range",
+                at("pageRange")
+            );
+        }
+    }
+
+    // -- Import / export (FR-024) -------------------------------------------
+
+    /// Write `doc` to a fresh file and hand back its path (and the tempdir that
+    /// owns it, which the caller must keep alive).
+    fn write_doc(dir: &tempfile::TempDir, name: &str, doc: &ProfilesFile) -> PathBuf {
+        let path = dir.path().join(name);
+        save(&path, doc).unwrap();
+        path
+    }
+
+    #[test]
+    fn fr_024_export_document_is_a_single_versioned_profile() {
+        let p = builtins()
+            .into_iter()
+            .find(|b| b.id == BUILTIN_PHOTO_COLOR)
+            .unwrap();
+        let doc = export_document(&p);
+        assert_eq!(doc.schema_version, PROFILES_SCHEMA_VERSION);
+        assert_eq!(doc.profile.len(), 1);
+        assert_eq!(doc.profile[0].name, "Photo Color");
+        // The two computed flags are not part of the on-disk shape, so a
+        // shared file can never carry "I am the default" across machines.
+        let toml = toml::to_string_pretty(&doc).unwrap();
+        assert!(!toml.contains("builtin ="), "no computed flags: {toml}");
+        assert!(!toml.contains("default ="), "no computed flags: {toml}");
+    }
+
+    #[test]
+    fn fr_024_read_document_round_trips_an_export() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = builtins().remove(0);
+        let path = write_doc(&dir, "quick.pluryprint-profile.toml", &export_document(&p));
+
+        let doc = read_document(&path).unwrap();
+        assert_eq!(doc.profile.len(), 1);
+        assert_eq!(doc.profile[0].name, "Quick");
+        assert_eq!(doc.profile[0].quality, Quality::Normal);
+    }
+
+    /// ADR-0009: a file exported by MaeclyPrint (the old name, and its old
+    /// `.maecly-profile.toml` extension) still imports.
+    #[test]
+    fn fr_024_read_document_accepts_a_legacy_maeclyprint_export() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = builtins().remove(0);
+        let path = write_doc(&dir, "quick.maecly-profile.toml", &export_document(&p));
+
+        let doc = read_document(&path).unwrap();
+        assert_eq!(doc.profile.len(), 1);
+        assert_eq!(doc.profile[0].name, "Quick");
+    }
+
+    #[test]
+    fn fr_024_read_document_rejects_untrusted_garbage() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Not TOML at all.
+        let bad = dir.path().join("bad.toml");
+        std::fs::write(&bad, b"\x00\x01 not ][ toml").unwrap();
+        assert!(matches!(
+            read_document(&bad),
+            Err(ImportError::Malformed(_))
+        ));
+
+        // Valid TOML, wrong shape (a profile missing required fields).
+        let wrong = dir.path().join("wrong.toml");
+        std::fs::write(&wrong, b"schema_version = 1\n[[profile]]\nid = \"x\"\n").unwrap();
+        assert!(matches!(
+            read_document(&wrong),
+            Err(ImportError::Malformed(_))
+        ));
+
+        // Well-formed but empty.
+        let empty = dir.path().join("empty.toml");
+        std::fs::write(&empty, b"schema_version = 1\n").unwrap();
+        assert_eq!(read_document(&empty), Err(ImportError::Empty));
+
+        // Written by a newer Pluryprint.
+        let newer = dir.path().join("newer.toml");
+        let mut doc = export_document(&builtins().remove(0));
+        doc.schema_version = PROFILES_SCHEMA_VERSION + 1;
+        std::fs::write(&newer, toml::to_string_pretty(&doc).unwrap()).unwrap();
+        assert_eq!(
+            read_document(&newer),
+            Err(ImportError::UnsupportedVersion(PROFILES_SCHEMA_VERSION + 1))
+        );
+
+        // Missing file.
+        assert!(matches!(
+            read_document(&dir.path().join("nope.toml")),
+            Err(ImportError::Unreadable(_))
+        ));
+    }
+
+    #[test]
+    fn fr_024_read_document_refuses_an_oversized_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = dir.path().join("big.toml");
+        std::fs::write(&big, vec![b'#'; (MAX_IMPORT_BYTES + 1) as usize]).unwrap();
+        assert_eq!(read_document(&big), Err(ImportError::TooLarge));
+    }
+
+    #[test]
+    fn fr_024_import_never_trusts_incoming_ids() {
+        // A document whose ids collide with a local custom AND with a built-in.
+        let mut file = ProfilesFile {
+            schema_version: 1,
+            profile: vec![sample_stored("c-1", "Press A")],
+        };
+        let incoming = vec![
+            sample_stored("c-1", "Foreign A"),
+            sample_stored("builtin-quick", "Foreign B"),
+        ];
+
+        let imported = merge_imported(&mut file, &incoming).unwrap();
+        assert_eq!(imported.len(), 2);
+        // Fresh ids: neither the local custom nor the reserved built-in slot
+        // was taken over.
+        for p in &imported {
+            assert_ne!(p.id, "c-1");
+            assert!(!p.id.starts_with("builtin-"));
+            assert!(!p.builtin);
+            assert!(!p.default);
+        }
+        assert_eq!(file.profile.len(), 3, "both appended, nothing overwritten");
+        assert_eq!(file.profile[0].id, "c-1");
+        assert_eq!(file.profile[0].name, "Press A", "local profile untouched");
+    }
+
+    #[test]
+    fn fr_024_import_renames_colliding_names() {
+        let mut file = ProfilesFile {
+            schema_version: 1,
+            profile: vec![sample_stored("c-1", "Press A")],
+        };
+        // Collides with a custom, with a built-in, and with itself.
+        let incoming = vec![
+            sample_stored("x", "press a"),
+            sample_stored("y", "Quick"),
+            sample_stored("z", "Press A"),
+        ];
+
+        let imported = merge_imported(&mut file, &incoming).unwrap();
+        let names: Vec<&str> = imported.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["press a 2", "Quick 2", "Press A 3"]);
+    }
+
+    #[test]
+    fn fr_024_import_rejects_the_whole_document_on_one_bad_entry() {
+        let mut file = ProfilesFile::default();
+        let mut bad = sample_stored("b", "Fine");
+        bad.copies = 0; // out of range
+        let incoming = vec![sample_stored("a", "First"), bad];
+
+        let err = merge_imported(&mut file, &incoming).unwrap_err();
+        assert!(
+            matches!(err, ImportError::InvalidProfile { ref name, .. } if name == "Fine"),
+            "unexpected error: {err}"
+        );
+        // The caller must not persist a partially-merged file; this test pins
+        // the contract that the error carries enough to explain the refusal.
+        assert!(err.to_string().contains("copies"));
+    }
+
+    #[test]
+    fn fr_024_import_rejects_a_blank_name() {
+        let mut file = ProfilesFile::default();
+        let incoming = vec![sample_stored("a", "   ")];
+        assert!(matches!(
+            merge_imported(&mut file, &incoming),
+            Err(ImportError::InvalidProfile { .. })
+        ));
+    }
+
+    #[test]
+    fn fr_024_import_normalizes_like_a_hand_typed_profile() {
+        let mut file = ProfilesFile::default();
+        let mut entry = sample_stored("a", "  Padded  ");
+        entry.printer = "  ".to_string();
+        entry.tray = String::new();
+        entry.page_range = Some("   ".to_string());
+        let imported = merge_imported(&mut file, &[entry]).unwrap();
+
+        assert_eq!(imported[0].name, "Padded");
+        assert_eq!(imported[0].printer, "<default>");
+        assert_eq!(imported[0].tray, "auto");
+        assert!(imported[0].page_range.is_none());
+    }
+
+    #[test]
+    fn fr_024_unique_name_matches_the_clone_scheme() {
+        let taken: std::collections::HashSet<String> = ["press a", "press a 2"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(unique_name("Labels", &taken), "Labels");
+        assert_eq!(unique_name("Press A", &taken), "Press A 3");
     }
 }

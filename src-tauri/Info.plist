@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Extra Info.plist keys merged into the generated macOS bundle.
+
+  The Tauri CLI (v2) looks for `Info.plist` next to `tauri.conf.json` and
+  merges it over the Info.plist it generates, so this file only carries what
+  Tauri does not already know about. Everything else (CFBundleIdentifier,
+  CFBundleVersion, LSMinimumSystemVersion, the icon, …) comes from
+  `tauri.conf.json` and must NOT be repeated here.
+
+  What this adds is the Finder integration: an NSServices declaration that puts
+  "Print with Pluryprint" in the Services submenu of the Finder's context menu
+  (FR-001). The service is answered inside the running app by the provider in
+  `src/platform/macos/services.rs`; see `docs/04-architecture/shell-extensions.md`
+  §3 for why this is an NSService and not a Finder Sync .appex.
+
+  Key notes (Apple, Services Implementation Guide):
+  - NSPortName must be the app's name, i.e. CFBundleName ("Pluryprint").
+  - NSMessage names the provider method minus its `:userData:error:` tail, so
+    `printWithPluryprint` maps to
+    `-(void)printWithPluryprint:(NSPasteboard *)pb userData:(NSString *)ud
+                            error:(NSString **)err`.
+  - NSUserData is how two menu entries share one NSMessage; its value is the
+    `--action` vocabulary of the CLI (`configure`, `print-default`), so the two
+    entry points cannot drift apart.
+  - NSSendFileTypes lists UTIs the *files* must conform to; `public.item` covers
+    both files and folders (FR-004). NSSendTypes lists the pasteboard flavour.
+  - NSRequiredContext is declared (empty = "no restriction"); several macOS
+    releases are reported to filter out services that omit it entirely.
+  - The NSMenuItem titles are localized through Resources/<lang>.lproj/
+    ServicesMenu.strings (sources in src-tauri/macos/, copied by
+    tauri.conf.json bundle.macOS.files); CFBundleLocalizations declares the
+    languages so macOS consults them.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>es</string>
+	</array>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Print with Pluryprint</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>printWithPluryprint</string>
+			<key>NSPortName</key>
+			<string>Pluryprint</string>
+			<key>NSUserData</key>
+			<string>configure</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.file-url</string>
+			</array>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.item</string>
+			</array>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSTimeout</key>
+			<string>10000</string>
+		</dict>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Print with Pluryprint (default profile)</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>printWithPluryprint</string>
+			<key>NSPortName</key>
+			<string>Pluryprint</string>
+			<key>NSUserData</key>
+			<string>print-default</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.file-url</string>
+			</array>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.item</string>
+			</array>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSTimeout</key>
+			<string>10000</string>
+		</dict>
+	</array>
+</dict>
+</plist>

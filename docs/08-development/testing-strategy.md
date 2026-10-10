@@ -1,8 +1,10 @@
 # Testing Strategy
 
-> **TL;DR.** Test pyramid: many fast Rust unit tests, fewer integration tests that spawn real adapters in CI, fewer still end-to-end WebdriverIO tests through the GUI (Windows/Linux only). A "Microsoft Print to PDF" virtual printer is the workhorse of integration testing — every test prints to it and we verify the output. Coverage target: 70% on Rust, 60% on TypeScript — **aspirational, not gated** — with quality over quantity. Requirement-tied tests carry an `FR-###` / `NFR-###` tag in their name.
+> **TL;DR.** Test pyramid: many fast Rust unit tests, a thin layer of Rust integration binaries that exercise real on-disk paths, and a small WebdriverIO end-to-end suite driving the built GUI (Windows only in CI). Coverage is **gated in CI**: `cargo llvm-cov --fail-under-lines 70` on the Rust side and explicit `--coverage.thresholds.*` flags on the Vitest side. Requirement-tied tests carry an `FR-###` / `NFR-###` tag in their name.
 
 This document covers what we test, how, with which tools, and what the acceptance bar looks like.
+
+**Scope note.** Sections below distinguish what exists today from what is planned. The current suite prints nothing: there is no virtual-printer harness, no PDF-output comparison and no benchmark suite. The converters are tested where they are: `engine::convert::external_tests` pins the subprocess converters (LibreOffice, `sips`, `textutil`) with fake binaries and runs the real tools when they are installed, and `tests/render_worker.rs` and `tests/svg_worker.rs` drive the worker processes. Pandoc and a headless browser are not converters any more (ADR-0012; the browser fallback was removed in round 6). Everything marked *Planned* is a design commitment, not a description of the tree.
 
 ## The pyramid
 
@@ -12,22 +14,23 @@ This document covers what we test, how, with which tools, and what the acceptanc
                 ├──────────────┤
                 │     E2E      │  WebdriverIO + tauri-driver (Win/Linux only)
                 ├──────────────┤
-                │ Integration  │  ~50 tests; real subprocesses, virtual printer
+                │ Integration  │  ~90 test fns across 8 binaries in src-tauri/tests/
                 ├──────────────┤
-                │     Unit     │  ~500 tests; in-process, milliseconds each
+                │     Unit     │  ~340 Rust fns co-located + ~405 Vitest cases
                 └──────────────┘
 ```
 
-Most bugs are caught by unit tests (cheap, fast). A smaller layer of integration tests catches the ones that span subprocess boundaries (LibreOffice CLI quirks, SumatraPDF flag changes). E2E tests catch GUI integration issues. Manual QA handles things that resist automation (does it look right? does it feel right?).
+(Counts are `#[test]`/`#[tokio::test]` functions under `src-tauri/src` and `src-tauri/tests`, plus `it(...)` cases across the 24 `*.test.ts(x)` files under `src/`. The standalone `shell-ext-win/` crate adds ~27 more Rust tests in its own lane.)
+
+Most bugs are caught by unit tests (cheap, fast). A smaller layer of integration tests catches the ones that span process and filesystem boundaries. E2E tests catch GUI integration issues. Manual QA handles things that resist automation (does it look right? does it feel right?).
 
 ## Rust unit tests
 
 ### Tooling
 
-- `cargo test` (the standard).
-- Optional: `cargo nextest` for faster runs (3–5x speedup).
-- Snapshot tests via `insta` for stable string output.
-- Property tests via `proptest` for input domains (rare; mostly for the format detector).
+- `cargo test` (the standard). This is the whole toolchain today — the crate has no test-only dependency beyond `tempfile` (a normal dependency, also used at runtime) and `tokio`'s `test-util` feature, which unlocks the virtual clock (`start_paused` / `time::advance`) the dispatcher's retry-backoff tests need to stay deterministic and instant.
+- Optional: `cargo nextest` for faster local runs (3–5x speedup). Not used in CI.
+- **Not used:** `insta` (snapshots), `proptest` (property tests), `mockall`, `wiremock`. None is in `src-tauri/Cargo.toml`. Adding one is a normal dependency decision, not a documented default.
 
 ### Conventions
 
@@ -79,14 +82,19 @@ async fn test_router_dispatches_pdf_to_pdf_adapter() {
 
 ### Coverage target
 
-We aim for **70% line coverage** on Rust code. We use `cargo llvm-cov` to measure:
+**70% line coverage** on Rust code. It is measured locally, not in CI (the pull-request gate is kept lean, see [ci-cd.md](../07-build-and-release/ci-cd.md)); measure on macOS so the CUPS backend is compiled and exercised:
 
 ```bash
-cargo install cargo-llvm-cov --locked
-cargo llvm-cov --html
+cargo llvm-cov --manifest-path src-tauri/Cargo.toml \
+  --lcov --output-path lcov.info \
+  --fail-under-lines 70
 ```
 
-Coverage is a sanity check, not a goal. We don't write tests purely to chase coverage; we write tests for behaviors that matter. Reaching 70% naturally means we've covered the important behaviors.
+Locally, `cargo install cargo-llvm-cov --locked && cargo llvm-cov --html` gives the same numbers with a browsable report.
+
+Last measured (macOS, when CI still ran it): **80.4% lines** (82.4% regions, 67.8% functions). The thinnest modules are `queue/mod.rs` (≈66%) and `update/mod.rs` (≈78%).
+
+Coverage is a sanity check, not a goal. We don't write tests purely to chase coverage; we write tests for behaviors that matter.
 
 Excluded from coverage:
 
@@ -99,18 +107,36 @@ Excluded from coverage:
 
 ### Location
 
-`src-tauri/tests/`. Each `.rs` file is a separate test binary, which means each gets its own clean environment. The suite exists and grows per milestone — today it holds the persistence binaries; the print/queue/shell binaries land with their milestones.
+`src-tauri/tests/`. Each `.rs` file is a separate test binary, which means each gets its own clean environment. Twenty-three binaries exist today:
 
 ```
 src-tauri/tests/
-├── profile_roundtrip.rs   # Present: FR-020/021/022/026/027 — CRUD, immutable
-│                          #   built-ins, atomic save, 500 profiles, default rules
-├── settings_persist.rs    # Present: FR-100/101/102/103 — human-readable TOML,
-│                          #   corrupt-file fallback, atomic write, schema_version
-├── pdf_print.rs           # Planned (M3): print a PDF, verify output
-├── queue_concurrency.rs   # Planned: enqueue N jobs concurrently, all complete
-└── shell_handoff.rs       # Planned (M2): spawn shell ext, send IPC, verify
+├── bundle_identity.rs       # ADR-0009 bundle identity; the NSIS hooks compile with makensis
+├── cli_console_binary.rs    # FR-009: pluryprint-cli.exe returns the documented exit codes
+├── cli_contract.rs          # The headless surface: subcommands, flags, exit codes (FR-008/009/112)
+├── engine_deps.rs           # FR-058: resolution order, remediation, install options
+├── fetch_scripts.rs         # The SumatraPDF fetch scripts agree on version, hashes, licences
+├── folder_expansion.rs      # Walking a dropped directory: limits, skip reasons (FR-004/005/059)
+├── installer_hooks.rs       # FR-001/083: what the installer ships and registers, DLL per architecture
+├── installer_i18n.rs        # FR-093: every hook message in English and Spanish, ASCII files
+├── ipc_surface.rs           # Every Tauri command is registered; settings/profiles IPC
+├── licence_bundle.rs        # ADR-0010: LICENSE, LICENSES/ and the notices are in the bundle
+├── macos_services_l10n.rs   # Finder Services titles localized
+├── print_quality_windows.rs # D16 on paused Windows queues (ignored, opt-in)
+├── print_timeout.rs         # A hung child must not wedge the queue (NFR-012)
+├── profile_roundtrip.rs     # FR-020…027: CRUD, built-ins, atomic save, 500 profiles
+├── real_printer.rs          # CUPS option mapping on the Maecly_Hold queue (ignored, opt-in)
+├── real_printer_windows.rs  # SumatraPDF spool, tracking and cancel on a paused queue (ignored, opt-in)
+├── release_pipeline.rs      # release.yml / ci.yml contract: guard, signatures by asset id, size budget
+├── render_worker.rs         # FR-055/056/057 through the built `--worker render-pdf`
+├── settings_persist.rs      # FR-100…103: TOML, corrupt-file fallback, atomic write, schema_version
+├── svg_worker.rs            # FR-052a through the built `--worker svg`
+├── tauri_conf_contract.rs   # tauri.conf.json and the main capability
+├── third_party_notices.rs   # THIRD-PARTY-NOTICES.md covers every direct dependency
+└── update_startup.rs        # The startup update check, offline and error paths
 ```
+
+There is **no** `pdf_print.rs`, `queue_concurrency.rs` or `shell_handoff.rs`. Print-output verification is unbuilt (see *Print harness — planned* below); queue concurrency and the dispatcher are covered in-module under `src-tauri/src/queue/`; the shell handoff schema is covered by `shell-ext-win/tests/handoff_roundtrip.rs` on the producer side and `src-tauri/src/cli/handoff.rs` on the consumer side.
 
 Test functions that pin a requirement are **named after it** — `fr_020_crud_roundtrip`, `fr_102_atomic_write` — so a failure names the requirement it breaks. Domain logic is unit-tested in-module (`#[cfg(test)]`); these integration binaries exercise the real on-disk read/write paths through a tempdir.
 
@@ -118,88 +144,58 @@ Test functions that pin a requirement are **named after it** — `fr_020_crud_ro
 
 - Standard `cargo test`.
 - `tempfile` for ephemeral directories.
-- `wiremock` for mocking the update server when testing the updater client.
+- Nothing else. In particular there is **no HTTP mock server**: the update client's parsing, comparison and error paths are unit-tested against fixture payloads, and the one test that really talks to `api.github.com` is `#[ignore]`d (see *Ignored tests* below).
 
-### Virtual printer
+### Virtual printer — planned, not built
 
-Integration tests print to a virtual printer that captures output as a `.pdf` file we can inspect.
+**Nothing in the suite prints today.** The default suite spawns neither SumatraPDF nor `lp`; the print backends are covered as *pure argument construction* — `sumatra::print_settings_string`, `sumatra::sumatra_args`, `cups::lp_opts`, `cups::lp_args` are pure functions with co-located unit tests, and only `spool`/`cancel` touch a process, `cfg`-gated per platform.
 
-**Windows:** "Microsoft Print to PDF" (preinstalled). The output path is set via the print job's "OutputFile" parameter:
+The one exception is opt-in: **`src-tauri/tests/real_printer.rs`** (Unix only, every test `#[ignore]`d *and* gated on `MAECLY_REAL_PRINTER=1`) spools through the engine's public `engine::print::spool` to a CUPS queue that **holds every job** (`MAECLY_HOLD_QUEUE`, default `Maecly_Hold`, created with `-o job-hold-until-default=indefinite`). It reads each job back with `ipptool … get-job-attributes.test`, asserts the IPP attributes the mapping should produce (`copies`, `sides`, `media`, `ColorModel`/`print-color-mode`, `page-ranges`, `landscape`/`orientation-requested`, `media-source`/`InputSlot`, `print-quality`/`cupsPrintQuality`, `fit-to-page`) and cancels the job, also on panic. It refuses to submit unless `lpoptions -p <queue>` shows `job-hold-until=indefinite`, and asserts every job is `pending-held` before reading it. Nothing reaches paper. Without the env var the tests return immediately, so a plain `cargo test -- --ignored` passes them as no-ops. Each job is spooled with the queue's real capabilities (`platform::queue_of`), as the dispatcher does. Orientation goes out as `orientation-requested=3|4`; the check accepts that or an older `landscape` boolean. Observed on CUPS 2.x (macOS): when both quality spellings are sent, the queue keeps `cupsPrintQuality` and drops `print-quality`. `fr_032_spool_reports_the_cups_job_id` pins the request-id parse on a host whose `lp` prints its success line in Spanish.
 
-```rust
-// src-tauri/src/printer/windows.rs (test helper)
-#[cfg(test)]
-pub fn print_to_pdf_helper(input: &Path, output: &Path) -> Result<()> {
-    let opts = PrintOpts {
-        printer_name: "Microsoft Print to PDF".to_string(),
-        output_file: Some(output.to_path_buf()),
-        ..Default::default()
-    };
-    print_pdf(input, &opts)
-}
-```
+The design when we do build it:
 
-**macOS:** `cups-pdf` (Homebrew). Configures CUPS to write `.pdf` to a known location.
+- **Windows:** "Microsoft Print to PDF" (preinstalled), output path set via the job's `OutputFile` parameter.
+- **macOS:** `cups-pdf` (Homebrew), configured to write `.pdf` to a known location.
 
-### Output verification
+Verification would be page count + text layer (deterministic, fast), with an opt-in visual diff at 150 DPI behind an env var. That needs a PDF-reading crate in `dev-dependencies` (`lopdf` is already a normal dependency and can read page counts) and a fixtures tree — neither of which exists yet. **Do not** cite this section as if the harness were available.
 
-After printing, integration tests verify the output `.pdf`:
+### Subprocess fixtures — not applicable yet
 
-| Verification | Tool | Purpose |
+CI installs **no** converters yet. The converters that shell out (LibreOffice, `sips`, and the render worker) are covered at three levels:
+
+- **Fake binaries** (`external_tests::fakes`, Unix only): `/bin/sh` scripts standing in for `soffice`, the browser, the render worker and `sips`. They pin the argument vector that is actually spawned, the "exit 0 but no PDF" failure, the timeout kill of the whole process tree, the browser profile seeding, scratch-folder cleanup, and that HTML and Markdown go to the worker rather than a browser or Pandoc. They need nothing installed.
+- **Real tools** (`external_tests::fr_05x_real_*`): convert fixtures generated in-test (an RTF, a DOCX made by LibreOffice, and on macOS a HEIC made by `sips`), plus a LibreOffice document that must not reach a local listener. Each test locates its tool with the engine's own resolver and **returns early with a `SKIPPED` note** when the tool is absent, instead of using `#[ignore]`. A developer machine with the tools runs them on every `cargo test`, and a bare CI runner stays green.
+
+- **The real workers** (`tests/render_worker.rs`, `tests/svg_worker.rs`): the built binary's `--worker render-pdf` and `--worker svg`, with pagination, paper sizes, relative images, a hostile page, Markdown, UTF-16 text, RTF and parallel workers. They need only the OS web view.
+
+Installing LibreOffice in CI (`choco install libreoffice-fresh` on Windows, `brew install --cask libreoffice` on macOS) would turn the remaining skips into real coverage. That CI step is still owed.
+
+### Ignored tests
+
+These tests are `#[ignore]`d because they reach outside the process:
+
+| Test | Why | How to run |
 |---|---|---|
-| File exists and has nonzero size | `std::fs::metadata` | Sanity check |
-| Page count matches expected | `pdf-extract` crate | Confirms multi-page batches don't lose pages |
-| Text content matches expected | `pdf-extract` text layer | Confirms content didn't get corrupted |
-| Visual diff against fixture | `image_compare` after rendering with `pdfium-render` | Catches layout regressions |
+| `update::tests::live_manifest_check` | Reads the published update manifests on `github.com`; network trouble must not fail a merge | `cargo test -- --ignored live_manifest_check` |
+| `platform::cups::tests::add_and_remove_real_queue` | Creates a real CUPS queue via `lpadmin` | `cargo test -- --ignored add_and_remove` |
+| `platform::cups::tests::list_printers_smoke` | Shells out to the host's CUPS install; the result depends on the developer's real queues | `cargo test -- --ignored list_printers_smoke` |
+| `engine::print::cups::tests::maecly_hold_job_is_tracked_as_held_then_canceled` | Needs the local CUPS hold queue `Maecly_Hold` | `cargo test -- --ignored maecly_hold` |
+| `platform::windows::tests::discover_printers_smoke`, `platform::windows_dnssd::tests::browse_smoke` | Wait for the DNS-SD browse window on a real Windows network | on the Windows VM, `cargo test -- --ignored smoke` |
+| `engine_deps::fr_058_print_this_hosts_report` | Diagnostic: prints the host's dependency report | `cargo test --test engine_deps -- --ignored --nocapture` |
+| `tests/real_printer.rs` (6 tests) | Submits held jobs to a real CUPS queue and reads their IPP attributes back (see *Virtual printer* above); a no-op unless `MAECLY_REAL_PRINTER=1` | `MAECLY_REAL_PRINTER=1 cargo test --test real_printer -- --ignored --test-threads=1` |
+| `tests/real_printer_windows.rs` (2 tests), `tests/print_quality_windows.rs` (10 tests) | Spool to **paused** Windows queues and read the jobs back; a no-op unless `MAECLY_REAL_PRINTER=1` | see [e2e/README.md](../../e2e/README.md#real-spooler-suites-opt-in-never-print); `scripts/vm/print-quality-e2e.ps1` sets up the queues |
 
-For visual diffs, fixtures are stored as PNG renderings at 150 DPI. Diff threshold: < 0.5% of pixels different. Above that, the test fails and the diff image is uploaded as a CI artifact for review.
-
-### Subprocess fixtures
-
-Integration tests that need LibreOffice, Pandoc, etc. install them in CI:
-
-```yaml
-# In ci.yml integration-tests job:
-- name: Install LibreOffice
-  if: runner.os == 'Windows'
-  run: choco install libreoffice-fresh -y --no-progress
-
-- name: Install Pandoc
-  run: choco install pandoc -y --no-progress
-```
-
-On macOS:
-
-```yaml
-- name: Install LibreOffice + Pandoc
-  if: runner.os == 'macOS'
-  run: brew install --cask libreoffice && brew install pandoc
-```
-
-This adds ~5 minutes to CI but is the only way to test these adapters honestly.
-
-### When to skip subprocess tests
-
-Tests that require subprocesses are gated behind `#[ignore]` for `cargo test --release` runs that don't have those subprocesses available:
-
-```rust
-#[test]
-#[ignore = "requires LibreOffice; run with --include-ignored"]
-fn test_docx_print_via_libreoffice() {
-    // ...
-}
-```
-
-CI runs them via `cargo test --include-ignored`. Local dev runs `cargo test` and skips them by default. Local dev runs them on demand via `cargo test --include-ignored` or by name.
+CI does not run them: they need the network, real queues or a real printer, and must never fail a merge. Run them by hand with the commands above; `cargo test -- --ignored` runs *only* the ignored ones (the rest already ran in CI), **not** `--include-ignored`.
 
 ## Frontend unit tests
 
 ### Tooling
 
-- **Vitest** (Vite-native test runner; faster than Jest for our setup).
-- **React Testing Library** for component tests.
-- **MSW (Mock Service Worker)** for mocking HTTP requests in components that fetch.
+- **Vitest** (Vite-native test runner; faster than Jest for our setup), configured under `test:` in `vite.config.ts` — jsdom environment, globals on, `src/test/setup.ts` as the setup file, `include: ['src/**/*.{test,spec}.{ts,tsx}']` and `exclude: [..., 'e2e/**']`.
+- **React Testing Library** (`@testing-library/react`) plus `@testing-library/jest-dom` matchers.
 - **`@testing-library/user-event`** for simulating user interactions.
+- **`mockIPC` from `@tauri-apps/api/mocks`** for the backend boundary — see *Mocking Tauri IPC* below.
+- **Not used: MSW.** The frontend makes no HTTP requests of its own; everything crosses the Tauri IPC bridge, which `mockIPC` intercepts directly. There is no `msw` dependency in `package.json` and none is needed.
 
 ### Conventions
 
@@ -257,9 +253,11 @@ Event-driven stores need one extra step. The tauri-specta `events` object drives
 
 ### Coverage target
 
-**60% line coverage** on TypeScript. Lower than Rust because UI code has more code that's hard to test (rendering details, Tailwind utility usage). We don't chase the number; we cover behaviors.
+**60% line coverage** on TypeScript is the target. Lower than Rust because UI code has more that is hard to test (rendering details, Tailwind utility usage). We don't chase the number; we cover behaviors.
 
-Measured by `pnpm test:coverage` (`vitest run --coverage`) with the `@vitest/coverage-v8` provider — reporters `text`/`html`/`lcov`, output under `coverage/`, non-product files (generated `bindings.ts`, `src/test/**`, config) excluded from the denominator (`vite.config.ts`). **The 60/70% targets are aspirational and not enforced** — CI runs the coverage build and uploads the report as an artifact, but there is no failing threshold gate.
+Measured by `pnpm test:coverage` (`vitest run --coverage`) with the `@vitest/coverage-v8` provider — reporters `text`/`html`/`lcov`, output under `coverage/`, non-product files (generated `bindings.ts`, `src/test/**`, `src/main.tsx`, configs) excluded from the denominator (`vite.config.ts`).
+
+**Coverage is informational.** CI runs `pnpm test` without coverage; `pnpm test:coverage` measures it locally. Last measured: lines/statements 61.4%, functions 71.4%, branches 79.8%.
 
 ## End-to-end tests
 
@@ -267,59 +265,83 @@ Measured by `pnpm test:coverage` (`vitest run --coverage`) with the `@vitest/cov
 
 - **WebdriverIO** as the test framework (`@wdio/cli` + the Mocha framework adapter), configured in `e2e/wdio.conf.ts`.
 - **`tauri-driver`** (a cargo binary, `cargo install tauri-driver --locked`) as the WebDriver bridge to the Tauri webview. On Windows it proxies to the Edge WebDriver (`msedgedriver.exe`) matching the installed WebView2, passed via the `NATIVE_DRIVER` env var.
-- Tests run against an actual built `maeclyprint(.exe)` binary (`pnpm tauri build --debug`), not the dev server. Run locally with `pnpm test:e2e`.
+- Tests run against an actual built `pluryprint(.exe)` binary (`pnpm tauri build --debug`), not the dev server. Run locally with `pnpm test:e2e`.
 
 ### Platform support — Windows/Linux only
 
-`tauri-driver` supports **Windows and Linux only**; **macOS WKWebView exposes no WebDriver endpoint**, so there is no automated E2E on macOS. macOS is covered instead by the Rust unit/integration suite, the Vitest suite, a **launch smoke** ("does the built app start and stay up"), and manual QA. A parallel **launch smoke** also runs on Windows.
+`tauri-driver` supports **Windows and Linux only**; **macOS WKWebView exposes no WebDriver endpoint**, so the WebdriverIO suite cannot run on macOS. macOS is covered instead by the Rust unit/integration suite, the Vitest suite, the browser harness below, and manual QA.
+
+### Browser harness (macOS, or any host without a built binary)
+
+`pnpm dev:e2e` (`vite --mode e2e`; `PLURY_E2E_STUB=1 pnpm dev` is equivalent) serves the real frontend at `http://localhost:1421` with a **fake Tauri host** injected ahead of the app. The `pluryE2eStub` plugin in `vite.config.ts` (`e2e/browser/vite-plugin.ts`) is `apply: 'serve'` and inert without the flag, so neither `pnpm dev` nor any production build ever contains it. `e2e/browser/ipc-stub.ts` installs `window.__TAURI_INTERNALS__` (invoke, callbacks, the event plugin's listen/unlisten/emit, the dialog plugin, `convertFileSrc`, webview metadata), so `isTauri()` is true and the screens run their real code paths. Every command lands on `e2e/browser/fake-backend.ts`: in-memory printers, profiles (CRUD, default guard), settings (with the server's engine limits), folders and a queue seeded from `src/test/fixtures.ts`. Submitted jobs advance on a timer (queued → converting → converted → printing → done, a file named `*fail*` fails), emitting `queue-updated` and `job-progress-event`. A command it does not model rejects with `Internal`, never resolves `undefined`.
+
+Drive it with any browser automation (Chrome DevTools MCP, Playwright) through `window.__PLURY_E2E__`: `backend` (state, `tick()`, `openPaths` for the next file picker), `forwardSelection(sel)`, `dropFiles(paths)`, `emit(event, payload)`, `calls()`. URL flags: `?e2e-seed=1` (fixture queue with every job state), `?e2e-tick=0` (manual ticks), `?e2e-onboarded=1` (skip onboarding). It proves GUI ↔ IPC-contract behaviour, not the backend; the harness's own contract tests live in `e2e/browser/ipc-stub.test.ts` and run with `pnpm test`.
 
 ### Coverage scope
 
-E2E specs live in `e2e/specs/` and are intentionally few — they cover **flows**, not features:
+E2E specs live in `e2e/specs/` and are named **`*.e2e.ts`**, not `*.spec.ts`. The extension is load-bearing: Vitest's default `{test,spec}` glob would otherwise pick them up and try to run a WebdriverIO suite inside jsdom. `wdio.conf.ts` matches them with `specs: [path.resolve(here, 'specs', '**', '*.e2e.ts')]`.
 
-- `launch.spec.ts` — the binary starts and the shell paints.
-- `navigation.spec.ts` — sidebar navigation swaps screens.
-- `about.spec.ts` — About shows version, license, and the update check.
+There is one spec per screen — seven files plus a shared `helpers.ts` (dismiss onboarding in either language, navigate the sidebar, and `forceEnglishUi`, which the `before` hook in `wdio.conf.ts` runs once per session because the first launch follows the OS language, FR-093):
 
-More flows (create a profile and use it; change a setting and confirm it persists across restart) land as the suite grows. What E2E tests don't cover (we have lower-level tests for these): component-level UI behavior (Vitest), print correctness (Rust integration), and the IPC contract (Rust).
+| Spec | Covers |
+|---|---|
+| `home.e2e.ts` | Home advertises only formats the engine really accepts; the global shortcut layer is bound to a real window (NFR-034); quick actions are focusable buttons (NFR-041); recent activity is fed by a live `queue_status` |
+| `print-job.e2e.ts` | Add a file, submit the batch, see it in the Queue (the queue is paused around the spec so the job never reaches the host's real default printer, then cancelled and resumed); an unsupported file is refused with a visible reason (FR-005); a dropped folder asks before recursing (FR-004) |
+| `queue.e2e.ts` | The live queue renders instead of an "unavailable" notice; switching List / Board / Timeline views; the queue controls, including an honest "Clear done" |
+| `printers.e2e.ts` | Enumeration comes from the host spooler, not mock data; the add-printer methods are tabs and honour the Windows transport limit |
+| `profiles.e2e.ts` | Create a custom profile and make it the default; unsaved edits survive leaving and returning to the screen |
+| `settings.e2e.ts` | Theme switch applies the dark class; a changed setting survives a relaunch with the local cache cleared (FR-100); language switching re-renders and persists (FR-094) |
+| `about.e2e.ts` | Semver version string; license/release/docs/issue links (FR-110); the live log directory (FR-113); React/Tauri versions and host platform; the update check is enabled inside the real host and the IPC-unavailable fallback never shows |
+
+There is no `launch.e2e.ts` or `navigation.e2e.ts`: "the binary starts and paints" is what every other spec's first step proves, and navigation is exercised by `helpers.navigateTo` in every other spec.
+
+What E2E tests don't cover (we have lower-level tests for these): component-level UI behavior (Vitest), print correctness (Rust unit tests over the flag builders), and the IPC contract (`src-tauri/tests/ipc_surface.rs`).
 
 ### Test structure
 
 ```ts
-// e2e/specs/about.spec.ts — WebdriverIO + Mocha globals
-import { navigateTo } from './helpers';
+// e2e/specs/about.e2e.ts — WebdriverIO + Mocha globals
+import { $, expect } from '@wdio/globals';
+import { dismissOnboarding, navigateTo } from './helpers.js';
 
 describe('About', () => {
-  it('shows the version and offers an update check', async () => {
-    await navigateTo('about');
-    await expect($('h1')).toHaveText('About');
-    await expect($('button=Check for updates')).toBeDisplayed();
+  beforeEach(async () => {
+    await dismissOnboarding();
+    await navigateTo('About'); // takes the sidebar label
+  });
+
+  it('shows a semver version string', async () => {
+    await expect($('body')).toHaveText(/\d+\.\d+\.\d+/);
   });
 });
 ```
 
 ### CI integration
 
-Two GUI jobs run on GitHub Actions, both **non-blocking** (`continue-on-error`) because driving a real WebView2 GUI (or launching a GUI on a headless runner) is inherently flake-prone:
+None. CI is the lean pull-request gate (lint, typecheck, format and unit tests for the frontend; fmt, clippy and the full Rust suite on Windows and macOS), because driving a real WebView2 GUI on a hosted runner is slow and flake-prone. Run the suite locally on Windows with `pnpm test:e2e` (see [e2e/README.md](../../e2e/README.md)); the Windows VM scripts under `scripts/vm/` cover the installed app.
 
-- **Smoke launch** — builds the app and asserts it starts and stays up ~10 s. Runs on both `windows-latest` and `macos-latest`.
-- **E2E (WebdriverIO + tauri-driver)** — the `e2e/specs/**` suite on `windows-latest`; installs `tauri-driver` and points it at the Edge WebDriver.
+### The full job list in `ci.yml`
 
-The blocking gates are the Rust (`cargo test` on Windows and macOS) and frontend (`pnpm test:coverage`) jobs. Flake handling: a spec that fails repeatedly on `main` is fixed within a week or removed — we don't carry flaky GUI tests forward.
+| Job | Runner | What it does |
+|---|---|---|
+| `frontend` | ubuntu | `pnpm lint`, `typecheck`, `format:check`, `test` |
+| `backend` | matrix windows + macOS | `cargo fmt --check` (Windows only, both crates), `cargo clippy --all-targets -- -D warnings`, the full `cargo test` (which is also the `src/ipc/bindings.ts` drift gate), and on Windows clippy + `cargo test` for `shell-ext-win/` |
 
-## Print mock harness
+Both are blocking. Triggers: `pull_request`, `push` to `main`, `workflow_dispatch`. `shell-ext-win/` gets its own commands because it is deliberately **not** a Cargo workspace member (its release profile must keep `panic = "unwind"` so `catch_unwind` at the COM boundary works, which `src-tauri`'s `panic = "abort"` would destroy), so `--manifest-path src-tauri/Cargo.toml` never touches it. [ci-cd.md](../07-build-and-release/ci-cd.md) lists what moved to `release.yml` and what is local only.
 
-This is the central piece of integration testing.
+## Print mock harness — planned
 
-### What it does
+> **Status: not implemented.** Nothing described in this section exists in the tree. There is no `src-tauri/tests/fixtures/`, no `src-tauri/tests/common/`, and no PDF-comparison helper. It is kept as the design to build against when print-output verification lands; treat every path and crate name below as a proposal.
+
+### What it would do
 
 - Provides a deterministic virtual printer (Microsoft Print to PDF on Windows, CUPS-PDF on macOS).
 - Captures every print job as a `.pdf` file in a known location.
 - Provides helper functions to compare output against fixtures.
 
-### Fixtures
+### Fixtures (proposed layout)
 
-`src-tauri/tests/fixtures/` contains:
+`src-tauri/tests/fixtures/` **does not exist**. It would contain:
 
 ```
 fixtures/
@@ -339,9 +361,9 @@ fixtures/
     └── ...
 ```
 
-Fixtures are committed (Git LFS for files > 1 MB).
+Fixtures would be committed (Git LFS for files > 1 MB). Note that the input list above spans Office, HTML and Markdown, which the engine cannot print at all today (see [supported-formats.md](../03-requirements/supported-formats.md)) — the fixture set arrives with the converters, not before them.
 
-### Comparison strategy
+### Comparison strategy (proposed)
 
 ```rust
 // src-tauri/tests/common/mod.rs
@@ -371,33 +393,15 @@ We default to **text + page count** comparison because it's deterministic and fa
 
 ## Performance / regression tests
 
-### Benchmarks
+### Benchmarks — none exist
 
-`src-tauri/benches/` houses Criterion benchmarks for hot paths:
+There is **no `src-tauri/benches/` directory and no `criterion` dependency.** The performance NFRs (NFR-001…NFR-005) are therefore unverified by automation today.
 
-```rust
-// src-tauri/benches/queue_throughput.rs
-use criterion::{criterion_group, criterion_main, Criterion};
-
-fn bench_enqueue(c: &mut Criterion) {
-    c.bench_function("enqueue_1000_jobs", |b| {
-        b.iter(|| {
-            // ...
-        });
-    });
-}
-
-criterion_group!(benches, bench_enqueue);
-criterion_main!(benches);
-```
-
-We do not run benchmarks in CI by default (too noisy on shared runners). We run them locally before any change to the queue or engine and document results in the PR.
+If and when benchmarks are added, the plan is Criterion under `src-tauri/benches/`, run locally before any change to the queue or engine and reported in the PR — not in CI, where shared runners are too noisy to compare against a baseline. Until then, do not claim a bench "confirms" anything.
 
 ### Regression detection
 
-For correctness regressions, the integration suite is the safety net. For performance regressions, we depend on developers running benches before suspect changes.
-
-If users report performance regressions in production, we add a benchmark for that specific scenario and add it to a manual-run regression suite.
+For correctness regressions, the Rust suite plus the bindings-drift gate is the safety net. There is no performance regression net at all — this is a known gap, not a policy.
 
 ## Manual QA
 
@@ -418,46 +422,45 @@ We have a manual QA checklist (in [release-checklist.md](./release-checklist.md)
 
 The checklist covers ~30 minutes of focused testing per platform.
 
-## Snapshot tests
+## Generated-artifact drift gates
 
-For output that's hard to assert structurally (log line format, generated HTML, manifest JSON), we use `insta`:
+We do not use snapshot testing (`insta` is not a dependency, and `src-tauri/tests/snapshots/` does not exist). What we do have is one **generated-file drift gate**, which serves a similar purpose for the artifact that matters most:
 
-```rust
-#[test]
-fn test_log_format_is_stable() {
-    let entry = make_log_entry();
-    insta::assert_json_snapshot!(entry);
-}
-```
-
-When the snapshot legitimately changes:
+`src-tauri/tests/ipc_surface.rs` regenerates `src/ipc/bindings.ts` from the tauri-specta command surface during `cargo test` and fails when the committed copy is stale. Regenerate deliberately with:
 
 ```bash
-INSTA_UPDATE=always cargo test
-git diff src-tauri/tests/snapshots/  # Review carefully
+UPDATE_BINDINGS=1 cargo test --manifest-path src-tauri/Cargo.toml
+git add src/ipc/bindings.ts
 ```
 
-Snapshot files are committed. They are documentation of expected output as much as test artifacts.
+CI's `backend` job runs the full, unfiltered `cargo test` on Windows and macOS, so this test always runs there. A filtered local run that never reaches `ipc_surface` regenerates nothing; run the full suite before committing a command change.
+
+If a future need for real string snapshots appears (log line format, manifest JSON), adding `insta` is a normal dependency decision — but it must be made before this section can describe it in the present tense.
 
 ## What we deliberately don't test
 
 - **Tauri itself.** We trust upstream's tests.
 - **Win32 / CUPS APIs.** We trust the OS.
-- **Bundled subprocess output.** SumatraPDF is GPL'd third-party; if its output changes between versions, we update fixtures, not bug them.
-- **Network layer for the updater.** We mock the manifest endpoint with `wiremock`. Trusting `reqwest` and Tauri's updater plugin.
+- **Bundled subprocess output.** SumatraPDF is GPL'd third-party; if its output changes between versions, we update expectations, not bug them.
+- **Network layer for the updater.** We trust `ureq`. The update client's own logic (semver comparison, release-payload parsing, the 404/no-release and error paths) *is* unit-tested against fixture payloads, and `src-tauri/tests/update_startup.rs` covers the startup check — but no test stands up an HTTP server, and the one that really calls `api.github.com` is `#[ignore]`d.
 - **Rendering output of WebView2 / WKWebView.** Browser rendering is tested by upstream.
 
 ## Running tests locally
 
 | Command | Runs |
 |---|---|
-| `cargo test` (in `src-tauri/`) | Unit + integration tests not marked `#[ignore]` |
-| `cargo test --include-ignored` | All tests including subprocess-dependent ones |
+| `cargo test --manifest-path src-tauri/Cargo.toml` | Unit + integration tests not marked `#[ignore]` (or `make test-rust`) |
+| `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored` | **Only** the ignored ones (network + real CUPS); CI never runs them |
+| `cargo test --manifest-path src-tauri/Cargo.toml -- --include-ignored` | Everything, ignored included |
 | `cargo test <name>` | Tests matching `<name>` substring |
+| `cargo test --manifest-path shell-ext-win/Cargo.toml` | The shell extension's portable half; works on any host OS |
 | `pnpm test` | Frontend unit tests (`vitest run`) |
-| `pnpm test:coverage` | Frontend tests with V8 coverage (report under `coverage/`) |
-| `pnpm test:e2e` | E2E tests (Windows/Linux; requires a built binary + `tauri-driver`) |
-| `pnpm check-all` | Lint, format-check, typecheck, and the Vitest suite |
+| `pnpm test:coverage` | Frontend tests with V8 coverage (report under `coverage/`); no threshold locally |
+| `pnpm test:e2e` | E2E tests (Windows/Linux; requires a built binary + `tauri-driver` + `NATIVE_DRIVER`) |
+| `pnpm dev:e2e` | Frontend with the fake Tauri host on `:1421`, for browser-driven E2E on any OS |
+| `MAECLY_REAL_PRINTER=1 cargo test --manifest-path src-tauri/Cargo.toml --test real_printer -- --ignored --test-threads=1` | Real-CUPS mapping checks against a hold queue (Unix) |
+| `pnpm check-all` | `lint`, `format:check`, `typecheck`, `test` — **frontend only, no Rust** |
+| `make check` | Everything: the four above plus `cargo fmt --check`, `clippy -D warnings` and `cargo test` |
 
 ## Test naming
 

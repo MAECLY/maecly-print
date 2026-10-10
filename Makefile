@@ -1,4 +1,4 @@
-# MaeclyPrint — developer tasks.
+# Pluryprint — developer tasks.
 #
 # This Makefile is a thin wrapper around `pnpm` and `cargo`. It is the
 # canonical entry point for local development. Each target documents what
@@ -25,7 +25,7 @@ MAKEFLAGS += --no-print-directory --warn-undefined-variables
 .PHONY: help
 help: ## Show this help.
 	@echo ""
-	@echo "  MaeclyPrint — make targets"
+	@echo "  Pluryprint — make targets"
 	@echo "  ──────────────────────────"
 	@grep -E '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | \
 	  sort | \

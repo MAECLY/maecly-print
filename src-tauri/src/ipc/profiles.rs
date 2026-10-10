@@ -1,4 +1,4 @@
-//! Profile IPC commands (CRUD + set-default).
+//! Profile IPC commands (CRUD, set-default, and TOML import/export).
 //!
 //! Thin wrappers over [`crate::profiles`]: they own the locking
 //! ([`PROFILES_LOCK`], and [`CONFIG_LOCK`] where the config's default is
@@ -13,11 +13,11 @@
 use std::path::Path;
 
 use crate::profiles::{
-    self, effective_default_id, is_builtin_id, DeleteError, MutationLoadError, Profile,
-    ProfilesFile, UpsertError, PROFILES_LOCK,
+    self, effective_default_id, is_builtin_id, DeleteError, ImportError, MutationLoadError,
+    Profile, ProfileInvalid, ProfilesFile, UpsertError, PROFILES_LOCK,
 };
-use crate::settings::{Config, CONFIG_CORRUPT_MSG, CONFIG_LOCK};
-use crate::util::error::IpcError;
+use crate::settings::{Config, CONFIG_LOCK};
+use crate::util::error::{IpcError, IpcErrorCode};
 
 // Each `#[tauri::command]` below is a thin transport wrapper that resolves the
 // real config-dir paths and defers to a path-injected `*_at` core. The cores are
@@ -44,7 +44,10 @@ pub fn list_profiles_at(
 ) -> Result<Vec<Profile>, IpcError> {
     let file = load_for_read(profiles_path);
     let default_id = current_default_id(config_path, &file);
-    Ok(profiles::list_all(&file.profile, &default_id))
+    let mut all = profiles::list_all(&file.profile, &default_id);
+    // FR-093: the built-ins are named in the app's language.
+    profiles::localize_builtins(&mut all, &Config::load_from(config_path).app.locale);
+    Ok(all)
 }
 
 /// Fetch one profile by id (built-in or custom), with its computed flags.
@@ -68,6 +71,10 @@ pub fn get_profile_at(
 
     if let Some(mut b) = profiles::builtins().into_iter().find(|b| b.id == id) {
         b.default = b.id == default_id;
+        profiles::localize_builtins(
+            std::slice::from_mut(&mut b),
+            &Config::load_from(config_path).app.locale,
+        );
         return Ok(b);
     }
     if let Some(c) = file.profile.iter().find(|c| c.id == id) {
@@ -92,6 +99,7 @@ pub fn get_profile_at(
 pub async fn save_profile(profile: Profile) -> Result<Profile, IpcError> {
     super::run_blocking(move || {
         save_profile_at(&profiles::profiles_path(), &Config::config_path(), profile)
+            .inspect(|_| crate::shell_menu::refresh())
     })
     .await
 }
@@ -105,15 +113,7 @@ pub fn save_profile_at(
     let _guard = PROFILES_LOCK.lock().unwrap();
     let mut file = load_for_mutation(profiles_path)?;
 
-    let mut normalized = profiles::upsert(&mut file, profile).map_err(|e| match e {
-        UpsertError::Builtin => {
-            IpcError::InvalidRequest("built-in profiles cannot be modified".to_string())
-        }
-        UpsertError::IdTooLong => {
-            IpcError::InvalidRequest("profile id must be 100 characters or fewer".to_string())
-        }
-        UpsertError::Invalid(msg) => IpcError::InvalidRequest(msg),
-    })?;
+    let mut normalized = profiles::upsert(&mut file, profile).map_err(upsert_error)?;
 
     profiles::save(profiles_path, &file)?;
 
@@ -132,6 +132,7 @@ pub fn save_profile_at(
 pub async fn delete_profile(id: String) -> Result<(), IpcError> {
     super::run_blocking(move || {
         delete_profile_at(&profiles::profiles_path(), &Config::config_path(), id)
+            .inspect(|_| crate::shell_menu::refresh())
     })
     .await
 }
@@ -145,8 +146,9 @@ pub fn delete_profile_at(
     // Reject built-ins before touching the file, so the attempt never even
     // reads (or risks a corrupt-file error masking) the real reason.
     if is_builtin_id(&id) {
-        return Err(IpcError::InvalidRequest(
-            "built-in profiles cannot be deleted".to_string(),
+        return Err(invalid(
+            "builtin_delete",
+            "built-in profiles cannot be deleted",
         ));
     }
 
@@ -156,12 +158,8 @@ pub fn delete_profile_at(
 
     profiles::delete(&mut file, &id, &default_id).map_err(|e| match e {
         DeleteError::NotFound => IpcError::ProfileNotFound(id.clone()),
-        DeleteError::IsDefault => {
-            IpcError::InvalidRequest("set another profile as default first".to_string())
-        }
-        DeleteError::Builtin => {
-            IpcError::InvalidRequest("built-in profiles cannot be deleted".to_string())
-        }
+        DeleteError::IsDefault => invalid("delete_default", "set another profile as default first"),
+        DeleteError::Builtin => invalid("builtin_delete", "built-in profiles cannot be deleted"),
     })?;
 
     profiles::save(profiles_path, &file)?;
@@ -177,6 +175,7 @@ pub fn delete_profile_at(
 pub async fn set_default_profile(id: String) -> Result<(), IpcError> {
     super::run_blocking(move || {
         set_default_profile_at(&profiles::profiles_path(), &Config::config_path(), id)
+            .inspect(|_| crate::shell_menu::refresh())
     })
     .await
 }
@@ -212,16 +211,158 @@ pub fn set_default_profile_at(
     persist_default(config_path, &id)
 }
 
+/// Export one profile — built-in or custom — to a standalone TOML document at
+/// `path`, so it can be shared across machines (FR-024).
+///
+/// The document holds the profile's *settings* only: the two computed flags are
+/// not part of the on-disk shape, so an exported file can never carry "I am the
+/// default" or "I am built in" onto another machine. The write is atomic, like
+/// every other profile write (FR-026).
+#[tauri::command]
+#[specta::specta]
+pub async fn export_profile(id: String, path: String) -> Result<(), IpcError> {
+    super::run_blocking(move || {
+        export_profile_at(
+            &profiles::profiles_path(),
+            &Config::config_path(),
+            id,
+            Path::new(&path),
+        )
+    })
+    .await
+}
+
+/// Path-injected core of [`export_profile`].
+pub fn export_profile_at(
+    profiles_path: &Path,
+    config_path: &Path,
+    id: String,
+    dest: &Path,
+) -> Result<(), IpcError> {
+    let profile = get_profile_at(profiles_path, config_path, id)?;
+    profiles::save(dest, &profiles::export_document(&profile))?;
+    tracing::info!(event = "profile_exported", profile_id = %profile.id);
+    Ok(())
+}
+
+/// Import profiles from a TOML document (FR-024), returning the newly created
+/// profiles with their computed flags.
+///
+/// The file is **untrusted input**: it is size-capped, parsed and validated in
+/// full before `profiles.toml` is even opened, and a single invalid entry
+/// rejects the whole document, so a rejected import can never leave a partial
+/// merge behind.
+///
+/// Collision policy (see [`profiles::merge_imported`]): every imported profile
+/// gets a **fresh id**, so an import only ever *adds* — it can neither
+/// overwrite an existing custom nor touch the immutable built-ins — and a name
+/// that collides case-insensitively is renamed `"{name} 2"`, `"{name} 3"`… the
+/// same way Clone does.
+#[tauri::command]
+#[specta::specta]
+pub async fn import_profiles(path: String) -> Result<Vec<Profile>, IpcError> {
+    super::run_blocking(move || {
+        import_profiles_at(
+            &profiles::profiles_path(),
+            &Config::config_path(),
+            Path::new(&path),
+        )
+        .inspect(|_| crate::shell_menu::refresh())
+    })
+    .await
+}
+
+/// Path-injected core of [`import_profiles`].
+pub fn import_profiles_at(
+    profiles_path: &Path,
+    config_path: &Path,
+    src: &Path,
+) -> Result<Vec<Profile>, IpcError> {
+    // Parse and structurally validate before taking the lock: a bad file must
+    // cost the user nothing but an error message.
+    let doc = profiles::read_document(src).map_err(import_error)?;
+
+    let _guard = PROFILES_LOCK.lock().unwrap();
+    let mut file = load_for_mutation(profiles_path)?;
+
+    // `merge_imported` mutates `file` in place, so an error must return before
+    // `save` — the on-disk file is only ever written after every entry passed.
+    let imported = profiles::merge_imported(&mut file, &doc.profile).map_err(import_error)?;
+    profiles::save(profiles_path, &file)?;
+
+    let default_id = current_default_id(config_path, &file);
+    let imported: Vec<Profile> = imported
+        .into_iter()
+        .map(|mut p| {
+            p.default = p.id == default_id;
+            p
+        })
+        .collect();
+    tracing::info!(event = "profiles_imported", count = imported.len());
+    Ok(imported)
+}
+
 /// Write `engine.default_profile = id` to `config.toml`. The caller must already
 /// hold [`CONFIG_LOCK`]. Uses [`Config::load_strict`] so a corrupt config is
 /// refused rather than silently rewritten as defaults + this one field.
 fn persist_default(config_path: &Path, id: &str) -> Result<(), IpcError> {
-    let mut cfg = Config::load_strict(config_path)
-        .map_err(|_| IpcError::Internal(CONFIG_CORRUPT_MSG.to_string()))?;
+    let mut cfg =
+        Config::load_strict(config_path).map_err(|_| crate::settings::config_corrupt_error())?;
     cfg.engine.default_profile = Some(id.to_string());
     cfg.save_to(config_path)?;
     tracing::info!(event = "default_profile_set", profile_id = %id);
     Ok(())
+}
+
+/// An `InvalidRequest` with a stable reason the UI translates (FR-092).
+fn invalid(reason: &'static str, message: impl Into<String>) -> IpcError {
+    IpcError::localized(IpcErrorCode::InvalidRequest, reason, message)
+}
+
+/// Map a rejected upsert to a localizable error. The English `Display` stays
+/// the detail; `reason` (+ params) is what the UI renders.
+fn upsert_error(e: UpsertError) -> IpcError {
+    match e {
+        UpsertError::Builtin => invalid("builtin_readonly", "built-in profiles cannot be modified"),
+        UpsertError::ReservedId => invalid(
+            "reserved_id",
+            "profile ids starting with 'builtin-' are reserved",
+        ),
+        UpsertError::IdTooLong => {
+            invalid("id_too_long", "profile id must be 100 characters or fewer")
+        }
+        UpsertError::Invalid(why) => profile_invalid(&why),
+    }
+}
+
+fn profile_invalid(why: &ProfileInvalid) -> IpcError {
+    let message = why.to_string();
+    match why {
+        ProfileInvalid::NameEmpty => invalid("name_empty", message),
+        ProfileInvalid::NameTooLong => invalid("name_too_long", message),
+        ProfileInvalid::NameTaken(name) => invalid("name_taken", message).with_param("name", name),
+        ProfileInvalid::Copies(n) => {
+            invalid("copies_out_of_range", message).with_param("copies", n)
+        }
+        ProfileInvalid::PageRange(_) => invalid("page_range", message),
+    }
+}
+
+/// Map a rejected import to a localizable error.
+fn import_error(e: ImportError) -> IpcError {
+    let message = e.to_string();
+    match e {
+        ImportError::TooLarge => invalid("import_too_large", message),
+        ImportError::Unreadable(_) => invalid("import_unreadable", message),
+        ImportError::Malformed(_) => invalid("import_malformed", message),
+        ImportError::UnsupportedVersion(v) => {
+            invalid("import_unsupported_version", message).with_param("version", v)
+        }
+        ImportError::Empty => invalid("import_empty", message),
+        ImportError::InvalidProfile { name, .. } => {
+            invalid("import_invalid_profile", message).with_param("name", name)
+        }
+    }
 }
 
 /// Load `profiles.toml` for a read-only command: a corrupt file degrades to
@@ -245,12 +386,15 @@ fn load_for_read(path: &Path) -> ProfilesFile {
 /// overwrite (and lose) data we could not safely round-trip.
 fn load_for_mutation(path: &Path) -> Result<ProfilesFile, IpcError> {
     profiles::load_for_mutation(path).map_err(|e| match e {
-        MutationLoadError::Unreadable(_) => IpcError::Internal(
-            "profiles.toml could not be parsed — fix or remove it".to_string(),
+        MutationLoadError::Unreadable(_) => IpcError::localized(
+            IpcErrorCode::Internal,
+            "profiles_corrupt",
+            "profiles.toml could not be parsed — fix or remove it",
         ),
-        MutationLoadError::InvalidEntries => IpcError::Internal(
-            "profiles.toml contains duplicate or invalid entries — fix or remove it; nothing was modified"
-                .to_string(),
+        MutationLoadError::InvalidEntries => IpcError::localized(
+            IpcErrorCode::Internal,
+            "profiles_invalid_entries",
+            "profiles.toml contains duplicate or invalid entries — fix or remove it; nothing was modified",
         ),
     })
 }
@@ -261,4 +405,332 @@ fn load_for_mutation(path: &Path) -> Result<ProfilesFile, IpcError> {
 fn current_default_id(config_path: &Path, file: &ProfilesFile) -> String {
     let cfg_default = Config::load_from(config_path).engine.default_profile;
     effective_default_id(cfg_default.as_deref(), &file.profile)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::profiles::{StoredProfile, BUILTIN_PHOTO_COLOR, BUILTIN_QUICK};
+    use crate::queue::job::{ColorMode, Orientation, PaperSize, Scaling};
+
+    /// A tempdir standing in for the config dir. Nothing here reads the real
+    /// per-user config: both paths are injected, and an absent `config.toml`
+    /// means "no configured default", which resolves to `builtin-quick`.
+    struct Env {
+        _dir: tempfile::TempDir,
+        profiles: std::path::PathBuf,
+        config: std::path::PathBuf,
+    }
+
+    fn env() -> Env {
+        let dir = tempfile::tempdir().unwrap();
+        Env {
+            profiles: dir.path().join("profiles.toml"),
+            config: dir.path().join("config.toml"),
+            _dir: dir,
+        }
+    }
+
+    fn stored(id: &str, name: &str) -> StoredProfile {
+        StoredProfile {
+            id: id.to_string(),
+            name: name.to_string(),
+            printer: "<default>".to_string(),
+            color_mode: ColorMode::Color,
+            duplex: crate::profiles::ProfileDuplex::Off,
+            copies: 1,
+            paper_size: PaperSize::A4,
+            orientation: Orientation::Auto,
+            scaling: Scaling::Fit,
+            page_range: None,
+            quality: crate::profiles::Quality::Normal,
+            tray: "auto".to_string(),
+            collate: true,
+        }
+    }
+
+    fn write_customs(env: &Env, customs: Vec<StoredProfile>) {
+        crate::profiles::save(
+            &env.profiles,
+            &ProfilesFile {
+                schema_version: 1,
+                profile: customs,
+            },
+        )
+        .unwrap();
+    }
+
+    // -- get_profile --------------------------------------------------------
+
+    #[test]
+    fn get_profile_returns_a_builtin_with_the_default_flag_computed() {
+        let env = env();
+        let quick = get_profile_at(&env.profiles, &env.config, BUILTIN_QUICK.to_string()).unwrap();
+        assert!(quick.builtin);
+        assert!(quick.default, "Quick is the fallback default");
+
+        let photo =
+            get_profile_at(&env.profiles, &env.config, BUILTIN_PHOTO_COLOR.to_string()).unwrap();
+        assert!(photo.builtin);
+        assert!(!photo.default);
+    }
+
+    /// FR-093: with the app in Spanish the built-ins are listed (and the
+    /// Explorer menu cache is written) with Spanish names; customs keep
+    /// theirs, and the ids never change.
+    #[test]
+    fn fr_093_builtins_are_named_in_the_app_language() {
+        let env = env();
+        write_customs(&env, vec![stored("c-1", "Press A")]);
+        let names = |env: &Env| -> Vec<(String, String)> {
+            list_profiles_at(&env.profiles, &env.config)
+                .unwrap()
+                .into_iter()
+                .map(|p| (p.id, p.name))
+                .collect()
+        };
+        assert_eq!(names(&env)[0].1, "Quick");
+
+        let mut cfg = Config::default();
+        cfg.app.locale = "es-ES".into();
+        cfg.save_to(&env.config).unwrap();
+        let es = names(&env);
+        assert_eq!(
+            es,
+            [
+                (BUILTIN_QUICK.to_string(), "R\u{e1}pido".to_string()),
+                (
+                    crate::profiles::BUILTIN_DUPLEX_BW.to_string(),
+                    "Doble cara B/N".to_string()
+                ),
+                (BUILTIN_PHOTO_COLOR.to_string(), "Foto color".to_string()),
+                ("c-1".to_string(), "Press A".to_string()),
+            ]
+        );
+        let photo =
+            get_profile_at(&env.profiles, &env.config, BUILTIN_PHOTO_COLOR.to_string()).unwrap();
+        assert_eq!(photo.name, "Foto color");
+
+        // The menu cache follows the same language, labels and names.
+        let dir = tempfile::tempdir().unwrap();
+        crate::shell_menu::refresh_at(dir.path(), &env.config, &env.profiles);
+        let cache: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join(crate::shell_menu::CACHE_FILE)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(cache["lang"], "es");
+        assert_eq!(cache["profiles"][0]["name"], "R\u{e1}pido");
+        assert_eq!(cache["labels"]["print_one"], "Imprimir 1 archivo");
+    }
+
+    #[test]
+    fn get_profile_returns_a_custom_and_never_marks_it_builtin() {
+        let env = env();
+        write_customs(&env, vec![stored("c-1", "Press A")]);
+
+        let p = get_profile_at(&env.profiles, &env.config, "c-1".to_string()).unwrap();
+        assert_eq!(p.name, "Press A");
+        assert!(!p.builtin);
+        assert!(!p.default);
+    }
+
+    #[test]
+    fn get_profile_reports_profile_not_found_for_an_unknown_id() {
+        let env = env();
+        let err = get_profile_at(&env.profiles, &env.config, "ghost".to_string()).unwrap_err();
+        assert!(
+            matches!(err, IpcError::ProfileNotFound(ref id) if id == "ghost"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn get_profile_degrades_to_builtins_when_profiles_toml_is_corrupt() {
+        let env = env();
+        std::fs::write(&env.profiles, b"not = valid = toml ][").unwrap();
+        // A read still answers for built-ins…
+        assert!(get_profile_at(&env.profiles, &env.config, BUILTIN_QUICK.to_string()).is_ok());
+        // …and a custom simply isn't there.
+        assert!(matches!(
+            get_profile_at(&env.profiles, &env.config, "c-1".to_string()),
+            Err(IpcError::ProfileNotFound(_))
+        ));
+    }
+
+    // -- export / import (FR-024) -------------------------------------------
+
+    #[test]
+    fn fr_024_export_then_import_round_trips_a_custom_profile() {
+        let env = env();
+        let mut custom = stored("c-1", "Press A");
+        custom.copies = 7;
+        custom.page_range = Some("1-3".to_string());
+        write_customs(&env, vec![custom]);
+
+        let dest = env
+            .profiles
+            .with_file_name("Press A.pluryprint-profile.toml");
+        export_profile_at(&env.profiles, &env.config, "c-1".to_string(), &dest).unwrap();
+        assert!(dest.exists());
+
+        let imported = import_profiles_at(&env.profiles, &env.config, &dest).unwrap();
+        assert_eq!(imported.len(), 1);
+        // Same settings, new identity, de-duplicated name.
+        assert_eq!(imported[0].copies, 7);
+        assert_eq!(imported[0].page_range.as_deref(), Some("1-3"));
+        assert_eq!(imported[0].name, "Press A 2");
+        assert_ne!(imported[0].id, "c-1");
+
+        let all = list_profiles_at(&env.profiles, &env.config).unwrap();
+        assert_eq!(all.len(), 5, "3 built-ins + the original + the import");
+    }
+
+    #[test]
+    fn fr_024_exporting_a_builtin_produces_an_importable_custom() {
+        let env = env();
+        let dest = env.profiles.with_file_name("quick.pluryprint-profile.toml");
+        export_profile_at(&env.profiles, &env.config, BUILTIN_QUICK.to_string(), &dest).unwrap();
+
+        let imported = import_profiles_at(&env.profiles, &env.config, &dest).unwrap();
+        assert_eq!(imported[0].name, "Quick 2");
+        assert!(
+            !imported[0].builtin,
+            "an imported profile is always a custom"
+        );
+        assert!(!imported[0].id.starts_with("builtin-"));
+    }
+
+    #[test]
+    fn fr_024_export_rejects_an_unknown_id_without_writing() {
+        let env = env();
+        let dest = env.profiles.with_file_name("ghost.toml");
+        assert!(matches!(
+            export_profile_at(&env.profiles, &env.config, "ghost".to_string(), &dest),
+            Err(IpcError::ProfileNotFound(_))
+        ));
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn fr_024_import_of_a_corrupt_file_leaves_the_store_untouched() {
+        let env = env();
+        write_customs(&env, vec![stored("c-1", "Press A")]);
+        let before = std::fs::read(&env.profiles).unwrap();
+
+        let bad = env.profiles.with_file_name("bad.toml");
+        std::fs::write(&bad, b"<<<not a profile document>>>").unwrap();
+
+        let err = import_profiles_at(&env.profiles, &env.config, &bad).unwrap_err();
+        assert_eq!(
+            err.code(),
+            IpcErrorCode::InvalidRequest,
+            "unexpected error: {err:?}"
+        );
+        // FR-092: a stable reason the UI translates, not just English prose.
+        assert_eq!(err.reason(), Some("import_malformed"));
+        assert_eq!(
+            std::fs::read(&env.profiles).unwrap(),
+            before,
+            "nothing was written"
+        );
+    }
+
+    /// FR-092: upsert/delete refusals carry stable reasons (+ params) so the
+    /// Spanish UI never shows the backend's English sentence.
+    #[test]
+    fn fr_092_profile_refusals_carry_stable_reasons() {
+        let env = env();
+        write_customs(&env, vec![stored("c-1", "Press A")]);
+
+        let mut dup = stored("", "press a").to_profile(false, false);
+        dup.id = String::new();
+        let err = save_profile_at(&env.profiles, &env.config, dup).unwrap_err();
+        assert_eq!(err.code(), IpcErrorCode::InvalidRequest);
+        assert_eq!(err.reason(), Some("name_taken"));
+        let v = serde_json::to_value(&err).unwrap();
+        assert_eq!(v["params"]["name"], "press a");
+
+        let err =
+            delete_profile_at(&env.profiles, &env.config, "builtin-quick".into()).unwrap_err();
+        assert_eq!(err.reason(), Some("builtin_delete"));
+    }
+
+    #[test]
+    fn fr_024_import_rejects_the_whole_document_when_one_entry_is_invalid() {
+        let env = env();
+        write_customs(&env, vec![stored("c-1", "Press A")]);
+        let before = std::fs::read(&env.profiles).unwrap();
+
+        let mut bad = stored("b", "Bad One");
+        bad.copies = 0;
+        let doc = ProfilesFile {
+            schema_version: 1,
+            profile: vec![stored("a", "Good One"), bad],
+        };
+        let src = env.profiles.with_file_name("bundle.toml");
+        std::fs::write(&src, toml::to_string_pretty(&doc).unwrap()).unwrap();
+
+        let err = import_profiles_at(&env.profiles, &env.config, &src).unwrap_err();
+        assert_eq!(err.code(), IpcErrorCode::InvalidRequest);
+        assert_eq!(err.reason(), Some("import_invalid_profile"));
+        assert_eq!(
+            std::fs::read(&env.profiles).unwrap(),
+            before,
+            "an all-or-nothing import wrote nothing"
+        );
+    }
+
+    #[test]
+    fn fr_024_import_cannot_overwrite_an_existing_custom_or_a_builtin() {
+        let env = env();
+        let mut mine = stored("c-1", "Press A");
+        mine.copies = 3;
+        write_customs(&env, vec![mine]);
+
+        // A hostile document reusing a local id and a reserved built-in id.
+        let mut hijack_custom = stored("c-1", "Hijack A");
+        hijack_custom.copies = 99;
+        let doc = ProfilesFile {
+            schema_version: 1,
+            profile: vec![hijack_custom, stored("builtin-quick", "Hijack Quick")],
+        };
+        let src = env.profiles.with_file_name("hostile.toml");
+        std::fs::write(&src, toml::to_string_pretty(&doc).unwrap()).unwrap();
+
+        let imported = import_profiles_at(&env.profiles, &env.config, &src).unwrap();
+        assert_eq!(imported.len(), 2);
+
+        let all = list_profiles_at(&env.profiles, &env.config).unwrap();
+        let original = all.iter().find(|p| p.id == "c-1").expect("still there");
+        assert_eq!(original.copies, 3, "the local profile was not overwritten");
+        let quick = all
+            .iter()
+            .find(|p| p.id == BUILTIN_QUICK)
+            .expect("built-in intact");
+        assert_eq!(quick.name, "Quick");
+        assert!(quick.builtin);
+    }
+
+    #[test]
+    fn fr_024_import_refuses_to_touch_a_corrupt_profiles_toml() {
+        let env = env();
+        std::fs::write(&env.profiles, b"not = valid = toml ][").unwrap();
+        let before = std::fs::read(&env.profiles).unwrap();
+
+        let src = env.profiles.with_file_name("ok.toml");
+        std::fs::write(
+            &src,
+            toml::to_string_pretty(&ProfilesFile {
+                schema_version: 1,
+                profile: vec![stored("a", "Fine")],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let err = import_profiles_at(&env.profiles, &env.config, &src).unwrap_err();
+        assert_eq!(err.code(), IpcErrorCode::Internal);
+        assert_eq!(err.reason(), Some("profiles_corrupt"));
+        assert_eq!(std::fs::read(&env.profiles).unwrap(), before);
+    }
 }

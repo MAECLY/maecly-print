@@ -1,10 +1,19 @@
+# The checks a pull request must pass: lint, typecheck, format and tests for
+# the frontend, and fmt, clippy and tests for the Rust backend on the two
+# platforms Pluryprint ships for. Nothing here builds an installer or reads a
+# secret; release.yml builds, measures and signs the shipped artifacts (and
+# checks THIRD-PARTY-NOTICES.md before it does).
 name: CI
 
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+
+# Every job only reads the repository; none publishes anything.
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -12,307 +21,93 @@ concurrency:
 
 jobs:
   frontend:
-    name: Frontend (lint + typecheck + test)
+    name: Frontend (lint + typecheck + format + test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Lint
         run: pnpm lint
 
-      - name: Format check
-        run: pnpm format:check
-
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test (with V8 coverage)
-        run: pnpm test:coverage
+      - name: Format check
+        run: pnpm format:check
 
-      - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-coverage
-          path: coverage/
-          retention-days: 7
+      - name: Test
+        run: pnpm test
 
+  # The Rust code is heavily cfg-gated (WinSpool and the Explorer handler on
+  # Windows, CUPS on macOS), so it is checked on both shipped platforms.
   backend:
-    name: Backend (Rust)
-    runs-on: windows-latest
+    name: Backend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    env:
+      # A test run never moves a MaeclyPrint-era data directory (ADR-0009).
+      PLURYPRINT_SKIP_MIGRATION: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10
         with:
+          toolchain: stable
           components: rustfmt, clippy
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             src-tauri/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+            shell-ext-win/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock', 'shell-ext-win/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      # Formatting does not depend on the platform: once is enough.
       - name: cargo fmt
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+        if: runner.os == 'Windows'
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+          cargo fmt --manifest-path shell-ext-win/Cargo.toml --all -- --check
 
       - name: cargo clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
+      # A full run, never filtered: tests/ipc_surface.rs regenerates
+      # src/ipc/bindings.ts and fails when the committed copy is stale.
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
-  macos:
-    name: macOS (CUPS enumeration + frontend)
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
+      # The Explorer context-menu DLL is its own crate (own target dir, own
+      # `panic = "unwind"` release profile), and its COM layer only builds
+      # on Windows.
+      - name: cargo clippy (shell extension)
+        if: runner.os == 'Windows'
+        run: cargo clippy --manifest-path shell-ext-win/Cargo.toml --all-targets -- -D warnings
 
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # Exercises the CUPS backend (cups.rs) and the real-enumeration smoke
-      # test against the runner's CUPS — the path Windows CI cannot cover.
-      - name: cargo clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-
-      - name: cargo test
-        run: cargo test --manifest-path src-tauri/Cargo.toml
-
-      - name: Frontend test
-        run: pnpm test
-
-      # Advisory GUI smoke: build the debug app and confirm it boots (logs
-      # app_started to ~/Library/Logs/MaeclyPrint). WKWebView has no WebDriver
-      # and a headless runner has no guaranteed window server, so this is
-      # best-effort — continue-on-error keeps it from gating the macOS lane.
-      - name: Tauri build (debug)
-        continue-on-error: true
-        run: pnpm tauri build --debug
-
-      - name: Smoke launch (macOS)
-        continue-on-error: true
-        run: |
-          BIN="src-tauri/target/debug/maeclyprint"
-          if [ ! -x "$BIN" ]; then echo "binary not found at $BIN"; exit 1; fi
-          LOGDIR="$HOME/Library/Logs/MaeclyPrint"
-          "$BIN" &
-          PID=$!
-          started=0
-          for _ in $(seq 1 60); do
-            if grep -qs app_started "$LOGDIR"/maeclyprint.jsonl* 2>/dev/null; then
-              started=1; break
-            fi
-            sleep 1
-          done
-          kill "$PID" 2>/dev/null || true
-          if [ "$started" -eq 1 ]; then
-            echo "Smoke launch OK - app_started observed"
-          else
-            echo "App did not log app_started within 60s"; exit 1
-          fi
-
-  build:
-    name: Tauri build (unsigned)
-    needs: [frontend, backend]
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Tauri build
-        run: pnpm tauri build --debug
-
-      # Confirm the packaged binary actually boots: launch it against an
-      # isolated APPDATA/LOCALAPPDATA and poll the log for the startup events
-      # the backend emits (app_started, then main_window_resolved). Catches
-      # missing runtime deps / startup panics a compile-only build would miss.
-      - name: Smoke launch (Windows)
-        shell: pwsh
-        run: |
-          $exe = "src-tauri/target/debug/maeclyprint.exe"
-          if (-not (Test-Path $exe)) { throw "Built binary not found at $exe" }
-
-          # Sandbox config/data/logs so we poll a fresh log directory.
-          $sandbox = Join-Path $env:RUNNER_TEMP "mp-smoke"
-          New-Item -ItemType Directory -Force -Path $sandbox | Out-Null
-          $env:APPDATA = $sandbox
-          $env:LOCALAPPDATA = $sandbox
-
-          $p = Start-Process -FilePath $exe -PassThru
-          $started = $false
-          $windowOk = $false
-          try {
-            $deadline = (Get-Date).AddSeconds(60)
-            while ((Get-Date) -lt $deadline) {
-              $logs = Get-ChildItem -Path $sandbox -Recurse -Filter "maeclyprint.jsonl*" -ErrorAction SilentlyContinue
-              if ($logs) {
-                $text = ($logs | Get-Content -Raw -ErrorAction SilentlyContinue) -join "`n"
-                if ($text -match "app_started") { $started = $true }
-                if ($text -match "main_window_resolved") { $windowOk = $true }
-              }
-              if ($started -and $windowOk) { break }
-              Start-Sleep -Milliseconds 500
-            }
-          } finally {
-            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
-          }
-
-          if (-not $started) { throw "Timed out: no 'app_started' log line within 60s" }
-          if (-not $windowOk) { throw "Timed out: no 'main_window_resolved' log line within 60s" }
-          Write-Host "Smoke launch OK - app_started + main_window_resolved observed"
-
-      - name: Upload smoke log (Windows)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-smoke-log
-          path: ${{ runner.temp }}/mp-smoke/**/maeclyprint.jsonl*
-          if-no-files-found: ignore
-          retention-days: 7
-
-  e2e:
-    name: E2E (WebdriverIO + tauri-driver)
-    needs: [frontend, backend]
-    runs-on: windows-latest
-    timeout-minutes: 35
-    # Non-blocking: driving a real WebView2 GUI through tauri-driver (pre-1.0)
-    # is inherently flake-prone, so failures inform but do not gate merges.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
-          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install tauri-driver
-        run: cargo install tauri-driver --locked
-
-      - name: Provision msedgedriver (matching WebView2)
-        shell: pwsh
-        run: |
-          # tauri-driver drives the app's WebView2; msedgedriver must match the
-          # installed WebView2 Evergreen Runtime. Read its version from the
-          # runtime's registry client key, then fetch the matching driver.
-          $key = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
-          $version = (Get-ItemProperty -Path $key -Name pv -ErrorAction Stop).pv
-          Write-Host "WebView2 runtime version: $version"
-          $zip = Join-Path $env:RUNNER_TEMP "edgedriver.zip"
-          $dest = Join-Path $env:RUNNER_TEMP "edgedriver"
-          Invoke-WebRequest -UseBasicParsing `
-            -Uri "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" `
-            -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath $dest -Force
-          "NATIVE_DRIVER=$dest\msedgedriver.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "msedgedriver at $dest\msedgedriver.exe"
-
-      # Build the frontend then the app binary directly (faster than a full
-      # `tauri build`, which also produces installers the E2E run doesn't need).
-      - name: Build frontend + app binary (debug)
-        run: |
-          pnpm build
-          cargo build --manifest-path src-tauri/Cargo.toml
-
-      # wdio.conf.ts spawns tauri-driver with --native-driver $NATIVE_DRIVER.
-      - name: Run E2E specs
-        run: pnpm test:e2e
-
-      - name: Upload E2E artifacts (screenshots)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-artifacts
-          path: e2e/artifacts/
-          if-no-files-found: ignore
-          retention-days: 7
+      - name: cargo test (shell extension)
+        if: runner.os == 'Windows'
+        run: cargo test --manifest-path shell-ext-win/Cargo.toml

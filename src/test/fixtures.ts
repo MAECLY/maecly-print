@@ -27,6 +27,8 @@ export const fixturePrinters: Printer[] = [
     kind: 'mfp',
     color: true,
     duplex: true,
+    color_unknown: false,
+    duplex_unknown: false,
     status: 'ready',
     is_default: true,
     location: 'Front office',
@@ -47,6 +49,8 @@ export const fixturePrinters: Printer[] = [
     kind: 'laser',
     color: false,
     duplex: true,
+    color_unknown: false,
+    duplex_unknown: false,
     status: 'ready',
     is_default: false,
     location: '',
@@ -85,6 +89,8 @@ const fixtureVirtualPrinter: Printer = {
   kind: 'virtual',
   color: true,
   duplex: false,
+  color_unknown: false,
+  duplex_unknown: false,
   status: 'ready',
   is_default: false,
   location: '',
@@ -329,11 +335,13 @@ export const fixtureAppSettings: AppSettings = {
     theme: 'system',
     launch_minimized: false,
     density: 'comfortable',
+    native_notifications: true,
   },
   engine: {
     max_concurrent_conversions: 2,
     conversion_timeout_seconds: 60,
     max_file_size_mb: 200,
+    print_timeout_seconds: 300,
     default_profile: null,
   },
   updater: {
@@ -350,10 +358,9 @@ export const fixtureAppSettings: AppSettings = {
 export const fixtureAppInfo: AppInfo = {
   version: '1.0.0',
   build_date: '2026-07-01',
-  config_dir:
-    '/Users/maecly/Library/Application Support/com.maecly.maeclyprint',
-  data_dir: '/Users/maecly/Library/Application Support/com.maecly.maeclyprint',
-  log_dir: '/Users/maecly/Library/Logs/com.maecly.maeclyprint',
+  config_dir: '/Users/maecly/Library/Application Support/com.Maecly.Pluryprint',
+  data_dir: '/Users/maecly/Library/Application Support/com.Maecly.Pluryprint',
+  log_dir: '/Users/maecly/Library/Logs/Pluryprint',
   os: 'macos',
   arch: 'aarch64',
 };
@@ -373,7 +380,7 @@ export const fixtureUpdateCheckAvailable: UpdateCheck = {
   current: '1.0.0',
   latest: '9.9.9',
   available: true,
-  url: 'https://github.com/maecly/maeclyprint/releases/tag/v9.9.9',
+  url: 'https://github.com/MAECLY/maecly-print/releases/tag/v9.9.9',
   notes: '## 9.9.9\n\n- Everything is better now.',
   checked_at: '2026-07-11T10:00:00Z',
 };

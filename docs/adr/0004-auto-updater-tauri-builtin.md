@@ -48,7 +48,7 @@ Specifically:
 | **NetSparkle / WinSparkle**           | C#/C++ libraries; great APIs, but again not first-party for Tauri and not cross-platform from one library. WinSparkle's manifest format is XML-only (less flexible than JSON). |
 | **Custom updater** (rolled in-house)  | Plenty of pitfalls: signature verification, atomic file replacement on Windows (file in use), MSIX re-registration, macOS `.app` swap, retry semantics. Would consume weeks of dev time and never be as well-tested as the Tauri plugin. |
 | **GitHub Releases as host (no separate manifest server)** | Couples our release pipeline to GitHub's availability and rate limits. Loses control over CDN behavior. The Tauri plugin can use GitHub Releases directly, but we can also use it with our own host — and the latter is preferable for branding and reliability. |
-| **App store distribution only** (Mac App Store, Microsoft Store) | We considered this for macOS. Rejected because (a) GPLv3 has known friction with the Mac App Store, (b) Microsoft Store reduces our control, (c) the app stores are slow at update review. We can revisit later for the Microsoft Store as an *additional* distribution channel. |
+| **App store distribution only** (Mac App Store, Microsoft Store) | We considered this for macOS. Rejected because (a) GPL-family licences (GPLv3 then, AGPL-3.0 since ADR-0010) have known friction with the Mac App Store, (b) Microsoft Store reduces our control, (c) the app stores are slow at update review. We can revisit later for the Microsoft Store as an *additional* distribution channel. |
 | **Tauri's built-in dialog (instead of custom UI)** | The plugin's default dialog is functional but doesn't match our React design system. We use the plugin's *backend* and render our own React UI. |
 
 ## Consequences
@@ -56,7 +56,7 @@ Specifically:
 ### Positive
 
 - **First-party for Tauri.** Maintained by the same team that maintains the framework. Bug reports go to one place.
-- **MIT-licensed.** Compatible with our GPLv3 codebase (MIT can be combined into GPLv3 outputs).
+- **MIT-licensed.** Compatible with our AGPL-3.0 codebase (MIT can be combined into AGPL-3.0 outputs; GPLv3 when this ADR was written).
 - **Signed updates with minisign (Ed25519).** Strong cryptography, well-understood library.
 - **Cross-platform with one configuration.** Same `tauri.conf.json` block; only the binary URL pattern differs per platform.
 - **Static-host friendly.** A JSON file on S3 + CloudFront is the entire server. No Lambdas, no Node service, no ops burden.

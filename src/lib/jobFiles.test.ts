@@ -1,0 +1,648 @@
+/**
+ * Unit tests for the "add files to the job" pipeline. The IPC layer is mocked
+ * at `@/lib/ipc` (not at the Tauri transport) so these stay hermetic: no host,
+ * no config, no real filesystem.
+ */
+
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+
+import type { FileInfo, FolderExpansion } from '@/lib/ipc';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { fixtureAppSettings } from '@/test/fixtures';
+import type { UiFile } from '@/types/domain';
+
+const ipc = vi.hoisted(() => ({
+  inspectFiles: vi.fn<(paths: string[]) => Promise<FileInfo[]>>(),
+  expandFolders: vi.fn<() => Promise<FolderExpansion[]>>(),
+}));
+const toasts = vi.hoisted(() => ({
+  error: vi.fn(),
+  warning: vi.fn(),
+  success: vi.fn(),
+  info: vi.fn(),
+  loading: vi.fn(),
+  dismiss: vi.fn(),
+}));
+
+vi.mock('@/lib/ipc', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/ipc')>();
+  return {
+    ...actual,
+    inspectFiles: ipc.inspectFiles,
+    expandFolders: ipc.expandFolders,
+  };
+});
+vi.mock('sonner', () => ({ toast: toasts }));
+
+import {
+  addPathsToJob,
+  clearPendingFolders,
+  expandFolderIntoJob,
+  getExpandingCount,
+  getPendingFolders,
+  inspectPaths,
+  resolvePendingFolder,
+  resolveSelectionFiles,
+  subscribePendingFolders,
+} from './jobFiles';
+
+function fileInfo(path: string, over: Partial<FileInfo> = {}): FileInfo {
+  const name = path.split('/').pop() ?? path;
+  return {
+    path,
+    name,
+    ext: (name.split('.').pop() ?? '').toLowerCase(),
+    bytes: 2048,
+    pages: 3,
+    supported: true,
+    reason: null,
+    reason_code: null,
+    is_dir: false,
+    has_subfolders: false,
+    ...over,
+  };
+}
+
+function folderInfo(path: string, hasSubfolders: boolean): FileInfo {
+  return fileInfo(path, {
+    ext: '',
+    bytes: 0,
+    pages: null,
+    supported: false,
+    reason: 'Folder — expand it to print the files inside',
+    is_dir: true,
+    has_subfolders: hasSubfolders,
+  });
+}
+
+function expansion(over: Partial<FolderExpansion> = {}): FolderExpansion {
+  return {
+    root: '/docs',
+    scan: 'top_level',
+    files: [],
+    skipped: [],
+    files_truncated: false,
+    depth_truncated: false,
+    limits: { max_files: 5000, max_depth: 16 },
+    ...over,
+  };
+}
+
+/** A `setFiles` that behaves like React's, exposing the accumulated list. */
+function collector() {
+  let list: UiFile[] = [];
+  const setFiles = (update: UiFile[] | ((cur: UiFile[]) => UiFile[])) => {
+    list = typeof update === 'function' ? update(list) : update;
+  };
+  return { setFiles, get: () => list };
+}
+
+describe('jobFiles', () => {
+  beforeEach(() => {
+    clearPendingFolders();
+    ipc.inspectFiles.mockReset();
+    ipc.expandFolders.mockReset();
+    for (const fn of Object.values(toasts)) fn.mockReset();
+  });
+  afterEach(() => clearPendingFolders());
+
+  // -- inspectPaths ------------------------------------------------------
+
+  it('FR-005: splits an inspection into files, folders and refusals', async () => {
+    ipc.inspectFiles.mockResolvedValue([
+      fileInfo('/docs/a.pdf'),
+      folderInfo('/docs/reports', true),
+      fileInfo('/docs/notes.txt', {
+        supported: false,
+        reason: 'Unsupported file type',
+      }),
+    ]);
+
+    const out = await inspectPaths(['/docs/a.pdf', '/docs/reports', '/x.txt']);
+
+    expect(out.files.map((f) => f.path)).toEqual(['/docs/a.pdf']);
+    expect(out.folders).toEqual([
+      { path: '/docs/reports', name: 'reports', hasSubfolders: true },
+    ]);
+    expect(out.rejected).toEqual([
+      { name: 'notes.txt', reason: 'Unsupported file type' },
+    ]);
+  });
+
+  it('FR-092: translates a refusal from its stable reason_code', async () => {
+    useSettingsStore.setState({
+      settings: {
+        ...fixtureAppSettings,
+        app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+        engine: { ...fixtureAppSettings.engine, max_file_size_mb: 50 },
+      },
+    });
+    ipc.inspectFiles.mockResolvedValue([
+      fileInfo('/docs/notes.txt', {
+        supported: false,
+        reason: 'Unsupported file type',
+        reason_code: 'unsupported_type',
+      }),
+      fileInfo('/docs/huge.pdf', {
+        supported: false,
+        reason: 'Larger than the 50 MB limit',
+        reason_code: 'too_large',
+      }),
+    ]);
+    try {
+      const out = await inspectPaths(['/docs/notes.txt', '/docs/huge.pdf']);
+      expect(out.rejected).toEqual([
+        { name: 'notes.txt', reason: 'Tipo de archivo no compatible' },
+        { name: 'huge.pdf', reason: 'Supera el límite de 50 MB' },
+      ]);
+    } finally {
+      useSettingsStore.setState({ settings: null });
+    }
+  });
+
+  it('FR-052 (D9): a GIF is refused with its own sentence, dropped or found in a folder', async () => {
+    useSettingsStore.setState({
+      settings: {
+        ...fixtureAppSettings,
+        app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+      },
+    });
+    ipc.inspectFiles.mockResolvedValue([
+      fileInfo('/docs/anim.gif', {
+        supported: false,
+        reason: 'GIF images are not supported',
+        reason_code: 'gif_unsupported',
+      }),
+    ]);
+    try {
+      const out = await inspectPaths(['/docs/anim.gif']);
+      expect(out.rejected).toEqual([
+        {
+          name: 'anim.gif',
+          reason:
+            'Las imágenes GIF no se admiten: conviértelas antes a PNG o JPEG',
+        },
+      ]);
+
+      ipc.inspectFiles.mockResolvedValue([]);
+      ipc.expandFolders.mockResolvedValue([
+        expansion({
+          root: '/docs/r',
+          skipped: [
+            {
+              path: '/docs/r/anim.GIF',
+              name: 'anim.GIF',
+              reason: 'unsupported_format',
+              detail: 'Unsupported file type (.gif)',
+            },
+          ],
+        }),
+      ]);
+      await expandFolderIntoJob(
+        { path: '/docs/r', name: 'r', hasSubfolders: false },
+        'top_level',
+        collector().setFiles,
+      );
+      const [, opts] = toasts.warning.mock.calls[0] as [
+        string,
+        { description: string },
+      ];
+      expect(opts.description).toContain(
+        'anim.GIF — Las imágenes GIF no se admiten',
+      );
+    } finally {
+      useSettingsStore.setState({ settings: null });
+    }
+  });
+
+  it('strips the extension from the display name and rounds the size', async () => {
+    ipc.inspectFiles.mockResolvedValue([
+      fileInfo('/docs/report.PDF', {
+        name: 'report.PDF',
+        ext: 'pdf',
+        bytes: 3072,
+      }),
+    ]);
+    const [file] = (await inspectPaths(['/docs/report.PDF'])).files;
+    expect(file).toMatchObject({ name: 'report', ext: 'pdf', kb: 3 });
+  });
+
+  it('never calls the backend for an empty selection', async () => {
+    await inspectPaths([]);
+    expect(ipc.inspectFiles).not.toHaveBeenCalled();
+  });
+
+  // -- addPathsToJob -----------------------------------------------------
+
+  it('appends printable files and dedupes against what is already there', async () => {
+    ipc.inspectFiles.mockResolvedValue([
+      fileInfo('/docs/a.pdf'),
+      fileInfo('/docs/b.pdf'),
+    ]);
+    const files = collector();
+    files.setFiles([
+      { id: '/docs/a.pdf', name: 'a', ext: 'pdf', kb: 2, path: '/docs/a.pdf' },
+    ]);
+
+    await addPathsToJob(['/docs/a.pdf', '/docs/b.pdf'], files.setFiles);
+
+    expect(files.get().map((f) => f.path)).toEqual([
+      '/docs/a.pdf',
+      '/docs/b.pdf',
+    ]);
+  });
+
+  it('FR-005: lists every refusal by name and reason in one toast', async () => {
+    ipc.inspectFiles.mockResolvedValue([
+      fileInfo('/a.txt', { supported: false, reason: 'Unsupported file type' }),
+      fileInfo('/b.heic', {
+        supported: false,
+        reason: 'HEIC is not supported yet — convert it to JPEG or PNG first',
+      }),
+    ]);
+    const files = collector();
+
+    await addPathsToJob(['/a.txt', '/b.heic'], files.setFiles);
+
+    expect(toasts.error).toHaveBeenCalledTimes(1);
+    const [title, opts] = toasts.error.mock.calls[0] as [
+      string,
+      { description: string },
+    ];
+    expect(title).toContain('2');
+    expect(opts.description).toContain('a.txt — Unsupported file type');
+    expect(opts.description).toContain('HEIC is not supported yet');
+  });
+
+  it('surfaces an inspection failure as a toast instead of throwing', async () => {
+    ipc.inspectFiles.mockRejectedValue(new Error('IPC exploded'));
+    const files = collector();
+
+    // Nothing reached the job, and the caller is told so rather than having
+    // to catch: a context-menu "print now" must not spool an empty batch.
+    await expect(addPathsToJob(['/a.pdf'], files.setFiles)).resolves.toEqual(
+      [],
+    );
+
+    expect(toasts.error).toHaveBeenCalledWith('IPC exploded');
+    expect(files.get()).toEqual([]);
+  });
+
+  // -- folders (FR-004) --------------------------------------------------
+
+  it('FR-004: parks a folder with subfolders instead of guessing', async () => {
+    ipc.inspectFiles.mockResolvedValue([folderInfo('/docs/reports', true)]);
+    const files = collector();
+
+    await addPathsToJob(['/docs/reports'], files.setFiles);
+
+    expect(ipc.expandFolders).not.toHaveBeenCalled();
+    expect(getPendingFolders()).toEqual([
+      { path: '/docs/reports', name: 'reports', hasSubfolders: true },
+    ]);
+  });
+
+  it('FR-004: expands a folder with no subfolders without asking', async () => {
+    ipc.inspectFiles.mockImplementation(async (paths) =>
+      paths[0] === '/docs/flat'
+        ? [folderInfo('/docs/flat', false)]
+        : paths.map((p) => fileInfo(p)),
+    );
+    ipc.expandFolders.mockResolvedValue([
+      expansion({ root: '/docs/flat', files: ['/docs/flat/a.pdf'] }),
+    ]);
+    const files = collector();
+
+    await addPathsToJob(['/docs/flat'], files.setFiles);
+
+    expect(getPendingFolders()).toEqual([]);
+    expect(ipc.expandFolders).toHaveBeenCalledWith(['/docs/flat'], 'top_level');
+    expect(files.get().map((f) => f.path)).toEqual(['/docs/flat/a.pdf']);
+  });
+
+  it('FR-004: does not park the same folder twice', async () => {
+    ipc.inspectFiles.mockResolvedValue([folderInfo('/docs/reports', true)]);
+    const files = collector();
+
+    await addPathsToJob(['/docs/reports'], files.setFiles);
+    await addPathsToJob(['/docs/reports'], files.setFiles);
+
+    expect(getPendingFolders()).toHaveLength(1);
+  });
+
+  it('FR-004: the answer expands the folder and clears the question', async () => {
+    ipc.inspectFiles.mockResolvedValue([fileInfo('/docs/reports/a.pdf')]);
+    ipc.expandFolders.mockResolvedValue([
+      expansion({
+        root: '/docs/reports',
+        scan: 'recursive',
+        files: ['/docs/reports/a.pdf'],
+      }),
+    ]);
+    const files = collector();
+
+    await expandFolderIntoJob(
+      { path: '/docs/reports', name: 'reports', hasSubfolders: true },
+      'recursive',
+      files.setFiles,
+    );
+
+    expect(ipc.expandFolders).toHaveBeenCalledWith(
+      ['/docs/reports'],
+      'recursive',
+    );
+    expect(files.get().map((f) => f.path)).toEqual(['/docs/reports/a.pdf']);
+    expect(getPendingFolders()).toEqual([]);
+  });
+
+  it('FR-092 (D9): a refused GIF says GIF is not supported, dropped or found in a folder', async () => {
+    ipc.inspectFiles.mockResolvedValue([
+      fileInfo('/docs/anim.GIF', {
+        supported: false,
+        reason: 'Unsupported file type',
+        reason_code: 'unsupported_type',
+      }),
+    ]);
+    const out = await inspectPaths(['/docs/anim.GIF']);
+    expect(out.rejected).toEqual([
+      {
+        name: 'anim.GIF',
+        reason:
+          'GIF images are not supported — convert them to PNG or JPEG first',
+      },
+    ]);
+
+    ipc.inspectFiles.mockResolvedValue([fileInfo('/docs/r/a.pdf')]);
+    ipc.expandFolders.mockResolvedValue([
+      expansion({
+        root: '/docs/r',
+        files: ['/docs/r/a.pdf'],
+        skipped: [
+          {
+            path: '/docs/r/loop.gif',
+            name: 'loop.gif',
+            reason: 'unsupported_format',
+            detail: 'Unsupported file type (.gif)',
+          },
+        ],
+      }),
+    ]);
+    const files = collector();
+    await expandFolderIntoJob(
+      { path: '/docs/r', name: 'r', hasSubfolders: false },
+      'top_level',
+      files.setFiles,
+    );
+    const [, opts] = toasts.warning.mock.calls.at(-1) as [
+      string,
+      { description: string },
+    ];
+    expect(opts.description).toContain(
+      'loop.gif — GIF images are not supported',
+    );
+  });
+
+  it('FR-005: shows the files a folder walk discarded, with their reason', async () => {
+    ipc.inspectFiles.mockResolvedValue([fileInfo('/docs/r/a.pdf')]);
+    ipc.expandFolders.mockResolvedValue([
+      expansion({
+        root: '/docs/r',
+        files: ['/docs/r/a.pdf'],
+        skipped: [
+          {
+            path: '/docs/r/notes.docx',
+            name: 'notes.docx',
+            reason: 'unsupported_format',
+            detail: 'Unsupported file type (.docx)',
+          },
+        ],
+      }),
+    ]);
+    const files = collector();
+
+    await expandFolderIntoJob(
+      { path: '/docs/r', name: 'r', hasSubfolders: false },
+      'top_level',
+      files.setFiles,
+    );
+
+    expect(toasts.warning).toHaveBeenCalledTimes(1);
+    const [, opts] = toasts.warning.mock.calls[0] as [
+      string,
+      { description: string },
+    ];
+    expect(opts.description).toContain(
+      'notes.docx — Unsupported file type (.docx)',
+    );
+  });
+
+  it('warns when a safety ceiling truncated the walk', async () => {
+    ipc.inspectFiles.mockResolvedValue([]);
+    ipc.expandFolders.mockResolvedValue([
+      expansion({
+        scan: 'recursive',
+        files_truncated: true,
+        depth_truncated: true,
+      }),
+    ]);
+    const files = collector();
+
+    await expandFolderIntoJob(
+      { path: '/docs/huge', name: 'huge', hasSubfolders: true },
+      'recursive',
+      files.setFiles,
+    );
+
+    // One warning for the entry ceiling, one for the depth ceiling.
+    expect(toasts.warning).toHaveBeenCalledTimes(2);
+  });
+
+  it('says so when a folder holds nothing printable', async () => {
+    ipc.expandFolders.mockResolvedValue([expansion()]);
+    const files = collector();
+
+    await expandFolderIntoJob(
+      { path: '/docs/empty', name: 'empty', hasSubfolders: false },
+      'top_level',
+      files.setFiles,
+    );
+
+    expect(toasts.info).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed expansion is reported, not swallowed', async () => {
+    ipc.expandFolders.mockRejectedValue(new Error('permission denied'));
+    const files = collector();
+
+    await expandFolderIntoJob(
+      { path: '/docs/x', name: 'x', hasSubfolders: false },
+      'top_level',
+      files.setFiles,
+    );
+
+    expect(toasts.error).toHaveBeenCalledWith('permission denied');
+  });
+
+  // -- the pending-folder store -----------------------------------------
+
+  it('notifies subscribers when the pending folders change', async () => {
+    const seen = vi.fn();
+    const unsubscribe = subscribePendingFolders(seen);
+    ipc.inspectFiles.mockResolvedValue([folderInfo('/docs/reports', true)]);
+    const files = collector();
+
+    await addPathsToJob(['/docs/reports'], files.setFiles);
+    expect(seen).toHaveBeenCalled();
+
+    const before = getPendingFolders();
+    resolvePendingFolder('/docs/reports');
+    expect(getPendingFolders()).toEqual([]);
+    expect(getPendingFolders()).not.toBe(before);
+
+    unsubscribe();
+    resolvePendingFolder('/nothing');
+    expect(seen).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns a referentially stable snapshot between changes', () => {
+    expect(getPendingFolders()).toBe(getPendingFolders());
+  });
+
+  // -- honest counts, progress, selections ------------------------------
+
+  it('counts only the files that were new to the job', async () => {
+    ipc.inspectFiles.mockImplementation(async (paths) =>
+      paths.map((p) => fileInfo(p)),
+    );
+    ipc.expandFolders.mockResolvedValue([
+      expansion({ root: '/docs/r', files: ['/docs/r/a.pdf', '/docs/r/b.pdf'] }),
+    ]);
+    const files = collector();
+    files.setFiles([
+      {
+        id: '/docs/r/a.pdf',
+        name: 'a',
+        ext: 'pdf',
+        kb: 2,
+        path: '/docs/r/a.pdf',
+      },
+    ]);
+
+    const added = await expandFolderIntoJob(
+      { path: '/docs/r', name: 'r', hasSubfolders: false },
+      'top_level',
+      files.setFiles,
+      () => new Set(files.get().map((f) => f.path)),
+    );
+
+    expect(added.map((f) => f.path)).toEqual(['/docs/r/b.pdf']);
+    expect(toasts.success).toHaveBeenCalledWith(
+      'Added 1 file from “r”',
+      expect.anything(),
+    );
+  });
+
+  it('says so when every file of a folder was already in the job', async () => {
+    ipc.inspectFiles.mockImplementation(async (paths) =>
+      paths.map((p) => fileInfo(p)),
+    );
+    ipc.expandFolders.mockResolvedValue([
+      expansion({ root: '/docs/r', files: ['/docs/r/a.pdf'] }),
+    ]);
+    const files = collector();
+    files.setFiles([
+      {
+        id: '/docs/r/a.pdf',
+        name: 'a',
+        ext: 'pdf',
+        kb: 2,
+        path: '/docs/r/a.pdf',
+      },
+    ]);
+
+    await expandFolderIntoJob(
+      { path: '/docs/r', name: 'r', hasSubfolders: false },
+      'top_level',
+      files.setFiles,
+      () => new Set(files.get().map((f) => f.path)),
+    );
+
+    expect(toasts.success).not.toHaveBeenCalled();
+    expect(toasts.info).toHaveBeenCalledWith(
+      'Every file in “r” is already in the job.',
+      expect.anything(),
+    );
+  });
+
+  it('FR-004: shows progress while a folder is read, and reports it as expanding', async () => {
+    let release!: (v: FolderExpansion[]) => void;
+    ipc.expandFolders.mockReturnValue(
+      new Promise<FolderExpansion[]>((r) => (release = r)),
+    );
+    ipc.inspectFiles.mockResolvedValue([]);
+    toasts.loading.mockReturnValue('loading-id');
+    const files = collector();
+
+    const walk = expandFolderIntoJob(
+      { path: '/docs/big', name: 'big', hasSubfolders: true },
+      'recursive',
+      files.setFiles,
+    );
+    expect(getExpandingCount()).toBe(1);
+    expect(toasts.loading).toHaveBeenCalledWith('Reading “big”…');
+
+    release([expansion({ root: '/docs/big', scan: 'recursive' })]);
+    await walk;
+    expect(getExpandingCount()).toBe(0);
+    // Deferred past sonner's own add timer, so it can never miss the toast.
+    expect(toasts.dismiss).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(toasts.dismiss).toHaveBeenCalledWith('loading-id');
+  });
+
+  it('FR-004: the progress toast turns into the result toast (same id)', async () => {
+    ipc.inspectFiles.mockImplementation(async (paths) =>
+      paths.map((p) => fileInfo(p)),
+    );
+    ipc.expandFolders.mockResolvedValue([
+      expansion({ root: '/docs/r', files: ['/docs/r/a.pdf'] }),
+    ]);
+    toasts.loading.mockReturnValue('loading-id');
+    const files = collector();
+
+    await expandFolderIntoJob(
+      { path: '/docs/r', name: 'r', hasSubfolders: false },
+      'top_level',
+      files.setFiles,
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(toasts.success).toHaveBeenCalledWith('Added 1 file from “r”', {
+      id: 'loading-id',
+    });
+    expect(toasts.dismiss).not.toHaveBeenCalled();
+  });
+
+  it('FR-001: a print-now selection walks every folder top-level, without asking', async () => {
+    ipc.inspectFiles.mockImplementation(async (paths) =>
+      paths[0] === '/docs/nested'
+        ? [folderInfo('/docs/nested', true), fileInfo('/docs/a.pdf')]
+        : paths.map((p) => fileInfo(p)),
+    );
+    ipc.expandFolders.mockResolvedValue([
+      expansion({ root: '/docs/nested', files: ['/docs/nested/b.pdf'] }),
+    ]);
+
+    const out = await resolveSelectionFiles(['/docs/nested', '/docs/a.pdf']);
+
+    expect(ipc.expandFolders).toHaveBeenCalledWith(
+      ['/docs/nested'],
+      'top_level',
+    );
+    expect(out.map((f) => f.path)).toEqual([
+      '/docs/a.pdf',
+      '/docs/nested/b.pdf',
+    ]);
+    expect(getPendingFolders()).toEqual([]);
+  });
+});

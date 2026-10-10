@@ -1,40 +1,40 @@
 # Trademark Policy
 
-> **TL;DR.** "MaeclyPrint" and the MaeclyPrint logo are unregistered trademarks of the MaeclyPrint Project. Refer to us, link to us, write about us — that's all welcome and protected as fair use. Do not use the name or logo to imply our endorsement of your product or service. Forks must use a different name.
+> **TL;DR.** "Pluryprint", its wordmark and the Abanico mark (the Pluryprint logo) are unregistered trademarks that belong to MAECLY (the founder, Miguel Angel Esparza Calero); see also the repository's [`TRADEMARKS.md`](../../TRADEMARKS.md). Refer to us, link to us, write about us — that's all welcome and protected as fair use. Do not use the name or logo to imply our endorsement of your product or service. Forks must use a different name.
 
-This policy explains how the MaeclyPrint name, logo, and visual identity may and may not be used. It is independent of the [GPLv3 license](./license.md) on the source code: copyright and trademark are different rights.
+This policy explains how the Pluryprint name, logo, and visual identity may and may not be used. It is independent of the [AGPL-3.0 license](./license.md) on the source code: copyright and trademark are different rights. The one place the two meet is an additional term under section 7(e) of the AGPL, stated in [`TRADEMARKS.md`](../../TRADEMARKS.md): the licence grants no rights under trademark law to these names and marks beyond reasonable and customary use in describing where the work came from (for example, "a fork of Pluryprint").
 
 ## Why a trademark policy
 
-GPLv3 protects the **source code** but says nothing about names and logos. Without an explicit trademark policy:
+The AGPL-3.0 licenses the **source code**; apart from the section 7(e) term above, it says nothing about names and logos. Without an explicit trademark policy:
 
-- Someone could ship a malware-laced fork branded "MaeclyPrint" and damage user trust.
+- Someone could ship a malware-laced fork branded "Pluryprint" and damage user trust.
 - Companies could imply we endorse their products by using our logo on packaging.
 - Confusion in the market could fragment the user community.
 
-This policy exists to prevent those harms while keeping the door wide open for legitimate use (writing about MaeclyPrint, linking to it, integrating with it).
+This policy exists to prevent those harms while keeping the door wide open for legitimate use (writing about Pluryprint, linking to it, integrating with it).
 
 ## What's covered
 
 | Asset | Status |
 |---|---|
-| The word **"MaeclyPrint"** | Unregistered trademark, asserted by the MaeclyPrint Project |
-| The MaeclyPrint logo (icon and wordmark) | Unregistered trademark, copyright held by the project |
+| The word **"Pluryprint"** | Unregistered trademark of MAECLY |
+| The Pluryprint logo (the Abanico mark and the wordmark) | Unregistered trademark of MAECLY |
 | The colors and typography defined in our brand guide | Visual identity, not a registered mark, but covered by trade dress conventions |
 | Domain names: `maecly.com`, `updates.maecly.com` | Owned by the project |
 
-We have not formally registered "MaeclyPrint" with the USPTO or other trademark offices. We may do so as the project matures. Even unregistered, common-law trademark protections apply.
+We have not formally registered "Pluryprint" with the USPTO or other trademark offices. We may do so as the project matures. Even unregistered, common-law trademark protections apply.
 
 ## Permitted uses (no permission needed)
 
 These uses are **fine** without asking us:
 
-- **Referring to MaeclyPrint by name** in articles, blog posts, books, videos, social media, comparison reviews, and other editorial content.
-- **Linking to** the MaeclyPrint website or GitHub repository, including using our logo in the link if it's clearly a link (not a product affiliation).
-- **Using the name in URLs** for non-confusing purposes: `mysite.com/blog/maeclyprint-review` is fine.
-- **Saying "uses MaeclyPrint"** if your product genuinely uses MaeclyPrint, in a way that's clearly descriptive (not an endorsement claim). Example: "PrintBatch Pro is built on MaeclyPrint" is OK; "Endorsed by MaeclyPrint" is not (unless we actually endorsed you).
-- **Distributing unmodified MaeclyPrint** (binaries we released) using our name and logo as we shipped them.
-- **Educational use**: training material that teaches users how to use MaeclyPrint, mentioning the name and using screenshots.
+- **Referring to Pluryprint by name** in articles, blog posts, books, videos, social media, comparison reviews, and other editorial content.
+- **Linking to** the Pluryprint website or GitHub repository, including using our logo in the link if it's clearly a link (not a product affiliation).
+- **Using the name in URLs** for non-confusing purposes: `mysite.com/blog/pluryprint-review` is fine.
+- **Saying "uses Pluryprint"** if your product genuinely uses Pluryprint, in a way that's clearly descriptive (not an endorsement claim). Example: "PrintBatch Pro is built on Pluryprint" is OK; "Endorsed by Pluryprint" is not (unless we actually endorsed you).
+- **Distributing unmodified Pluryprint** (binaries we released) using our name and logo as we shipped them.
+- **Educational use**: training material that teaches users how to use Pluryprint, mentioning the name and using screenshots.
 
 These are forms of **nominative fair use**: using the trademark to refer to the actual thing it identifies, without implying false sponsorship.
 
@@ -42,30 +42,30 @@ These are forms of **nominative fair use**: using the trademark to refer to the 
 
 These uses require written permission (open an issue tagged `trademark` or email):
 
-- **Branded merchandise** (t-shirts, mugs, stickers featuring the MaeclyPrint logo).
-- **Conference materials** that prominently feature the MaeclyPrint logo as if it's a sponsor.
-- **Certification programs** ("MaeclyPrint Certified Partner") — we don't currently offer these but may in the future.
-- **Domain names** that contain "maeclyprint" and could be confused with official ones (`maeclyprint.io`, `maeclyprint-pro.com`). If you want to register one as a fan site or community resource, ask us first; we usually say yes if the intent is clear.
-- **Use in product names** of commercial products that are not MaeclyPrint itself ("MaeclyPrint Plus" sold by a third party). We will generally decline these to prevent market confusion.
+- **Branded merchandise** (t-shirts, mugs, stickers featuring the Pluryprint logo).
+- **Conference materials** that prominently feature the Pluryprint logo as if it's a sponsor.
+- **Certification programs** ("Pluryprint Certified Partner") — we don't currently offer these but may in the future.
+- **Domain names** that contain "pluryprint" and could be confused with official ones (`pluryprint.io`, `pluryprint-pro.com`). If you want to register one as a fan site or community resource, ask us first; we usually say yes if the intent is clear.
+- **Use in product names** of commercial products that are not Pluryprint itself ("Pluryprint Plus" sold by a third party). We will generally decline these to prevent market confusion.
 
 ## Forbidden uses
 
 These uses are **not permitted** under any circumstances:
 
-- **Naming a fork "MaeclyPrint"** or anything confusingly similar (e.g. "MaeclyPrint Lite", "MaeclyPrint X", "Maecly-Print"). Forks must rebrand.
+- **Naming a fork "Pluryprint"** or anything confusingly similar (e.g. "Pluryprint Lite", "Pluryprint X", "Plury-Print", "PluriPrint"). Forks must rebrand.
 - **Using the name or logo to imply official endorsement** of a third-party product or service we have not endorsed.
-- **Using the logo on commercial packaging** of a product that includes MaeclyPrint, in a way that suggests we co-released the product.
-- **Using the name to mislead users** about the source or sponsorship of a download (e.g. a domain `maeclyprint-download.com` distributing modified or malicious binaries).
+- **Using the logo on commercial packaging** of a product that includes Pluryprint, in a way that suggests we co-released the product.
+- **Using the name to mislead users** about the source or sponsorship of a download (e.g. a domain `pluryprint-download.com` distributing modified or malicious binaries).
 - **Misusing the logo** (recoloring it to something hostile, distorting it, combining it with marks of other entities to create confusion).
 - **Using the logo as part of your own logo** (compositing our icon into yours).
 
 ## Forks
 
-If you fork MaeclyPrint (which GPLv3 explicitly permits) and **distribute** the fork:
+If you fork Pluryprint (which the AGPL-3.0 explicitly permits) and **distribute** the fork:
 
 - **Rename it.** Use a clearly different name. Examples of acceptable rebrand: "PrinterStack" (totally different), "MyPrinter" (clearly distinct).
 - **Remove or replace our logo.** Use your own visual identity.
-- **Be clear about the relationship** in your README: "This is a fork of MaeclyPrint v0.5.0. Original project: https://maecly.com." (Linking back is encouraged.)
+- **Be clear about the relationship** in your README: "This is a fork of Pluryprint v0.5.0. Original project: https://maecly.com." (Linking back is encouraged.)
 - **Don't use the original copyright notices alone** — add your own to indicate authorship of changes.
 
 If your fork is small (a personal patchset, not distributed publicly) and you don't redistribute it widely, no rename is required.
@@ -140,7 +140,7 @@ Below these sizes, the logo loses legibility.
 
 Our wordmark uses **Inter** (SIL Open Font License). When pairing UI text with the wordmark, Inter is preferred but not required; system fonts (San Francisco on macOS, Segoe UI on Windows) are acceptable substitutes.
 
-We do not have a strict typography policy beyond the wordmark. Editorial content about MaeclyPrint should use whatever your house style dictates.
+We do not have a strict typography policy beyond the wordmark. Editorial content about Pluryprint should use whatever your house style dictates.
 
 ## Domain names
 
@@ -149,7 +149,7 @@ We own and operate:
 - `maecly.com` — primary website
 - `updates.maecly.com` — auto-update manifest endpoint
 
-If you want to register a domain that includes "maeclyprint" for community purposes (a fan site, a translation site, a guide repository), please:
+If you want to register a domain that includes "pluryprint" for community purposes (a fan site, a translation site, a guide repository), please:
 
 1. Open an issue tagged `trademark` describing your intent.
 2. We'll respond within 5 business days.
@@ -165,10 +165,10 @@ For commercial merchandising (selling t-shirts, mugs with our logo): contact us.
 
 ## Reporting trademark issues
 
-If you see misuse of the MaeclyPrint name or logo:
+If you see misuse of the Pluryprint name or logo:
 
 - **Imitation product or fork using our name:** open an issue tagged `trademark`. We'll evaluate and respond.
-- **Phishing site impersonating MaeclyPrint:** email the security address in `SECURITY.md` immediately.
+- **Phishing site impersonating Pluryprint:** email the security address in `SECURITY.md` immediately.
 - **Confusing branding in the wild:** open an issue or send a friendly note to the offender first; most issues resolve through a polite request to rename/rebrand.
 
 ## Reservation of rights

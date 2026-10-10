@@ -10,9 +10,19 @@ import {
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 
-import type { FileInfo, PrintRequest } from '@/lib/ipc';
+import type { FileInfo, FolderExpansion, PrintRequest } from '@/lib/ipc';
 import type { UiFile } from '@/types/domain';
-import { BUILT_IN_PROFILES, type PrintJobOverrides } from '@/lib/profiles';
+import type { DependencyReport } from '@/ipc/bindings';
+import {
+  BUILT_IN_PROFILES,
+  buildPrintRequest,
+  findProfileIn,
+  type PrintJobOverrides,
+} from '@/lib/profiles';
+import { I18nProvider } from '@/i18n/I18nProvider';
+import { clearPendingFolders } from '@/lib/jobFiles';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { fixtureAppInfo, fixtureAppSettings } from '@/test/fixtures';
 import { fixtureProfiles } from '@/test/fixtures';
 import { Toaster } from '@/components/AppShell/Toaster';
 
@@ -26,9 +36,19 @@ const dnd = vi.hoisted(() => ({
 }));
 // Stub the tauri-specta `events` object (the queue store subscribes on App
 // init); real `commands` stay so mockIPC serves the print/inspect commands.
+// Every event the app subscribes to has to appear here: the stub replaces the
+// `events` object wholesale, so a missing name surfaces as an undefined
+// `.listen` deep inside a screen rather than as an obvious gap in the mock.
 const eventMock = vi.hoisted(() => {
   const noop = { listen: () => Promise.resolve(() => {}) };
-  return { events: { queueUpdated: noop, jobProgressEvent: noop } };
+  return {
+    events: {
+      queueUpdated: noop,
+      jobProgressEvent: noop,
+      updateAvailable: noop,
+      selectionForwarded: noop,
+    },
+  };
 });
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: openMock }));
@@ -59,9 +79,62 @@ interface Call {
 
 interface MockOpts {
   inspect?: (paths: string[]) => FileInfo[];
+  expand?: (paths: string[], scan: string) => FolderExpansion;
+  printers?: {
+    id: string;
+    name: string;
+    papers?: string[];
+    color?: boolean;
+    duplex?: boolean;
+    colorUnknown?: boolean;
+    duplexUnknown?: boolean;
+  }[];
   preview?: string;
   printError?: string;
   jobIds?: string[];
+  /** Dependency reports `app_info` answers with (FR-058). */
+  /** What `app_info` reports; a function is asked again on every probe. */
+  dependencies?: DependencyReport[] | (() => DependencyReport[]);
+}
+
+/** A `FolderExpansion` with everything empty unless overridden. */
+function expansion(over: Partial<FolderExpansion> = {}): FolderExpansion {
+  return {
+    root: '/docs/reports',
+    scan: 'top_level',
+    files: [],
+    skipped: [],
+    files_truncated: false,
+    depth_truncated: false,
+    limits: { max_files: 5000, max_depth: 16 },
+    ...over,
+  };
+}
+
+/** Minimal `Printer` wire rows — only id/name/duplex matter to this screen. */
+function printerRow(id: string, name: string) {
+  return {
+    id,
+    name,
+    kind: 'laser',
+    color: true,
+    duplex: true,
+    color_unknown: false,
+    duplex_unknown: false,
+    status: 'ready',
+    is_default: false,
+    location: '',
+    connection: 'usb',
+    driver: '',
+    shared: false,
+    queued_jobs: 0,
+    max_dpi: null,
+    papers: [],
+    trays: [],
+    supplies: {},
+    default_tray: null,
+    default_paper: null,
+  };
 }
 
 /** Install IPC mocks for the print-dialog commands; returns invoked calls. */
@@ -81,12 +154,40 @@ function mockJob(opts: MockOpts = {}): Call[] {
         return { schema_version: 1, queue_paused: false, jobs: [] };
       case 'list_profiles':
         return fixtureProfiles;
+      case 'expand_folders': {
+        const a = args as { paths: string[]; scan: string };
+        const one = opts.expand?.(a.paths, a.scan);
+        return one ? [one] : [];
+      }
       case 'list_printers':
-        return [];
+        return (opts.printers ?? []).map((p) => ({
+          ...printerRow(p.id, p.name),
+          papers: p.papers ?? [],
+          color: p.color ?? true,
+          duplex: p.duplex ?? true,
+          color_unknown: p.colorUnknown ?? false,
+          duplex_unknown: p.duplexUnknown ?? false,
+        }));
       case 'default_printer':
         return null;
       case 'get_printer_prefs':
         return {};
+      // App drains the context-menu store on mount (FR-001); these tests
+      // start from an empty one.
+      case 'take_pending_selections':
+        return [];
+      // The screen probes external dependencies (FR-058) through app_info;
+      // answering with the real shape keeps that path exercised rather than
+      // failing on a null payload.
+      case 'app_info': {
+        const deps =
+          typeof opts.dependencies === 'function'
+            ? opts.dependencies()
+            : opts.dependencies;
+        return deps
+          ? { ...fixtureAppInfo, dependencies: deps }
+          : fixtureAppInfo;
+      }
       default:
         return null;
     }
@@ -106,8 +207,24 @@ function fileInfo(path: string, over: Partial<FileInfo> = {}): FileInfo {
     pages: 3,
     supported: true,
     reason: null,
+    reason_code: null,
+    is_dir: false,
+    has_subfolders: false,
     ...over,
   };
+}
+
+/** A folder as `inspect_files` reports it (FR-004: a question, not a refusal). */
+function folderInfo(path: string, hasSubfolders: boolean): FileInfo {
+  return fileInfo(path, {
+    ext: '',
+    bytes: 0,
+    pages: null,
+    supported: false,
+    reason: 'Folder — expand it to print the files inside',
+    is_dir: true,
+    has_subfolders: hasSubfolders,
+  });
 }
 
 /** A `UiFile` already in the list (id/path keyed off the path). */
@@ -125,12 +242,20 @@ function uiFile(path: string): UiFile {
 }
 
 /** Stateful wrapper so `setFiles`/`setOverrides` behave like the real App. */
-function Harness({ initial = [] }: { initial?: UiFile[] }) {
+function Harness({
+  initial = [],
+  profileId = 'builtin-quick',
+  onRequest,
+}: {
+  initial?: UiFile[];
+  profileId?: string;
+  onRequest?: (req: PrintRequest) => void;
+}) {
   const [files, setFiles] = useState<UiFile[]>(initial);
-  const [profile, setProfile] = useState('builtin-quick');
+  const [profile, setProfile] = useState(profileId);
   const [overrides, setOverrides] = useState<PrintJobOverrides>({});
   return (
-    <>
+    <I18nProvider>
       <PrintJobScreen
         files={files}
         setFiles={setFiles}
@@ -138,14 +263,24 @@ function Harness({ initial = [] }: { initial?: UiFile[] }) {
         setProfile={setProfile}
         overrides={overrides}
         setOverrides={setOverrides}
-        onPrint={() => {}}
+        onPrint={() =>
+          onRequest?.(
+            buildPrintRequest(
+              files.map((f) => f.path),
+              findProfileIn(useProfilesStore.getState().profiles, profile),
+              overrides,
+            ),
+          )
+        }
       />
       <Toaster theme="light" />
-    </>
+    </I18nProvider>
   );
 }
 
 function resetStore() {
+  clearPendingFolders();
+  useSettingsStore.setState({ settings: fixtureAppSettings });
   useQueueStore.setState({
     status: 'idle',
     snapshot: null,
@@ -168,7 +303,7 @@ describe('PrintJobScreen', () => {
     resetStore();
     openMock.mockReset();
     dnd.handler = null;
-    window.localStorage.setItem('maeclyprint:onboarding-complete', '1');
+    window.localStorage.setItem('pluryprint:onboarding-complete', '1');
   });
   afterEach(() => clearMocks());
 
@@ -257,7 +392,7 @@ describe('PrintJobScreen', () => {
     expect(screen.getByText(/ranges must ascend/)).toBeInTheDocument();
     expect(printBtn).toBeDisabled();
 
-    fireEvent.change(range, { target: { value: '1-5,10' } });
+    fireEvent.change(range, { target: { value: '1-3' } });
     expect(printBtn).not.toBeDisabled();
   });
 
@@ -343,5 +478,869 @@ describe('PrintJobScreen', () => {
     expect(await screen.findByText('Printer offline')).toBeInTheDocument();
     // The file is retained so the user can fix and resubmit.
     expect(screen.getByText('a.pdf')).toBeInTheDocument();
+  });
+  // -- printer identity (FR-044) ----------------------------------------
+
+  it('FR-044: sends the printer queue id, not its display name', async () => {
+    // On CUPS the id (queue name) and the display name (`printer-info`) differ;
+    // `lp -d "Front desk (2nd floor)"` would fail. The dropdown must therefore
+    // carry the id as its value and use the name only as a label.
+    const seen: PrintRequest[] = [];
+    mockJob({
+      printers: [{ id: 'HP_LaserJet_2', name: 'Front desk (2nd floor)' }],
+    });
+
+    render(
+      <Harness
+        initial={[uiFile('/docs/a.pdf')]}
+        onRequest={(req) => seen.push(req)}
+      />,
+    );
+
+    const select = await screen.findByRole('combobox', { name: 'Printer' });
+    await waitFor(() =>
+      expect(
+        within(select).getByText('Front desk (2nd floor)'),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      (within(select).getByText('Front desk (2nd floor)') as HTMLOptionElement)
+        .value,
+    ).toBe('HP_LaserJet_2');
+
+    fireEvent.change(select, { target: { value: 'HP_LaserJet_2' } });
+    fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
+
+    expect(seen.at(-1)?.settings.printer).toBe('HP_LaserJet_2');
+  });
+
+  it('FR-041: offers every paper size the chosen printer reports, plus its own default', async () => {
+    const seen: PrintRequest[] = [];
+    mockJob({
+      printers: [
+        {
+          id: 'Photo',
+          name: 'Photo printer',
+          papers: ['A4', 'Letter', '4x6', 'Tabloid'],
+        },
+      ],
+    });
+    render(
+      <Harness
+        initial={[uiFile('/docs/a.pdf')]}
+        onRequest={(req) => seen.push(req)}
+      />,
+    );
+
+    const printer = await screen.findByRole('combobox', { name: 'Printer' });
+    await waitFor(() =>
+      expect(within(printer).getByText('Photo printer')).toBeInTheDocument(),
+    );
+    fireEvent.change(printer, { target: { value: 'Photo' } });
+
+    const paper = screen.getByRole('combobox', { name: 'Paper' });
+    for (const size of ['Printer default', 'A4', 'Legal', '4x6', 'Tabloid']) {
+      expect(within(paper).getByText(size)).toBeInTheDocument();
+    }
+
+    fireEvent.change(paper, { target: { value: '4x6' } });
+    fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
+    expect(seen.at(-1)?.settings.paper_size).toBe('4x6');
+
+    fireEvent.change(paper, { target: { value: 'auto' } });
+    fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
+    expect(seen.at(-1)?.settings.paper_size).toBe('auto');
+  });
+
+  it('FR-041: the collate toggle reaches the request', async () => {
+    const seen: PrintRequest[] = [];
+    mockJob();
+    render(
+      <Harness
+        initial={[uiFile('/docs/a.pdf')]}
+        onRequest={(req) => seen.push(req)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
+    expect(seen.at(-1)?.settings.collate).toBe(true);
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Collate copies' }));
+    fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
+    expect(seen.at(-1)?.settings.collate).toBe(false);
+  });
+
+  it('FR-040: warns when the chosen printer cannot do the chosen sides or color', async () => {
+    mockJob({
+      printers: [
+        { id: 'MONO', name: 'Brother mono', color: false, duplex: true },
+        { id: 'PDF', name: 'Save as PDF', color: true, duplex: false },
+      ],
+    });
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
+
+    const printer = await screen.findByRole('combobox', { name: 'Printer' });
+    await within(printer).findByText('Save as PDF');
+    const sides = screen.getByRole('radiogroup', { name: 'Sides' });
+    const color = screen.getByRole('radiogroup', { name: 'Color' });
+    fireEvent.click(within(sides).getByRole('radio', { name: 'Long' }));
+    fireEvent.click(within(color).getByRole('radio', { name: 'Color' }));
+    // "System default" resolves at print time: no claim about it.
+    expect(screen.queryByRole('note')).toBeNull();
+
+    fireEvent.change(printer, { target: { value: 'PDF' } });
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'Save as PDF cannot print two-sided',
+    );
+
+    fireEvent.change(printer, { target: { value: 'MONO' } });
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'Brother mono prints in black and white only',
+    );
+    fireEvent.click(within(color).getByRole('radio', { name: 'B&W' }));
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('FR-040: a capability the OS could not report is not announced as missing', async () => {
+    // A failed CUPS probe, a driver answering -1, a colour option under a
+    // vendor name: `false` + unknown. The engine prints duplex on an unknown,
+    // so warning that the job will pause, or comes out grey, would be false.
+    mockJob({
+      printers: [
+        {
+          id: 'IPP',
+          name: 'Office IPP',
+          color: false,
+          duplex: false,
+          colorUnknown: true,
+          duplexUnknown: true,
+        },
+      ],
+    });
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
+
+    const printer = await screen.findByRole('combobox', { name: 'Printer' });
+    await within(printer).findByText('Office IPP');
+    const sides = screen.getByRole('radiogroup', { name: 'Sides' });
+    const color = screen.getByRole('radiogroup', { name: 'Color' });
+    fireEvent.click(within(sides).getByRole('radio', { name: 'Long' }));
+    fireEvent.click(within(color).getByRole('radio', { name: 'Color' }));
+    fireEvent.change(printer, { target: { value: 'IPP' } });
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('FR-044: warns when System default resolves to a printer removed from Pluryprint', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'list_printers')
+        return [{ ...printerRow('EPSON', 'EPSON L15160'), is_default: true }];
+      if (cmd === 'get_printer_prefs') return { disabled: ['EPSON'] };
+      if (cmd === 'list_profiles') return fixtureProfiles;
+      if (cmd === 'take_pending_selections') return [];
+      return null;
+    });
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
+
+    expect(await screen.findByRole('note')).toHaveTextContent(
+      'System default is EPSON L15160, which is removed from Pluryprint',
+    );
+  });
+
+  it('FR-044: an organization default decides where System default goes, not the removed OS default', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'list_printers')
+        return [
+          { ...printerRow('EPSON', 'EPSON L15160'), is_default: true },
+          printerRow('FRONT', 'Front desk'),
+        ];
+      if (cmd === 'get_printer_prefs') return { disabled: ['EPSON'] };
+      if (cmd === 'get_printer_policy') return { default_printer: 'FRONT' };
+      if (cmd === 'list_profiles') return fixtureProfiles;
+      if (cmd === 'take_pending_selections') return [];
+      return null;
+    });
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
+    await screen.findByRole('combobox', { name: 'Printer' });
+    await within(screen.getByRole('combobox', { name: 'Printer' })).findByText(
+      'Front desk',
+    );
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('FR-044: a removed organization default is named on System default', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'list_printers')
+        return [
+          { ...printerRow('EPSON', 'EPSON L15160'), is_default: true },
+          printerRow('FRONT', 'Front desk'),
+        ];
+      if (cmd === 'get_printer_prefs') return { disabled: ['FRONT'] };
+      if (cmd === 'get_printer_policy') return { default_printer: 'FRONT' };
+      if (cmd === 'list_profiles') return fixtureProfiles;
+      if (cmd === 'take_pending_selections') return [];
+      return null;
+    });
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
+    expect(await screen.findByRole('note')).toHaveTextContent(
+      'System default is Front desk, which is removed from Pluryprint',
+    );
+  });
+
+  it('FR-044: a profile pinned to a removed printer names it and says the job will pause', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'list_printers')
+        return [
+          printerRow('EPSON_L15160', 'EPSON L15160 Series'),
+          printerRow('FRONT', 'Front desk'),
+        ];
+      if (cmd === 'get_printer_prefs') return { disabled: ['EPSON_L15160'] };
+      if (cmd === 'list_profiles') return fixtureProfiles;
+      if (cmd === 'take_pending_selections') return [];
+      return null;
+    });
+    useProfilesStore.setState({
+      status: 'ready',
+      profiles: [
+        { ...BUILT_IN_PROFILES[0]!, id: 'p-office', printer: 'EPSON_L15160' },
+      ],
+      error: undefined,
+    });
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} profileId="p-office" />);
+
+    const select = await screen.findByRole('combobox', { name: 'Printer' });
+    expect(
+      await within(select).findByText(
+        'EPSON L15160 Series (removed from Pluryprint)',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'EPSON L15160 Series is removed from Pluryprint: this job will pause',
+    );
+  });
+
+  it('FR-044: keeps a stored printer selectable even when it is not installed', async () => {
+    // A profile saved against an offline (or pre-id) printer must not snap
+    // silently to the system default.
+    mockJob({ printers: [{ id: 'HP_LaserJet_2', name: 'Front desk' }] });
+    useProfilesStore.setState({
+      status: 'ready',
+      profiles: [
+        { ...BUILT_IN_PROFILES[0]!, id: 'p-stored', printer: 'Old Printer' },
+      ],
+      error: undefined,
+    });
+
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} profileId="p-stored" />);
+
+    const select = await screen.findByRole('combobox', { name: 'Printer' });
+    expect((select as HTMLSelectElement).value).toBe('Old Printer');
+    expect(within(select).getByText('Old Printer')).toBeInTheDocument();
+  });
+
+  // -- page range (FR-041 / FR-042) --------------------------------------
+
+  it('FR-041: pre-fills the page range from the profile so what is shown is what is sent', async () => {
+    const seen: PrintRequest[] = [];
+    mockJob();
+    useProfilesStore.setState({
+      status: 'ready',
+      profiles: [{ ...BUILT_IN_PROFILES[0]!, id: 'p-range', pageRange: '1-3' }],
+      error: undefined,
+    });
+
+    render(
+      <Harness
+        initial={[uiFile('/docs/a.pdf')]}
+        profileId="p-range"
+        onRequest={(req) => seen.push(req)}
+      />,
+    );
+
+    const range = screen.getByPlaceholderText('e.g. 1-5,10');
+    expect((range as HTMLInputElement).value).toBe('1-3');
+
+    fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
+    expect(seen.at(-1)?.settings.page_ranges).toBe('1-3');
+  });
+
+  it('FR-041: clearing the pre-filled range prints every page', async () => {
+    const seen: PrintRequest[] = [];
+    mockJob();
+    useProfilesStore.setState({
+      status: 'ready',
+      profiles: [{ ...BUILT_IN_PROFILES[0]!, id: 'p-range', pageRange: '1-3' }],
+      error: undefined,
+    });
+
+    render(
+      <Harness
+        initial={[uiFile('/docs/a.pdf')]}
+        profileId="p-range"
+        onRequest={(req) => seen.push(req)}
+      />,
+    );
+
+    const range = screen.getByPlaceholderText('e.g. 1-5,10');
+    fireEvent.change(range, { target: { value: '' } });
+    expect((range as HTMLInputElement).value).toBe('');
+
+    fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
+    expect(seen.at(-1)?.settings.page_ranges).toBeNull();
+  });
+
+  it('FR-042: flags a range that runs past the document and blocks Print', async () => {
+    mockJob();
+    // uiFile() reports 3 pages.
+    render(<Harness initial={[uiFile('/docs/short.pdf')]} />);
+
+    const printBtn = screen.getByRole('button', { name: /Print 1/ });
+    const range = screen.getByPlaceholderText('e.g. 1-5,10');
+
+    fireEvent.change(range, { target: { value: '2-9' } });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /short\.pdf.*only has 3 pages/,
+    );
+    expect(printBtn).toBeDisabled();
+
+    fireEvent.change(range, { target: { value: '2-3' } });
+    expect(printBtn).not.toBeDisabled();
+  });
+
+  it('FR-042: a one-page overflow reads in the singular', async () => {
+    mockJob();
+    render(<Harness initial={[{ ...uiFile('/docs/one.pdf'), pages: 1 }]} />);
+    fireEvent.change(screen.getByPlaceholderText('e.g. 1-5,10'), {
+      target: { value: '2' },
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      '“one.pdf” only has 1 page.',
+    );
+  });
+
+  it('a PDF whose page count is unknown is not called an image, nor counted as one page', async () => {
+    mockJob();
+    render(
+      <Harness
+        initial={[
+          { ...uiFile('/docs/huge.pdf'), pages: null },
+          uiFile('/docs/three.pdf'),
+        ]}
+      />,
+    );
+    expect(screen.getByText(/pages unknown/)).toBeInTheDocument();
+    expect(screen.queryByText(/^image/)).not.toBeInTheDocument();
+    // 3 known pages, plus one document that has at least… something.
+    expect(screen.getByText(/at least 3 pages/)).toBeInTheDocument();
+  });
+
+  it('FR-041: picking another profile drops the overrides made against the old one', async () => {
+    mockJob();
+    let last: PrintRequest | undefined;
+    render(
+      <Harness
+        initial={[uiFile('/docs/a.pdf')]}
+        onRequest={(r) => (last = r)}
+      />,
+    );
+    fireEvent.change(screen.getByDisplayValue('1'), {
+      target: { value: '4' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Profile' }), {
+      target: { value: 'builtin-duplex-bw' },
+    });
+    // The field shows the new profile's own copies…
+    expect(screen.getByDisplayValue('1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Print 1/ }));
+    // …and that is what is sent, with the profile's own duplex.
+    expect(last?.settings.copies).toBe(1);
+    expect(last?.settings.duplex).toBe('long');
+  });
+
+  it('FR-042: an image never invalidates a range (the engine drops it)', async () => {
+    mockJob();
+    render(
+      <Harness
+        initial={[{ ...uiFile('/docs/chart.png'), ext: 'png', pages: 1 }]}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('e.g. 1-5,10'), {
+      target: { value: '2-9' },
+    });
+    expect(screen.getByRole('button', { name: /Print 1/ })).not.toBeDisabled();
+  });
+
+  // -- folders (FR-004 / FR-005) -----------------------------------------
+
+  it('FR-004: asks before recursing into a dropped folder', async () => {
+    const calls = mockJob({
+      inspect: (paths) =>
+        paths.map((p) =>
+          p === '/docs/reports' ? folderInfo(p, true) : fileInfo(p),
+        ),
+      expand: () =>
+        expansion({ scan: 'recursive', files: ['/docs/reports/deep/a.pdf'] }),
+    });
+    render(<Harness />);
+
+    await waitFor(() => expect(dnd.handler).not.toBeNull());
+    await act(async () => {
+      dnd.handler?.({ payload: { type: 'drop', paths: ['/docs/reports'] } });
+    });
+
+    // Nothing is walked until the question is answered.
+    expect(calls.some((c) => c.cmd === 'expand_folders')).toBe(false);
+    expect(
+      await screen.findByText(/Print everything inside .reports./),
+    ).toBeInTheDocument();
+    // Neutral wording: the same banner follows the Add folder button.
+    expect(screen.getByText('1 folder added')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Include subfolders' }));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.cmd === 'expand_folders')).toBe(true),
+    );
+    expect(calls.find((c) => c.cmd === 'expand_folders')!.args.scan).toBe(
+      'recursive',
+    );
+    expect(await screen.findByText('a.pdf')).toBeInTheDocument();
+    // The question is gone once answered.
+    expect(
+      screen.queryByRole('button', { name: 'Include subfolders' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('FR-004: "Top level only" walks one level deep', async () => {
+    const calls = mockJob({
+      inspect: (paths) =>
+        paths.map((p) =>
+          p === '/docs/reports' ? folderInfo(p, true) : fileInfo(p),
+        ),
+      expand: () => expansion({ files: ['/docs/reports/a.pdf'] }),
+    });
+    render(<Harness />);
+
+    await waitFor(() => expect(dnd.handler).not.toBeNull());
+    await act(async () => {
+      dnd.handler?.({ payload: { type: 'drop', paths: ['/docs/reports'] } });
+    });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Top level only' }),
+    );
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.cmd === 'expand_folders')).toBe(true),
+    );
+    expect(calls.find((c) => c.cmd === 'expand_folders')!.args.scan).toBe(
+      'top_level',
+    );
+  });
+
+  it('FR-004: skipping a folder leaves the job untouched', async () => {
+    const calls = mockJob({
+      inspect: () => [folderInfo('/docs/reports', true)],
+    });
+    render(<Harness />);
+
+    await waitFor(() => expect(dnd.handler).not.toBeNull());
+    await act(async () => {
+      dnd.handler?.({ payload: { type: 'drop', paths: ['/docs/reports'] } });
+    });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Skip this folder' }),
+    );
+
+    expect(
+      screen.queryByText(/Print everything inside/),
+    ).not.toBeInTheDocument();
+    expect(calls.some((c) => c.cmd === 'expand_folders')).toBe(false);
+  });
+
+  it('FR-004: a folder without subfolders is expanded without a question', async () => {
+    const calls = mockJob({
+      inspect: (paths) =>
+        paths.map((p) =>
+          p === '/docs/flat' ? folderInfo(p, false) : fileInfo(p),
+        ),
+      expand: () => expansion({ files: ['/docs/flat/a.pdf'] }),
+    });
+    render(<Harness />);
+
+    await waitFor(() => expect(dnd.handler).not.toBeNull());
+    await act(async () => {
+      dnd.handler?.({ payload: { type: 'drop', paths: ['/docs/flat'] } });
+    });
+
+    expect(await screen.findByText('a.pdf')).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Print everything inside/),
+    ).not.toBeInTheDocument();
+    expect(calls.find((c) => c.cmd === 'expand_folders')!.args.scan).toBe(
+      'top_level',
+    );
+  });
+
+  it('FR-005: shows what a folder walk discarded', async () => {
+    mockJob({
+      inspect: (paths) =>
+        paths.map((p) =>
+          p === '/docs/flat' ? folderInfo(p, false) : fileInfo(p),
+        ),
+      expand: () =>
+        expansion({
+          files: ['/docs/flat/a.pdf'],
+          skipped: [
+            {
+              path: '/docs/flat/notes.docx',
+              name: 'notes.docx',
+              reason: 'unsupported_format',
+              detail: 'Unsupported file type (.docx)',
+            },
+          ],
+        }),
+    });
+    render(<Harness />);
+
+    await waitFor(() => expect(dnd.handler).not.toBeNull());
+    await act(async () => {
+      dnd.handler?.({ payload: { type: 'drop', paths: ['/docs/flat'] } });
+    });
+
+    expect(
+      await screen.findByText(/notes\.docx — Unsupported file type \(\.docx\)/),
+    ).toBeInTheDocument();
+  });
+
+  // -- reordering --------------------------------------------------------
+
+  it('reorders a file with the buttons', async () => {
+    mockJob();
+    render(
+      <Harness initial={[uiFile('/docs/a.pdf'), uiFile('/docs/b.pdf')]} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move b.pdf up' }));
+
+    const rows = screen.getAllByRole('listitem');
+    expect(rows[0]).toHaveTextContent('b.pdf');
+    expect(rows[1]).toHaveTextContent('a.pdf');
+  });
+
+  it('reorders a focused file row with Alt + arrow keys', async () => {
+    // Regression: the header advertised an "↑↓ reorder" shortcut that nothing
+    // implemented. The hint now names Alt + arrows, and they work.
+    mockJob();
+    render(
+      <Harness initial={[uiFile('/docs/a.pdf'), uiFile('/docs/b.pdf')]} />,
+    );
+
+    const second = screen.getAllByRole('listitem')[1]!;
+    second.focus();
+    fireEvent.keyDown(second, { key: 'ArrowUp', altKey: true });
+
+    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('b.pdf');
+
+    // A bare arrow must not reorder — it belongs to the scroll container.
+    fireEvent.keyDown(screen.getAllByRole('listitem')[0]!, {
+      key: 'ArrowDown',
+    });
+    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('b.pdf');
+  });
+
+  it('does not move the first row up or the last row down', async () => {
+    mockJob();
+    render(
+      <Harness initial={[uiFile('/docs/a.pdf'), uiFile('/docs/b.pdf')]} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move a.pdf up' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move b.pdf down' }));
+
+    const rows = screen.getAllByRole('listitem');
+    expect(rows[0]).toHaveTextContent('a.pdf');
+    expect(rows[1]).toHaveTextContent('b.pdf');
+    // NFR-041: and those two no-op buttons say so instead of being announced
+    // as working actions.
+    expect(
+      screen.getByRole('button', { name: 'Move a.pdf up' }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Move b.pdf down' }),
+    ).toBeDisabled();
+  });
+
+  it('NFR-041: keeps focus on a row moved down with Alt + arrow, step after step', async () => {
+    mockJob();
+    render(
+      <Harness
+        initial={[
+          uiFile('/docs/a.pdf'),
+          uiFile('/docs/b.pdf'),
+          uiFile('/docs/c.pdf'),
+        ]}
+      />,
+    );
+    const first = screen.getAllByRole('listitem')[0]!;
+    first.focus();
+    fireEvent.keyDown(first, { key: 'ArrowDown', altKey: true });
+    await waitFor(() =>
+      expect(document.activeElement).toHaveTextContent('a.pdf'),
+    );
+    fireEvent.keyDown(document.activeElement!, {
+      key: 'ArrowDown',
+      altKey: true,
+    });
+    await waitFor(() =>
+      expect(screen.getAllByRole('listitem')[2]).toHaveTextContent('a.pdf'),
+    );
+    expect(document.activeElement).toHaveTextContent('a.pdf');
+  });
+
+  it('NFR-041: removing a file moves focus to the next row, not to <body>', async () => {
+    mockJob();
+    render(
+      <Harness initial={[uiFile('/docs/a.pdf'), uiFile('/docs/b.pdf')]} />,
+    );
+    const removeA = screen.getByRole('button', { name: 'Remove a.pdf' });
+    removeA.focus();
+    fireEvent.click(removeA);
+    await waitFor(() =>
+      expect(document.activeElement).toHaveTextContent('b.pdf'),
+    );
+    expect(document.activeElement).toHaveAttribute('role', 'listitem');
+  });
+
+  it('NFR-043: names the copies and page-range fields and the option groups', () => {
+    mockJob();
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
+    const copies = screen.getByRole('spinbutton', { name: 'Copies' });
+    // The real range, so a screen reader never announces 0–0.
+    expect(copies).toHaveAttribute('min', '1');
+    expect(copies).toHaveAttribute('max', '999');
+    expect(
+      screen.getByRole('textbox', { name: 'Page range' }),
+    ).toHaveAccessibleDescription();
+    for (const name of ['Sides', 'Color', 'Scaling']) {
+      expect(screen.getByRole('radiogroup', { name })).toBeInTheDocument();
+    }
+  });
+
+  it('FR-007: same-named files say which folder each is in; every name has its path', () => {
+    mockJob();
+    render(
+      <Harness
+        initial={[
+          uiFile('/Users/e2e/a/inv-001.pdf'),
+          uiFile('/Users/e2e/Documents/Invoices/inv-001.pdf'),
+          uiFile('/Users/e2e/unique.pdf'),
+        ]}
+      />,
+    );
+    expect(screen.getByText('in a')).toBeInTheDocument();
+    expect(screen.getByText('in Invoices')).toBeInTheDocument();
+    expect(screen.queryByText(/in e2e/)).toBeNull();
+    expect(screen.getByTitle('/Users/e2e/unique.pdf')).toHaveTextContent(
+      'unique.pdf',
+    );
+  });
+
+  it('removes a file from the batch', async () => {
+    mockJob();
+    render(
+      <Harness initial={[uiFile('/docs/a.pdf'), uiFile('/docs/b.pdf')]} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove a.pdf' }));
+
+    expect(screen.queryByText('a.pdf')).not.toBeInTheDocument();
+    expect(screen.getByText('b.pdf')).toBeInTheDocument();
+  });
+
+  // -- i18n (FR-092) -----------------------------------------------------
+
+  // -- FR-058: missing dependencies, guided install --------------------------
+
+  const missingOffice: DependencyReport = {
+    id: 'libre-office',
+    name: 'LibreOffice',
+    applicable: true,
+    found: false,
+    path: null,
+    found_in: null,
+    blocks: ['docx', 'rtf'],
+    remediation: 'LibreOffice is missing — …',
+    install: [
+      {
+        method: 'web',
+        command: 'https://www.libreoffice.org/download/download-libreoffice/',
+        needs_admin: false,
+        paid: false,
+        approx_mb: null,
+        available: true,
+      },
+    ],
+  };
+
+  it('FR-058: a missing dependency is explained in the app language and offers Install…, which opens the consent dialog', async () => {
+    const calls = mockJob({ dependencies: [missingOffice] });
+    render(<Harness initial={[uiFile('/docs/report.docx')]} />);
+
+    const panel = await screen.findByRole('alert', {
+      name: 'Missing dependency',
+    });
+    expect(
+      within(panel).getByText(/^LibreOffice is missing, so Office/),
+    ).toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Install…' }));
+    expect(
+      screen.getByRole('dialog', { name: 'Install LibreOffice' }),
+    ).toBeInTheDocument();
+    // Opening the dialog installs nothing.
+    expect(calls.some((c) => c.cmd === 'install_dependency')).toBe(false);
+  });
+
+  it('FR-058: after an install outside the app, coming back to the window checks again', async () => {
+    let installed = false;
+    const calls = mockJob({
+      dependencies: () => [
+        installed ? { ...missingOffice, found: true } : missingOffice,
+      ],
+    });
+    render(<Harness initial={[uiFile('/docs/report.docx')]} />);
+    await screen.findByRole('alert', { name: 'Missing dependency' });
+
+    installed = true; // finished in the Store / download page
+    fireEvent.focus(window);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('alert', { name: 'Missing dependency' }),
+      ).toBeNull(),
+    );
+    expect(calls.filter((c) => c.cmd === 'app_info').length).toBe(2);
+  });
+
+  it('FR-058: "Check again" probes the dependency anew', async () => {
+    let installed = false;
+    mockJob({
+      dependencies: () => [
+        installed ? { ...missingOffice, found: true } : missingOffice,
+      ],
+    });
+    render(<Harness initial={[uiFile('/docs/report.docx')]} />);
+    const panel = await screen.findByRole('alert', {
+      name: 'Missing dependency',
+    });
+    installed = true;
+    fireEvent.click(within(panel).getByRole('button', { name: 'Check again' }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('alert', { name: 'Missing dependency' }),
+      ).toBeNull(),
+    );
+  });
+
+  it('FR-058: adding files again checks the dependencies again', async () => {
+    let installed = false;
+    const calls = mockJob({
+      dependencies: () => [
+        installed ? { ...missingOffice, found: true } : missingOffice,
+      ],
+    });
+    function Grow() {
+      const [files, setFiles] = useState<UiFile[]>([
+        uiFile('/docs/report.docx'),
+      ]);
+      const [profile, setProfile] = useState('builtin-quick');
+      const [overrides, setOverrides] = useState<PrintJobOverrides>({});
+      return (
+        <I18nProvider>
+          <button
+            type="button"
+            onClick={() => setFiles((f) => [...f, uiFile('/docs/letter.docx')])}
+          >
+            add again
+          </button>
+          <PrintJobScreen
+            files={files}
+            setFiles={setFiles}
+            profile={profile}
+            setProfile={setProfile}
+            overrides={overrides}
+            setOverrides={setOverrides}
+            onPrint={() => {}}
+          />
+        </I18nProvider>
+      );
+    }
+    render(<Grow />);
+    await screen.findByRole('alert', { name: 'Missing dependency' });
+    installed = true;
+    fireEvent.click(screen.getByRole('button', { name: 'add again' }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('alert', { name: 'Missing dependency' }),
+      ).toBeNull(),
+    );
+    expect(calls.filter((c) => c.cmd === 'app_info').length).toBe(2);
+  });
+
+  it('FR-058: chromium_pandoc_not_required — HTML and Markdown raise no dependency panel', async () => {
+    mockJob({ dependencies: [missingOffice] });
+    render(
+      <Harness
+        initial={[uiFile('/docs/page.html'), uiFile('/docs/README.md')]}
+      />,
+    );
+    // Give the app_info probe a chance to land.
+    await waitFor(() =>
+      expect(screen.getByText('Print Job')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole('alert', { name: 'Missing dependency' }),
+    ).toBeNull();
+  });
+
+  it('FR-092: renders every visible string in Spanish when the locale is es-ES', () => {
+    mockJob();
+    useSettingsStore.setState({
+      settings: {
+        ...fixtureAppSettings,
+        app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+      },
+    });
+
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
+
+    expect(screen.getByText('Trabajo de impresión')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Añadir archivos' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Imprimir 1/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Archivos de este trabajo')).toBeInTheDocument();
+    expect(screen.getByText(/1 archivo · 3 páginas/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Se aplica a los PDF y documentos/),
+    ).toBeInTheDocument();
+  });
+
+  // -- smoke -------------------------------------------------------------
+
+  it('smoke: renders an explicit empty state without the desktop host', () => {
+    // `clearMocks()` unregisters the IPC handler but leaves the injected
+    // globals, so drop them by hand — this test is specifically about the
+    // standalone Vite preview, where they never existed.
+    clearMocks();
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    delete (window as unknown as Record<string, unknown>).__TAURI__;
+    render(<Harness />);
+
+    expect(screen.getByText('Print Job')).toBeInTheDocument();
+    expect(
+      screen.getByText('Adding files requires the desktop app.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add files' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Print 0/ })).toBeDisabled();
   });
 });

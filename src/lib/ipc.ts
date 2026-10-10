@@ -8,15 +8,23 @@
  * "unavailable" state.
  */
 
+import { CATALOGS, getActiveLocale, translate } from '@/i18n';
+import { IpcFailure, type IpcErrorPayload } from '@/lib/ipcError';
+import { localizeJobError } from '@/lib/jobError';
+
 import {
   commands,
   type AppInfo,
   type AppSettings,
   type DiscoveredPrinter as IpcDiscoveredPrinter,
   type FileInfo,
+  type FolderExpansion,
+  type FolderScan,
   type IpcError,
   type Job,
   type JobBatch,
+  type JobChange,
+  type JobError,
   type PaperSize,
   type Printer as IpcPrinter,
   type PrinterPolicy,
@@ -24,8 +32,11 @@ import {
   type PrintRequest,
   type Profile,
   type QueueSnapshot,
+  type Selection,
   type Supplies as IpcSupplies,
   type UpdateCheck,
+  type UpdateInstallResult,
+  type UpdateState,
 } from '@/ipc/bindings';
 
 export type {
@@ -36,17 +47,26 @@ export type {
 // Queue wire types, re-exported so screens/stores import them from one place
 // (the print-dialog screen reuses PrintRequest/JobBatch/FileInfo/JobSettings).
 export type {
+  ExpansionLimits,
   FileInfo,
+  FolderExpansion,
+  FolderScan,
   Job,
   JobBatch,
+  JobError,
   JobSettings,
   JobState,
   PrintRequest,
   QueueSnapshot,
+  SkippedFile,
+  SkipReason,
 } from '@/ipc/bindings';
 // Profiles/Settings/About wire types, re-exported for the same single-import
 // convenience. `Profile` is the wire shape; screens render the adapted
 // `UiProfile` (see `toUiProfile`).
+// The context-menu handoff shapes (`cli::Selection`), re-exported so a screen
+// acting on a shell-extension selection imports them from the same place.
+export type { ContextAction, Selection } from '@/ipc/bindings';
 export type {
   AppInfo,
   AppSettings,
@@ -56,6 +76,8 @@ export type {
   TelemetryCfg,
   UpdateChannel,
   UpdateCheck,
+  UpdateInstallResult,
+  UpdateState,
   Theme,
   Density,
   Profile,
@@ -73,6 +95,7 @@ import type {
   UiQueueJob,
   UiTonerLevels,
 } from '@/types/domain';
+import { paperToWire } from '@/lib/profiles';
 
 /** True when running inside the Tauri host (real IPC available). */
 export function isTauri(): boolean {
@@ -81,16 +104,27 @@ export function isTauri(): boolean {
   return '__TAURI_INTERNALS__' in window || '__TAURI__' in window;
 }
 
-const NO_HOST = 'Not running inside Tauri (standalone Vite preview)';
+/** The error every command throws outside the desktop host (browser preview). */
+function noHost(): Error {
+  return new Error(
+    translate(CATALOGS[getActiveLocale()], 'common', 'ipcErrors.noHost'),
+  );
+}
 
-/** Unwrap a tauri-specta `Result`, turning the error branch into a throw. */
-async function unwrap<T>(
+/**
+ * Unwrap a tauri-specta `Result`, turning the error branch into a throw.
+ *
+ * Command-returned errors become an {@link IpcFailure} whose `message` is
+ * already translated from the stable `code`/`reason` (FR-092), so every
+ * `toast.error(e.message)` call site shows the user's language.
+ */
+export async function unwrap<T>(
   p: Promise<{ status: 'ok'; data: T } | { status: 'error'; error: IpcError }>,
 ): Promise<T> {
   // The generated bindings resolve to the error branch for command-returned
-  // IpcErrors, but the invoke itself can also REJECT with a plain string (e.g.
-  // "command not allowed" from the Tauri layer) — normalize both into a
-  // readable Error instead of surfacing "undefined" toasts.
+  // IpcErrors. The invoke itself can also fail: a non-Error rejection (e.g.
+  // the Tauri layer's "command not allowed" string) arrives in the error
+  // branch and is handled below; an Error the JS side threw is rethrown.
   let r;
   try {
     r = await p;
@@ -98,16 +132,61 @@ async function unwrap<T>(
     throw e instanceof Error ? e : new Error(String(e));
   }
   if (r.status === 'ok') return r.data;
-  const { message, code } = {
-    message: r.error?.message,
-    code: r.error?.code,
-  };
-  throw new Error(message ?? (code ? `IPC error: ${code}` : 'IPC error'));
+  // The bindings pass a non-Error rejection through as the error branch, so
+  // a bare string here is the Tauri layer's, not a command's IpcError.
+  const error: unknown = r.error;
+  if (typeof error === 'string') {
+    throw new IpcFailure({ code: 'Internal', message: error });
+  }
+  throw new IpcFailure((error as IpcErrorPayload | undefined) ?? {});
+}
+
+/** The stable IPC error code of a failure thrown by {@link unwrap}, if any. */
+export function ipcErrorCode(e: unknown): string | undefined {
+  if (e instanceof Error && 'code' in e) {
+    const code = (e as Error & { code?: unknown }).code;
+    return typeof code === 'string' ? code : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * FR-084 "install now": download, verify (FR-082) and install (FR-083) the
+ * newest release. `allowMajor` is FR-087's explicit opt-in for a major jump,
+ * and `confirmedVersion` the release it was given for: the backend refuses a
+ * major jump to any other version (`major_update_changed`).
+ * On Windows the app exits into the installer and this never resolves.
+ */
+export async function installUpdate(
+  allowMajor: boolean,
+  confirmedVersion: string | null,
+): Promise<UpdateInstallResult> {
+  if (!isTauri()) throw noHost();
+  return unwrap(commands.installUpdate(allowMajor, confirmedVersion));
+}
+
+/** Relaunch the app so an installed update takes effect. */
+export async function restartApp(): Promise<void> {
+  if (!isTauri()) throw noHost();
+  await commands.restartApp();
+}
+
+/**
+ * FR-072: show a native OS notification when the window is in the background.
+ * The backend decides whether one is warranted (window focus, the user's
+ * `app.native_notifications` switch) and resolves to whether it showed one.
+ */
+export async function notifyNative(
+  title: string,
+  body: string,
+): Promise<boolean> {
+  if (!isTauri()) throw noHost();
+  return unwrap(commands.notifyNative(title, body));
 }
 
 /** Returns the live AppInfo from Rust, or rejects in non-Tauri contexts. */
 export async function fetchAppInfo(): Promise<AppInfo> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.appInfo());
 }
 
@@ -131,6 +210,8 @@ function toUiPrinter(p: IpcPrinter): UiPrinter {
     type: p.kind,
     color: p.color,
     duplex: p.duplex,
+    ...(p.color_unknown ? { colorUnknown: true } : {}),
+    ...(p.duplex_unknown ? { duplexUnknown: true } : {}),
     status: p.status,
     isDefault: p.is_default,
     location: p.location,
@@ -163,19 +244,19 @@ function toUiDiscovered(d: IpcDiscoveredPrinter): UiDiscoveredPrinter {
 
 /** Every installed printer with its OS-reported capabilities. */
 export async function listPrinters(): Promise<UiPrinter[]> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return (await unwrap(commands.listPrinters())).map(toUiPrinter);
 }
 
 /** Id of the OS default printer, or null when none is configured. */
 export async function fetchDefaultPrinter(): Promise<string | null> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.defaultPrinter());
 }
 
 /** Best-effort network discovery of not-yet-installed printers. */
 export async function discoverPrinters(): Promise<UiDiscoveredPrinter[]> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return (await unwrap(commands.discoverPrinters())).map(toUiDiscovered);
 }
 
@@ -183,9 +264,9 @@ export async function discoverPrinters(): Promise<UiDiscoveredPrinter[]> {
 // Printer preferences (persisted) + OS actions
 // ---------------------------------------------------------------------------
 
-/** Read the persisted MaeclyPrint printer preferences. */
+/** Read the persisted Pluryprint printer preferences. */
 export async function getPrinterPrefs(): Promise<PrinterPrefs> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.getPrinterPrefs());
 }
 
@@ -193,25 +274,25 @@ export async function getPrinterPrefs(): Promise<PrinterPrefs> {
 export async function setPrinterPrefs(
   prefs: PrinterPrefs,
 ): Promise<PrinterPrefs> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.setPrinterPrefs(prefs));
 }
 
 /** Set the OS user-default printer (no elevation required). */
 export async function setDefaultPrinter(name: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.setDefaultPrinter(name));
 }
 
 /** Send a test page to the named printer. */
 export async function printTestPage(name: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.printTestPage(name));
 }
 
 /** Open the OS "Printers" settings pane. */
 export async function openPrinterSettings(): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.openPrinterSettings());
 }
 
@@ -221,13 +302,13 @@ export async function openPrinterSettings(): Promise<void> {
  * failure the spooler's own diagnostic is surfaced verbatim.
  */
 export async function addPrinter(name: string, uri: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.addPrinter(name, uri));
 }
 
 /** Read the effective organization printer policy (`policy.json`). */
 export async function getPrinterPolicy(): Promise<PrinterPolicy> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.getPrinterPolicy());
 }
 
@@ -238,73 +319,113 @@ export async function getPrinterPolicy(): Promise<PrinterPolicy> {
 
 /** Submit a print request; returns the batch id and per-file job ids. */
 export async function printFiles(req: PrintRequest): Promise<JobBatch> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.printFiles(req));
 }
 
 /** A consistent snapshot of the whole queue for the initial paint. */
 export async function queueStatus(): Promise<QueueSnapshot> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.queueStatus());
 }
 
 /** Cancel a single job by id (any non-terminal state). */
 export async function cancelJob(id: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.cancelJob(id));
 }
 
 /** Cancel every non-terminal job; resolves with how many were cancelled. */
 export async function cancelAll(): Promise<number> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.cancelAll());
 }
 
 /** Pause a single job (queued/converting/converted, not printing). */
 export async function pauseJob(id: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.pauseJob(id));
 }
 
 /** Resume a single paused job. */
 export async function resumeJob(id: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.resumeJob(id));
+}
+
+/**
+ * FR-059: hand a paused protected PDF the password the user typed and resume
+ * it (with `applyToBatch`, the batch's other protected PDFs too). The backend
+ * keeps it in memory only, for that job.
+ */
+export async function supplyPdfPassword(
+  id: string,
+  password: string,
+  applyToBatch: boolean,
+): Promise<void> {
+  if (!isTauri()) throw noHost();
+  await unwrap(commands.jobSupplyPassword(id, password, applyToBatch));
+}
+
+/**
+ * Change a paused job's printer or sides (e.g. one-sided, or another printer
+ * for a job paused because its printer cannot do what it asks). The job
+ * stays paused; resume it to send it.
+ */
+export async function adjustJob(id: string, change: JobChange): Promise<void> {
+  if (!isTauri()) throw noHost();
+  await unwrap(commands.adjustJob(id, change));
 }
 
 /** Retry a single failed job from the start. */
 export async function retryJob(id: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.retryJob(id));
 }
 
 /** Pause the whole queue (stops starting new work; in-flight jobs finish). */
 export async function pauseQueue(): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.pauseQueue());
 }
 
 /** Resume the whole queue. */
 export async function resumeQueue(): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.resumeQueue());
 }
 
 /** Remove all terminal jobs; resolves with how many were removed. */
 export async function clearDone(): Promise<number> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.clearDone());
 }
 
 /** Inspect a list of file paths for the print dialog. */
 export async function inspectFiles(paths: string[]): Promise<FileInfo[]> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.inspectFiles(paths));
 }
 
-/** The exact command MaeclyPrint would run for `req` (honesty preview). */
+/**
+ * Walk dropped/picked folders into printable files with the user's FR-004
+ * answer (`top_level` vs `recursive`), one result per folder.
+ *
+ * The discarded files come back in `skipped` with a reason rather than
+ * vanishing (FR-005), and the backend logs them against the app log (FR-059),
+ * so the caller only has to *show* them.
+ */
+export async function expandFolders(
+  paths: string[],
+  scan: FolderScan,
+): Promise<FolderExpansion[]> {
+  if (!isTauri()) throw noHost();
+  return unwrap(commands.expandFolders(paths, scan));
+}
+
+/** The exact command Pluryprint would run for `req` (honesty preview). */
 export async function previewCommand(req: PrintRequest): Promise<string> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.previewCommand(req));
 }
 
@@ -324,8 +445,58 @@ function toClock(rfc3339: string | null): string {
   });
 }
 
+/** Elapsed wall-clock time between two RFC 3339 stamps, or `null`. */
+function elapsedMs(from: string | null, to: string | null): number | null {
+  if (!from || !to) return null;
+  const start = new Date(from).getTime();
+  const end = new Date(to).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return null;
+  return end - start;
+}
+
 /**
- * Adapt a wire [`Job`] into the flat `UiQueueJob` the queue views render.
+ * The job shape the queue views render: `UiQueueJob` plus three facts the
+ * shared shape cannot express.
+ *
+ * - `indeterminate` — the running phase reports NO completion fraction at all.
+ *   The backend says so explicitly (`JobProgress { phase, percent: null }`),
+ *   because no spooler reports one while printing; a bar frozen at 0 % would
+ *   be a lie, so the views paint an indeterminate one instead.
+ * - `durationMs` — how long a finished job took. `startedAt`/`finishedAt` are
+ *   already formatted to a local clock here, so the views can no longer
+ *   subtract them (the Timeline view promises durations).
+ * - `noteKey` — which advisory note to show, as a key rather than English
+ *   prose, so the views translate it (FR-092). A job the OS queue is holding,
+ *   or one waiting on a printer that needs attention, is still `printing` —
+ *   the backend reports that through the progress phase (`held`/`stopped`)
+ *   and the note says it out loud.
+ *
+ * It is declared next to the adapter that fills it because `@/types/domain` is
+ * shared by every screen, and these three fields concern only the queue.
+ */
+export interface UiQueueJobView extends UiQueueJob {
+  indeterminate?: boolean;
+  durationMs?: number;
+  /**
+   * The stored error behind `error`, so a view can say it again in another
+   * language (or with the printer's display name) without a new snapshot.
+   */
+  errorInfo?: JobError;
+  noteKey?:
+    | 'readyToPrint'
+    | 'interruptedByShutdown'
+    | 'heldByPrinter'
+    | 'printerNeedsAttention';
+  /**
+   * The raw RFC 3339 `finished_at`, for surfaces that must show a *date* in
+   * the app's own locale (Home's recent activity outlives the day: it is
+   * restored from `queue.json`). `finishedAt` is only a local clock.
+   */
+  finishedAtIso?: string;
+}
+
+/**
+ * Adapt a wire [`Job`] into the flat `UiQueueJobView` the queue views render.
  *
  * Status mapping: the wire `JobState` and the UI status union are the same
  * eight states, so `state` passes through verbatim (StatusDot, the list/screen
@@ -333,32 +504,58 @@ function toClock(rfc3339: string | null): string {
  * that lacks a `converted` bucket is the board — see QueueBoardView, which
  * folds it into the "queued" column. To keep the obscure `converted` state
  * ("PDF cached, waiting for a free printer") legible we attach a
- * `Ready to print` note. Shutdown-recovered jobs come back `paused` with
+ * `readyToPrint` note. Shutdown-recovered jobs come back `paused` with
  * `error.code === 'interrupted_by_shutdown'`; we surface that as a resumable
  * note rather than a hard error (the state is paused, not failed).
  */
-export function toUiQueueJob(job: Job): UiQueueJob {
-  const ui: UiQueueJob = {
+export function toUiQueueJob(job: Job): UiQueueJobView {
+  // `percent: null` means "running, but no fraction is knowable" — distinct
+  // from "no progress reported at all" (`progress: null`) and from 0 %.
+  const percent = job.progress?.percent ?? null;
+  // Done and unconfirmed jobs were handed to the spooler in full: their bar
+  // is full (an unconfirmed one in the warning colour), never empty as if
+  // nothing had happened, and never a pulse left over from the print phase.
+  const handedOver = job.state === 'done' || job.state === 'unconfirmed';
+  const ui: UiQueueJobView = {
     id: job.id,
     file: job.file_name,
     ext: job.input_ext,
     status: job.state,
-    progress: job.progress?.percent ?? (job.state === 'done' ? 1 : 0),
-    pages: job.pages ?? 0,
+    // An unconfirmed job was handed to the spooler in full: its bar is full
+    // (painted in the warning colour), not empty as if nothing had happened.
+    progress: handedOver ? 1 : (percent ?? 0),
+    pages: job.pages ?? null,
     profile: job.profile_name ?? '—',
-    printer: job.printer_resolved ?? job.settings.printer ?? 'Default printer',
     startedAt: toClock(job.started_at),
     sizeKb: Math.round(job.input_bytes / 1024),
   };
-  if (job.finished_at) ui.finishedAt = toClock(job.finished_at);
+  const printer = job.printer_resolved ?? job.settings.printer;
+  if (printer) ui.printer = printer;
+  if (!handedOver && job.progress != null && percent === null) {
+    ui.indeterminate = true;
+  }
+  const duration = elapsedMs(job.started_at, job.finished_at);
+  if (duration !== null) ui.durationMs = duration;
+  if (job.finished_at) {
+    ui.finishedAt = toClock(job.finished_at);
+    ui.finishedAtIso = job.finished_at;
+  }
   if (job.error) {
     if (job.error.code === 'interrupted_by_shutdown') {
-      ui.note = 'Interrupted by shutdown · resume to continue';
+      // Only a paused job can be resumed; once it is cancelled (or done) the
+      // shutdown is history, and the note would offer an action nobody has.
+      if (job.state === 'paused') ui.noteKey = 'interruptedByShutdown';
     } else {
-      ui.error = job.error.message;
+      // FR-092: say it in the UI language, not the backend's English.
+      ui.error = localizeJobError(job.error);
+      ui.errorInfo = job.error;
     }
   } else if (job.state === 'converted') {
-    ui.note = 'Ready to print';
+    ui.noteKey = 'readyToPrint';
+  } else if (job.state === 'printing' && job.progress?.phase === 'held') {
+    ui.noteKey = 'heldByPrinter';
+  } else if (job.state === 'printing' && job.progress?.phase === 'stopped') {
+    ui.noteKey = 'printerNeedsAttention';
   }
   return ui;
 }
@@ -376,14 +573,6 @@ const PAPER_TO_UI: Record<PaperSize, UiProfile['paper']> = {
   letter: 'Letter',
   legal: 'Legal',
   a3: 'A3',
-};
-
-/** Display paper size → wire (lowercase). Inverse of {@link PAPER_TO_UI}. */
-const PAPER_TO_WIRE: Record<string, PaperSize> = {
-  A4: 'a4',
-  Letter: 'letter',
-  Legal: 'legal',
-  A3: 'a3',
 };
 
 /** Adapt a wire [`Profile`] into the display-cased `UiProfile` the editor uses. */
@@ -405,6 +594,7 @@ export function toUiProfile(p: Profile): UiProfile {
     scaling: p.scaling,
     quality: p.quality,
     tray: p.tray,
+    collate: p.collate ?? true,
   };
   if (p.page_range != null) ui.pageRange = p.page_range;
   return ui;
@@ -426,11 +616,12 @@ function toWireProfile(p: UiProfile): Profile {
     color_mode: p.color,
     duplex: p.duplex,
     copies: p.copies,
-    paper_size: PAPER_TO_WIRE[p.paper] ?? (p.paper.toLowerCase() as PaperSize),
+    paper_size: paperToWire(p.paper),
     orientation: p.orientation,
     scaling: p.scaling,
     quality: p.quality,
     tray: p.tray,
+    collate: p.collate ?? true,
   };
   if (p.pageRange) wire.page_range = p.pageRange;
   return wire;
@@ -438,7 +629,7 @@ function toWireProfile(p: UiProfile): Profile {
 
 /** Every profile: built-ins first, then customs, each with its computed flags. */
 export async function listProfiles(): Promise<UiProfile[]> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return (await unwrap(commands.listProfiles())).map(toUiProfile);
 }
 
@@ -448,19 +639,19 @@ export async function listProfiles(): Promise<UiProfile[]> {
  * preserving that id (client-side undo); a built-in id is rejected.
  */
 export async function saveProfile(p: UiProfile): Promise<UiProfile> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return toUiProfile(await unwrap(commands.saveProfile(toWireProfile(p))));
 }
 
 /** Delete a custom profile (rejects a built-in or the current default). */
 export async function deleteProfile(id: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.deleteProfile(id));
 }
 
 /** Set the app's default profile (id must name a known built-in or custom). */
 export async function setDefaultProfile(id: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.setDefaultProfile(id));
 }
 
@@ -484,13 +675,13 @@ function normalizeAppSettings(s: AppSettings): AppSettings {
 
 /** Read the current app settings, with optional fields normalized. */
 export async function getAppSettings(): Promise<AppSettings> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return normalizeAppSettings(await unwrap(commands.getAppSettings()));
 }
 
 /** Validate and persist app settings; returns the saved (normalized) value. */
 export async function setAppSettings(s: AppSettings): Promise<AppSettings> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return normalizeAppSettings(await unwrap(commands.setAppSettings(s)));
 }
 
@@ -500,24 +691,77 @@ export async function setAppSettings(s: AppSettings): Promise<AppSettings> {
 
 /** Check GitHub for a newer release than the running build. */
 export async function checkForUpdates(): Promise<UpdateCheck> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   return unwrap(commands.checkForUpdates());
+}
+
+/**
+ * The persisted update bookkeeping: when the last check ran and which release
+ * the user skipped (FR-084).
+ */
+export async function getUpdateState(): Promise<UpdateState> {
+  if (!isTauri()) throw noHost();
+  return unwrap(commands.getUpdateState());
+}
+
+/**
+ * Record the release the user chose to skip, or `null` to clear it.
+ *
+ * Skipping is per version: a newer release prompts again, so this is a "not
+ * this one" rather than an opt-out of updates.
+ */
+export async function setSkippedUpdateVersion(
+  version: string | null,
+): Promise<void> {
+  if (!isTauri()) throw noHost();
+  await unwrap(commands.setSkippedUpdateVersion(version));
+}
+
+// ---------------------------------------------------------------------------
+// Shell-extension selections (FR-001, NFR-014)
+// ---------------------------------------------------------------------------
+
+/**
+ * Drain the file selections the OS context menu handed this instance, oldest
+ * first.
+ *
+ * Covers both arrival routes: a selection the shell extension put on this
+ * process' command line before the webview existed, and one a *second* launch
+ * (or the macOS Finder service) forwarded into an already-running window. The
+ * backend parks both in the same store, so this call is the single point of
+ * delivery — and it is destructive, so a selection is acted on exactly once no
+ * matter how many times it is called.
+ */
+export async function takePendingSelections(): Promise<Selection[]> {
+  if (!isTauri()) throw noHost();
+  return unwrap(commands.takePendingSelections());
+}
+
+/**
+ * Whether to tell the user, once, that the headless-browser HTML renderer
+ * they had set by hand in `config.toml` is gone (their pages now print with
+ * the system web view). The backend removes the retired key as it answers,
+ * so this is `true` at most once per machine.
+ */
+export async function takeRetiredRendererNotice(): Promise<boolean> {
+  if (!isTauri()) throw noHost();
+  return unwrap(commands.takeRetiredRendererNotice());
 }
 
 /** Reveal the app's log directory in the OS file browser. */
 export async function openLogsFolder(): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.openLogsFolder());
 }
 
 /** Open a prefilled "new issue" page on the project's GitHub, seeded with `text`. */
 export async function reportIssue(text: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.reportIssue(text));
 }
 
 /** Open an external link in the default browser (allow-listed project hosts). */
 export async function openExternal(url: string): Promise<void> {
-  if (!isTauri()) throw new Error(NO_HOST);
+  if (!isTauri()) throw noHost();
   await unwrap(commands.openExternal(url));
 }

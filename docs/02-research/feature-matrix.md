@@ -1,6 +1,6 @@
 # Feature Matrix
 
-> **TL;DR** — A feature-by-feature comparison of MaeclyPrint (MVP and v1.0) against the major commercial and open-source batch-printing tools. The matrix shows where the market leaders dominate (format breadth, polished GUIs), where they all fall short (modern Windows shell integration), and where MaeclyPrint chooses to focus.
+> **TL;DR** — A feature-by-feature comparison of Pluryprint (MVP and v1.0) against the major commercial and open-source batch-printing tools. The matrix shows where the market leaders dominate (format breadth, polished GUIs), where they all fall short (modern Windows shell integration), and where Pluryprint chooses to focus.
 
 ## Legend
 
@@ -16,9 +16,9 @@ For the source materials behind each cell, see [competitor-analysis.md](./compet
 
 ## Comparison Table
 
-| Feature | Print Conductor | 2Printer | Batch & Print Pro | FolderMill | clawPDF | MaeclyPrint MVP | MaeclyPrint v1.0 |
+| Feature | Print Conductor | 2Printer | Batch & Print Pro | FolderMill | clawPDF | Pluryprint MVP | Pluryprint v1.0 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Open source** | ✗ | ✗ | ✗ | ✗ | ✓ (AGPL-3.0) | ✓ (GPL-3.0) | ✓ (GPL-3.0) |
+| **Open source** | ✗ | ✗ | ✗ | ✗ | ✓ (AGPL-3.0) | ✓ (AGPL-3.0) | ✓ (AGPL-3.0) |
 | **Free of charge** | ✗ ($149) | ✗ ($149) | ✗ ($79.95) | ✗ (B2B) | ✓ | ✓ | ✓ |
 | **Multi-format input** | ✓ (90+) | ✓ (90+) | ✓ (30+) | ✓ (90+) | n/a (virtual printer) | Partial (PDF, Office, images, text/MD, HTML) | ✓ (broad, plugin-extensible) |
 | **PDF rendering without Adobe** | ✓ | ✓ | ✓ | ✓ | n/a | ✓ (pdfium/mupdf) | ✓ |
@@ -85,9 +85,9 @@ A few things to notice when scanning the table:
 - **No 15-file workaround.** None of them ships a fix for the cap, because none of them is integrated into the shell to begin with.
 - **Open source + multi-format + active maintenance.** This intersection is empty in the OSS column.
 
-### Where MaeclyPrint MVP commits
+### Where Pluryprint MVP commits
 
-- Free, GPLv3, OSS.
+- Free, AGPL-3.0, OSS.
 - Modern + legacy context menu integration.
 - The file formats users batch-print 95% of the time (PDF, Office, images, text/MD, HTML).
 - Core print options (duplex, color, paper, orientation, copies, page range, basic collate).
@@ -96,14 +96,14 @@ A few things to notice when scanning the table:
 - Auto-update via signed Tauri updater.
 - ARM64 from day one.
 
-### Where MaeclyPrint v1.0 closes the gap
+### Where Pluryprint v1.0 closes the gap
 
 - Profiles, file-type routing, separator pages, watermarks, n-up, file-list import, full CLI.
 - Multi-printer load balancing.
 - Hot folders.
 - Plugin API for the long tail of formats (CAD, email, etc.).
 
-### Where MaeclyPrint deliberately says no
+### Where Pluryprint deliberately says no
 
 - Email monitor (POP3/IMAP/OAuth complexity for a niche use case).
 - Cloud folder monitor (Dropbox/Drive — out of scope, privacy-first).
@@ -145,7 +145,7 @@ Because the comparison table compresses "multi-format input" into a single cell,
 | Batch & Print Pro Standard | $79.95 | volume | volume | volume |
 | Batch & Print Pro Premium | $109.95 | volume | volume | volume |
 | FolderMill | per quote | per quote | per quote | per quote |
-| **MaeclyPrint** | **$0** | **$0** | **$0** | **$0** |
+| **Pluryprint** | **$0** | **$0** | **$0** | **$0** |
 
 ## Related Documents
 

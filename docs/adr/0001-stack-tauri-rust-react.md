@@ -22,7 +22,7 @@ The performance budget for step 2-3 is harsh — the dialog must appear in well 
 - Ship with an auto-updater that supports signature verification and works without going through a store.
 - Integrate cleanly with the OS shell (right-click extension, sparse MSIX on Windows, Quick Action / Finder Sync on Mac).
 - Ship a CLI in the same binary for headless use.
-- Be open source (GPLv3 — see ADR-0002), so we cannot rely on proprietary frameworks.
+- Be open source (AGPL-3.0 — see ADR-0010, which superseded ADR-0002's GPLv3), so we cannot rely on proprietary frameworks.
 - Be developed by a small team (initially solo). Maintenance burden matters more than feature ceiling.
 
 We need to choose the application framework and the language(s) the project lives in.
@@ -90,6 +90,6 @@ A scored comparison from research:
 
 ## Related
 
-- ADR-0002 (license: GPLv3) constrains some dependency choices.
+- ADR-0010 (license: AGPL-3.0-only, superseding ADR-0002) constrains some dependency choices.
 - ADR-0004 (auto-updater) depends on this choice.
 - [`../04-architecture/tech-stack.md`](../04-architecture/tech-stack.md) — full reference of the stack and dependencies.

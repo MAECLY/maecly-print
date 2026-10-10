@@ -64,6 +64,8 @@ export function MPBadge({ children, tone = 'neutral', icon }: MPBadgeProps) {
         borderRadius: 4,
         textTransform: 'uppercase',
         letterSpacing: '0.04em',
+        whiteSpace: 'nowrap',
+        flexShrink: 0,
       }}
     >
       {icon && <Icon name={icon} size={11} />}

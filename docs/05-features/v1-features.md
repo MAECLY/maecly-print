@@ -1,39 +1,48 @@
 # v1 Features (v0.2.0 → v1.0.0)
 
-> **TL;DR** — Post-MVP additions that round MaeclyPrint into a polished v1: full Office and HTML support, more print settings, multilanguage UI, accessibility compliance, and code-signed updates with channels.
+> **TL;DR** — Post-MVP additions that round Pluryprint into a polished v1: full Office and HTML support, more print settings, multilanguage UI, accessibility compliance, and code-signed updates with channels.
 
 These features are sequenced into intermediate releases (`v0.2`, `v0.3`, …) before `v1.0`. The order may shift based on user feedback after MVP.
 
+> **Already delivered ahead of schedule.** Three items below were built during the M1 screen-completeness work and are marked **Delivered** in place: GUI folder drag-drop with the recursion prompt (v0.2), profile import/export (v0.3), and the English/Spanish i18n layer with OS-locale detection and a Settings selector (v0.4). They stay in this document — moving them would lose the sequencing record — but they are not open work.
+
 ## v0.2 — Multi-format
 
-The headline feature of v0.2 is **format breadth**. After v0.2, MaeclyPrint covers ~95% of the documents an office user needs to print.
+The headline feature of v0.2 is **format breadth**. After v0.2, Pluryprint covers ~95% of the documents an office user needs to print.
 
-### New formats
+### New formats — **delivered early**
+
+All of these shipped ahead of v0.2 (FR-052..FR-057). See [supported-formats.md](../03-requirements/supported-formats.md) for how each one is run.
 
 | Format | Converter | Notes |
 |---|---|---|
-| `.docx`, `.doc` | LibreOffice headless → PDF | First-run prompts user to install LibreOffice if absent |
+| `.docx`, `.doc` | LibreOffice headless → PDF | No first-run prompt: a job that needs a missing LibreOffice pauses, and the Print Job screen offers a consented install (FR-058) |
 | `.xlsx`, `.xls` | LibreOffice | |
 | `.pptx`, `.ppt` | LibreOffice | |
 | `.odt`, `.ods`, `.odp` | LibreOffice | |
-| `.rtf`, `.txt` | LibreOffice | |
-| `.html`, `.htm` | Chromium headless `--print-to-pdf` | Local files only; remote HTML deferred |
-| `.md`, `.markdown` | Pandoc → PDF | Pandoc required as external dep |
+| `.rtf` | LibreOffice (Windows); `textutil` → the system web view (macOS) | |
+| `.txt` | decoded in-process → the system web view | BOM, UTF-8, else Windows-1252 |
+| `.html`, `.htm` | the system web view (WebView2 / WKWebView) in a worker | Local files only; no script, no network |
+| `.md`, `.markdown` | `pulldown-cmark` in-process → the system web view | No Pandoc, no LaTeX |
+| `.svg`, `.svgz` | `usvg` + `svg2pdf` in a worker | Vector output |
+| `.heic`, `.heif` | OS decoder (`sips` / WIC) | Windows needs the Store *HEIF Image Extensions* (and *HEVC Video Extensions* for `.heic`) |
 
 ### Dependency detection
 
-The Settings page gains a **Dependencies** panel showing the status of LibreOffice / Chromium / Pandoc / ImageMagick (✓ Found / ✗ Missing) with download links and a refresh button.
+The Settings page gains a **Dependencies** panel showing the status of every external dependency (✓ Found / ✗ Missing) with install options and a refresh button.
+
+Partly delivered already: the probe itself exists (`engine::deps`, reported through `app_info`) and covers SumatraPDF, LibreOffice and, on Windows, the HEIF and HEVC Store codecs; Edge/Chrome, Pandoc and ImageMagick are not used. It surfaces on the **Print Job** screen, where only the dependencies that actually gate a file the user added are shown, with remediation text and an **Install…** consent dialog (winget, Homebrew, the Store or the download page). What v0.2 still owes is the always-on Settings panel with a refresh button.
 
 ### New print settings
 
-- **Tray** (input bin) — pulled from driver capabilities at print time
+- **Tray** (input bin) — *delivered*: sent to CUPS as `InputSlot`/`media-source` and to SumatraPDF as the driver's bin id; the Printers screen sets a per-printer default
 - **Collate** (true/false)
 
 ### Quality of life
 
 - The "Configure print job" dialog gains a **preview** pane for PDFs (using PDFium rendering).
-- Drag-drop in the GUI accepts folders and recurses with a confirmation prompt.
-- Recent files / recent jobs shown on the Home page.
+- ~~Drag-drop in the GUI accepts folders and recurses with a confirmation prompt.~~ **Delivered in M1.** This was never really a v0.2 item — [FR-004](../03-requirements/functional-requirements.md) and FR-007 both mark folders as MVP, so listing it here was the drift. A dropped folder with subfolders is parked until the screen asks recurse-or-top-level, then walked by the `expand_folders` command; a folder with no subfolders skips the question. Discarded files come back with a reason (FR-005/FR-059) rather than vanishing.
+- ~~Recent files / recent jobs shown on the Home page.~~ **Delivered in M1** — Home's recent activity is fed by the real queue.
 
 ## v0.3 — Watermark, separator, polish
 
@@ -48,10 +57,10 @@ The Settings page gains a **Dependencies** panel showing the status of LibreOffi
 - Divider shows next file's name and page count.
 - Configurable from per-profile settings.
 
-### Profile import/export
+### Profile import/export — **delivered in M1**
 
-- Export a profile to `<name>.maecly-profile.toml`.
-- Import via drag-drop on the Profiles page or `maeclyprint profiles import <file>`.
+- Export a profile to a TOML file, import one or many back (`export_profile` / `import_profiles`, wired to the Profiles screen).
+- Still open: importing by **drag-drop** onto the Profiles page, and the `pluryprint profiles import|export <file>` CLI verbs — neither exists.
 
 ### Per-job overrides remembered
 
@@ -59,12 +68,12 @@ The Settings page gains a **Dependencies** panel showing the status of LibreOffi
 
 ## v0.4 — Internationalization
 
-### Languages
+### Languages — **delivered in M1**
 
-- **Spanish (es-ES, es-MX)** lands as the second language, alongside English.
-- All UI strings externalized in `i18n/{lang}.json`.
-- ICU MessageFormat for plurals and gendered forms.
-- Language selector in Settings; first run uses OS locale if matching.
+- **Spanish** lands as the second language, alongside English. The shipped locales are exactly `en-US` and `es-ES`; there is no separate `es-MX` catalogue, so `es-MX` matches on the language subtag and resolves to `es-ES`.
+- All UI strings externalized — as `src/i18n/locales/{lang}/<namespace>.json`, one file per screen, rather than the single flat `i18n/{lang}.json` originally planned.
+- Language selector in Settings; first run uses OS locale if matching, then persists the choice to `config.toml`.
+- **Not delivered:** ICU MessageFormat. The translator is a small in-house one with parameter substitution and a count-based plural rule; there is no `react-i18next` and no ICU. Gendered forms are unsupported. Backend (Rust) strings are not translated at all.
 
 ### RTL preparedness
 
@@ -84,11 +93,10 @@ The Settings page gains a **Dependencies** panel showing the status of LibreOffi
 ## v0.6 — Update channels
 
 - **Stable** (default), **Beta**, **Nightly** channels.
-- User can switch in Settings; downgrading channel requires confirmation.
-- `https://updates.maecly.com/maeclyprint/{channel}.json` per channel.
-- Nightly: built every night from `main`, signed with self-signed cert.
-- Beta: cut from `main` weekly, EV-signed.
-- Stable: cut from `release/*` branches, EV-signed.
+- User can switch in Settings; downgrading channel requires confirmation. *Delivered (ADR-0011): stable reads `releases/latest/download/latest.json`, beta reads the `channel-beta` release's manifest, and nightly follows beta. A move to a more stable channel asks for confirmation.*
+- ~~`https://updates.maecly.com/pluryprint/{channel}.json` per channel.~~ The manifests live on GitHub Releases.
+- Nightly: not built; the channel follows beta.
+- Beta and stable: cut from a `vX.Y.Z-beta.N` or `vX.Y.Z` tag by `release.yml` into a draft; installers carry no OS certificate (ADR-0011), updates are minisign-signed.
 
 ## v0.7 — N-up & custom paper
 
@@ -105,9 +113,9 @@ The Settings page gains a **Dependencies** panel showing the status of LibreOffi
 
 ## v0.8 — Quality, queue depth, history
 
-- **Quality** setting: draft / normal / high (~150 / ~300 / ~600 dpi hint).
-- **Queue concurrency**: configurable from 1–8 simultaneous jobs (default 2).
-- **Job history** persisted indefinitely (until user clears) with full search/filter.
+- **Quality** setting: draft / normal / high (~150 / ~300 / ~600 dpi hint). *Delivered early: CUPS gets `print-quality`/`cupsPrintQuality`, and Windows applies Draft/High through a temporary per-user default DEVMODE (decision D16).*
+- ~~**Queue concurrency**: configurable from 1–8 simultaneous jobs (default 2).~~ **Delivered in M1**, though it bounds concurrent *conversions*, not concurrent spooling: `engine.max_concurrent_conversions`, clamped to 1–8, default 2, read into the dispatcher at app start.
+- **Job history** persisted indefinitely (until user clears) with full search/filter. *Today the queue holds finished jobs until `clear_done` (with an undo window); there is no separate searchable history store.*
 - Export history to CSV.
 
 ## v0.9 — Polish & hardening

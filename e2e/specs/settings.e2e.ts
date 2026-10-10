@@ -1,17 +1,61 @@
 import { browser, $, expect } from '@wdio/globals';
 
-import { dismissOnboarding, navigateTo } from './helpers.js';
+import {
+  dismissOnboarding,
+  navigateTo,
+  restoreDefaultSettings,
+  selectLanguage,
+} from './helpers.js';
 
 /** Read the class list on the document root (where the theme is applied). */
 function rootClass(): Promise<string> {
   return browser.execute(() => document.documentElement.className);
 }
 
+/** Read the density the appearance layer publishes on the document root. */
+function rootDensity(): Promise<string> {
+  return browser.execute(() => document.documentElement.dataset.density ?? '');
+}
+
 /**
- * Settings appearance flow: switching the theme to dark applies the `mp-dark`
- * class to <html> (see src/lib/theme.ts).
+ * Drop every localStorage key and reload the webview. The instant-boot caches
+ * (theme, density, onboarding) live there, so clearing them before the reload
+ * means whatever the app renders afterwards can only have come from
+ * `config.toml` via `get_app_settings` — which is exactly the persistence this
+ * suite is here to prove.
+ */
+async function relaunchWithoutCaches(): Promise<void> {
+  await browser.execute(() => {
+    window.localStorage.clear();
+    window.location.reload();
+  });
+  // The sidebar follows the UI language (FR-094), so after a switch to
+  // Spanish its entry reads "Ajustes".
+  await browser.waitUntil(
+    async () =>
+      (await $('button*=Settings').isExisting()) ||
+      (await $('button*=Ajustes').isExisting()),
+    { timeout: 20_000, timeoutMsg: 'expected the app shell after the reload' },
+  );
+  await dismissOnboarding();
+}
+
+/**
+ * Settings, end to end. Two things Vitest cannot reach: that an appearance
+ * change really lands on the document of the running webview, and that the
+ * dual-write survives a boot with the localStorage cache wiped (FR-100…FR-103).
+ *
+ * Every test here writes the runner's real `config.toml`, so the restore runs
+ * in `afterEach` — a hook Mocha runs whether the test passed, failed or threw
+ * mid-way. Restoring at the end of the test body (as this suite used to) leaves
+ * the config dark-themed, compact or in Spanish for every later spec the moment
+ * one assertion fails.
  */
 describe('Settings', () => {
+  afterEach(async () => {
+    await restoreDefaultSettings();
+  });
+
   it('switches the theme to dark and applies the dark class', async () => {
     await dismissOnboarding();
     await navigateTo('Settings');
@@ -28,10 +72,58 @@ describe('Settings', () => {
     );
 
     expect(await rootClass()).toContain('mp-dark');
+  });
 
-    // Note: this verifies in-session application only. Asserting persistence
-    // (dual-write to config.toml) by relaunching and asserting a dark boot
-    // would need a full tauri-driver session restart, which is impractical to
-    // do reliably here.
+  it('FR-100: a changed setting survives a relaunch with the local cache cleared', async () => {
+    await dismissOnboarding();
+    await navigateTo('Settings');
+
+    // Two settings from different sections, one of them appearance (which has
+    // the localStorage cache we are about to wipe).
+    await (await $('button*=Dark')).click();
+    await (await $('button*=Compact')).click();
+    await browser.waitUntil(async () => (await rootDensity()) === 'compact', {
+      timeout: 5_000,
+      timeoutMsg: 'expected data-density="compact"',
+    });
+
+    await relaunchWithoutCaches();
+
+    // Nothing local survived the wipe, so a dark, compact boot can only come
+    // from the persisted config.
+    await browser.waitUntil(
+      async () =>
+        (await rootClass()).includes('mp-dark') &&
+        (await rootDensity()) === 'compact',
+      {
+        timeout: 20_000,
+        timeoutMsg: 'expected the persisted theme + density to be restored',
+      },
+    );
+  });
+
+  it('FR-094: switching the language re-renders the app, and the choice persists', async () => {
+    await dismissOnboarding();
+    await navigateTo('Settings');
+
+    await selectLanguage('es-ES');
+
+    // The whole shell follows the setting, not just this screen.
+    await browser.waitUntil(
+      async () => (await (await $('body')).getText()).includes('Ajustes'),
+      { timeout: 10_000, timeoutMsg: 'expected the UI to switch to Spanish' },
+    );
+
+    await relaunchWithoutCaches();
+    // The whole shell, sidebar included, comes back in Spanish.
+    await navigateTo('Settings', 'Ajustes');
+
+    await browser.waitUntil(
+      async () => (await (await $('body')).getText()).includes('Ajustes'),
+      {
+        timeout: 20_000,
+        timeoutMsg: 'expected the persisted locale to survive the relaunch',
+      },
+    );
   });
 });

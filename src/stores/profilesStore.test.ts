@@ -9,6 +9,7 @@ import {
   fixtureProfiles,
   mkProfile,
 } from '@/test/fixtures';
+import { setActiveLocale } from '@/i18n';
 import { BUILT_IN_PROFILES } from '@/lib/profiles';
 import { useProfilesStore } from '@/stores/profilesStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -34,6 +35,25 @@ function mockProfiles(opts: { list?: Profile[]; fail?: string } = {}): Call[] {
     switch (cmd) {
       case 'list_profiles':
         return list;
+      case 'get_profile': {
+        const { id } = args as { id: string };
+        const found = list.find((q) => q.id === id);
+        if (!found) throw new Error(`Profile not found: ${id}`);
+        return found;
+      }
+      case 'export_profile':
+        return null;
+      case 'import_profiles': {
+        const imported: Profile[] = [
+          {
+            ...fixtureProfiles[3]!,
+            id: 'imported-1',
+            name: 'Contracts duplex 2',
+          },
+        ];
+        list = [...list, ...imported];
+        return imported;
+      }
       case 'save_profile': {
         const p = (args as { profile: Profile }).profile;
         const id = p.id || 'srv-generated-id';
@@ -87,7 +107,13 @@ function draft(over: Partial<UiProfile> = {}): UiProfile {
 }
 
 function resetStore() {
-  useProfilesStore.setState({ status: 'idle', profiles: [], error: undefined });
+  useProfilesStore.setState({
+    status: 'idle',
+    profiles: [],
+    error: undefined,
+    draft: null,
+    working: null,
+  });
 }
 
 describe('profilesStore', () => {
@@ -126,6 +152,37 @@ describe('profilesStore', () => {
     expect(calls.filter((c) => c.cmd === 'list_profiles')).toHaveLength(1);
   });
 
+  it('FR-001: reload re-reads a profile created outside this window (the CLI)', async () => {
+    mockProfiles();
+    await useProfilesStore.getState().init();
+    expect(
+      useProfilesStore.getState().profiles.some((p) => p.name === 'E2E Hold'),
+    ).toBe(false);
+
+    // `pluryprint-cli profiles create` wrote profiles.toml behind our back.
+    const calls = mockProfiles({
+      list: [...fixtureProfiles, mkProfile({ id: 'cli-1', name: 'E2E Hold' })],
+    });
+    const fresh = await useProfilesStore.getState().reload();
+
+    expect(calls.filter((c) => c.cmd === 'list_profiles')).toHaveLength(1);
+    expect(fresh.some((p) => p.id === 'cli-1')).toBe(true);
+    expect(
+      useProfilesStore.getState().profiles.some((p) => p.id === 'cli-1'),
+    ).toBe(true);
+    expect(useProfilesStore.getState().status).toBe('ready');
+  });
+
+  it('FR-001: a failed reload rejects and keeps the cached list', async () => {
+    mockProfiles();
+    await useProfilesStore.getState().init();
+    const before = useProfilesStore.getState().profiles;
+
+    mockProfiles({ fail: 'list_profiles' });
+    await expect(useProfilesStore.getState().reload()).rejects.toThrow('boom');
+    expect(useProfilesStore.getState().profiles).toBe(before);
+  });
+
   it('reports unavailable and falls back to the built-ins outside Tauri', async () => {
     const w = window as unknown as {
       __TAURI_INTERNALS__?: unknown;
@@ -138,6 +195,26 @@ describe('profilesStore', () => {
     const s = useProfilesStore.getState();
     expect(s.status).toBe('unavailable');
     expect(s.profiles).toEqual(BUILT_IN_PROFILES);
+  });
+
+  it('FR-093: the fallback outside Tauri names the built-ins in Spanish in es-ES', async () => {
+    const w = window as unknown as {
+      __TAURI_INTERNALS__?: unknown;
+      __TAURI__?: unknown;
+    };
+    delete w.__TAURI_INTERNALS__;
+    delete w.__TAURI__;
+    setActiveLocale('es-ES');
+    try {
+      await useProfilesStore.getState().init();
+      expect(useProfilesStore.getState().profiles.map((p) => p.name)).toEqual([
+        'Rápido',
+        'Doble cara B/N',
+        'Foto color',
+      ]);
+    } finally {
+      setActiveLocale('en-US');
+    }
   });
 
   it('marks status error on failure and is retryable', async () => {
@@ -327,5 +404,189 @@ describe('profilesStore', () => {
       useProfilesStore.getState().profiles.some((p) => p.id === CUSTOM_ID),
     ).toBe(true);
     spy.mockRestore();
+  });
+  // ---- get_profile: the single-profile refresh ---------------------------
+
+  it('refreshProfile patches a stale row from get_profile', async () => {
+    const calls = mockProfiles();
+    await useProfilesStore.getState().init();
+    // Simulate the list going stale (another window renamed the profile).
+    useProfilesStore.setState({
+      profiles: useProfilesStore
+        .getState()
+        .profiles.map((p) =>
+          p.id === CUSTOM_ID ? { ...p, name: 'Stale name', copies: 99 } : p,
+        ),
+    });
+
+    await useProfilesStore.getState().refreshProfile(CUSTOM_ID);
+
+    expect(
+      calls.some((c) => c.cmd === 'get_profile' && c.args.id === CUSTOM_ID),
+    ).toBe(true);
+    const fresh = useProfilesStore
+      .getState()
+      .profiles.find((p) => p.id === CUSTOM_ID)!;
+    expect(fresh.name).toBe('Contracts duplex');
+    expect(fresh.copies).not.toBe(99);
+  });
+
+  it('refreshProfile keeps the array identity when nothing changed', async () => {
+    mockProfiles();
+    await useProfilesStore.getState().init();
+    const before = useProfilesStore.getState().profiles;
+
+    const r = await useProfilesStore.getState().refreshProfile(CUSTOM_ID);
+    expect(r).toEqual({ kind: 'unchanged' });
+    expect(useProfilesStore.getState().profiles).toBe(before);
+  });
+
+  it('FR-020: refreshProfile reports a change with the row as it was', async () => {
+    mockProfiles();
+    await useProfilesStore.getState().init();
+    useProfilesStore.setState({
+      profiles: useProfilesStore
+        .getState()
+        .profiles.map((p) => (p.id === CUSTOM_ID ? { ...p, copies: 99 } : p)),
+    });
+
+    const r = await useProfilesStore.getState().refreshProfile(CUSTOM_ID);
+    expect(r.kind).toBe('changed');
+    expect(r.kind === 'changed' && r.before.copies).toBe(99);
+  });
+
+  it('FR-020: refreshProfile reloads the list when the profile is gone on disk', async () => {
+    let list = fixtureProfiles;
+    const calls: Call[] = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+      if (cmd === 'list_profiles') return list;
+      if (cmd === 'get_profile') {
+        list = fixtureProfiles.filter((p) => p.id !== CUSTOM_ID);
+        throw { code: 'ProfileNotFound', message: CUSTOM_ID };
+      }
+      return null;
+    });
+    await useProfilesStore.getState().init();
+
+    const r = await useProfilesStore.getState().refreshProfile(CUSTOM_ID);
+    expect(r).toEqual({ kind: 'missing' });
+    expect(
+      useProfilesStore.getState().profiles.some((p) => p.id === CUSTOM_ID),
+    ).toBe(false);
+  });
+
+  it('refreshProfile stays silent when the backend rejects', async () => {
+    mockProfiles({ fail: 'get_profile' });
+    await useProfilesStore.getState().init();
+    const before = useProfilesStore.getState().profiles;
+    const spy = vi.spyOn(toast, 'error').mockReturnValue('id');
+
+    await useProfilesStore.getState().refreshProfile(CUSTOM_ID);
+
+    // Best-effort: no toast, no state churn — the cached row still renders.
+    expect(spy).not.toHaveBeenCalled();
+    expect(useProfilesStore.getState().profiles).toBe(before);
+    spy.mockRestore();
+  });
+
+  // ---- FR-024: import / export -------------------------------------------
+
+  it('FR-024: exportProfile forwards the id and the destination path', async () => {
+    const calls = mockProfiles();
+    await useProfilesStore.getState().init();
+
+    const ok = await useProfilesStore
+      .getState()
+      .exportProfile(CUSTOM_ID, '/tmp/out.pluryprint-profile.toml');
+
+    expect(ok).toBe(true);
+    const call = calls.find((c) => c.cmd === 'export_profile');
+    expect(call?.args).toEqual({
+      id: CUSTOM_ID,
+      path: '/tmp/out.pluryprint-profile.toml',
+    });
+  });
+
+  it('FR-024: a rejected export toasts and reports failure', async () => {
+    mockProfiles({ fail: 'export_profile' });
+    await useProfilesStore.getState().init();
+    const spy = vi.spyOn(toast, 'error').mockReturnValue('id');
+
+    const ok = await useProfilesStore.getState().exportProfile(CUSTOM_ID, '/x');
+    expect(ok).toBe(false);
+    expect(spy).toHaveBeenCalledWith('boom');
+    spy.mockRestore();
+  });
+
+  it('FR-024: importProfiles adapts the result and reloads the list', async () => {
+    const calls = mockProfiles();
+    await useProfilesStore.getState().init();
+
+    const imported = await useProfilesStore
+      .getState()
+      .importProfiles('/tmp/shared.toml');
+
+    expect(imported).toHaveLength(1);
+    // Adapted like every other profile (wire `paper_size` → display `paper`).
+    expect(imported![0]!.paper).toBe('Letter');
+    expect(imported![0]!.id).toBe('imported-1');
+    // Reload-after-write: the list grew.
+    expect(calls.filter((c) => c.cmd === 'list_profiles')).toHaveLength(2);
+    expect(useProfilesStore.getState().profiles).toHaveLength(5);
+  });
+
+  it('FR-024: a rejected import toasts, returns null and does not refetch', async () => {
+    const calls = mockProfiles({ fail: 'import_profiles' });
+    await useProfilesStore.getState().init();
+    const before = useProfilesStore.getState().profiles;
+    const spy = vi.spyOn(toast, 'error').mockReturnValue('id');
+
+    const imported = await useProfilesStore
+      .getState()
+      .importProfiles('/tmp/corrupt.toml');
+
+    expect(imported).toBeNull();
+    expect(spy).toHaveBeenCalledWith('boom');
+    expect(useProfilesStore.getState().profiles).toBe(before);
+    expect(calls.filter((c) => c.cmd === 'list_profiles')).toHaveLength(1);
+    spy.mockRestore();
+  });
+
+  it('FR-024: an IpcError object from an unbound command becomes a readable message', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'list_profiles') return fixtureProfiles;
+      // What a command-returned IpcError looks like on the raw invoke path.
+      // FR-092: it carries a stable reason the UI translates.
+      throw {
+        code: 'InvalidRequest',
+        reason: 'import_malformed',
+        message: 'this is not a Pluryprint profile file: TOML parse error',
+      };
+    });
+    await useProfilesStore.getState().init();
+    const spy = vi.spyOn(toast, 'error').mockReturnValue('id');
+
+    expect(await useProfilesStore.getState().importProfiles('/x')).toBeNull();
+    expect(spy).toHaveBeenCalledWith('This is not a Pluryprint profile file.');
+    spy.mockRestore();
+  });
+
+  // ---- Editor state kept across screen unmounts ---------------------------
+
+  it('regression(profiles-dirty-editor-lost-on-navigation): the draft and working copy outlive the screen', () => {
+    const p = draft({ name: 'Half typed' });
+    useProfilesStore.getState().setDraft(p);
+    useProfilesStore
+      .getState()
+      .setWorking({ key: 'draft', profile: p, copiesText: '3' });
+
+    // Unmounting the screen touches nothing here — that is the whole point.
+    expect(useProfilesStore.getState().draft).toEqual(p);
+    expect(useProfilesStore.getState().working?.copiesText).toBe('3');
+
+    useProfilesStore.getState().clearEditor();
+    expect(useProfilesStore.getState().draft).toBeNull();
+    expect(useProfilesStore.getState().working).toBeNull();
   });
 });

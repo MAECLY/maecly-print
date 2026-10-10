@@ -1,6 +1,6 @@
 # Target Users
 
-> **TL;DR** — MaeclyPrint is built for people who print **batches** of mixed-format files from Windows Explorer as part of their day. This document profiles five representative users — an office administrator, a print-shop operator, a sysadmin, a software engineer, and a teaching assistant — and shows what current tooling forces them to do, and what MaeclyPrint replaces.
+> **TL;DR** — Pluryprint is built for people who print **batches** of mixed-format files from Windows Explorer as part of their day. This document profiles five representative users — an office administrator, a print-shop operator, a sysadmin, a software engineer, and a teaching assistant — and shows what current tooling forces them to do, and what Pluryprint replaces.
 
 ## How to read this document
 
@@ -9,7 +9,7 @@ The personas below are fictional, but they are composites of real workflows repo
 1. **What they do** — role and printing context.
 2. **How often they print in batch** — to gauge the cost of friction.
 3. **Their current workaround** — the manual or paid path they use today.
-4. **What MaeclyPrint solves** — the specific tax we lift.
+4. **What Pluryprint solves** — the specific tax we lift.
 
 These personas drive feature prioritization. If a proposed feature does not visibly help at least one of them, it should be challenged.
 
@@ -33,9 +33,9 @@ Carla has memorized that Windows hides "Print" past 15 files. So she:
 
 Her IT team priced **Print Conductor at $149 per seat** and declined the purchase because it "isn't standard software."
 
-### What MaeclyPrint solves
+### What Pluryprint solves
 
-- Selecting 80 files and right-clicking yields a single **Print all with MaeclyPrint** entry, no batching by 15.
+- Selecting 80 files and right-clicking yields a single **Print all with Pluryprint** entry, no batching by 15.
 - A consolidated job list with a stable, user-controlled print order eliminates the at-the-copier resort step.
 - Built-in separator pages (text or blank) eliminate the manual divider routine.
 - One-click duplex toggle persists per printer.
@@ -59,12 +59,12 @@ Devon's shop bought **Print Conductor** years ago and uses it daily. It is the w
 - Print Conductor does not integrate into the Explorer context menu. Devon drags files into the Print Conductor window, which means leaving the shell and back.
 - For one-off label runs, he uses a custom `.bat` that wraps `ShellExecute` with the `printto` verb. It works most days. It misorders files on the days it doesn't.
 
-### What MaeclyPrint solves
+### What Pluryprint solves
 
 - Free across all four shop workstations on day one — no license-shuffling.
 - Right-click in Explorer, batch through, no detour to a separate launcher window.
 - Per-printer profiles: one named "Press A Duplex Long Edge," one named "Roland Glossy," one named "Zebra Labels." Each is selectable directly from the context menu submenu.
-- A CLI surface (`maeclyprint --src ... --printer ... --profile ...`) so Devon can keep automating jobs from his existing shell scripts without paying for 2Printer.
+- A CLI surface (`pluryprint --src ... --printer ... --profile ...`) so Devon can keep automating jobs from his existing shell scripts without paying for 2Printer.
 
 ---
 
@@ -85,14 +85,14 @@ Priya has tried to standardize on a tool. The institution's options:
 
 Her staff routinely calls the help desk because they selected "too many files and the print option disappeared." Priya has written an internal KB article titled *"Why does the Print option vanish when I select more than 15 files?"*. It has been viewed 11,000 times.
 
-### What MaeclyPrint solves
+### What Pluryprint solves
 
-- Free GPLv3 — no procurement, no per-seat math.
+- Free AGPL-3.0 — no procurement, no per-seat math.
 - Silent install via MSI/MSIX, deployable through Configuration Manager.
-- Group Policy-friendly: registry-based default printer overrides, a documented JSON config for org-wide defaults (`%PROGRAMDATA%\MaeclyPrint\policy.json`).
+- Group Policy-friendly: registry-based default printer overrides, a documented JSON config for org-wide defaults (`%PROGRAMDATA%\Pluryprint\policy.json`).
 - A documented CLI for unattended use in nursing-station kiosks.
 - An audit log (opt-in) to a configurable file path, satisfying the records-retention people without sending data anywhere off-network.
-- The KB article gets shorter: "Right-click → Print all with MaeclyPrint."
+- The KB article gets shorter: "Right-click → Print all with Pluryprint."
 
 ---
 
@@ -109,9 +109,9 @@ Sam wrote a Python script that wraps `subprocess.run` with the SumatraPDF CLI fo
 
 He has no interest in paying $149 for Print Conductor for what he considers a utility-belt problem. He has starred the repos for `clawPDF`, `Batch PDF Printer`, and `DarkStorm's BPH` over the years and bounced off all three because none of them fits.
 
-### What MaeclyPrint solves
+### What Pluryprint solves
 
-- A real, batteries-included tool he can install via `winget install MaeclyPrint` and recommend to his teammates without a setup ritual.
+- A real, batteries-included tool he can install via `winget install Pluryprint` and recommend to his teammates without a setup ritual.
 - File-type-based printer routing as a built-in feature: `*.pdf → Brother`, `*.dxf → DesignJet`, `*.docx → Brother`. Configured once, lives in his profile.
 - A scriptable CLI he can call from `make print-review-packet`.
 - Open source: when something breaks, he can read the code, file an issue with a stack trace, and submit a fix. That is the unlock that keeps him from rolling another Python script.
@@ -131,7 +131,7 @@ He selects 15 files, right-clicks, prints. Then 15 more. Then the rest. If Adobe
 
 He has never heard of Print Conductor and would not have a budget for it if he had. He uses what is on the laptop.
 
-### What MaeclyPrint solves
+### What Pluryprint solves
 
 - Removes the 15-file cap entirely. Monday morning printing becomes a single right-click.
 - Format-agnostic: he does not need to know that Word and PDF go through different code paths. He selects everything and prints.
@@ -144,10 +144,10 @@ He has never heard of Print Conductor and would not have a budget for it if he h
 
 Looking across these five personas, a few patterns dominate:
 
-| Theme | Personas affected | MaeclyPrint response |
+| Theme | Personas affected | Pluryprint response |
 | --- | --- | --- |
 | The 15-file cap is a daily papercut | Carla, Devon, Sam, Alvarez | Remove it via a custom `IExplorerCommand` that processes the full `IShellItemArray`. |
-| Commercial alternatives are excellent but cost-prohibitive at scale | Priya, Devon, Sam | Free GPLv3, no seat licensing. |
+| Commercial alternatives are excellent but cost-prohibitive at scale | Priya, Devon, Sam | Free AGPL-3.0, no seat licensing. |
 | Per-file-type routing is a real ask | Devon, Sam | Built-in routing rules in profiles. |
 | Adobe Reader's silent partial failures are a trust problem | Carla, Alvarez | Use our own renderer (`pdfium`/`mupdf`) so we never depend on Reader behavior. |
 | Sysadmins need silent, scriptable, telemetry-free deployment | Priya | MSI/MSIX, JSON policy file, opt-in logging only. |
@@ -155,7 +155,7 @@ Looking across these five personas, a few patterns dominate:
 
 ## Anti-Personas
 
-People MaeclyPrint is **not** built for, and should resist trying to serve:
+People Pluryprint is **not** built for, and should resist trying to serve:
 
 - **Casual users who print one file every other month.** Windows' built-in Print verb already serves them. We do not want to add a context-menu entry to their machines for no reason; the installer offers an "advanced users only" toggle for context-menu integration.
 - **Print shops needing job-tracking, billing, and customer accounts.** Use a print MIS (PrintSmith, EFI Pace, etc.).

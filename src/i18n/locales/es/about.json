@@ -1,0 +1,82 @@
+{
+  "title": "Acerca de",
+  "byline": "por Maecly",
+  "tagline": "Impresión por lotes de código abierto para Windows y Mac. Sin límite de 15 archivos, sin necesidad de Adobe, sin licencia de 149 $.",
+  "version": {
+    "line": "{{version}} · compilación {{buildDate}}",
+    "withChannel": "{{version}} · compilación {{buildDate}} · canal {{channel}}",
+    "unavailable": "{{version}} · vista previa web independiente"
+  },
+  "channels": {
+    "stable": "estable",
+    "beta": "beta",
+    "nightly": "nightly"
+  },
+  "sections": {
+    "updates": "Actualizaciones",
+    "components": "Componentes",
+    "paths": "Ubicación de los archivos",
+    "links": "Enlaces"
+  },
+  "updates": {
+    "check": "Buscar actualizaciones",
+    "checking": "Comprobando…",
+    "upToDate": {
+      "title": "Todo está actualizado",
+      "detail": "versión {{version}} · comprobado a las {{time}}"
+    },
+    "unavailable": {
+      "title": "No hay actualizaciones publicadas en el canal {{channel}}",
+      "detail": "No se encontró su archivo de actualización, así que no hay nada que instalar. Aún no se ha publicado nada en este canal o sus versiones no son públicas. Pluryprint sigue funcionando igual; vuelve a comprobarlo más tarde."
+    },
+    "available": {
+      "group": "Actualización disponible",
+      "title": "La versión {{version}} está disponible",
+      "detail": "Tienes la {{current}}.",
+      "releaseNotes": "Notas de la versión",
+      "remindLater": "Recordármelo más tarde",
+      "skipVersion": "Omitir esta versión",
+      "install": "Instalar ahora",
+      "verifiedNote": "Antes de instalar nada, la descarga se comprueba con la firma de las versiones de Pluryprint, y no hacen falta permisos de administrador."
+    },
+    "deferred": "Aviso pospuesto. Puedes volver a comprobarlo cuando quieras.",
+    "retry": "Reintentar",
+    "skipped": "Omitiendo la {{version}}. Se seguirá avisando de versiones más nuevas.",
+    "undoSkip": "Deshacer",
+    "install": {
+      "installing": "Descargando y verificando la {{version}}…",
+      "progress": "{{percent}} %",
+      "majorTitle": "¿Instalar una actualización mayor?",
+      "majorMessage": "La {{version}} es una actualización mayor respecto a la {{current}} y puede cambiar el funcionamiento de Pluryprint. Si dependes de un flujo de trabajo concreto, lee antes las notas de la versión.",
+      "majorConfirm": "Instalar la {{version}}",
+      "restartTitle": "La {{version}} está instalada",
+      "restartDetail": "Reinicia Pluryprint para empezar a usarla.",
+      "restart": "Reiniciar ahora",
+      "nothing": "Todavía no hay una actualización instalable para esta plataforma. Descárgala desde la página de la publicación.",
+      "signatureInvalid": "La actualización descargada no superó la comprobación de firma y no se ha instalado. No se ha modificado nada en este equipo. Vuelve a intentarlo más tarde o descarga la versión desde la página de la publicación.",
+      "failed": "No se pudo instalar la actualización: {{error}}"
+    }
+  },
+  "components": {
+    "platform": "Plataforma:"
+  },
+  "paths": {
+    "config": "configuración:",
+    "data": "datos:",
+    "logs": "registros:",
+    "openLogs": "Abrir la carpeta de registros"
+  },
+  "ipcUnavailable": "IPC no disponible: {{error}}. Es lo esperado al ejecutar el servidor de desarrollo de Vite por separado (sin host de Tauri). Ejecuta {{command}} para probar el puente real.",
+  "links": {
+    "releaseNotes": "Notas de la versión",
+    "license": "Licencia AGPL-3.0",
+    "notices": "Avisos de terceros",
+    "cla": "Acuerdo de contribución (CLA)",
+    "documentation": "Documentación",
+    "reportIssue": "Informar de un problema"
+  },
+  "footer": {
+    "license": "Pluryprint es software libre con licencia {{license}}. Sin telemetría, sin nube, sin cuenta.",
+    "source": "Código en"
+  }
+}

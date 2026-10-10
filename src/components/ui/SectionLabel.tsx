@@ -3,11 +3,18 @@ import type { ReactNode } from 'react';
 interface MPSectionLabelProps {
   children: ReactNode;
   mono?: boolean;
+  /** Lets a control name itself with `aria-labelledby` (NFR-043). */
+  id?: string | undefined;
 }
 
-export function MPSectionLabel({ children, mono = true }: MPSectionLabelProps) {
+export function MPSectionLabel({
+  children,
+  mono = true,
+  id,
+}: MPSectionLabelProps) {
   return (
     <div
+      {...(id !== undefined ? { id } : {})}
       className={mono ? 'mp-mono' : ''}
       style={{
         fontSize: 10.5,

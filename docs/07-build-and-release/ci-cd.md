@@ -1,528 +1,129 @@
 # CI/CD
 
-> **TL;DR.** GitHub Actions runs three workflows: `ci.yml` on every PR (test/lint/build, no signing), `nightly.yml` every night (signed nightly with self-signed cert), and `release.yml` on every `v*` tag (full signed + notarized release pipeline). The matrix covers Windows x64 + ARM64 and macOS aarch64 + x86_64 (Universal binary).
+> **TL;DR.** `ci.yml` is the lean pull-request gate: frontend lint, typecheck, format and tests on ubuntu, and Rust fmt, clippy and the full test suite on Windows and macOS. It builds no bundle and reads no secret. `release.yml` builds a signed release into a **draft** on every `v*` tag (after checking the signing secret, the versions and `THIRD-PARTY-NOTICES.md`), and `release-channels.yml` moves the beta channel when a person publishes it: see [releasing.md](./releasing.md), the runbook, and [ADR-0011](../adr/0011-release-channel.md). Nothing is notarized or Authenticode-signed (decision D2), there is no nightly workflow, and no release has run yet. There is no sign-off check: contributions come in under the [CLA](../../CLA.md), which the pull request template asks for.
 
-This document specifies the three GitHub Actions workflows, the build matrix, required secrets, caching strategy, artifact retention, and manual approval gates.
+This document specifies what CI does; [releasing.md](./releasing.md) covers the release workflows.
 
-## Workflows overview
+## Workflows that exist
 
 | Workflow | File | Trigger | Signs? | Publishes? |
 |---|---|---|---|---|
-| **CI** | `.github/workflows/ci.yml` | PRs, pushes to `main` | No | No (artifacts kept 7 days for debugging) |
-| **Nightly** | `.github/workflows/nightly.yml` | Cron `0 3 * * *` (03:00 UTC daily) | Self-signed | Yes (to nightly channel) |
-| **Release** | `.github/workflows/release.yml` | Tag matching `v*` | EV (Win) + Apple Dev ID (Mac) | Yes (to stable or beta channel) |
+| **CI** | `.github/workflows/ci.yml` | `pull_request`, `push` → `main`, `workflow_dispatch` | No | No |
+| **release** | `.github/workflows/release.yml` | `push` of a `v*` tag; `workflow_dispatch` (build only) | Update artifacts (minisign); no OS code signing | A **draft** release, published by a person |
+| **release-channels** | `.github/workflows/release-channels.yml` | `release: published` | No | Overwrites `latest.json` on the `channel-beta` prerelease, forward only |
+| **Pages** | `.github/workflows/pages.yml` | `push` → `main` touching `site/` | No | The landing page |
 
-## CI workflow (`ci.yml`)
-
-Runs on every pull request and every push to `main`. Goal: catch breakage before merge.
+Only `ci.yml` runs on a pull request. There is no scheduled workflow.
 
 ```yaml
-name: CI
-
-on:
-  pull_request:
-  push:
-    branches: [main]
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
-
-jobs:
-  rust-checks:
-    name: Rust (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-14]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - name: Cache cargo registry + target
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-      - name: cargo fmt --check
-        working-directory: src-tauri
-        run: cargo fmt --all -- --check
-      - name: cargo clippy
-        working-directory: src-tauri
-        run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: cargo test
-        working-directory: src-tauri
-        run: cargo test --all-features
-      - name: cargo audit
-        working-directory: src-tauri
-        run: |
-          cargo install cargo-audit --locked || true
-          cargo audit
-
-  frontend-checks:
-    name: Frontend
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm prettier --check .
-      - run: pnpm typecheck
-      - run: pnpm test --reporter=verbose
-
-  build:
-    name: Build (${{ matrix.os }} / ${{ matrix.arch }})
-    needs: [rust-checks, frontend-checks]
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows
-            arch: x86_64
-            runner: windows-latest
-            target: x86_64-pc-windows-msvc
-          - os: windows
-            arch: aarch64
-            runner: windows-latest
-            target: aarch64-pc-windows-msvc
-          - os: macos
-            arch: x86_64
-            runner: macos-14
-            target: x86_64-apple-darwin
-          - os: macos
-            arch: aarch64
-            runner: macos-14
-            target: aarch64-apple-darwin
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with: { targets: ${{ matrix.target }} }
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
-      - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
-      - uses: Swatinem/rust-cache@v2
-        with: { workspaces: src-tauri, key: ${{ matrix.target }} }
-      - run: pnpm install --frozen-lockfile
-      - name: Tauri build (no signing)
-        run: pnpm tauri build --target ${{ matrix.target }} --ci
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.os }}-${{ matrix.arch }}-unsigned
-          path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/
-          retention-days: 7
 ```
 
-Key choices:
+If a new commit lands on a PR, the in-flight run for the previous commit is cancelled.
 
-- **`concurrency.cancel-in-progress: true`:** if a new commit lands on a PR, cancel the in-flight CI for the previous commit. Saves runner minutes.
-- **`fail-fast: false`:** if Windows fails, still finish macOS to give full feedback.
-- **Build job depends on `rust-checks` and `frontend-checks`:** no point building if linting fails.
-- **No signing in CI:** the EV cert and Apple Dev ID are not exposed to PR builds. Forks and contributors cannot accidentally sign.
-- **7-day artifact retention:** enough to debug a failing PR; not so long it bloats storage.
+## `ci.yml` job by job
 
-## Nightly workflow (`nightly.yml`)
+Two jobs, both blocking, and nothing else. `src-tauri/tests/release_pipeline.rs` (`ci_is_the_lean_pull_request_gate`) pins this shape, so a lane added back by accident fails the Rust tests.
 
-Runs every night at 03:00 UTC. Builds, self-signs, uploads to nightly channel.
+### `frontend` — ubuntu-latest
 
-```yaml
-name: Nightly
+`pnpm install --frozen-lockfile --ignore-scripts`, then:
 
-on:
-  schedule:
-    - cron: '0 3 * * *'
-  workflow_dispatch:
+1. `pnpm lint` (ESLint, including `eslint-plugin-jsx-a11y`)
+2. `pnpm typecheck` (`tsc --noEmit`)
+3. `pnpm format:check` (Prettier)
+4. `pnpm test` (Vitest)
 
-permissions:
-  contents: read
+> Note that `e2e/tsconfig.json` is standalone: `pnpm typecheck` does **not** type-check the E2E specs. They are checked when `pnpm test:e2e` compiles them, which CI does not run (see [testing-strategy.md](../08-development/testing-strategy.md)).
 
-jobs:
-  detect-changes:
-    name: Detect changes since last nightly
-    runs-on: ubuntu-latest
-    outputs:
-      should_build: ${{ steps.check.outputs.should_build }}
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - id: check
-        run: |
-          # Look up last nightly tag
-          LAST_TAG=$(git tag --list 'nightly-*' --sort=-creatordate | head -n1 || echo "")
-          if [ -z "$LAST_TAG" ]; then
-            echo "should_build=true" >> $GITHUB_OUTPUT
-            echo "First nightly run" >&2
-            exit 0
-          fi
-          if [ "$(git rev-list --count $LAST_TAG..HEAD)" -gt 0 ]; then
-            echo "should_build=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_build=false" >> $GITHUB_OUTPUT
-            echo "No new commits since $LAST_TAG; skipping" >&2
-          fi
-      - id: version
-        run: |
-          BASE_VER=$(grep '^version' src-tauri/Cargo.toml | head -n1 | sed 's/.*"\(.*\)"/\1/')
-          DATE=$(date -u +%Y%m%d)
-          SHA=$(git rev-parse --short HEAD)
-          echo "version=${BASE_VER}-nightly.${DATE}.${SHA}" >> $GITHUB_OUTPUT
+### `backend` — matrix `windows-latest` + `macos-latest`
 
-  build-windows:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.should_build == 'true'
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [x86_64-pc-windows-msvc, aarch64-pc-windows-msvc]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with: { targets: ${{ matrix.target }} }
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
-      - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
-      - uses: Swatinem/rust-cache@v2
-        with: { workspaces: src-tauri, key: ${{ matrix.target }} }
-      - run: pnpm install --frozen-lockfile
-      - name: Override version
-        run: |
-          (Get-Content src-tauri/tauri.conf.json) `
-            -replace '"version": ".*"', '"version": "${{ needs.detect-changes.outputs.version }}"' `
-            | Set-Content src-tauri/tauri.conf.json
-      - name: Build
-        run: pnpm tauri build --target ${{ matrix.target }}
-      - name: Sign with self-signed nightly cert
-        env:
-          NIGHTLY_CERT_PASSWORD: ${{ secrets.NIGHTLY_CERT_PASSWORD }}
-        run: ./scripts/sign-nightly.ps1
-      - name: Sign updater bundle (Tauri Ed25519)
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri signer sign --password "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.nsis.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nightly-windows-${{ matrix.target }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/
+The two platforms Pluryprint ships for. The Rust code is heavily `cfg`-gated — WinSpool, SumatraPDF and the Explorer handoff on Windows, the CUPS backend (`platform/cups.rs`, `engine/print/cups.rs`) on macOS — so each half only compiles, and its tests only run, on its own OS. `fail-fast: false` keeps one platform's failure from hiding the other's. `PLURYPRINT_SKIP_MIGRATION=1` is set for the job, so a test run never moves a MaeclyPrint-era data directory ([ADR-0009](../adr/0009-rename-to-pluryprint.md)).
 
-  build-macos:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.should_build == 'true'
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with: { targets: 'x86_64-apple-darwin,aarch64-apple-darwin' }
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
-      - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-      - name: Build both arches and lipo
-        run: ./scripts/build-mac-universal.sh
-      - name: Sign + notarize (skipped for nightly; no notarization for nightlies)
-        env:
-          APPLE_DEVELOPER_ID_APPLICATION_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_P12_BASE64 }}
-          APPLE_P12_PASSWORD: ${{ secrets.APPLE_P12_PASSWORD }}
-        run: |
-          ./scripts/setup-apple-certs.sh
-          ./installers/macos/codesign.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nightly-macos-universal
-          path: dist/
+1. `cargo fmt --check` for `src-tauri` and `shell-ext-win` — Windows only; formatting does not depend on the platform
+2. `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+3. `cargo test --manifest-path src-tauri/Cargo.toml` — the full suite, never filtered
+4. Windows only: `cargo clippy` and `cargo test` for `shell-ext-win/`
 
-  upload-and-publish:
-    needs: [detect-changes, build-windows, build-macos]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with: { path: artifacts/ }
-      - name: Upload to R2 (nightly channel)
-        env:
-          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
-          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-        run: ./scripts/upload-to-r2.sh nightly ${{ needs.detect-changes.outputs.version }}
-      - name: Update nightly.json manifest
-        env:
-          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
-          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-        run: ./scripts/update-manifest.sh nightly ${{ needs.detect-changes.outputs.version }}
-      - name: Tag the commit
-        run: |
-          git tag nightly-${{ needs.detect-changes.outputs.version }}
-          git push origin nightly-${{ needs.detect-changes.outputs.version }}
-```
+Step 3 is also the **bindings drift gate**: `tests/ipc_surface.rs` regenerates `src/ipc/bindings.ts` from the tauri-specta command surface and fails when the committed copy is stale. Its failure message says what to do (`UPDATE_BINDINGS=1 cargo test …` and commit the result). It only runs in a full test run, which is why the step takes no filter.
 
-Key choices:
+On Windows, `src-tauri/build.rs` links the Common-Controls v6 manifest into **every** artifact (`/MANIFEST:EMBED /MANIFESTINPUT:windows-app-manifest.xml`), test harnesses included. With Tauri's default (a manifest resource linked into `[[bin]]` targets only) the lib's test binary died with `STATUS_ENTRYPOINT_NOT_FOUND` (0xc0000139) before running a test.
 
-- **Skip if no new commits:** the `detect-changes` job exits the workflow early if `main` hasn't moved. Saves runners.
-- **No notarization for nightlies on macOS:** notarization adds 10–30 minutes per build. We accept the Gatekeeper warning for nightlies (users are warned in the channel description).
-- **Self-signed cert on Windows:** SmartScreen warning expected.
-- **Tag the commit:** lets us reference exactly which `main` SHA produced each nightly.
+The Explorer context-menu DLL is its own crate: `shell-ext-win/` is deliberately **not** a Cargo workspace member, because its release profile must keep `panic = "unwind"` (so `catch_unwind` at the COM boundary contains a panic instead of taking Explorer down), which `src-tauri`'s `panic = "abort"` would override. `--manifest-path src-tauri/Cargo.toml` never touches it, hence step 4. Its COM layer only builds for Windows. No `src-tauri` test needs the built DLL: the installer-hook and bundle tests read the NSIS script and use a placeholder file.
 
-## Release workflow (`release.yml`)
+### What CI does not run, and where it went
 
-Triggered when a tag matching `v*` is pushed. Full signed pipeline with manual approval gate before publishing.
-
-```yaml
-name: Release
-
-on:
-  push:
-    tags: ['v*']
-
-permissions:
-  contents: write    # to create the GitHub Release
-
-jobs:
-  determine-channel:
-    runs-on: ubuntu-latest
-    outputs:
-      channel: ${{ steps.channel.outputs.channel }}
-      version: ${{ steps.channel.outputs.version }}
-    steps:
-      - id: channel
-        run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          VERSION="${TAG#v}"
-          if echo "$VERSION" | grep -qE '\-(beta|rc)\.'; then
-            echo "channel=beta" >> $GITHUB_OUTPUT
-          else
-            echo "channel=stable" >> $GITHUB_OUTPUT
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-  build-windows:
-    needs: determine-channel
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [x86_64-pc-windows-msvc, aarch64-pc-windows-msvc]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with: { targets: ${{ matrix.target }} }
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
-      - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
-      - uses: Swatinem/rust-cache@v2
-        with: { workspaces: src-tauri, key: release-${{ matrix.target }} }
-      - run: pnpm install --frozen-lockfile
-      - name: Build Tauri release
-        run: pnpm tauri build --target ${{ matrix.target }}
-      - name: Build Inno Setup installer
-        run: ./installers/windows/build.ps1 -Version "${{ needs.determine-channel.outputs.version }}" -Channel release
-      - name: Sign all binaries with EV cert (SSL.com Cloud HSM)
-        env:
-          SSL_COM_USERNAME: ${{ secrets.SSL_COM_USERNAME }}
-          SSL_COM_PASSWORD: ${{ secrets.SSL_COM_PASSWORD }}
-          SSL_COM_CREDENTIAL_ID: ${{ secrets.SSL_COM_CREDENTIAL_ID }}
-          SSL_COM_TOTP_SECRET: ${{ secrets.SSL_COM_TOTP_SECRET }}
-        run: ./scripts/sign-windows-ev.ps1
-      - name: Verify signatures
-        run: ./scripts/verify-windows-signatures.ps1
-      - name: Sign updater bundle (Tauri Ed25519)
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri signer sign --password "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.nsis.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-windows-${{ matrix.target }}
-          path: |
-            installers/windows/output/
-            src-tauri/target/${{ matrix.target }}/release/bundle/
-
-  build-macos:
-    needs: determine-channel
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with: { targets: 'x86_64-apple-darwin,aarch64-apple-darwin' }
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
-      - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-      - name: Build universal
-        run: ./scripts/build-mac-universal.sh
-      - name: Sign + notarize + staple
-        env:
-          APPLE_DEVELOPER_ID_APPLICATION_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_P12_BASE64 }}
-          APPLE_DEVELOPER_ID_INSTALLER_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_INSTALLER_P12_BASE64 }}
-          APPLE_P12_PASSWORD: ${{ secrets.APPLE_P12_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-        run: |
-          ./scripts/setup-apple-certs.sh
-          ./installers/macos/codesign.sh
-          ./installers/macos/pkgbuild.sh ${{ needs.determine-channel.outputs.version }}
-          ./installers/macos/create-dmg.sh ${{ needs.determine-channel.outputs.version }}
-          ./installers/macos/notarize.sh dist/MaeclyPrint-${{ needs.determine-channel.outputs.version }}.pkg
-          ./installers/macos/notarize.sh dist/MaeclyPrint-${{ needs.determine-channel.outputs.version }}.dmg
-      - name: Sign updater bundle (Tauri Ed25519)
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri signer sign --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" dist/*.app.tar.gz
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-macos-universal
-          path: dist/
-
-  publish:
-    needs: [determine-channel, build-windows, build-macos]
-    runs-on: ubuntu-latest
-    environment: production    # triggers manual approval gate
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with: { path: artifacts/ }
-      - name: Upload all artifacts to R2
-        env:
-          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
-          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-        run: ./scripts/upload-to-r2.sh ${{ needs.determine-channel.outputs.channel }} ${{ needs.determine-channel.outputs.version }}
-      - name: Update channel manifest
-        env:
-          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
-          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-        run: ./scripts/update-manifest.sh ${{ needs.determine-channel.outputs.channel }} ${{ needs.determine-channel.outputs.version }}
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: MaeclyPrint ${{ needs.determine-channel.outputs.version }}
-          body_path: RELEASE_NOTES.md
-          files: |
-            artifacts/release-windows-x86_64-pc-windows-msvc/output/*.exe
-            artifacts/release-windows-aarch64-pc-windows-msvc/output/*.exe
-            artifacts/release-macos-universal/*.pkg
-            artifacts/release-macos-universal/*.dmg
-          prerelease: ${{ needs.determine-channel.outputs.channel == 'beta' }}
-```
-
-## Manual approval gate
-
-The `publish` job is bound to a GitHub Environment named `production`. The environment is configured (in repo Settings → Environments) with:
-
-- **Required reviewers:** the two maintainers.
-- **Wait timer:** 0 minutes.
-- **Deployment protection rules:** only the `main` branch (or release branches) can deploy.
-
-When the workflow reaches the `publish` job, GitHub pauses and notifies reviewers. A reviewer clicks "Approve and deploy" after verifying:
-
-- All build jobs succeeded.
-- All signature verifications passed.
-- Notarization succeeded.
-- The release notes are accurate.
-
-Without manual approval, signed binaries never go to the CDN. This protects against supply-chain attacks where a compromised PR could otherwise sneak through.
-
-## Required secrets
-
-| Secret | Used for |
+| Check | Where it lives now |
 |---|---|
-| `SSL_COM_USERNAME`, `SSL_COM_PASSWORD`, `SSL_COM_CREDENTIAL_ID`, `SSL_COM_TOTP_SECRET` | Windows EV signing via SSL.com Cloud HSM |
-| `NIGHTLY_CERT_PASSWORD` | Self-signed nightly cert password |
-| `APPLE_DEVELOPER_ID_APPLICATION_P12_BASE64`, `APPLE_DEVELOPER_ID_INSTALLER_P12_BASE64`, `APPLE_P12_PASSWORD` | Apple cert import |
-| `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | Notarization |
-| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Updater bundle signing (Ed25519) |
-| `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `R2_ENDPOINT` | Cloudflare R2 upload |
+| Installers, the NFR-006 size budget, both Explorer DLLs in each bundle | `release.yml` `build` (every Windows target) |
+| COM exports of the shipped DLLs (`DllGetClassObject`, `DllCanUnloadNow`) | `release.yml` `build`, step *Explorer DLLs export the COM entry points* |
+| `THIRD-PARTY-NOTICES.md` is current (`scripts/licenses/generate-notices.sh --check`) | `release.yml` `guard`, so no release is built from stale notices; run it by hand after a dependency change |
+| Coverage (Vitest V8, `cargo llvm-cov`) | Local only: `pnpm test:coverage`, `cargo llvm-cov` |
+| `#[ignore]`d tests (live update manifest, real CUPS queue) | Local only: `cargo test -- --ignored` |
+| E2E (WebdriverIO + tauri-driver) and smoke launches | Local only: `pnpm test:e2e` on Windows; the VM scripts under `scripts/vm/` |
+| Windows on ARM | `release.yml` cross-compiles the ARM64 app and DLL on every tag |
 
-All secrets are repo-scoped. Forks do not inherit them; PRs from forks cannot trigger the release workflow.
+The COM export check that an earlier `shell-ext-win` CI lane ran was itself broken: it tested `$exports -notmatch $symbol` with `$exports` being `dumpbin`'s output as an **array** of lines, and on an array PowerShell's `-notmatch` returns the non-matching lines instead of a yes or no, so it threw on every DLL. The DLL was fine: `lib.rs` exports both functions with `#[no_mangle] pub unsafe extern "system"`, and the linker's `LNK4104 ... should be PRIVATE` warning in the same log names them in the export table. The release check joins the output into one string first.
 
-## Caching strategy
+## Caching
 
-| Cache | Key | Saves |
-|---|---|---|
-| **`Swatinem/rust-cache`** | `${{ matrix.target }}` | Cargo registry + `target/` directory. Save: ~5 minutes per Rust build (down from 8 to 3 min). |
-| **pnpm via `actions/setup-node`** | `pnpm-lock.yaml` hash | Node modules tarball. Save: ~1 minute per build. |
-| **Tauri build cache** | Implicit via `target/` cache | Frontend build output. Save: ~30 seconds per build. |
+The `backend` job uses `actions/cache@v4` directly (not `Swatinem/rust-cache`) over `~/.cargo/{registry/index,registry/cache,git/db}` plus `src-tauri/target/` and `shell-ext-win/target/`, keyed on `${{ runner.os }}-cargo-` and both lockfiles. pnpm modules are cached by `actions/setup-node@v4` with `cache: pnpm`. The release jobs use no cache.
 
-We do not cache:
+## What does **not** exist yet
 
-- Build outputs that include version strings (would require invalidation per build).
-- Signing tools (small, cheap to download per run, and we want guaranteed freshness).
+Everything in this section is **unimplemented**. It is recorded as design intent. Do not cite it as a description of the repository.
 
-## Artifact retention
-
-| Workflow | Retention |
+| Missing | Status |
 |---|---|
-| CI | 7 days (debugging) |
-| Nightly | 14 days (rollback window for nightly users) |
-| Release | 90 days on GitHub Actions; **forever** on R2 (the canonical store) |
+| `.github/workflows/nightly.yml` | Not written. There are no nightly builds: the app's **nightly** channel setting follows the beta manifest (FR-085). |
+| OS code signing | No Authenticode certificate, no Apple Developer ID, no notarization, no stapling (decision D2). macOS bundles are signed ad hoc. Update artifacts **are** signed, by `release.yml`. |
+| A release that has run | `release.yml` exists but has never run: `TAURI_SIGNING_PRIVATE_KEY` is not set, and the repository is private until the first stable release. |
+| Artifact publication outside GitHub (Cloudflare R2, own domain) | Not planned for now: releases and manifests live on GitHub Releases ([ADR-0011](../adr/0011-release-channel.md)). |
+| `installers/windows/build.ps1`, `installers/macos/*.sh` | The `installers/` tree contains only `.gitkeep` files. |
+| `scripts/sign-*.ps1`, `scripts/upload-to-r2.sh`, `scripts/update-manifest.sh`, `scripts/build-mac-universal.sh`, `scripts/setup-apple-certs.sh`, `scripts/verify-windows-signatures.ps1` | None exist. What `scripts/` does hold for releases: `fetch-sumatrapdf.{ps1,sh}`, `build-shell-ext.ps1`, `bump-version.sh`, `licenses/generate-notices.sh` and `release/release_tools.py` (the manifest and signature helper `release.yml` runs). |
+| Universal macOS binary | Not built: `release.yml` builds Apple silicon and Intel as separate downloads (Versorium's layout). |
+| `cargo audit` / `pnpm audit` (NFR-065) | No scheduled dependency-audit workflow. Dependabot (`.github/dependabot.yml`) is the only dependency automation. |
+| `gitleaks` secret scanning (NFR-027) | Not configured. |
+| Reproducible-build verification (NFR-064) | Not automated. |
 
-Old releases on R2 are retained at least 12 months to support users on stale versions who want to update.
+### Updater signing
 
-## Build matrix details
+Releases are signed so the installed app can verify an update before installing it (FR-082, [ADR-0008](../adr/0008-installer-nsis-per-user.md)). The key pair is minisign, generated once with `pnpm tauri signer generate`:
 
-| Runner | Architecture | Builds for |
-|---|---|---|
-| `windows-latest` | x86_64 | Windows x86_64 (native), Windows aarch64 (cross-compile) |
-| `macos-14` | aarch64 (M-series) | macOS aarch64 (native), macOS x86_64 (cross-compile via `rustup target add`) |
-| `ubuntu-latest` | x86_64 | Frontend lint/test, manifest upload (no Tauri builds) |
+- **Public key** — committed, in `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`. Every build embeds it and accepts only artifacts signed by the matching private key.
+- **Private key** — **never committed**. A release build reads it from the `TAURI_SIGNING_PRIVATE_KEY` secret (the key file's contents), plus `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if the key has a password. `release.yml` keeps it away from the builds: they sign with a throwaway key, and the `sign` job runs `tauri signer sign` with the real one on the NSIS setup (Windows) and `Pluryprint.app.tar.gz` (macOS), writing the `.sig` files the release carries ([releasing.md](./releasing.md) §5). Keep an offline backup. If the key is lost, installed copies cannot be updated in place. If it leaks, rotate it and ship the new public key through a release signed with the old one.
+- **The private key must have a password.** Tauri asks for the password whenever `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is not set, and a passwordless key can only be used by setting that variable to an empty string. Windows PowerShell cannot do that: `$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""` *deletes* the variable (verified with `Test-Path env:...` on 5.1), so `pnpm tauri build` finishes both bundles and then waits forever at the password prompt, with no `.sig` written. In a non-interactive job (a scheduled task, CI) that is a hang, not an error. Generate release keys with a non-empty password (`pnpm tauri signer generate -w <file>` asks for one), and run signing builds with `CI=true` and a job timeout so a missing password fails instead of hanging. If an existing key has no password, sign the artifact explicitly instead, from `cmd.exe`: `pnpm tauri signer sign -f <key file> -p "" <artifact>`. Windows PowerShell 5.1 drops empty arguments to native programs, so the same line typed there loses the `""`; `cmd.exe` passes it through.
+- **Manifest** — the release uploads `latest.json` as a release asset: `version`, `notes`, `pub_date`, and a `platforms` map (`windows-x86_64`, `windows-aarch64`, `darwin-aarch64`, `darwin-x86_64`; the updater falls back from `{os}-{arch}-{installer}` to these) of `{ url, signature }`, where `signature` is the contents of the matching `.sig`. The stable channel reads it from `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json`, the beta channel from the `channel-beta` release (see [releasing.md](./releasing.md) §3).
 
-We do **not** use `macos-13` (Intel) as a separate runner; Apple Silicon runners can build x86_64 slices via Rust's cross-compilation, and the resulting binary runs identically on Intel Macs (verified in QA).
+PR and `main` builds have no key and must not get one; `ci.yml` builds no bundle at all. With `createUpdaterArtifacts` on, Tauri refuses to bundle without a private key, so an unsigned local build uses `--config src-tauri/tauri.ci.conf.json`, which turns updater artifacts off for that build only.
 
-For aarch64 Windows: `windows-latest` is x86_64 but Rust cross-compiles to aarch64 cleanly. We run integration tests for aarch64 on a separate (manual) test pass with an ARM64 Windows VM.
+To test an update end to end without publishing, serve a `latest.json` and a signed artifact locally, then point a **debug** build at it with `PLURYPRINT_UPDATE_ENDPOINT=http://127.0.0.1:<port>/latest.json`. Release builds only accept `https`. The variable also redirects `update check`, the About screen's check and the launch-time check, which read that manifest's `version` and `notes` exactly as they read the channel's published manifest (`update::fetch_configured_latest`), so the whole flow can be exercised against one test server. A copy of the artifact with one byte changed must fail with "failed its signature check and was NOT installed" (exit code 11 from `update install`).
+
+`BUILD_DATE` (About, issue reports) is the build script's run date, re-stamped on every source change. A reproducible release pins it with `SOURCE_DATE_EPOCH`.
+
+### Required secrets
+
+**None** for `ci.yml`, which reads no `secrets.*` value. `release.yml` needs `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (release keys must have a password; see above), and its `guard` job fails a tag build when the key is not set. Only one step of its `sign` job reads them; the four builds get no secret and a read-only token. The full list of secrets and repository settings is in [releasing.md](./releasing.md) §2.
+
+### Constraints the release pipeline keeps
+
+- **Tag-triggered** on `v*`, with the channel derived from the tag (any `-` suffix → prerelease, beta channel; otherwise stable).
+- **Manual approval gate.** The workflow only ever builds a **draft**; a person publishes it after the checks in [releasing.md](./releasing.md) §6. On the free plan with a private repository, Environments with required reviewers are not available; the draft is the gate.
+- **No signing in CI.** PR and `main` builds must never have access to signing material; forks and contributors cannot accidentally sign.
+- **`scripts/fetch-sumatrapdf.ps1` runs before any Windows packaging step.** `SumatraPDF.exe` is not committed (see `src-tauri/resources/sumatrapdf/README.md`), so a packaging job that skips this produces an installer whose every print job fails with `DependencyMissing`.
+- **Least privilege and pinned actions.** Every workflow states its permissions (`ci.yml` reads only; in `release.yml` only `publish` has `contents: write`), every action is pinned to a full commit SHA with its version in a comment, and every checkout sets `persist-credentials: false`. `pnpm install` runs with `--ignore-scripts` everywhere. The release jobs use no cache. `src-tauri/tests/release_pipeline.rs` fails when any of this regresses; `actionlint` and `zizmor` report nothing on the workflows (2026-10-10).
+- **No self-hosted runners.** GitHub-hosted runners are sufficient at our scale, and a self-hosted runner with access to signing secrets is a supply-chain liability. If cost becomes a concern, narrow the PR matrix rather than moving off hosted runners.
+- **Notices before a release.** The `guard` job regenerates `THIRD-PARTY-NOTICES.md` with cargo-about 0.9.2 and fails the tag build when the committed copy differs.
+
+## Artifacts
+
+`ci.yml` uploads none. The release builds' artifacts are described in [releasing.md](./releasing.md).
 
 ## Status checks required for merge
 
-The following checks are required on PRs to `main`:
-
-- `Rust (windows-latest)` (rust-checks job)
-- `Rust (macos-14)`
-- `Frontend`
-- `Build (windows / x86_64)`
-- `Build (macos / aarch64)`
-
-Other build matrix entries are run but not required (to allow occasional ARM64-specific failures while we hunt them down without blocking unrelated PRs).
-
-## Self-hosted runners
-
-We do **not** use self-hosted runners. GitHub-hosted runners are sufficient for our scale, and self-hosted runners introduce supply-chain risk (a compromised runner could exfiltrate signing secrets).
-
-If runner cost becomes a concern, the cheapest mitigation is to reduce build matrix breadth on PRs (run aarch64 only on `main` pushes), not to switch to self-hosted.
-
-## Cost estimate
-
-Approximate GitHub Actions minute usage per month (free tier is 2000 minutes for private repos; unlimited for public):
-
-| Workflow | Per run | Frequency | Monthly minutes |
-|---|---|---|---|
-| CI | ~30 min (4 jobs × ~7 min avg) | ~50 PRs/month | 1500 |
-| Nightly | ~45 min | 30/month | 1350 |
-| Release | ~90 min | 2-4/month | 360 |
-| **Total** | | | ~3200 |
-
-Public repo on Actions is unlimited, so this is informational only. If we ever go private, we'd need a paid plan.
+Branch protection is a GitHub repository setting, not something this file can assert. Both jobs are designed to gate: `frontend`, and `backend` on both matrix entries (`Backend (windows-latest)`, `Backend (macos-latest)`).
 
 ## See also
 
@@ -532,3 +133,4 @@ Public repo on Actions is unlimited, so this is informational only. If we ever g
 - [auto-update-flow.md](./auto-update-flow.md)
 - [../06-roadmap/release-strategy.md](../06-roadmap/release-strategy.md)
 - [../08-development/release-checklist.md](../08-development/release-checklist.md)
+- [../08-development/testing-strategy.md](../08-development/testing-strategy.md)

@@ -1,10 +1,10 @@
 # Product Vision
 
-> **TL;DR** — MaeclyPrint is a free, open-source, GPLv3-licensed batch printing utility for Windows (and later macOS) built with Tauri 2 + Rust + React. It replaces the friction of right-clicking a folder of files and discovering Windows hides "Print" past 15 selections, or paying $79–$149 for commercial alternatives.
+> **TL;DR** — Pluryprint is a free, open-source, AGPL-3.0-licensed batch printing utility for Windows (and later macOS) built with Tauri 2 + Rust + React. It replaces the friction of right-clicking a folder of files and discovering Windows hides "Print" past 15 selections, or paying $79–$149 for commercial alternatives.
 
 ## Mission Statement
 
-MaeclyPrint exists to make **batch printing from the file manager feel native, instant, and unrestricted**. When a user selects a hundred PDFs, twenty Word documents, or a mixed pile of invoices and images, right-clicking and choosing "Print all" should just work — no app launches, no per-file dialogs, no artificial caps, no $149 license fee.
+Pluryprint exists to make **batch printing from the file manager feel native, instant, and unrestricted**. When a user selects a hundred PDFs, twenty Word documents, or a mixed pile of invoices and images, right-clicking and choosing "Print all" should just work — no app launches, no per-file dialogs, no artificial caps, no $149 license fee.
 
 We believe a deep desktop integration of this quality belongs in the open-source commons. It is too small a feature to justify the recurring revenue model the incumbents rely on, and too important a daily workflow to leave behind a paywall.
 
@@ -37,7 +37,7 @@ The honest summary: **there is no actively maintained, open-source, multi-format
 
 ## Intended Outcome
 
-A user installs MaeclyPrint. They select 200 mixed files in Windows Explorer. They right-click. They see a single, unambiguous **"Print all with MaeclyPrint"** entry in the modern Windows 11 menu (no "Show more options" detour). They click it. A compact, fast Tauri window opens with the file list pre-populated. They confirm printer, duplex, and copies. They click Print. The job runs to completion. The window closes.
+A user installs Pluryprint. They select 200 mixed files in Windows Explorer. They right-click. They see a single, unambiguous **"Print all with Pluryprint"** entry in the modern Windows 11 menu (no "Show more options" detour). They click it. A compact, fast Tauri window opens with the file list pre-populated. They confirm printer, duplex, and copies. They click Print. The job runs to completion. The window closes.
 
 That sequence — measured end-to-end in seconds, not minutes — is the entire product.
 
@@ -45,14 +45,14 @@ Everything else (hot folders, scheduling, watermarks, load balancing, CLI automa
 
 ## Non-Goals
 
-What MaeclyPrint is explicitly **not** trying to be:
+What Pluryprint is explicitly **not** trying to be:
 
 - **Not a virtual printer.** We do not convert files to PDF or capture print jobs from other applications. That space is well covered by clawPDF, Microsoft Print to PDF, and CutePDF.
 - **Not a PDF editor.** No annotation, no form-filling, no signing, no OCR. Out of scope. Use a real PDF editor.
 - **Not a cloud service.** No file uploads, no account requirements, no SaaS dashboard. The application runs entirely on the local machine and talks only to local printers and (optionally) printers reachable on the user's LAN.
 - **Not a print spooler replacement.** We submit jobs to the existing Windows print spooler (and CUPS on macOS). We do not reimplement spooling, queue management, or driver selection.
 - **Not a document conversion tool.** While we render Office and CAD formats internally to dispatch them to the printer, we do not expose that pipeline as a "Save as PDF" feature. If the output format you want is a file, use the right tool for that job.
-- **Not a print-shop POS.** No invoicing, no job tracking by customer, no user accounts. Print shops can certainly use MaeclyPrint, but it is a tool, not a business management system.
+- **Not a print-shop POS.** No invoicing, no job tracking by customer, no user accounts. Print shops can certainly use Pluryprint, but it is a tool, not a business management system.
 - **Not a telemetry harvester.** No analytics SDK, no crash uploader by default. The app is privacy-first; opt-in diagnostics may be added later, never on by default.
 
 ## Success Metrics
@@ -76,12 +76,12 @@ We deliberately exclude metrics that would tempt scope creep — DAU, MAU, conve
 
 The roadmap past v1.0 is additive, not directional. The core product stays the same: right-click → batch print, end of story. Future capabilities orbit that core:
 
-- **Hot folders.** Drop files into a watched folder, MaeclyPrint prints them. Inspired by FolderMill but local-first and free.
+- **Hot folders.** Drop files into a watched folder, Pluryprint prints them. Inspired by FolderMill but local-first and free.
 - **Multi-printer load balancing.** Round-robin or least-loaded distribution across multiple printers, in the spirit of Print Conductor 11's Printer Load Balancing feature.
 - **Plugins.** A stable Rust trait + WIT interface so third parties can add format renderers (additional CAD formats, niche e-book types, in-house document templates) without forking the core.
 - **Scheduling.** Time-based and trigger-based jobs (e.g., print every invoice landing in `Inbox\Invoices\` after 6 PM).
-- **Profiles.** Saved combinations of printer + duplex + watermark + page range, invokable from the context menu (`Print all with MaeclyPrint → "Letterhead Duplex"`).
-- **CLI parity.** `maeclyprint --src "C:\Invoices\*.pdf" --printer "HP M404" --duplex long --copies 2` for scripting and CI use, modeled after 2Printer's flag style.
+- **Profiles.** Saved combinations of printer + duplex + watermark + page range, invokable from the context menu (`Print all with Pluryprint → "Letterhead Duplex"`).
+- **CLI parity.** `pluryprint --src "C:\Invoices\*.pdf" --printer "HP M404" --duplex long --copies 2` for scripting and CI use, modeled after 2Printer's flag style.
 - **Cross-platform.** macOS 13+ on Apple Silicon and Intel, using CUPS and a Finder Quick Action / Services menu integration.
 - **Optional cloud features.** Strictly opt-in; for example, a shared profile sync via Git or WebDAV. Never by default, never required.
 

@@ -1,15 +1,19 @@
 [package]
-name = "maeclyprint"
+name = "pluryprint"
 version = "0.0.1"
 description = "Open source batch file printing for Windows and macOS."
 authors = ["Maecly maintainers"]
-license = "GPL-3.0-only"
-repository = "https://github.com/maecly/maeclyprint"
+license = "AGPL-3.0-only"
+repository = "https://github.com/MAECLY/maecly-print"
 edition = "2021"
-rust-version = "1.78"
+rust-version = "1.89"
+# Two binaries: the app (`pluryprint`, GUI subsystem on Windows) and the
+# console-subsystem CLI front end (`pluryprint-cli`, src/bin). `cargo run`
+# and `tauri dev` mean the app.
+default-run = "pluryprint"
 
 [lib]
-name = "maeclyprint_lib"
+name = "pluryprint_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -39,6 +43,19 @@ anyhow = "1"
 # --- Filesystem / paths ---
 directories = "5"
 tempfile = "3"
+# Folder expansion for FR-004: recursive walks with a bounded depth and
+# symlink loops handled for us.
+walkdir = "2"
+
+# --- Headless CLI (FR-008/009/112) ---
+# `derive` keeps the subcommand surface declarative; `env` is unused on
+# purpose so the exit codes stay the only contract.
+clap = { version = "4", features = ["derive"] }
+
+# --- Process control ---
+# The print hop shells out to SumatraPDF/lp; without a bounded wait a hung
+# child wedges the whole queue, so the dispatcher needs a timed wait.
+wait-timeout = "0.2"
 
 # --- Update check + issue reporting ---
 # Semantic-version comparison for the GitHub-release update check.
@@ -48,6 +65,9 @@ semver = "1"
 ureq = { version = "2.12", features = ["json"] }
 # Percent-encode the prefilled "report issue" GitHub URL query.
 percent-encoding = "2.3"
+# WHATWG URL parsing for the open_external allow-list, so the host we check is
+# the host the browser will actually visit (already in the tree via tauri).
+url = "2.5"
 
 # --- Typed IPC bindings (frontend ↔ Rust) ---
 # Pinned exact versions: tauri-specta is pre-release; semver wildcards risk drift.
@@ -66,8 +86,30 @@ image = { version = "0.25", default-features = false, features = [
   "bmp",
   "webp",
 ] }
-# PDF parsing: page counts for the Print Job screen + converter test assertions.
-lopdf = "0.34"
+# PDF parsing: page counts for the Print Job screen + converter test assertions,
+# and (FR-059) encrypted-PDF detection and decryption. 0.39 is the first line
+# that reads AES-128/AES-256 (V4/V5) security handlers and offers
+# `load_with_password`; it is also the copy printpdf already pulls in, so the
+# tree keeps a single lopdf. MSRV 1.85, below ours.
+lopdf = "0.39"
+# FR-052a: SVG/SVGZ -> vector PDF in-process (Typst's converter). `usvg` is
+# pinned to the exact line svg2pdf 0.13 is built on, so the tree never holds
+# two copies of the SVG parser. Both MIT OR Apache-2.0.
+svg2pdf = "0.13"
+usvg = "=0.45.1"
+# SVGZ is inflated by us, with a size cap, instead of by usvg (which inflates
+# without one: a gzip bomb). Already in the tree through usvg/lopdf/png.
+# MIT OR Apache-2.0.
+flate2 = "1"
+# FR-056: Markdown -> HTML without Pandoc. No default features: the CLI
+# helpers (`getopts`) are not needed. MIT.
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+# FR-057: TXT without LibreOffice; decode a BOM-less file that is not valid
+# UTF-8 as Windows-1252. Already in the tree through tauri. MIT OR Apache-2.0.
+encoding_rs = "0.8"
+# FR-059: a PDF password supplied by the user lives only in memory and is
+# wiped when dropped (NFR-082). Already in the tree. MIT OR Apache-2.0.
+zeroize = "1"
 # Job ids: v7 is time-sortable, so queue ordering falls out of the id.
 uuid = { version = "1", features = ["v7"] }
 # RFC3339 job timestamps serialized into queue.json.
@@ -78,6 +120,18 @@ tauri-plugin-dialog = "2"
 # Open URLs / reveal folders in the OS default handler (logs folder, issue
 # reporter, external links). Called Rust-side only; no JS capability needed.
 tauri-plugin-opener = "2"
+# NFR-014: a second launch (shell extension, CLI, shortcut) must hand its
+# argv to the running instance instead of racing it over queue.json.
+tauri-plugin-single-instance = "2"
+# FR-072: native OS notifications (Windows toast, macOS Notification Center)
+# for finished, failed and stuck batches while the window is in the
+# background. Driven Rust-side only (`ipc::notify`); no JS capability needed.
+# 2.4 is the newest line that does not require a newer `tauri` than 2.11.
+tauri-plugin-notification = "~2.4"
+# FR-082/083/087: download, verify (minisign, against the public key in
+# tauri.conf.json) and install signed updates. 2.12 is the newest line that
+# does not require a newer `tauri` than 2.11. See ADR-0008.
+tauri-plugin-updater = "~2.12"
 
 # --- Dev/test only ---
 # `test-util` unlocks tokio's virtual clock (`start_paused` / `time::advance`)
@@ -85,16 +139,155 @@ tauri-plugin-opener = "2"
 # compiled for tests; the release build never sees it.
 [dev-dependencies]
 tokio = { version = "1.41", features = ["test-util"] }
+# Decodes the updater public key in tauri.conf.json in a config test. Already
+# in the graph through tauri-plugin-updater; tests only.
+base64 = "0.22"
+
+# --- macOS Finder integration (NSServices provider, FR-001) ---
+# Objective-C runtime access for the "Print with Pluryprint" service declared
+# in `Info.plist`. macOS-only, so the Windows build never sees these.
+#
+# The versions are pinned to the ones tao/wry already pull in (objc2 0.6,
+# objc2-* 0.3). Taking a different major would silently build a *second* copy
+# of the whole objc2 tree into the same binary — two incompatible views of the
+# same runtime — so this is a constraint, not a preference.
+#
+# `default-features = false` matters: both crates default to binding their
+# entire framework. Feature unification means the Tauri stack may still enable
+# more, but nothing extra is enabled *because of us*.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSApplication",
+  "NSPasteboard",
+  "NSResponder",
+  # FR-055: the render worker's off-screen window and its print-to-file
+  # operation (engine render::macos).
+  "NSGraphics",
+  "NSPrintInfo",
+  "NSPrintOperation",
+  "NSRunningApplication",
+  "NSView",
+  "NSWindow",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSArray",
+  "NSString",
+  "NSURL",
+  # FR-055: the render worker pumps its own run loop (render::macos).
+  "NSData",
+  "NSDate",
+  "NSDictionary",
+  "NSError",
+  "NSGeometry",
+  "NSObjCRuntime",
+  "NSRunLoop",
+  # Round 7: the render worker answers its private scheme itself
+  # (render::macos DocSchemeHandler).
+  "NSURLRequest",
+  "NSURLResponse",
+] }
+# FR-055: completion handlers of WebKit's async calls (the content rule list
+# compiler) in the render worker. The same line objc2 0.6 uses. MIT.
+block2 = "0.6"
+# FR-055: HTML -> PDF through WKWebView in the hidden render worker (the same
+# objc2 line wry uses; see the note above). Zlib OR Apache-2.0 OR MIT.
+objc2-web-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "objc2-app-kit",
+  "WKWebView",
+  "WKWebViewConfiguration",
+  "WKPreferences",
+  "WKNavigation",
+  "WKNavigationAction",
+  "WKNavigationDelegate",
+  "WKContentRuleList",
+  "WKContentRuleListStore",
+  "WKUserContentController",
+  "WKWebpagePreferences",
+  "WKWebsiteDataStore",
+  # Round 7: the private scheme the worker serves the page and folder on.
+  "WKURLSchemeHandler",
+  "WKURLSchemeTask",
+  "block2",
+  "objc2-core-foundation",
+] }
+
+# --- SVG worker memory cap on Unix (security note 8) ---
+# setrlimit(RLIMIT_DATA) in the worker, and the parent's memory watchdog
+# (proc_pid_rusage on macOS, sysconf on Linux). Already in the tree through
+# tokio and many others. MIT OR Apache-2.0.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 # --- Windows printer enumeration (winspool + GDI DeviceCapabilities) ---
 # Only pulled in on Windows targets; macOS/Linux enumerate via the CUPS CLI.
 [target.'cfg(windows)'.dependencies]
+# Win32_Graphics_Imaging + Win32_System_Com: WIC decodes HEIC/HEIF (FR-052)
+# through the OS codec instead of a bundled libheif.
 windows = { version = "0.58", features = [
   "Win32_Foundation",
+  # GetUserDefaultUILanguage / LCIDToLocaleName: the first-run language
+  # (settings::locale).
+  "Win32_Globalization",
   "Win32_Graphics_Gdi",
+  "Win32_Graphics_Imaging",
   "Win32_Graphics_Printing",
+  # PTOpenProvider / PTConvertDevModeToPrintTicket / PTMergeAndValidatePrintTicket:
+  # build a DEVMODE that carries the requested print quality (print-settings.md,
+  # engine::print::devmode_swap).
+  "Win32_Graphics_Printing_PrintTicket",
+  # DnsServiceBrowse / DnsServiceResolve: network printer discovery through the
+  # DNS Client service, whose firewall rule admits the mDNS answers
+  # (platform::windows_dnssd).
+  "Win32_NetworkManagement_Dns",
+  # MFTEnumEx: is an HEVC decoder installed, for the HEIC dependency message
+  # (engine::convert::heif).
+  "Win32_Media_MediaFoundation",
   "Win32_Security",
+  # Owner check on the machine policy file (GetNamedSecurityInfoW).
+  "Win32_Security_Authorization",
+  # CONOUT$ for the headless CLI's console attach (cli::console).
+  "Win32_Storage_FileSystem",
   "Win32_Storage_Xps",
+  "Win32_System_Com",
+  # CreateStreamOnHGlobal: the memory streams the PrintTicket calls read and
+  # write (engine::print::devmode_swap).
+  "Win32_System_Com_StructuredStorage",
+  # AttachConsole / GetStdHandle / SetStdHandle (cli::console).
+  "Win32_System_Console",
+  # The SVG worker's Job Object: per-process memory limit, kill on close, one
+  # process, and the completion port that reports the limit was hit
+  # (engine::convert::process::run_capped; IO_COUNTERS lives in Threading).
+  "Win32_System_IO",
+  "Win32_System_JobObjects",
+  # OpenMutexW: is the Windows Installer still running a stopped install
+  # (ipc::deps_install, the `Global\_MSIExecute` mutex).
+  "Win32_System_Threading",
+  # HKLM\SOFTWARE\Policies\Maecly\Pluryprint (settings::policy).
+  "Win32_System_Registry",
+  # SetForegroundWindow / AllowSetForegroundWindow / FlashWindowEx: raising the
+  # window for a forwarded launch without faked input (cli::foreground).
+  "Win32_UI_WindowsAndMessaging",
+] }
+# FR-055: HTML -> PDF through the system WebView2 (`ICoreWebView2_7::PrintToPdf`)
+# in the hidden render worker. Pinned to the line wry already uses, so the
+# COM bindings are shared rather than duplicated. MIT.
+webview2-com = "0.38"
+# The COM base types (HSTRING, BOOL, Interface::cast) of the line webview2-com
+# 0.38 is generated against; our own `windows` 0.58 types are not
+# interchangeable with them. Already in the tree through wry. MIT OR Apache-2.0.
+windows-core = "0.61"
+# FR-055: the render worker answers the web view's requests itself, streaming
+# the staged page and the document's files (`SHCreateStreamOnFileEx`), so both
+# share one origin. The `windows` line webview2-com 0.38 and wry are built on
+# (its `IStream` is the one `CreateWebResourceResponse` takes), with the
+# features wry already enables: nothing new is compiled. MIT OR Apache-2.0.
+windows-webview = { package = "windows", version = "0.61", default-features = false, features = [
+  "Win32_System_Com",
+  "Win32_UI_Shell",
 ] }
 
 [features]

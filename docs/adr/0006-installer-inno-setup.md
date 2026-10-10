@@ -1,8 +1,10 @@
 # ADR-0006: Installer — Inno Setup (+ Sparse MSIX for shell extension)
 
+> Superseded by [ADR-0008](./0008-installer-nsis-per-user.md): the Windows installer is Tauri's per-user NSIS bundle, because the updater has to run it.
+
 ## Status
 
-Accepted
+Superseded by ADR-0008
 
 ## Date
 
@@ -39,7 +41,7 @@ Concretely:
   - Start Menu shortcut + uninstall registry entry
 - A post-install PowerShell step registers the sparse MSIX package via `Add-AppxPackage -Register -ExternalLocation`.
 - The fallback registry-only shell-extension entry under `HKCU\Software\Classes\*\shell\MaeclyPrint` is also written, gated on Windows version (Win 10 only by default; Win 11 users can opt in via "Always show in classic menu too").
-- Uninstall reverses all of the above. User data in `%APPDATA%\MaeclyPrint\` and `%LOCALAPPDATA%\MaeclyPrint\` is preserved unless the user checks "Also remove my settings and queue history".
+- Uninstall reverses all of the above. User data in `%APPDATA%\Maecly\MaeclyPrint\` and `%LOCALAPPDATA%\Maecly\MaeclyPrint\` is preserved unless the user checks "Also remove my settings and queue history".
 
 For the **post-1.0 Microsoft Store distribution** (later, optional), we will produce a *full MSIX* package as a separate artifact. That is not in scope for this ADR.
 

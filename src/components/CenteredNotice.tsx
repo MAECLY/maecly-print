@@ -5,35 +5,43 @@ interface CenteredNoticeProps {
   loading: boolean;
   /** When set (and not loading), render the error copy with this message. */
   error: string | null;
-  /** Title while loading. Defaults to the Printers-screen copy. */
-  loadingTitle?: string;
-  /** Title for the empty (no data, no error) state. */
-  emptyTitle?: string;
-  /** Title for the error state. Defaults to the Printers-screen copy. */
-  errorTitle?: string;
+  /** Title while loading. */
+  loadingTitle: string;
+  /** Body while loading (what is being read). */
+  loadingBody: string;
+  /** Title for the error state. */
+  errorTitle: string;
+  /** Title for the empty (no data, no error) state; omit when the screen has
+   *  no empty state. */
+  emptyTitle?: string | undefined;
   /** Body for the empty state. */
-  hint?: string;
+  hint?: string | undefined;
   /** Glyph for the non-loading states. Defaults to the Printers icon. */
   icon?: IconName;
 }
 
 /**
- * Centered loading / unavailable / empty state for a screen body. Extracted
- * from the Printers screen; the defaults reproduce its original copy so callers
- * that pass only `loading`/`error` behave identically, while Profiles/Settings/
- * About can override the titles, hint, and icon.
+ * Centered loading / unavailable / empty state for a screen body. Every string
+ * comes from the caller's catalog (FR-092) — there is no built-in copy, so a
+ * screen can never show another screen's text or an untranslated default.
+ *
+ * The region is a polite live region: a screen-reader user hears the loading
+ * line and then the error (or empty) line that replaces it (NFR-044).
  */
 export function CenteredNotice({
   loading,
   error,
-  loadingTitle = 'Detecting printers…',
-  emptyTitle = 'No printers installed',
-  errorTitle = 'Printers unavailable',
-  hint = 'Use "Add printer" to install one from the network or by IP address, or press Rescan.',
+  loadingTitle,
+  loadingBody,
+  emptyTitle,
+  errorTitle,
+  hint,
   icon = 'printer',
 }: CenteredNoticeProps) {
   return (
     <div
+      role="status"
+      aria-live="polite"
       style={{
         flex: 1,
         display: 'flex',
@@ -47,6 +55,7 @@ export function CenteredNotice({
     >
       {loading ? (
         <div
+          aria-hidden="true"
           style={{
             width: 22,
             height: 22,
@@ -70,7 +79,7 @@ export function CenteredNotice({
           lineHeight: 1.5,
         }}
       >
-        {loading ? 'Reading the system print spooler.' : (error ?? hint)}
+        {loading ? loadingBody : (error ?? hint)}
       </div>
     </div>
   );

@@ -1,6 +1,8 @@
 # Release Strategy
 
-> **TL;DR.** MaeclyPrint follows strict semantic versioning, ships on three channels (stable, beta, nightly), and uses a trunk-based branching model with squash-merged feature branches. Stable releases land every 4–8 weeks, betas every 2 weeks, and nightlies every night.
+> **TL;DR.** Pluryprint follows strict semantic versioning, ships on three channels (stable, beta, nightly), and uses a trunk-based branching model with squash-merged feature branches. Stable releases land every 4–8 weeks, betas every 2 weeks, and nightlies every night.
+
+> **Status (2026-10-10).** Parts of this strategy were replaced by [ADR-0011](../adr/0011-release-channel.md) and are described as built in [releasing.md](../07-build-and-release/releasing.md): releases and the per-channel `latest.json` manifests live on **GitHub Releases**, not `updates.maecly.com`; a `vX.Y.Z` tag makes a stable draft and a `vX.Y.Z-beta.N` tag a beta one; there are **no nightly builds** (the nightly channel follows beta); and nothing is signed with an EV, self-signed or Developer ID certificate — updates are signed with Pluryprint's own minisign key and every release lists `SHA256SUMS`. No release has been published yet. Versioning and branching below still apply.
 
 This document defines how versions are numbered, when they ship, what each channel commits to, and how we handle pre-releases, yanks, and long-term support. It is the contract between the project and its users.
 
@@ -87,7 +89,7 @@ We aim for a stable release every 4–8 calendar weeks. The window is wide on pu
 Stable releases get:
 
 - A GitHub Release with full changelog excerpt.
-- An update manifest update on `updates.maecly.com/maeclyprint/stable.json`.
+- An update manifest update on `updates.maecly.com/pluryprint/stable.json`.
 - A blog post / social announcement for MINOR and MAJOR; PATCH is silent.
 
 ### Beta: every ~2 weeks
@@ -97,7 +99,7 @@ Betas snapshot whatever is on `main` at the cut moment. Cuts happen on the **sec
 Betas get:
 
 - A GitHub Pre-release.
-- An update manifest update on `updates.maecly.com/maeclyprint/beta.json`.
+- An update manifest update on `updates.maecly.com/pluryprint/beta.json`.
 - A short note in `#announcements` (project Discord/forum, when it exists).
 
 ### Nightly: every night `main` is green
@@ -106,7 +108,7 @@ A scheduled CI workflow runs at 03:00 UTC. If `main` has new commits since the l
 
 1. Builds for all target platforms.
 2. Signs with the nightly self-signed cert (NOT the EV cert).
-3. Uploads to `updates.maecly.com/maeclyprint/nightly/<version>/`.
+3. Uploads to `updates.maecly.com/pluryprint/nightly/<version>/`.
 4. Updates `nightly.json` manifest.
 
 If the nightly build fails, the previous nightly remains the latest. We do not auto-fix; the next morning's `main` either heals it or somebody investigates.

@@ -2,6 +2,8 @@
 
 > **TL;DR.** Pre-release: bump version, update CHANGELOG, run all tests, complete QA matrix. Release: tag, let CI build + sign + notarize, manually approve publish, verify the live download. Post-release: announce, watch for issues, prepare for next cycle.
 
+> **Status (2026-10-10).** The release process that exists is the runbook [releasing.md](../07-build-and-release/releasing.md): a tag builds a **draft** with `release.yml`, and §6 there is the checklist for verifying it before publishing. Releases carry no Authenticode, Developer ID or notarization ([ADR-0011](../adr/0011-release-channel.md)), and there is no `installers/windows/build.ps1`, so the items below that name `signtool`, `codesign --deep`, `spctl`, `stapler` or that script do not apply; the QA matrix and the post-release steps still do.
+
 This is the operational runbook a maintainer follows to ship a release. Print it, work through it top-to-bottom, do not skip steps. Each item has a checkbox; do not consider the release complete until every box is checked.
 
 ## Pre-release (T-7 to T-1 days)
@@ -26,11 +28,13 @@ This is the operational runbook a maintainer follows to ship a release. Print it
 - [ ] Run `cargo test --include-ignored` locally. All tests pass (this catches subprocess-dependent tests that may be skipped in regular dev).
 - [ ] Run E2E suite (`pnpm test:e2e`) against a fresh build: green.
 - [ ] Run `cargo audit`. Zero unaddressed advisories. (Address with explicit allowlist + comment if waiver justified.)
+- [ ] Re-check `THIRD-PARTY-NOTICES.md` with the commands in its "How this list was made" section (`cargo tree` on the four release targets, a production `vite build`). Every new crate or package is named, and every new licence is compatible with the AGPL-3.0 (see [third-party-licenses.md](../09-legal/third-party-licenses.md)).
+- [ ] The release notes name the SumatraPDF version the Windows installer ships, so its "corresponding source" is unambiguous.
 
 ### Build verification
 
 - [ ] Local production build succeeds: `pnpm tauri build`.
-- [ ] Local installer build succeeds: `./installers/windows/build.ps1 -Version <version> -Channel release` (or macOS equivalent).
+- [ ] Local installer build succeeds: `scripts\fetch-sumatrapdf.ps1`, `scripts\build-shell-ext.ps1 -Arch all`, then `pnpm tauri build` (see [installer-windows.md](../07-build-and-release/installer-windows.md)); on macOS `pnpm tauri build --bundles app,dmg`.
 - [ ] Reproducibility check (Windows): build the installer twice from the same commit; unsigned `setup.exe` files are byte-identical.
 
 ### Manual QA matrix
@@ -78,7 +82,7 @@ For a stable release, run the manual QA suite on **every** combination below. Fo
 - [ ] Single-PDF print works.
 - [ ] About page shows correct version.
 - [ ] Settings page shows correct channel.
-- [ ] Right-click in File Explorer shows MaeclyPrint submenu.
+- [ ] Right-click in File Explorer shows Pluryprint submenu.
 - [ ] Uninstaller runs cleanly; no leftover files in install dir.
 
 **Full QA suite** (~30 min): the smoke checklist plus:
@@ -100,7 +104,9 @@ For a stable release, run the manual QA suite on **every** combination below. Fo
 
 ### Signing verification
 
-- [ ] Each Windows binary in the release artifact set passes `signtool verify /pa /v <file>`.
+- [ ] `release.yml`'s signature check passed: every updater artifact verifies against the public key compiled into the app, and the tampered copy fails (job log, `sigcheck/`).
+- [ ] `SHA256SUMS` lists every asset and matches a downloaded copy.
+- [ ] *(Only once certificates exist, ADR-0011.)* Each Windows binary in the release artifact set passes `signtool verify /pa /v <file>`.
 - [ ] Each macOS artifact passes `codesign --verify --deep --strict --verbose=2 <artifact>`.
 - [ ] Each macOS `.pkg` and `.dmg` passes `spctl --assess --verbose <artifact>`.
 - [ ] Each macOS artifact passes `stapler validate <artifact>`.
@@ -127,7 +133,7 @@ When CI reaches the `publish` job, GitHub will request approval (via the `produc
 
 After CI completes:
 
-- [ ] Manifest at `https://updates.maecly.com/maeclyprint/<channel>.json` reflects the new version. Open in a browser; check JSON.
+- [ ] Manifest at `https://updates.maecly.com/pluryprint/<channel>.json` reflects the new version. Open in a browser; check JSON.
 - [ ] Each binary URL in the manifest is reachable. Run `./scripts/verify-published-manifest.sh <channel>` which fetches all URLs.
 - [ ] GitHub Release for `v<version>` is published with the correct binaries attached and notes match `RELEASE_NOTES.md`.
 - [ ] `CHANGELOG.md` on `main` is correctly updated.
@@ -155,7 +161,7 @@ If any updater step fails, **immediately**:
 
 - [ ] Post on project social channels (X/Twitter, Mastodon if active). Use a template:
   ```
-  MaeclyPrint <version> is out!
+  Pluryprint <version> is out!
 
   • <highlight 1>
   • <highlight 2>

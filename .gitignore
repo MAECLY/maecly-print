@@ -56,3 +56,16 @@ installers/windows/*.exe
 installers/windows/*.msi
 installers/macos/*.dmg
 installers/macos/*.pkg
+
+# Fetched at packaging time by scripts/fetch-sumatrapdf.{ps1,sh}; never committed
+src-tauri/resources/sumatrapdf/*
+!src-tauri/resources/sumatrapdf/README.md
+
+# Where scripts/build-shell-ext.ps1 used to put the DLL; never committed
+src-tauri/windows/*.dll
+
+# Local MCP browser-tool residue (screenshots, snapshots, console logs)
+.playwright-mcp/
+# Built by scripts/build-shell-ext.ps1 at packaging time; never committed.
+src-tauri/resources/shellext/*
+!src-tauri/resources/shellext/README.md

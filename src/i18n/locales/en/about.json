@@ -1,0 +1,82 @@
+{
+  "title": "About",
+  "byline": "by Maecly",
+  "tagline": "Open source batch printing for Windows and Mac. No 15-file limit, no Adobe required, no $149 license fee.",
+  "version": {
+    "line": "{{version}} · build {{buildDate}}",
+    "withChannel": "{{version}} · build {{buildDate}} · {{channel}} channel",
+    "unavailable": "{{version}} · standalone web preview"
+  },
+  "channels": {
+    "stable": "stable",
+    "beta": "beta",
+    "nightly": "nightly"
+  },
+  "sections": {
+    "updates": "Updates",
+    "components": "Components",
+    "paths": "File locations",
+    "links": "Links"
+  },
+  "updates": {
+    "check": "Check for updates",
+    "checking": "Checking…",
+    "upToDate": {
+      "title": "You're up to date",
+      "detail": "version {{version}} · checked {{time}}"
+    },
+    "unavailable": {
+      "title": "No updates published on the {{channel}} channel",
+      "detail": "Its update file was not found, so there is nothing to install. Nothing has been released on this channel yet, or the releases are not public. Pluryprint keeps working as it is; check again later."
+    },
+    "available": {
+      "group": "Update available",
+      "title": "Version {{version}} is available",
+      "detail": "You're on {{current}}.",
+      "releaseNotes": "Release notes",
+      "remindLater": "Remind me later",
+      "skipVersion": "Skip this version",
+      "install": "Install now",
+      "verifiedNote": "The download is checked against Pluryprint's release signature before anything is installed, and no administrator rights are needed."
+    },
+    "deferred": "Reminder postponed. Check again whenever you like.",
+    "retry": "Retry",
+    "skipped": "Skipping {{version}}. A newer release will still be offered.",
+    "undoSkip": "Undo",
+    "install": {
+      "installing": "Downloading and verifying {{version}}…",
+      "progress": "{{percent}} %",
+      "majorTitle": "Install a major update?",
+      "majorMessage": "{{version}} is a major update from {{current}} and may change how Pluryprint works. If you rely on a particular workflow, read the release notes first.",
+      "majorConfirm": "Install {{version}}",
+      "restartTitle": "{{version}} is installed",
+      "restartDetail": "Restart Pluryprint to start using it.",
+      "restart": "Restart now",
+      "nothing": "There is no installable update for this platform yet. Download it from the release page instead.",
+      "signatureInvalid": "The downloaded update failed its signature check and was not installed. Nothing on this computer was changed. Try again later, or download the release from the release page.",
+      "failed": "The update could not be installed: {{error}}"
+    }
+  },
+  "components": {
+    "platform": "Platform:"
+  },
+  "paths": {
+    "config": "config:",
+    "data": "data:",
+    "logs": "logs:",
+    "openLogs": "Open logs folder"
+  },
+  "ipcUnavailable": "IPC unavailable: {{error}}. This is expected when running the standalone Vite dev server (no Tauri host). Run {{command}} to test the real bridge.",
+  "links": {
+    "releaseNotes": "Release notes",
+    "license": "License AGPL-3.0",
+    "notices": "Third-party notices",
+    "cla": "Contributor agreement (CLA)",
+    "documentation": "Documentation",
+    "reportIssue": "Report an issue"
+  },
+  "footer": {
+    "license": "Pluryprint is free software licensed under {{license}}. No telemetry, no cloud, no account.",
+    "source": "Source at"
+  }
+}

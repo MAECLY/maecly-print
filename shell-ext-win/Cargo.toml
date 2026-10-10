@@ -1,0 +1,75 @@
+[package]
+name = "pluryprint-shellext"
+version = "0.0.1"
+description = "Windows Explorer context-menu handler for Pluryprint (IExplorerCommand)."
+authors = ["Maecly maintainers"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/MAECLY/maecly-print"
+edition = "2021"
+rust-version = "1.78"
+publish = false
+
+# Deliberately NOT a member of any workspace: `src-tauri` is a standalone crate
+# today, and `[profile.release] panic = "abort"` there would make `catch_unwind`
+# a no-op here (a panic crossing into Explorer takes Explorer down with it).
+# This crate keeps its own target dir and its own release profile.
+
+[lib]
+name = "shell_ext_win"
+# `cdylib` is the shipped artifact (shell_ext_win.dll). `rlib` is what the
+# integration tests in tests/ link against; without it `cargo test` cannot see
+# the crate at all.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The handoff payload. Field names and value spellings are the contract with
+# src-tauri/src/cli/handoff.rs — see src/handoff.rs.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# v7 is time-sortable, so the handoff directory sorts by invocation order.
+uuid = { version = "1", features = ["v7"] }
+# RFC 3339 stamps for `invoked_at`; the consumer parses them with the same crate.
+time = { version = "0.3", features = ["formatting", "parsing"] }
+# Resolves the handoff directory with the *same* rules the app uses
+# (ProjectDirs::from("com", "Maecly", "Pluryprint")). Sharing the crate is what
+# guarantees the producer and the consumer agree on the path; the consumer
+# rejects any handoff file that does not canonicalize inside that directory.
+directories = "5"
+
+[target.'cfg(windows)'.dependencies]
+windows-core = "0.58"
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_System_LibraryLoader",
+  # SHELLEXECUTEINFOW embeds an HKEY, so ShellExecuteExW is gated on it.
+  "Win32_System_Registry",
+  # SFGAO_FLAGS / SFGAO_FOLDER for the "is this a folder" probe.
+  "Win32_System_SystemServices",
+  # GetUserDefaultUILanguage: the menu's labels before the app wrote its cache.
+  "Win32_Globalization",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+  "Win32_UI_WindowsAndMessaging",
+  "implement",
+] }
+
+[build-dependencies]
+# Embeds res/shellext.rc: version info plus — critically — the side-by-side
+# <msix> manifest without which Explorer never loads the packaged extension.
+embed-resource = "3"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+# MUST stay "unwind": guard::guard() relies on catch_unwind to stop a panic at
+# the COM boundary. With panic = "abort" the process (Explorer) dies instead.
+panic = "unwind"
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev]
+panic = "unwind"

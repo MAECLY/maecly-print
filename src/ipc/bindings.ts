@@ -8,6 +8,10 @@
 
 
 export const commands = {
+/**
+ * FR-058 canary: report the version, resolved paths and dependency probe.
+ * Never fails in practice; the `Result` keeps the command shape uniform.
+ */
 async appInfo() : Promise<Result<AppInfo, IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("app_info") };
@@ -54,6 +58,78 @@ async openExternal(url: string) : Promise<Result<null, IpcError>> {
 }
 },
 /**
+ * Write a webview error into the structured log.
+ * 
+ * Before this existed the error screen said "the logs folder has the details"
+ * while the details only ever reached the devtools console. Infallible by
+ * design: the caller is already handling a failure.
+ */
+async logFrontendError(report: FrontendErrorReport) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("log_frontend_error", { report }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Show `title`/`body` as a native notification if [`should_notify_natively`]
+ * says so. Resolves to whether one was shown.
+ * 
+ * Never an error the UI has to handle: the in-app toast has already been
+ * shown, so a denied permission or a notification service that is not
+ * running is logged and reported as `false`.
+ */
+async notifyNative(title: string, body: string) : Promise<Result<boolean, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("notify_native", { title, body }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Install the dependency `id` the way the user agreed to (`method`), after
+ * the consent dialog (`consent` must be `true`). See the module docs.
+ */
+async installDependency(id: Dependency, method: InstallMethod, consent: boolean) : Promise<Result<InstallOutcome, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("install_dependency", { id, method, consent }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Stop the install that is running, if any, with every process it started
+ * (FR-058: the user can always back out of an install they began). Returns
+ * whether there was one to stop; the install's own call then resolves with
+ * [`InstallStatus::Cancelled`], or with
+ * [`InstallStatus::CancelRequestedInstallerMayContinue`] when the installer
+ * could not be confirmed stopped.
+ */
+async cancelDependencyInstall() : Promise<Result<boolean, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_dependency_install") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Which install holds the one-install slot, and how the last one ended
+ * (FR-058). The UI asks on startup, so a reloaded window shows a running
+ * install — with its Stop — instead of an Install the backend would refuse.
+ */
+async dependencyInstallStatus() : Promise<Result<DependencyInstallState, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("dependency_install_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * List every printer the OS spooler knows about, with capabilities.
  */
 async listPrinters() : Promise<Result<Printer[], IpcError>> {
@@ -76,8 +152,9 @@ async defaultPrinter() : Promise<Result<string | null, IpcError>> {
 }
 },
 /**
- * Best-effort network discovery of not-yet-installed printers (mDNS/Bonjour
- * on Unix; empty on Windows until WSD lands).
+ * Best-effort network discovery of not-yet-installed printers: mDNS/Bonjour
+ * through `ippfind` on Unix, and the OS DNS-SD client (`DnsServiceBrowse`)
+ * for IPP/IPPS on Windows (WSD-only devices are not listed).
  */
 async discoverPrinters() : Promise<Result<DiscoveredPrinter[], IpcError>> {
     try {
@@ -88,7 +165,7 @@ async discoverPrinters() : Promise<Result<DiscoveredPrinter[], IpcError>> {
 }
 },
 /**
- * Read the persisted MaeclyPrint printer preferences.
+ * Read the persisted Pluryprint printer preferences.
  */
 async getPrinterPrefs() : Promise<Result<PrinterPrefs, IpcError>> {
     try {
@@ -148,7 +225,7 @@ async openPrinterSettings() : Promise<Result<null, IpcError>> {
  * `name` is the human label; `uri` selects the transport (driverless IPP/IPPS
  * or a raw socket/LPD on Unix; IPP/IPPS on Windows). On failure the spooler's
  * own diagnostic (e.g. lpadmin's "Unable to connect to …") is surfaced so the
- * UI can show it verbatim. Never mutates MaeclyPrint preferences — only the OS.
+ * UI can show it verbatim. Never mutates Pluryprint preferences — only the OS.
  */
 async addPrinter(name: string, uri: string) : Promise<Result<null, IpcError>> {
     try {
@@ -177,6 +254,15 @@ async getPrinterPolicy() : Promise<Result<PrinterPolicy, IpcError>> {
  * Submit a print request. Validates and fans the files out into jobs, returning
  * the batch id and per-file job ids. Runs the (blocking) validation/probe off
  * the IPC thread.
+ * 
+ * Every path is resolved through [`canonical_input`] first (NFR-025), so the
+ * queue only ever stores absolute, symlink-resolved paths and a relative one
+ * can never be silently resolved against the process' working directory.
+ * 
+ * The page range is then bounds-checked against each PDF's real page count
+ * (FR-042/FR-043) before anything is enqueued, so `"500-600"` on an 8-page
+ * report is an error the user can read and fix — not a job that reaches `Done`
+ * having printed nothing.
  */
 async printFiles(req: PrintRequest) : Promise<Result<JobBatch, IpcError>> {
     try {
@@ -243,6 +329,19 @@ async resumeJob(id: string) : Promise<Result<null, IpcError>> {
 }
 },
 /**
+ * Change a paused job's printer or sides (e.g. one-sided, or another
+ * printer, for a job paused because its printer cannot do what it asks).
+ * The job stays paused; resume it to send it.
+ */
+async adjustJob(id: string, change: JobChange) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("adjust_job", { id, change }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Retry a single failed job from the start.
  */
 async retryJob(id: string) : Promise<Result<null, IpcError>> {
@@ -300,14 +399,53 @@ async inspectFiles(paths: string[]) : Promise<Result<FileInfo[], IpcError>> {
 }
 },
 /**
- * The exact command MaeclyPrint would run for `req` (honesty policy: no hidden
- * flags). Resolves the printer name the same way the dispatcher will —
- * requested, else the app default, else the OS default, else a
- * `<default printer>` placeholder — and previews against the first file's name.
+ * Expand folders into printable files with the user's FR-004 answer
+ * (`top_level` vs `recursive`), one result per folder.
+ * 
+ * Discarded files come back in [`FolderExpansion::skipped`] with a reason
+ * rather than vanishing (FR-005/FR-059); the caller logs them against the job.
+ * Each root is walked under the default [`ExpansionLimits`], so dropping a
+ * disk root truncates instead of hanging.
+ */
+async expandFolders(paths: string[], scan: FolderScan) : Promise<Result<FolderExpansion[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("expand_folders", { paths, scan }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The exact command Pluryprint would run for `req` (honesty policy: no hidden
+ * flags), for **every** file in the batch.
+ * 
+ * The dispatcher settles three things per file, so the preview does too:
+ * the printer (an explicit request, else the file-type routing rule, else the
+ * app default, else the OS default — a `.pdf → EPSON` rule can split a batch
+ * across printers), the settings narrowed to the input (page ranges are
+ * PDF-only), and the printer's own tray/paper defaults where the job leaves
+ * them open. Files that come out identical share one command; when the batch
+ * splits, each command is preceded by a comment naming its files, so the panel
+ * never shows one file's command as if it were everyone's. See
+ * [`preview_for_files`].
  */
 async previewCommand(req: PrintRequest) : Promise<Result<string, IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("preview_command", { req }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Supply the password of job `id`'s encrypted PDF and resume it. With
+ * `apply_to_batch`, the same password is tried on the batch's other
+ * protected PDFs too. A wrong password pauses the job again with
+ * `password_incorrect`.
+ */
+async jobSupplyPassword(id: string, password: string, applyToBatch: boolean) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("job_supply_password", { id, password, applyToBatch }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -385,6 +523,46 @@ async setDefaultProfile(id: string) : Promise<Result<null, IpcError>> {
 }
 },
 /**
+ * Export one profile — built-in or custom — to a standalone TOML document at
+ * `path`, so it can be shared across machines (FR-024).
+ * 
+ * The document holds the profile's *settings* only: the two computed flags are
+ * not part of the on-disk shape, so an exported file can never carry "I am the
+ * default" or "I am built in" onto another machine. The write is atomic, like
+ * every other profile write (FR-026).
+ */
+async exportProfile(id: string, path: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("export_profile", { id, path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Import profiles from a TOML document (FR-024), returning the newly created
+ * profiles with their computed flags.
+ * 
+ * The file is **untrusted input**: it is size-capped, parsed and validated in
+ * full before `profiles.toml` is even opened, and a single invalid entry
+ * rejects the whole document, so a rejected import can never leave a partial
+ * merge behind.
+ * 
+ * Collision policy (see [`profiles::merge_imported`]): every imported profile
+ * gets a **fresh id**, so an import only ever *adds* — it can neither
+ * overwrite an existing custom nor touch the immutable built-ins — and a name
+ * that collides case-insensitively is renamed `"{name} 2"`, `"{name} 3"`… the
+ * same way Clone does.
+ */
+async importProfiles(path: string) : Promise<Result<Profile[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("import_profiles", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Read the current app settings (the four wire sections of `config.toml`).
  */
 async getAppSettings() : Promise<Result<AppSettings, IpcError>> {
@@ -412,15 +590,109 @@ async setAppSettings(settings: AppSettings) : Promise<Result<AppSettings, IpcErr
 }
 },
 /**
- * Check GitHub for a newer release than the running build.
+ * Whether to tell the user, once, that the headless-browser renderer they
+ * had chosen by hand (`[engine] html_renderer = "browser"`) is gone and
+ * their pages now print with the system web view. Removes the retired key
+ * from `config.toml` ([`crate::settings::take_retired_html_renderer_at`]),
+ * so it answers `true` at most once. The window asks at launch.
+ */
+async takeRetiredRendererNotice() : Promise<Result<boolean, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("take_retired_renderer_notice") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Check the configured channel's release manifest for a newer release than
+ * the running build.
  * 
  * Runs off the IPC thread (a network round-trip). A misconfigured repository or
  * any network/rate-limit failure surfaces as [`IpcError::UpdateCheckFailed`]
  * with a short, user-facing message.
+ * 
+ * A successful check stamps [`UpdateState::last_check_at`], so a manual check
+ * postpones the next automatic one instead of stacking with it (FR-080). A
+ * failure to persist that stamp is logged, never surfaced: the user asked for
+ * a check, and they got one.
  */
 async checkForUpdates() : Promise<Result<UpdateCheck, IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("check_for_updates") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The persisted update bookkeeping: when the last check ran and which version
+ * the user skipped (FR-084), so the About screen can render "you skipped
+ * {version}" with a way back out. A skip that is no longer ahead of the
+ * running build is cleared on the way out.
+ */
+async getUpdateState() : Promise<Result<UpdateState, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_update_state") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Record (or clear) the release the user chose to skip — FR-084's third
+ * option, next to "install now" and "remind me later".
+ * 
+ * `None` clears the skip, which is how the UI offers an undo. The value is
+ * stored verbatim (a release tag, `v1.2.0` or `1.2.0`); the comparison that
+ * decides whether to stay silent is version-aware, not textual, so either form
+ * works. Skipping is per-version: a *newer* release prompts again.
+ */
+async setSkippedUpdateVersion(version: string | null) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_skipped_update_version", { version }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * FR-084 "install now": download, verify and install the newest release.
+ * 
+ * Only ever runs because the user asked. `allow_major` is FR-087's separate
+ * opt-in for a major version jump; without it such a release is refused
+ * before anything is downloaded. `confirmed_version` is the release the user
+ * confirmed: a major jump to any *other* version (the manifest now names a
+ * newer one) is refused with `major_update_changed` instead of installed on
+ * the strength of a confirmation that was not for it. Progress is pushed as
+ * [`UpdateDownloadProgress`]. A tampered or unsigned artifact fails with
+ * [`IpcError::UpdateSignatureInvalid`] and nothing is installed.
+ * 
+ * On Windows a successful install hands over to the per-user installer and
+ * the app exits (the installer restarts it); elsewhere the result says a
+ * restart is required and the UI offers [`restart_app`].
+ */
+async installUpdate(allowMajor: boolean, confirmedVersion: string | null) : Promise<Result<UpdateInstallResult, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("install_update", { allowMajor, confirmedVersion }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Relaunch the app so an installed update takes effect.
+ */
+async restartApp() : Promise<void> {
+    await TAURI_INVOKE("restart_app");
+},
+/**
+ * Drain the selections handed to this instance (command line or a forwarded
+ * second launch). Returns them oldest first and empties the store.
+ */
+async takePendingSelections() : Promise<Result<Selection[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("take_pending_selections") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -432,11 +704,19 @@ async checkForUpdates() : Promise<Result<UpdateCheck, IpcError>> {
 
 
 export const events = __makeEvents__<{
+dependencyInstallProgress: DependencyInstallProgress,
 jobProgressEvent: JobProgressEvent,
-queueUpdated: QueueUpdated
+queueUpdated: QueueUpdated,
+selectionForwarded: SelectionForwarded,
+updateAvailable: UpdateAvailable,
+updateDownloadProgress: UpdateDownloadProgress
 }>({
+dependencyInstallProgress: "dependency-install-progress",
 jobProgressEvent: "job-progress-event",
-queueUpdated: "queue-updated"
+queueUpdated: "queue-updated",
+selectionForwarded: "selection-forwarded",
+updateAvailable: "update-available",
+updateDownloadProgress: "update-download-progress"
 })
 
 /** user-defined constants **/
@@ -445,13 +725,74 @@ queueUpdated: "queue-updated"
 
 /** user-defined types **/
 
-export type AppCfg = { locale: string; theme: Theme; launch_minimized: boolean; 
+/**
+ * The `[app]` section: UI and launch preferences.
+ */
+export type AppCfg = { 
+/**
+ * UI language as a BCP 47 tag, e.g. `"en-US"`.
+ */
+locale: string; 
+/**
+ * Colour scheme of the window.
+ */
+theme: Theme; 
+/**
+ * Start with the main window minimized (a plain launch only; see
+ * [`should_start_minimized`]).
+ */
+launch_minimized: boolean; 
 /**
  * UI spacing preference. `#[serde(default)]` so a config written before this
  * field existed still loads (filling in [`Density::Comfortable`]).
  */
-density?: Density }
-export type AppInfo = { version: string; build_date: string; config_dir: string; log_dir: string; data_dir: string; 
+density?: Density; 
+/**
+ * FR-072: announce finished, failed and stuck batches through the OS
+ * notification centre while the window is in the background. On by
+ * default; `#[serde(default)]` so a config written before this field
+ * existed keeps notifications on.
+ */
+native_notifications?: boolean; 
+/**
+ * FR-093: the first-run OS-language detection is settled — it ran, the
+ * user picked a language, or the locale came over in an upgrade from the
+ * former product (ADR-0009) — so detection must never change `locale`
+ * again. Kept here rather than in the webview's storage, which a new
+ * bundle identifier starts empty.
+ */
+locale_detected?: boolean; 
+/**
+ * The first-run tour was completed or skipped (or this is an upgrade from
+ * the former product). Kept here for the same reason as `locale_detected`.
+ */
+onboarding_complete?: boolean }
+/**
+ * What this build is and what it sees on this host: version, the resolved
+ * app directories and the external-dependency probe. Backs the About page
+ * and the diagnostics copy.
+ */
+export type AppInfo = { 
+/**
+ * The app version from `Cargo.toml`.
+ */
+version: string; 
+/**
+ * Date the binary was built (set by `build.rs`).
+ */
+build_date: string; 
+/**
+ * Resolved config directory (`config.toml`, `profiles.toml`).
+ */
+config_dir: string; 
+/**
+ * Resolved log directory (the JSONL logs).
+ */
+log_dir: string; 
+/**
+ * Resolved data directory (the persisted queue and its spool).
+ */
+data_dir: string; 
 /**
  * Target OS, e.g. `"macos"`, `"windows"`, `"linux"` (`std::env::consts::OS`).
  */
@@ -459,13 +800,90 @@ os: string;
 /**
  * Target architecture, e.g. `"x86_64"`, `"aarch64"` (`std::env::consts::ARCH`).
  */
-arch: string }
+arch: string; 
+/**
+ * FR-058: every external program the print pipeline can shell out to,
+ * with where it was found (or the remediation message for a missing one).
+ * 
+ * It rides on `app_info` rather than a command of its own because this is
+ * exactly what `app_info` is for — "what does this build see on this
+ * host?" — and because the screens that care already fetch it once on
+ * mount. The probe itself is a handful of `is_file` calls (see
+ * [`deps::report_all`]), so it costs nothing to answer on every call and
+ * is never stale.
+ * 
+ * `#[serde(default)]` — as on `AppSettings::meta`, and for the same
+ * reason: the server always sends it, but a test building an `AppInfo` by
+ * hand should not have to enumerate the machine's dependencies to talk
+ * about a version string. Consumers treat an absent list as "not probed",
+ * which raises no warning.
+ */
+dependencies?: DependencyReport[]; 
+/**
+ * Absolute path of the running executable — which is also the headless
+ * CLI (FR-008). The installers do not put it on `PATH`, so a command the
+ * UI offers to copy has to name this path for the paste to work.
+ * `None` when the OS will not say (the UI then explains the requirement
+ * instead of offering a command that cannot run).
+ */
+executable?: string | null }
 /**
  * The subset of [`Config`] exposed to the frontend as one bundle by
  * `get_app_settings` / `set_app_settings`. Deliberately excludes `printers`
  * (owned by the Printers screen) and `schema_version` (server-managed).
  */
-export type AppSettings = { app: AppCfg; engine: EngineCfg; updater: UpdaterCfg; telemetry: TelemetryCfg }
+export type AppSettings = { 
+/**
+ * The `[app]` section.
+ */
+app: AppCfg; 
+/**
+ * The `[engine]` section.
+ */
+engine: EngineCfg; 
+/**
+ * The `[updater]` section.
+ */
+updater: UpdaterCfg; 
+/**
+ * The `[telemetry]` section.
+ */
+telemetry: TelemetryCfg; 
+/**
+ * Server-computed annotations; `#[serde(default)]` so a client that does
+ * not know about them (or a test building the bundle by hand) still
+ * deserializes, and so the field is optional in the generated TypeScript.
+ */
+meta?: SettingsMeta }
+/**
+ * Inclusive bounds and the shipped default of one numeric engine knob.
+ * 
+ * This is the SINGLE SOURCE OF TRUTH for the engine limits (see
+ * [`ENGINE_LIMITS`]): [`EngineCfg::default`] takes its values from here,
+ * [`EngineCfg::sanitized`] clamps with [`Bounds::sanitize`], the write path
+ * ([`crate::ipc::settings::set_app_settings`]) rejects with
+ * [`Bounds::accepts`], and the very same numbers ride to the frontend in
+ * [`SettingsMeta::limits`] so the Settings screen validates against the
+ * server's bounds instead of a hand-copied second set.
+ */
+export type Bounds = { 
+/**
+ * Smallest accepted value (ignoring [`ZeroPolicy`]).
+ */
+min: number; 
+/**
+ * Largest accepted value.
+ */
+max: number; 
+/**
+ * The value a fresh install starts from, and the fallback for a bricked
+ * `0` under [`ZeroPolicy::FallsBackToDefault`].
+ */
+default: number; 
+/**
+ * What a stored `0` means for this knob.
+ */
+zero: ZeroPolicy }
 /**
  * Color vs. grayscale output.
  */
@@ -479,13 +897,161 @@ export type ColorMode =
  */
 "monochrome"
 /**
+ * What a context-menu invocation asks for.
+ */
+export type ContextAction = 
+/**
+ * Open the print dialog pre-loaded with the selection.
+ */
+"configure" | 
+/**
+ * Print immediately with the default (or `--profile`) profile.
+ */
+"print-default" | 
+/**
+ * Add the selection to the queue without starting it.
+ */
+"queue"
+/**
  * UI spacing density.
  */
-export type Density = "comfortable" | "compact"
+export type Density = 
+/**
+ * Default spacing.
+ */
+"comfortable" | 
+/**
+ * Tighter spacing, for more rows on screen.
+ */
+"compact"
+/**
+ * An external program the print pipeline can depend on.
+ */
+export type Dependency = 
+/**
+ * The final PDF printer on Windows (ADR-0003). Not used elsewhere: macOS
+ * and Linux print through CUPS `lp`.
+ */
+"sumatra-pdf" | 
+/**
+ * Office → PDF converter (`soffice --headless --convert-to pdf`).
+ */
+"libre-office" | 
+/**
+ * No longer used: Edge or Chrome served only the headless-browser
+ * fallback for HTML (D15), which was removed (round 6, ADR-0012); HTML,
+ * Markdown and text print through the system web view. Kept so a
+ * `queue.json` that names it still loads, and its reason stays valid. It
+ * is not in [`ALL`] and blocks nothing.
+ */
+"chromium" | 
+/**
+ * No longer used: Markdown converts in-process (FR-056). Kept so a
+ * `queue.json` that names it still loads, and its reason stays valid.
+ */
+"pandoc" | 
+/**
+ * The *HEIF Image Extensions* WIC decoder from the Microsoft Store
+ * (Windows only): without it no HEIC/HEIF photo decodes.
+ */
+"heif-codec" | 
+/**
+ * The *HEVC Video Extensions* decoder from the Microsoft Store (Windows
+ * only, paid unless the PC maker preinstalled it): HEIC photos are HEVC
+ * inside.
+ */
+"hevc-codec"
+/**
+ * One line of an install's output, as it happens (FR-058).
+ */
+export type DependencyInstallProgress = { 
+/**
+ * The dependency being installed.
+ */
+id: Dependency; 
+/**
+ * One line of the installer's output.
+ */
+line: string }
+/**
+ * The answer of [`dependency_install_status`].
+ */
+export type DependencyInstallState = { 
+/**
+ * The install holding the slot, if any.
+ */
+running: RunningInstall | null; 
+/**
+ * The last install that ended since Pluryprint started.
+ */
+last: FinishedInstall | null }
+/**
+ * One dependency's status, as shipped to the UI.
+ */
+export type DependencyReport = { 
+/**
+ * Which dependency this row reports on.
+ */
+id: Dependency; 
+/**
+ * Display name, e.g. `"SumatraPDF"`.
+ */
+name: string; 
+/**
+ * Whether this dependency is used at all on the running OS. `false` means
+ * "irrelevant here", not "broken" — nothing should be flagged for it.
+ */
+applicable: boolean; 
+/**
+ * Whether an executable was found.
+ */
+found: boolean; 
+/**
+ * Where it was found, for diagnostics.
+ */
+path: string | null; 
+/**
+ * Which search step found it, for diagnostics.
+ */
+found_in: FoundIn | null; 
+/**
+ * Extensions that cannot be printed today because this is missing. Empty
+ * whenever the dependency is present, not applicable, or gates no format
+ * the engine currently supports.
+ */
+blocks: string[]; 
+/**
+ * FR-058's remediation message. `Some` only when the dependency is
+ * applicable and missing. English; the UI shows the translated
+ * `common:deps.<id>.remediation`.
+ */
+remediation: string | null; 
+/**
+ * How the user can install it from Pluryprint, best first (D13). Empty
+ * when it is present or not applicable.
+ */
+install: InstallOption[] }
 /**
  * A printer found on the network that is not (necessarily) installed yet.
  */
-export type DiscoveredPrinter = { id: string; name: string; connection: string; kind: PrinterKind; 
+export type DiscoveredPrinter = { 
+/**
+ * Stable key for the found device (normally its IPP URI), used as the
+ * React list key.
+ */
+id: string; 
+/**
+ * Name the device advertises.
+ */
+name: string; 
+/**
+ * Readable address, e.g. `EPSON … (IPP)`.
+ */
+connection: string; 
+/**
+ * Family inferred from the advertised make and model.
+ */
+kind: PrinterKind; 
 /**
  * Discovery transport, e.g. `mDNS · IPP`.
  */
@@ -512,14 +1078,15 @@ export type Duplex =
  */
 "short"
 /**
- * Engine/queue tuning knobs. All values take effect on the next app start
- * (the queue reads them once at boot); changing them mid-session does not
- * re-tune the running dispatcher.
+ * Engine/queue tuning knobs. The concurrency cap and both timeouts are pushed
+ * to the running dispatcher when they are saved (`set_app_settings` sends it a
+ * `SetLimits` command), so they apply to the next conversion or print without
+ * a restart; the size ceiling is read on every submit/inspect.
  */
 export type EngineCfg = { 
 /**
- * Concurrent conversions the dispatcher may run (clamped to `1..=8` at
- * boot). Defaults to the dispatcher's own
+ * Concurrent conversions the dispatcher may run (clamped to
+ * [`ENGINE_LIMITS`] at boot). Defaults to the dispatcher's own
  * [`DEFAULT_MAX_CONCURRENT_CONVERSIONS`](crate::queue::DEFAULT_MAX_CONCURRENT_CONVERSIONS).
  */
 max_concurrent_conversions: number; 
@@ -532,72 +1099,421 @@ conversion_timeout_seconds: number;
  */
 max_file_size_mb: number; 
 /**
+ * Wall-clock budget for one print, in seconds — from handing the PDF to
+ * the spooler until the OS job leaves the queue; `0` disables it.
+ * `#[serde(default)]` so a `config.toml` written before this knob existed
+ * still loads, with the shipped default.
+ */
+print_timeout_seconds?: number; 
+/**
  * Profile id applied by default in the print dialog. `None` means
  * `builtin-quick`. Must skip-serialize when `None`: `toml` errors trying to
  * serialize a bare `Option::None` value.
  */
 default_profile?: string | null }
 /**
+ * The bounds of every numeric engine knob, as one bundle. Exposed on the wire
+ * so the UI can render and validate the limits without duplicating them.
+ */
+export type EngineLimits = { 
+/**
+ * Bounds of [`EngineCfg::max_concurrent_conversions`].
+ */
+max_concurrent_conversions: Bounds; 
+/**
+ * Bounds of [`EngineCfg::conversion_timeout_seconds`].
+ */
+conversion_timeout_seconds: Bounds; 
+/**
+ * Bounds of [`EngineCfg::max_file_size_mb`].
+ */
+max_file_size_mb: Bounds; 
+/**
+ * How long one print may take, from spooling until the OS job leaves the
+ * queue. Separate from the conversion budget: a print waits on paper and a
+ * physical device, so its natural length has nothing to do with how long a
+ * rasterisation may take.
+ */
+print_timeout_seconds: Bounds }
+/**
+ * Safety ceiling on one folder expansion. Dropping a disk root must bound the
+ * walk rather than wedge the app, so both the number of entries considered and
+ * the depth are capped; whichever bites is reported back to the user.
+ */
+export type ExpansionLimits = { 
+/**
+ * Most directory entries a single expansion may look at.
+ */
+max_files: number; 
+/**
+ * Deepest level a recursive walk descends to, relative to the root (`1` =
+ * the files directly inside it).
+ */
+max_depth: number }
+/**
  * Per-file inspection result for the print dialog's file list. Never errors the
  * whole batch: a missing or unsupported file comes back with `supported=false`
  * and a human `reason` rather than failing the call.
  */
-export type FileInfo = { path: string; name: string; 
+export type FileInfo = { 
+/**
+ * The path as the caller sent it (canonicalized when it resolved).
+ */
+path: string; 
+/**
+ * File name shown in the list.
+ */
+name: string; 
 /**
  * Lowercased extension without the dot (e.g. `"pdf"`), empty when none.
  */
-ext: string; bytes: number; pages: number | null; supported: boolean; 
+ext: string; 
 /**
- * Why the file is not printable, when `supported` is false.
+ * File size in bytes (0 when the file could not be read).
  */
-reason: string | null }
-export type IpcError = { code: "FileNotFound"; message: string } | 
+bytes: number; 
 /**
- * The caller sent a structurally invalid request (empty file list, bad
- * copies count, unparseable page range, …). The message is safe to show
- * inline in the UI.
+ * Page count when cheap to learn (PDFs under the probe limit), else `None`.
  */
-{ code: "InvalidRequest"; message: string } | 
+pages: number | null; 
 /**
- * A file's format is not one the engine can print.
+ * Whether the engine can print this file.
  */
-{ code: "UnsupportedFormat"; message: string } | 
+supported: boolean; 
+/**
+ * Why the file is not printable, when `supported` is false (English
+ * detail for logs; the UI translates [`FileInfo::reason_code`]).
+ */
+reason: string | null; 
+/**
+ * Stable, machine-readable form of `reason` (FR-092), set exactly when
+ * `reason` is.
+ */
+reason_code: RejectReason | null; 
+/**
+ * The path is a directory. Not printable as such, but not an error either:
+ * the caller runs it through [`expand_folders`] after asking the FR-004
+ * recurse-or-not question.
+ */
+is_dir: boolean; 
+/**
+ * Only meaningful when `is_dir`: whether the folder holds subfolders at
+ * all. When it does not there is nothing to recurse into, so the UI skips
+ * the question and expands top-level (FR-004 asks; it does not nag).
+ */
+has_subfolders: boolean }
+/**
+ * How an install ended, for a window that did not see it end.
+ */
+export type FinishedInstall = { 
+/**
+ * The [`RunningInstall::seq`] it ran under.
+ */
+seq: number; 
+/**
+ * The dependency it installed.
+ */
+id: Dependency; 
+/**
+ * How it ended; `None` when it failed before an outcome existed (the
+ * tool could not be started).
+ */
+outcome: InstallOutcome | null }
+/**
+ * The result of walking one folder: what will print, what will not and why,
+ * plus whether a safety ceiling cut the walk short.
+ */
+export type FolderExpansion = { 
+/**
+ * The folder that was walked (already canonical when it came through IPC).
+ */
+root: string; 
+/**
+ * How deep the walk went.
+ */
+scan: FolderScan; 
+/**
+ * Printable files, sorted by full path so the print order is stable.
+ */
+files: string[]; 
+/**
+ * Everything discarded, same ordering rule.
+ */
+skipped: SkippedFile[]; 
+/**
+ * The entry ceiling was reached; the folder holds more than this.
+ */
+files_truncated: boolean; 
+/**
+ * Non-empty folders existed below the depth that was walked — expected in
+ * [`FolderScan::TopLevel`], a truncation warning in
+ * [`FolderScan::Recursive`].
+ */
+depth_truncated: boolean; 
+/**
+ * The ceilings that were applied, so the UI can phrase the warning without
+ * hardcoding them.
+ */
+limits: ExpansionLimits }
+/**
+ * How deep a folder selection is walked (FR-004: the user is asked, the
+ * backend never guesses).
+ */
+export type FolderScan = 
+/**
+ * Only the files directly inside the folder; subfolders are reported but
+ * not entered.
+ */
+"top_level" | 
+/**
+ * The whole subtree, down to [`ExpansionLimits::max_depth`].
+ */
+"recursive"
+/**
+ * Which step of the search order produced the hit. Shown in diagnostics so
+ * "it picked up the wrong copy" is answerable without a debugger.
+ */
+export type FoundIn = 
+/**
+ * A copy shipped with the app, next to our executable.
+ */
+"bundled" | 
+/**
+ * A path the user configured explicitly.
+ */
+"configured" | 
+/**
+ * A `PATH` entry.
+ */
+"path" | 
+/**
+ * A well-known install directory for this OS.
+ */
+"installed"
+/**
+ * An error raised in the webview, forwarded so it lands in the log file the
+ * error screens point the user at (NFR-033, FR-113).
+ */
+export type FrontendErrorReport = { 
+/**
+ * Where it was caught: `"error-boundary"`, `"window.error"`,
+ * `"unhandledrejection"`, or a short call-site label.
+ */
+source: string; 
+/**
+ * The error's message.
+ */
+message: string; 
+/**
+ * The JS stack and/or React component stack, when there is one.
+ */
+stack: string | null }
+/**
+ * How a dependency can be installed (FR-058, D13).
+ */
+export type InstallMethod = 
+/**
+ * `winget install` from the community repository (Windows).
+ */
+"winget" | 
+/**
+ * `winget install` from the Microsoft Store source (Windows, free apps).
+ */
+"winget-store" | 
+/**
+ * The app's page in the Microsoft Store app (Windows).
+ */
+"store" | 
+/**
+ * `brew install --cask` (macOS, Homebrew).
+ */
+"brew-cask" | 
+/**
+ * The vendor's download page in the browser: always possible.
+ */
+"web"
+/**
+ * One way to install a dependency, as shipped to the UI: what will run (or
+ * open), and what the user must know before agreeing.
+ */
+export type InstallOption = { 
+/**
+ * How.
+ */
+method: InstallMethod; 
+/**
+ * The exact command that will run (`winget install --id … --exact …`),
+ * or the address that will open. Shown verbatim in the consent dialog.
+ */
+command: string; 
+/**
+ * Whether Windows will ask for administrator rights (UAC).
+ */
+needs_admin: boolean; 
+/**
+ * Whether it costs money.
+ */
+paid: boolean; 
+/**
+ * Approximate download size in megabytes, when known.
+ */
+approx_mb: number | null; 
+/**
+ * Whether it can run on this machine now (`winget`/`brew` found).
+ */
+available: boolean }
+/**
+ * The result of [`install_dependency`].
+ */
+export type InstallOutcome = { 
+/**
+ * How it ended.
+ */
+status: InstallStatus; 
+/**
+ * The command's exit code, when one ran.
+ */
+exit_code: number | null; 
+/**
+ * Whether the installer ran with administrator rights (an elevated
+ * Windows installer), so the UI gives that as the reason a stop may not
+ * have reached it only when it is the reason.
+ */
+elevated: boolean; 
+/**
+ * The dependency probed again after the install.
+ */
+report: DependencyReport }
+/**
+ * How an install ended.
+ */
+export type InstallStatus = 
+/**
+ * The command succeeded and the dependency is found now.
+ */
+"installed" | 
+/**
+ * The command succeeded but the dependency is still not found (a
+ * restart of Pluryprint, or of Windows, may be needed).
+ */
+"not-detected" | 
+/**
+ * The command failed; `exit_code` says how. The web page remains.
+ */
+"failed" | 
+/**
+ * A Store or web page was opened; the user finishes there.
+ */
+"opened" | 
+/**
+ * The command ran past [`INSTALL_TIMEOUT`] and was stopped, with
+ * everything it started.
+ */
+"timed-out" | 
+/**
+ * The command ran past [`INSTALL_TIMEOUT`]; Pluryprint stopped what it
+ * could, but the installer could not be confirmed stopped (see
+ * [`InstallStatus::CancelRequestedInstallerMayContinue`]).
+ */
+"timed-out-installer-may-continue" | 
+/**
+ * The user stopped the command, and everything it started is gone.
+ */
+"cancelled" | 
+/**
+ * The user asked to stop, but the installer could not be confirmed
+ * stopped: an elevated part refused the kill, or (a Windows installer
+ * that needs administrator rights) runs in the Windows Installer
+ * service, out of reach. Its window may still be open and it may still
+ * finish.
+ */
+"cancel-requested-installer-may-continue"
+export type IpcError = { 
+/**
+ * Stable error family. Never renamed.
+ */
+code: IpcErrorCode; 
+/**
+ * English detail: logs, the CLI, and the UI's fallback for an
+ * unknown code.
+ */
+message: string; 
+/**
+ * Stable machine reason within `code` (e.g. `"rate_limited"`); the UI
+ * translates `code` + `reason` with `params`. Never renamed.
+ */
+reason?: string | null; 
+/**
+ * Interpolation values for the translated `reason` sentence.
+ */
+params?: Partial<{ [key in string]: string }> | null }
+/**
+ * The stable error family of an [`IpcError`] — its `code` on the wire.
+ */
+export type IpcErrorCode = 
+/**
+ * A named input file does not exist or cannot be read.
+ */
+"FileNotFound" | 
+/**
+ * The request is structurally invalid (bad copies, page range, …).
+ */
+"InvalidRequest" | 
+/**
+ * The engine cannot print this file format.
+ */
+"UnsupportedFormat" | 
 /**
  * A converter could not turn the input into a printable PDF.
  */
-{ code: "ConversionFailed"; message: string } | 
+"ConversionFailed" | 
 /**
- * The OS spooler/printer backend rejected the job.
+ * The OS spooler or printer backend rejected the job.
  */
-{ code: "PrintFailed"; message: string } | 
+"PrintFailed" | 
 /**
- * A requested print setting the driver cannot honour (currently duplex).
+ * The driver cannot honour a requested setting (currently duplex).
  */
-{ code: "UnsupportedSetting"; message: string } | 
+"UnsupportedSetting" | 
 /**
  * A required external program (CUPS `lp`, SumatraPDF) is missing.
  */
-{ code: "DependencyMissing"; message: string } | 
+"DependencyMissing" | 
 /**
- * No job with the given id exists in the queue.
+ * No queued job has the given id.
  */
-{ code: "JobNotFound"; message: string } | 
+"JobNotFound" | 
 /**
- * The action is not legal for the job's current state (e.g. pausing a job
- * that is already printing, or retrying one that has not failed).
+ * The action is not legal in the job's current state.
  */
-{ code: "InvalidState"; message: string } | 
+"InvalidState" | 
 /**
- * No profile with the given id exists (get/delete/set-default of an
- * unknown profile). Distinct from [`IpcError::InvalidRequest`] so the UI
- * can special-case a stale id (e.g. deleted in another window).
+ * No profile has the given id.
  */
-{ code: "ProfileNotFound"; message: string } | 
+"ProfileNotFound" | 
 /**
- * The GitHub-release update check could not complete (repository not
- * configured, network error, rate limit). The message is user-facing.
+ * The GitHub-release update check could not complete.
  */
-{ code: "UpdateCheckFailed"; message: string } | { code: "Internal"; message: string }
+"UpdateCheckFailed" | 
+/**
+ * Downloading or installing an update failed.
+ */
+"UpdateInstallFailed" | 
+/**
+ * The downloaded update failed signature verification (FR-082).
+ */
+"UpdateSignatureInvalid" | 
+/**
+ * FR-059: the PDF is encrypted or forbids printing. The reason says which
+ * (`password_required`, `password_incorrect`, `printing_not_allowed`,
+ * `unsupported_encryption`); the first two are fixed by supplying a
+ * password, the others are final.
+ */
+"PdfProtected" | 
+/**
+ * A bug or app-state failure the user cannot fix by changing input.
+ */
+"Internal"
 /**
  * One print job: a single input file tracked through the convert → print
  * pipeline. Persisted verbatim in `queue.json`.
@@ -610,7 +1526,11 @@ id: string;
 /**
  * Groups all jobs submitted together in one [`PrintRequest`].
  */
-batch_id: string; state: JobState; 
+batch_id: string; 
+/**
+ * Where the job is in its lifecycle.
+ */
+state: JobState; 
 /**
  * Absolute path of the source file.
  */
@@ -635,7 +1555,11 @@ pages: number | null;
 /**
  * Absolute path of the converted PDF in the cache, once produced.
  */
-cache_pdf: string | null; settings: JobSettings; 
+cache_pdf: string | null; 
+/**
+ * The resolved settings this job prints with.
+ */
+settings: JobSettings; 
 /**
  * Profile name these settings came from, for the log/UI.
  */
@@ -645,9 +1569,31 @@ profile_name: string | null;
  */
 printer_resolved: string | null; 
 /**
+ * The OS spooler's id for this job once it has been handed off (CUPS
+ * `Office-42`, a Windows spooler job number), while the dispatcher follows
+ * it to completion. `None` before spooling, or when the backend could not
+ * identify the job. `#[serde(default)]` so an older `queue.json` loads.
+ */
+os_job_id?: string | null; 
+/**
+ * RFC 3339 UTC timestamp of when this run was handed to the spooler. The
+ * print timeout counts from here, also for a print the app adopts again
+ * after a restart, so relaunching never grants a stuck print a fresh
+ * budget. `#[serde(default)]` so an older `queue.json` loads.
+ */
+spooled_at?: string | null; 
+/**
  * Number of times this job has been started (for retry/backoff, FR-034).
  */
-attempts: number; error: JobError | null; progress: JobProgress | null; 
+attempts: number; 
+/**
+ * Why the job last failed or paused, when it did.
+ */
+error: JobError | null; 
+/**
+ * Live progress while converting or printing; `None` otherwise.
+ */
+progress: JobProgress | null; 
 /**
  * RFC 3339 UTC timestamp of submission.
  */
@@ -664,30 +1610,103 @@ finished_at: string | null }
  * The result of submitting a [`PrintRequest`]: the batch id and the ids of the
  * jobs it produced (one per input file).
  */
-export type JobBatch = { batch_id: string; job_ids: string[] }
+export type JobBatch = { 
+/**
+ * Id shared by every job of the batch.
+ */
+batch_id: string; 
+/**
+ * One job id per input file, in input order.
+ */
+job_ids: string[] }
+/**
+ * A change to a paused job, so it can be sent again without cancelling it
+ * and printing the file anew: what a job paused for an unsupported setting
+ * or an unusable printer needs ("Print one-sided", "Send to another
+ * printer"). Every field is optional; `None` keeps what the job has.
+ */
+export type JobChange = { 
+/**
+ * Print to this printer (a queue id or display name) instead. An empty
+ * string drops the pin, so the job follows the routing rules and the
+ * default printer again.
+ */
+printer?: string | null; 
+/**
+ * Print with these sides instead (`none` is one-sided).
+ */
+duplex?: Duplex | null }
 /**
  * A structured job error. `code` is a stable machine-readable identifier;
- * `message` is human-readable (already localized/englished by the producer).
+ * `message` is the English detail (logs, the CLI, and the UI's fallback).
+ * 
+ * FR-092: the UI never shows `message` when it can help it. It translates
+ * `code` — or `code` + `reason`, when the code has variants — filling the
+ * sentence with `params` (`queue:jobErrors`), exactly as it does for an
+ * [`crate::util::error::IpcError`]. Both are optional on the wire, so a
+ * `queue.json` written before they existed still loads.
  * 
  * The special code `"interrupted_by_shutdown"` is set by shutdown recovery
  * ([`crate::queue::persist::recover`]) on jobs that were mid-flight when the
  * app was last closed; the UI treats it as resumable rather than a hard
  * failure.
  */
-export type JobError = { code: string; message: string }
+export type JobError = { 
 /**
- * Coarse progress for the currently-running phase of a job. `percent` is in
- * `0.0..=1.0`; `phase` is a short label such as `"converting"` or
- * `"printing"`.
+ * Stable machine-readable failure family, e.g. `"conversion_failed"`.
  */
-export type JobProgress = { phase: string; percent: number }
+code: string; 
+/**
+ * English detail for logs, the CLI and the UI's last-resort fallback.
+ */
+message: string; 
+/**
+ * Stable variant within `code` (e.g. `"no_printer"`). Never renamed.
+ */
+reason?: string | null; 
+/**
+ * Interpolation values for the translated sentence (`secs`, `printer`…).
+ */
+params?: Partial<{ [key in string]: string }> | null }
+/**
+ * Coarse progress for the currently-running phase of a job. `phase` is a short
+ * label such as `"converting"` or `"printing"`.
+ * 
+ * `percent` is in `0.0..=1.0`, or **`None` when the phase cannot report a
+ * percentage** — render that as an indeterminate bar, never as 0 %. The
+ * printing phase is exactly that case: the job has been handed to the OS
+ * spooler, which reports no completion fraction back (SumatraPDF does not even
+ * return a job id), so inventing a number would be a lie. Reading a v1
+ * `queue.json` still works: a stored number deserializes into `Some`.
+ */
+export type JobProgress = { 
+/**
+ * Short label of the step, e.g. `"converting"` or `"printing"`.
+ */
+phase: string; 
+/**
+ * Fraction done in `0.0..=1.0`, or `None` when the phase cannot measure one.
+ */
+percent: number | null }
 /**
  * Fine-grained, in-flight progress for a single converting job. Emitted
  * throttled (≥100 ms per job) and NOT persisted — it is advisory UI sugar on
  * top of the authoritative [`QueueUpdated`] snapshots. `percent` is in
  * `0.0..=1.0`; `phase` is a short label such as `"converting"`.
  */
-export type JobProgressEvent = { id: string; phase: string; percent: number }
+export type JobProgressEvent = { 
+/**
+ * Id of the job this progress belongs to.
+ */
+id: string; 
+/**
+ * Short label of the step in progress, e.g. `"converting"`.
+ */
+phase: string; 
+/**
+ * Fraction done, in `0.0..=1.0`.
+ */
+percent: number }
 /**
  * Per-job print settings. A resolved bundle: a profile plus any
  * per-invocation overrides collapse into one of these before a [`Job`] is
@@ -697,17 +1716,64 @@ export type JobSettings = {
 /**
  * Target printer id, or `None` to use the app/OS default at dispatch time.
  */
-printer: string | null; duplex: Duplex; color_mode: ColorMode; 
+printer: string | null; 
+/**
+ * Double-sided mode.
+ */
+duplex: Duplex; 
+/**
+ * Colour or grayscale output.
+ */
+color_mode: ColorMode; 
 /**
  * Number of copies, `1..=999`.
  */
-copies: number; paper_size: PaperSize; orientation: Orientation; scaling: Scaling; 
+copies: number; 
+/**
+ * Paper size, or [`PaperSize::AUTO`] for the printer's own default.
+ */
+paper_size: PaperSize; 
+/**
+ * Page orientation.
+ */
+orientation: Orientation; 
+/**
+ * How pages are fitted to the paper.
+ */
+scaling: Scaling; 
 /**
  * Page-range expression (e.g. `"1-5,8"`), or `None` for all pages. The
  * *syntax* is validated by the engine's parser, not here — see
  * [`JobSettings::validate`].
  */
-page_ranges: string | null }
+page_ranges: string | null; 
+/**
+ * Print-quality preset. Reaches the spooler as CUPS's
+ * `print-quality`/`cupsPrintQuality`; on Windows, where SumatraPDF has no
+ * such switch, Draft and High go through a temporary per-user default
+ * ([`crate::engine::print::devmode_swap`]), and
+ * [`crate::engine::print::sumatra::quality_note`] says which will happen.
+ * 
+ * `#[serde(default)]`: a `queue.json` written before this field existed
+ * must still load (FR-103), reading as [`Quality::Normal`].
+ */
+quality?: Quality; 
+/**
+ * Input tray / bin **as the driver names it** (`"Tray 2"`, `"Drawer 1"`),
+ * or `None` for whatever the printer defaults to. Bin names are
+ * model-specific, so this is a free string — it is passed through, never
+ * interpreted.
+ * 
+ * `#[serde(default)]` for the same forward-migration reason as `quality`.
+ */
+tray?: string | null; 
+/**
+ * With several copies: `true` prints whole sets (1-2-3, 1-2-3), `false`
+ * groups each page (1-1, 2-2, 3-3). Irrelevant for one copy.
+ * `#[serde(default = …)]` reads an older `queue.json` as collated, the
+ * usual driver default.
+ */
+collate?: boolean }
 /**
  * Lifecycle state of a single print job.
  * 
@@ -735,6 +1801,14 @@ export type JobState =
  */
 "done" | 
 /**
+ * Handed to the spooler, but nobody confirmed it printed (terminal): the
+ * job left the system queue without reporting completion, the spooler
+ * gave no id to follow, or it could not be read. Never shown as printed,
+ * and not retried automatically — paper may already have come out.
+ * Details in [`Job::error`].
+ */
+"unconfirmed" | 
+/**
  * Terminal error; details in [`Job::error`] (terminal).
  */
 "failed" | 
@@ -750,12 +1824,34 @@ export type JobState =
  * Page orientation. [`Auto`](Orientation::Auto) lets the engine pick per page
  * based on the source aspect ratio.
  */
-export type Orientation = "auto" | "portrait" | "landscape"
+export type Orientation = 
 /**
- * Target paper size. Serializes lowercase: `"a4"`, `"letter"`, `"legal"`,
- * `"a3"`.
+ * Pick per page from the source's aspect ratio.
  */
-export type PaperSize = "a4" | "letter" | "legal" | "a3"
+"auto" | 
+/**
+ * Force portrait.
+ */
+"portrait" | 
+/**
+ * Force landscape.
+ */
+"landscape"
+/**
+ * Target paper size: any media name the printer reports — a CUPS `PageSize`
+ * keyword (`A4`, `Letter`, `A6`, `4x6`, `Tabloid`, `w288h432`) or a Windows
+ * paper name — or [`PaperSize::AUTO`], "whatever this printer is set to".
+ * 
+ * It used to be a closed four-value enum, so a printer's own sizes (photo
+ * paper, envelopes, A5) could not be chosen at all. The wire form stays
+ * backward compatible: the four classic sizes still serialize as `"a4"`,
+ * `"letter"`, `"legal"`, `"a3"` and parse case-insensitively, so every stored
+ * profile and `queue.json` loads unchanged. Any other name travels verbatim;
+ * the engine matches it against the printer's list case-insensitively and
+ * sends the printer's own spelling
+ * ([`crate::engine::print::PrinterCaps::paper_keyword`]).
+ */
+export type PaperSize = string
 /**
  * A request from the frontend/CLI to print one or more files with a shared
  * [`JobSettings`]. The dispatcher fans this out into one [`Job`] per file,
@@ -765,11 +1861,23 @@ export type PrintRequest = {
 /**
  * Absolute paths of the files to print.
  */
-files: string[]; settings: JobSettings; 
+files: string[]; 
+/**
+ * The settings every file in the batch is printed with.
+ */
+settings: JobSettings; 
 /**
  * Name of the profile these settings were derived from, for the log/UI.
  */
-profile_name: string | null }
+profile_name: string | null; 
+/**
+ * Submit every job of the batch already `Paused`, so nothing starts until
+ * the user resumes it from the Queue screen (FR-001's "add to the queue"
+ * entry). Scoped to this batch on purpose: the global pause flag would
+ * also stop every other batch that was waiting. Optional on the wire —
+ * absent means "start normally".
+ */
+hold?: boolean }
 /**
  * A printer installed on the system, enriched with whatever capabilities the
  * OS could be coaxed into reporting.
@@ -782,16 +1890,128 @@ id: string;
 /**
  * Human-friendly name (falls back to the queue id).
  */
-name: string; kind: PrinterKind; color: boolean; duplex: boolean; status: PrinterStatus; is_default: boolean; location: string; 
+name: string; 
+/**
+ * Family, used to pick the icon.
+ */
+kind: PrinterKind; 
+/**
+ * Whether the device prints in colour.
+ */
+color: boolean; 
+/**
+ * Whether the device can print two-sided.
+ */
+duplex: boolean; 
+/**
+ * `color` could not be determined: the driver lists no colour option
+ * under a name Pluryprint knows, or the OS did not answer. `color:
+ * false` then means "unknown", not "black and white only".
+ */
+color_unknown: boolean; 
+/**
+ * `duplex` could not be determined (the capability probe failed, or the
+ * driver did not answer). `duplex: false` then means "unknown", and a
+ * two-sided job is not paused for it.
+ */
+duplex_unknown: boolean; 
+/**
+ * Current state as the spooler reports it.
+ */
+status: PrinterStatus; 
+/**
+ * Whether this is the OS default printer.
+ */
+is_default: boolean; 
+/**
+ * Free-form location the admin set on the queue (empty when none).
+ */
+location: string; 
 /**
  * Readable connection/port string, e.g. `USB`, `EPSON … (IPP)`.
  */
-connection: string; driver: string; shared: boolean; queued_jobs: number; max_dpi: number | null; papers: string[]; trays: Tray[]; supplies: Supplies; default_tray: string | null; default_paper: string | null }
+connection: string; 
+/**
+ * Driver or make-and-model string.
+ */
+driver: string; 
+/**
+ * Whether the queue is shared on the network.
+ */
+shared: boolean; 
+/**
+ * Jobs waiting in the OS spooler for this printer.
+ */
+queued_jobs: number; 
+/**
+ * Highest resolution the driver advertises, when known.
+ */
+max_dpi: number | null; 
+/**
+ * Paper sizes the driver advertises, by name.
+ */
+papers: string[]; 
+/**
+ * Input trays the driver advertises.
+ */
+trays: Tray[]; 
+/**
+ * Ink/toner levels the device reports.
+ */
+supplies: Supplies; 
+/**
+ * The queue's default tray, when the OS exposes one.
+ */
+default_tray: string | null; 
+/**
+ * The queue's default paper size, when the OS exposes one.
+ */
+default_paper: string | null }
 /**
  * Coarse printer family, used by the UI only to pick an icon.
  */
-export type PrinterKind = "laser" | "mfp" | "wide" | "label" | "virtual"
-export type PrinterOverride = { tray?: string | null; paper?: string | null }
+export type PrinterKind = 
+/**
+ * Monochrome or colour laser printer.
+ */
+"laser" | 
+/**
+ * Inkjet printer.
+ */
+"inkjet" | 
+/**
+ * Multifunction device (print, scan, copy).
+ */
+"mfp" | 
+/**
+ * Wide-format / plotter.
+ */
+"wide" | 
+/**
+ * Label or receipt printer.
+ */
+"label" | 
+/**
+ * Software printer that writes a file (PDF, XPS, OneNote, …).
+ */
+"virtual" | 
+/**
+ * A physical printer whose technology the names do not reveal. Shown
+ * as a plain "Printer" rather than guessed as laser.
+ */
+"printer"
+/**
+ * One printer's default tray and paper, applied when a job leaves them unset.
+ */
+export type PrinterOverride = { 
+/**
+ * Tray to use by default, or `None` for the printer's own default.
+ */
+tray?: string | null; 
+/**
+ * Paper size to use by default, or `None` for the printer's own default.
+ */
+paper?: string | null }
 /**
  * Organization-managed printer policy. Every field is optional so an empty or
  * partial `policy.json` still deserializes.
@@ -803,7 +2023,7 @@ export type PrinterPolicy = {
  */
 default_printer?: string | null }
 /**
- * MaeclyPrint-level printer preferences (never mutate the OS spooler).
+ * Pluryprint-level printer preferences (never mutate the OS spooler).
  */
 export type PrinterPrefs = { 
 /**
@@ -811,7 +2031,7 @@ export type PrinterPrefs = {
  */
 default_printer?: string | null; 
 /**
- * Printer ids disabled *in MaeclyPrint* — still installed in the OS.
+ * Printer ids disabled *in Pluryprint* — still installed in the OS.
  */
 disabled?: string[]; 
 /**
@@ -825,14 +2045,39 @@ overrides?: Partial<{ [key in string]: PrinterOverride }> }
 /**
  * Normalized printer state (a small superset-free view of the OS state).
  */
-export type PrinterStatus = "ready" | "offline" | "error" | "busy"
+export type PrinterStatus = 
+/**
+ * Idle and accepting jobs.
+ */
+"ready" | 
+/**
+ * Unreachable, or the OS reports it offline.
+ */
+"offline" | 
+/**
+ * Stopped on an error the user must clear (paper jam, out of paper, …).
+ */
+"error" | 
+/**
+ * Currently printing or processing a job.
+ */
+"busy"
 /**
  * A print profile as seen by the frontend. `builtin` and `default` are
  * **server-computed**: whatever a client sends for them is ignored, and the
  * value returned always reflects the current truth (id is built in; id is the
  * effective default).
  */
-export type Profile = { id: string; name: string; 
+export type Profile = { 
+/**
+ * Stable id. Built-ins use a `builtin-` prefix; a custom profile gets a
+ * generated UUID unless the caller supplied an id.
+ */
+id: string; 
+/**
+ * Display name, unique case-insensitively across all profiles.
+ */
+name: string; 
 /**
  * True for the three built-in presets. Server-computed; ignored on input.
  */
@@ -845,32 +2090,101 @@ default: boolean;
 /**
  * Printer id, or the `"<default>"` sentinel to defer to the app/OS default.
  */
-printer: string; color_mode: ColorMode; duplex: ProfileDuplex; copies: number; paper_size: PaperSize; orientation: Orientation; scaling: Scaling; 
+printer: string; 
+/**
+ * Colour or grayscale output.
+ */
+color_mode: ColorMode; 
+/**
+ * Double-sided mode.
+ */
+duplex: ProfileDuplex; 
+/**
+ * Number of copies (1-999).
+ */
+copies: number; 
+/**
+ * Paper size, or `auto` for the printer's own default.
+ */
+paper_size: PaperSize; 
+/**
+ * Page orientation.
+ */
+orientation: Orientation; 
+/**
+ * How pages are fitted to the paper.
+ */
+scaling: Scaling; 
 /**
  * Page-range expression (engine grammar), or `None` for all pages. Omitted
  * from the wire when `None`.
  */
-page_range?: string | null; quality: Quality; tray: string }
+page_range?: string | null; 
+/**
+ * Print-quality preset.
+ */
+quality: Quality; 
+/**
+ * Input tray name, or `"auto"` to let the driver choose.
+ */
+tray: string; 
+/**
+ * Collate multiple copies (see [`crate::queue::job::JobSettings::collate`]).
+ * Defaults to `true` so a profile saved before the field existed loads.
+ */
+collate?: boolean }
 /**
  * Duplex mode as spelled in the profile UI vocabulary (distinct from the
  * engine's [`crate::queue::job::Duplex`], which uses `none`/`long`/`short`).
  * Wire strings: `"off"`, `"long-edge"`, `"short-edge"`.
  */
-export type ProfileDuplex = "off" | "long-edge" | "short-edge"
+export type ProfileDuplex = 
+/**
+ * Single-sided.
+ */
+"off" | 
+/**
+ * Two-sided, bound on the long edge.
+ */
+"long-edge" | 
+/**
+ * Two-sided, bound on the short edge.
+ */
+"short-edge"
 /**
  * Print-quality preset. Wire strings: `"draft"`, `"normal"`, `"high"`.
  */
-export type Quality = "draft" | "normal" | "high"
+export type Quality = 
+/**
+ * Fastest, lowest ink use.
+ */
+"draft" | 
+/**
+ * The driver's standard quality.
+ */
+"normal" | 
+/**
+ * Best quality the driver offers.
+ */
+"high"
 /**
  * Serializable view of the whole queue, returned by the `queue_status` IPC
  * command and pushed via the `queue-updated` event. Also the on-disk shape of
  * `queue.json` (reused by [`crate::queue::persist`]).
  */
-export type QueueSnapshot = { schema_version: number; 
+export type QueueSnapshot = { 
+/**
+ * Format version of `queue.json` (see [`SCHEMA_VERSION`]).
+ */
+schema_version: number; 
 /**
  * Whether the whole queue is paused (FR-033).
  */
-queue_paused: boolean; jobs: Job[] }
+queue_paused: boolean; 
+/**
+ * Every job the queue knows about, in queue order.
+ */
+jobs: Job[] }
 /**
  * The whole queue changed: a job transitioned, was submitted, cancelled,
  * cleared, or the queue was paused/resumed. Carries the full
@@ -878,6 +2192,75 @@ queue_paused: boolean; jobs: Job[] }
  * than reconcile deltas (FR-030). Emitted on every persisted mutation.
  */
 export type QueueUpdated = QueueSnapshot
+/**
+ * Why a path is not printable as-is. Stable wire values the UI maps to
+ * translated text (FR-005, FR-092); never renamed.
+ */
+export type RejectReason = 
+/**
+ * The path does not exist (or vanished before it could be read).
+ */
+"not_found" | 
+/**
+ * The path could not be resolved at all (relative, empty, unreadable).
+ */
+"invalid_path" | 
+/**
+ * A folder: legal input that must go through `expand_folders` first.
+ */
+"folder" | 
+/**
+ * Exists but is neither a regular file nor a folder (device, socket…).
+ */
+"not_a_file" | 
+/**
+ * Bigger than the configured `max_file_size_mb` ceiling.
+ */
+"too_large" | 
+/**
+ * A GIF image: refused on purpose (decision D9), with its own sentence
+ * ("convert it to PNG or JPEG first").
+ */
+"gif_unsupported" | 
+/**
+ * Any other extension the engine cannot print.
+ */
+"unsupported_type"
+/**
+ * The install holding the one-install slot ([`dependency_install_status`]).
+ */
+export type RunningInstall = { 
+/**
+ * Grows with every install this run of Pluryprint starts; matches
+ * [`FinishedInstall::seq`] once it ends.
+ */
+seq: number; 
+/**
+ * The dependency being installed.
+ */
+id: Dependency; 
+/**
+ * Its display name.
+ */
+name: string; 
+/**
+ * How it is being installed.
+ */
+method: InstallMethod; 
+/**
+ * When it started (RFC 3339, UTC).
+ */
+started_at: string; 
+/**
+ * Whether the installer runs with administrator rights.
+ */
+elevated: boolean; 
+/**
+ * The install has ended ([`DependencyInstallState::last`] says how) but
+ * the installer may still be running, so the slot stays taken until it
+ * is seen gone or a grace period ends. Nothing is left to stop.
+ */
+may_continue: boolean }
 /**
  * How source pages are fitted to the target paper.
  */
@@ -895,48 +2278,305 @@ export type Scaling =
  */
 "none"
 /**
+ * A file selection handed to the app by a shell extension, a forwarded second
+ * launch, or a context-menu-style command line.
+ */
+export type Selection = { 
+/**
+ * Absolute paths, exactly as the integration reported them.
+ */
+paths: string[]; 
+/**
+ * What the user asked for (open the dialog, print with the default
+ * profile, just queue it).
+ */
+action: ContextAction; 
+/**
+ * Profile id/name to apply, when the integration specified one.
+ */
+profile_id: string | null; 
+/**
+ * Set when the integration had to cut a larger selection down to the
+ * handoff cap: the number of items the user actually selected. `paths`
+ * then holds only the first ones, and the UI says so.
+ */
+truncated_from?: number | null }
+/**
+ * A second launch handed us a selection while this window was already open.
+ */
+export type SelectionForwarded = Selection
+/**
+ * Read-only annotations the server attaches to every settings response: state
+ * the UI cannot derive from the values themselves.
+ * 
+ * It travels *inside* [`AppSettings`] so the screen learns about it on the one
+ * read it already does. The client echoes it back on a write (it sends the
+ * whole bundle) and the server **ignores it entirely** — it is recomputed from
+ * disk on the way out.
+ */
+export type SettingsMeta = { 
+/**
+ * `config.toml` exists but could not be read or parsed, so the values in
+ * this bundle are [`Config::default`], **not** the user's settings
+ * (FR-101). Every mutator refuses while this holds (see
+ * [`CONFIG_CORRUPT_MSG`]), so the UI must say so instead of presenting
+ * defaults as if they were the stored configuration.
+ */
+config_unreadable: boolean; 
+/**
+ * Absolute path of the config file the values came from, so the UI can
+ * name the file the user has to fix or remove.
+ */
+config_path: string; 
+/**
+ * The engine bounds ([`ENGINE_LIMITS`]) the write path enforces, so the
+ * client validates against the server's numbers instead of its own copy.
+ */
+limits: EngineLimits }
+/**
+ * Why a file found inside a folder did not make it into the print selection.
+ * FR-005/FR-059: a discarded file is never dropped silently, it comes back
+ * with the reason so the caller can show it and write it to the job log.
+ */
+export type SkipReason = 
+/**
+ * The extension is not one [`is_supported`] accepts.
+ */
+"unsupported_format" | 
+/**
+ * Bigger than the configured `max_file_size_mb` ceiling.
+ */
+"too_large" | 
+/**
+ * Could not be `stat`ed or walked (permissions, broken or looping
+ * symlink, disappeared mid-walk).
+ */
+"unreadable"
+/**
+ * One discarded entry, with a human explanation ready for the job log.
+ */
+export type SkippedFile = { 
+/**
+ * Full path of the discarded entry.
+ */
+path: string; 
+/**
+ * File name, or the whole path when it has none.
+ */
+name: string; 
+/**
+ * Why it was discarded, for the UI to translate.
+ */
+reason: SkipReason; 
+/**
+ * User-facing detail (`"Unsupported file type (.docx)"`).
+ */
+detail: string }
+/**
  * Toner/ink supply levels in `0.0..=1.0`. Any channel the device does not
  * report stays `None`; an all-`None` value renders no supply section.
  */
-export type Supplies = { cyan: number | null; magenta: number | null; yellow: number | null; black: number | null }
+export type Supplies = { 
+/**
+ * Cyan ink/toner level.
+ */
+cyan: number | null; 
+/**
+ * Magenta ink/toner level.
+ */
+magenta: number | null; 
+/**
+ * Yellow ink/toner level.
+ */
+yellow: number | null; 
+/**
+ * Black ink/toner level.
+ */
+black: number | null }
 /**
  * Telemetry consent flags. These record the user's *consent*; this version
  * transmits nothing regardless of their value — no crash reports and no usage
  * metrics leave the machine. They exist so the choice survives restarts and a
  * future build can honour it.
  */
-export type TelemetryCfg = { crash_reports?: boolean; anonymous_usage_metrics?: boolean }
-export type Theme = "light" | "dark" | "system"
+export type TelemetryCfg = { 
+/**
+ * Consent to sending crash reports.
+ */
+crash_reports?: boolean; 
+/**
+ * Consent to sending anonymous usage metrics.
+ */
+anonymous_usage_metrics?: boolean }
+/**
+ * Colour scheme preference.
+ */
+export type Theme = 
+/**
+ * Always light.
+ */
+"light" | 
+/**
+ * Always dark.
+ */
+"dark" | 
+/**
+ * Follow the OS appearance.
+ */
+"system"
 /**
  * One input tray/bin. `paper` and `level` are optional because most OS APIs
  * expose the tray *name* but not the loaded media or fill level.
  */
-export type Tray = { name: string; paper: string | null; 
+export type Tray = { 
+/**
+ * Tray name as the OS reports it.
+ */
+name: string; 
+/**
+ * Media loaded in the tray, if the device reports it.
+ */
+paper: string | null; 
 /**
  * Fill level in `0.0..=1.0`, if the device reports it.
  */
 level: number | null }
 /**
+ * A launch-time check found a release worth mentioning (FR-080).
+ * 
+ * Emitted **only** when [`crate::update::run_startup_check`] returns a result:
+ * the preference is on, the 24h window had elapsed, the release is strictly
+ * newer, and it is not the one the user skipped (FR-084). Silence is the
+ * normal case, so the frontend never has to filter this event — receiving it
+ * is already the decision to tell the user.
+ * 
+ * Lives here rather than in [`crate::ipc::events`] because it belongs to the
+ * update flow, the way `cli::pending::SelectionForwarded` belongs to the CLI
+ * one; the event name is the kebab-cased struct name, `"update-available"`.
+ */
+export type UpdateAvailable = UpdateCheck
+/**
  * Which release stream the user follows.
  */
-export type UpdateChannel = "stable" | "beta" | "nightly"
+export type UpdateChannel = 
+/**
+ * Final releases only (the default).
+ */
+"stable" | 
+/**
+ * Beta pre-releases.
+ */
+"beta" | 
+/**
+ * Nightly builds. None are published: this channel reads the beta
+ * manifest.
+ */
+"nightly"
 /**
  * The result of an update check, returned to the frontend. `latest` is the tag
  * of the newest published release (when one was found), `available` is whether
  * it is strictly newer than `current`, and `url`/`notes` are populated only
  * when an update is available (so the UI has a link and changelog to show).
  */
-export type UpdateCheck = { current: string; latest: string | null; available: boolean; url: string | null; notes: string | null; 
+export type UpdateCheck = { 
+/**
+ * The running app's version.
+ */
+current: string; 
+/**
+ * Tag of the newest published release, when one was found.
+ */
+latest: string | null; 
+/**
+ * Whether `latest` is strictly newer than `current`.
+ */
+available: boolean; 
+/**
+ * Release page to open, set only when an update is available.
+ */
+url: string | null; 
+/**
+ * Release notes (markdown), set only when an update is available.
+ */
+notes: string | null; 
 /**
  * RFC 3339 timestamp of when the check ran.
  */
 checked_at: string }
 /**
- * Update-check preferences. Only the check itself is wired in this version;
- * `channel` is recorded but every check currently hits the `latest` release
- * feed (there are no separate beta/nightly feeds yet).
+ * Download progress, pushed while an install is running.
  */
-export type UpdaterCfg = { channel: UpdateChannel; check_on_startup: boolean }
+export type UpdateDownloadProgress = { 
+/**
+ * Bytes received so far.
+ */
+downloaded: number; 
+/**
+ * Total size, when the server sent a `Content-Length`.
+ */
+total: number | null }
+/**
+ * What an install attempt did.
+ */
+export type UpdateInstallResult = { 
+/**
+ * The version that was installed, or `None` when there was nothing newer.
+ */
+installed: string | null; 
+/**
+ * The new version runs only after a restart (macOS). On Windows the
+ * installer restarts the app itself and this process exits.
+ */
+restart_required: boolean }
+/**
+ * The little the update flow remembers between runs. Deliberately *not* part of
+ * `config.toml`: none of it is a user preference — it is bookkeeping the app
+ * writes for itself, and a corrupt or deleted file must degrade to "check
+ * again", never to a settings-parse refusal.
+ */
+export type UpdateState = { 
+/**
+ * RFC 3339 timestamp of the last completed check (manual or automatic).
+ */
+last_check_at?: string | null; 
+/**
+ * The release tag the user chose to skip (FR-084). While it matches the
+ * latest release, the launch-time check stays silent about it; a *newer*
+ * release than the skipped one prompts again.
+ */
+skipped_version?: string | null }
+/**
+ * Update-check preferences. `channel` picks the release manifest the check
+ * and the install read (FR-085, `update::install::default_endpoint`).
+ */
+export type UpdaterCfg = { 
+/**
+ * Release stream to follow.
+ */
+channel: UpdateChannel; 
+/**
+ * Check for an update once at startup.
+ */
+check_on_startup: boolean }
+/**
+ * How a stored `0` is treated for one knob, on top of the `min..=max` range.
+ */
+export type ZeroPolicy = 
+/**
+ * `0` is just an out-of-range value: rejected on write, clamped up to
+ * `min` when a hand-edited file is sanitized.
+ */
+"clamp" | 
+/**
+ * `0` is a meaningful value that turns the knob off (the timeout), so it
+ * is accepted on write and passes through sanitization untouched.
+ */
+"disables" | 
+/**
+ * `0` is bricked input that would make the app unusable (a 0 MB ceiling
+ * rejects every file): rejected on write, and sanitized to `default`.
+ */
+"default"
 
 /** tauri-specta globals **/
 

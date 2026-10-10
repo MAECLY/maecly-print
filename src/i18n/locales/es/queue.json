@@ -1,0 +1,241 @@
+{
+  "title": "Cola",
+  "subtitle": {
+    "counts": "{{active}} activos · {{pending}} pendientes · {{done}} terminados",
+    "board": "Vista de tablero — kanban por fases del trabajo",
+    "timeline": "Cronología — orden cronológico, con duraciones"
+  },
+  "views": {
+    "label": "Vista de la cola",
+    "list": "Lista",
+    "board": "Tablero",
+    "timeline": "Cronología"
+  },
+  "actions": {
+    "pauseQueue": "Pausar cola",
+    "resumeQueue": "Reanudar cola",
+    "clearDone": "Limpiar terminados",
+    "cancelAll": "Cancelar todo",
+    "pause": "Pausar",
+    "resume": "Reanudar",
+    "retry": "Reintentar",
+    "cancel": "Cancelar"
+  },
+  "groups": {
+    "active": "Activos",
+    "pending": "Pendientes",
+    "done": "Recientes",
+    "header": "{{label}} · {{count}}"
+  },
+  "board": {
+    "queued": "En cola",
+    "converting": "Convirtiendo",
+    "printing": "Imprimiendo",
+    "done": "Terminados"
+  },
+  "status": {
+    "queued": "En cola",
+    "converting": "Convirtiendo",
+    "converted": "Convertido",
+    "printing": "Imprimiendo",
+    "paused": "En pausa",
+    "done": "Terminado",
+    "unconfirmed": "Sin confirmar",
+    "failed": "Fallido",
+    "cancelled": "Cancelado"
+  },
+  "notice": {
+    "loadingTitle": "Cargando la cola…",
+    "loadingBody": "Leyendo los trabajos de impresión actuales.",
+    "unavailableTitle": "Cola no disponible",
+    "unavailableBody": "La cola de impresión la gestiona la aplicación de escritorio: abre Pluryprint para ver y controlar los trabajos.",
+    "errorTitle": "Cola no disponible",
+    "errorBody": "No se pudo leer la cola.",
+    "errorHint": "No se ha perdido nada: los trabajos siguen en la aplicación de escritorio. Reintenta para volver a leerla."
+  },
+  "empty": {
+    "title": "No hay trabajos en la cola",
+    "body": "Imprime algo y aparecerá aquí: los trabajos activos, los pendientes y los recién terminados."
+  },
+  "progress": {
+    "label": "Progreso de {{file}}",
+    "indeterminate": "En curso: el gestor de impresión no informa de ningún porcentaje"
+  },
+  "note": {
+    "readyToPrint": "Listo para imprimir",
+    "interruptedByShutdown": "Interrumpido al cerrarse la aplicación · reanúdalo para continuar",
+    "heldByPrinter": "Retenido en la cola de impresión del sistema · libéralo allí para imprimir",
+    "printerNeedsAttention": "La impresora necesita atención (papel, tinta o sin conexión)"
+  },
+  "job": {
+    "meta": "{{profile}} · {{printer}}",
+    "pages": "{{count}} pág.",
+    "times": "{{from}} → {{to}}",
+    "took": "duró {{duration}}",
+    "defaultPrinter": "Impresora predeterminada"
+  },
+  "duration": {
+    "seconds": "{{seconds}} s",
+    "minutes": "{{minutes}} min {{seconds}} s",
+    "hours": "{{hours}} h {{minutes}} min"
+  },
+  "confirm": {
+    "clearTitle": "Limpiar trabajos terminados",
+    "clearMessage_one": "¿Limpiar {{count}} trabajo terminado? Desaparecerá del historial: tienes {{seconds}} segundos para deshacerlo.",
+    "clearMessage_other": "¿Limpiar {{count}} trabajos terminados? Desaparecerán del historial: tienes {{seconds}} segundos para deshacerlo.",
+    "cancelTitle": "¿Cancelar este trabajo?",
+    "cancelMessage": "«{{file}}» se está imprimiendo. ¿Lo cancelas? Las páginas que ya se enviaron a la impresora pueden salir igualmente.",
+    "cancelConfirm": "Cancelar trabajo",
+    "cancelAllTitle": "¿Cancelar todos los trabajos sin terminar?",
+    "cancelAllMessage_one": "Se cancelará {{count}} trabajo que aún no ha terminado. No se puede deshacer, y las páginas ya enviadas a la impresora pueden salir igualmente.",
+    "cancelAllMessage_other": "Se cancelarán {{count}} trabajos que aún no han terminado. No se puede deshacer, y las páginas ya enviadas a la impresora pueden salir igualmente.",
+    "cancelAllConfirm": "Cancelar todo"
+  },
+  "toast": {
+    "cleared_one": "Se limpió {{count}} trabajo terminado",
+    "cleared_other": "Se limpiaron {{count}} trabajos terminados",
+    "undo": "Deshacer",
+    "restored_one": "Se conservó {{count}} trabajo terminado",
+    "restored_other": "Se conservaron {{count}} trabajos terminados",
+    "undoTooLate": "Ya es tarde para deshacer: los trabajos terminados ya se han borrado.",
+    "cancelledAll_one": "Se canceló {{count}} trabajo",
+    "cancelledAll_other": "Se cancelaron {{count}} trabajos"
+  },
+  "notify": {
+    "batchDone_one": "Se imprimió correctamente {{done}} de {{total}} archivo",
+    "batchDone_other": "Se imprimieron correctamente {{done}} de {{total}} archivos",
+    "batchUnconfirmed_one": "{{unconfirmed}} archivo (de {{total}}) se envió a la impresora sin confirmación de que se imprimiera",
+    "batchUnconfirmed_other": "{{unconfirmed}} archivos (de {{total}}) se enviaron a la impresora sin confirmación de que se imprimieran",
+    "batchFailed_one": "No se pudo imprimir {{failed}} de {{total}} archivo",
+    "batchFailed_other": "No se pudieron imprimir {{failed}} de {{total}} archivos",
+    "batchFailedHint": "{{file}}: {{error}} — abre la carpeta de registros para ver la entrada completa del trabajo.",
+    "batchCancelled_one": "{{count}} trabajo cancelado",
+    "batchCancelled_other": "{{count}} trabajos cancelados",
+    "jobNeedsAction": "La impresión se detuvo: {{file}} necesita tu atención",
+    "jobNeedsActionHint": "{{error}} — corrígelo y reanuda el trabajo desde la cola.",
+    "openQueue": "Abrir la cola",
+    "alreadyFinished": "«{{file}}» ya había terminado: no había nada que cancelar.",
+    "liveUnavailable": "Las actualizaciones de la cola en tiempo real no están disponibles; vuelve a abrir la aplicación para reintentarlo.",
+    "jobNeedsPasswordHint": "{{error}} — usa «Escribir contraseña» para desbloquearlo.",
+    "enterPassword": "Escribir contraseña"
+  },
+  "rowActions": {
+    "pause": "Pausar {{file}}",
+    "resume": "Reanudar {{file}}",
+    "retry": "Reintentar {{file}}",
+    "cancel": "Cancelar {{file}}"
+  },
+  "fix": {
+    "oneSided": "Imprimir a una cara",
+    "oneSidedLabel": "Imprimir {{file}} a una cara",
+    "sendTo": "Enviar a otra impresora…",
+    "sendToLabel": "Enviar {{file}} a otra impresora",
+    "install": "Instalar lo que falta…",
+    "installLabel": "Instalar lo que falta para {{file}}",
+    "alreadyInstalled": "{{name}} ya está instalado: se reanuda el trabajo.",
+    "resumed_one": "{{name}} está instalado. El trabajo que lo necesitaba se reanuda.",
+    "resumed_other": "{{name}} está instalado. Los {{count}} trabajos que lo necesitaban se reanudan.",
+    "printersFailed": "No se pudieron cargar las impresoras a las que enviarlo."
+  },
+  "jobErrors": {
+    "codes": {
+      "conversion_timeout": "La conversión tardó más de {{secs}} s y se detuvo.",
+      "conversion_failed": "No se pudo convertir el archivo para imprimirlo: {{detail}}",
+      "print_failed": "La impresión falló: {{detail}}",
+      "unsupported_setting": "El controlador de «{{printer}}» no admite este ajuste: {{detail}}",
+      "dependency_missing": "Falta un programa necesario: {{detail}}",
+      "unsupported_format": "Formato de archivo no compatible: {{detail}}",
+      "cancelled": "Se canceló el trabajo.",
+      "print_timeout": "La impresora no terminó en {{secs}} s. El trabajo sigue en la cola de impresión del sistema: revisa la impresora antes de reintentarlo.",
+      "print_unconfirmed": "Se envió a la impresora, pero la cola de impresión del sistema no confirmó que se imprimiera. Revisa la impresora antes de volver a imprimirlo.",
+      "printer_unavailable": "La impresora «{{printer}}» no está instalada. Elige otra impresora.",
+      "printer_disabled": "La impresora «{{printer}}» ya no se gestiona en Pluryprint. Restáurala en la pantalla Impresoras o elige otra impresora.",
+      "os_cancelled": "El trabajo se canceló en la cola de impresión del sistema.",
+      "print_aborted": "La impresora interrumpió el trabajo. Revisa la impresora y vuelve a intentarlo.",
+      "interrupted_by_shutdown": "Pluryprint se cerró mientras este trabajo estaba en curso.",
+      "pdf_protected": "Este PDF está protegido y no se puede imprimir tal cual."
+    },
+    "reasons": {
+      "conversion_timeout": {
+        "converter": "El conversor no terminó a tiempo y se detuvo: {{detail}}",
+        "tool_timed_out": "{{tool}} no terminó en {{secs}} s y se detuvo."
+      },
+      "print_timeout": {
+        "spooler": "El envío del trabajo a la impresora tardó más de {{secs}} s y se detuvo."
+      },
+      "print_unconfirmed": {
+        "left_queue": "El trabajo salió de la cola de impresión del sistema sin indicar que se imprimiera: puede que se imprimiera o que se borrara allí. Revisa la impresora antes de volver a imprimirlo.",
+        "untracked": "La cola de impresión del sistema aceptó el trabajo pero no permite seguirlo, así que no se sabe si se imprimió. Revisa la impresora antes de volver a imprimirlo.",
+        "tracking_failed": "La cola de impresión del sistema dejó de responder mientras se imprimía el trabajo, así que no se sabe si se imprimió. Revisa la impresora antes de volver a imprimirlo.",
+        "not_verifiable": "Pluryprint se cerró mientras este trabajo estaba en la cola de impresión del sistema y ya no puede distinguirlo de otros trabajos, así que no se sabe si se imprimió. Revisa la impresora antes de volver a imprimirlo."
+      },
+      "printer_unavailable": {
+        "no_printer": "No hay ninguna impresora configurada. Elige una impresora primero.",
+        "ambiguous": "Hay varias impresoras llamadas «{{printer}}» ({{candidates}}). Elige una en la pantalla Impresoras o elimina la duplicada."
+      },
+      "unsupported_setting": {
+        "duplex": "El controlador de «{{printer}}» no puede imprimir a doble cara.",
+        "paper": "El controlador de «{{printer}}» no ofrece el tamaño de papel {{paper}}."
+      },
+      "conversion_failed": {
+        "cannot_read_input": "No se pudo leer «{{file}}».",
+        "workdir_failed": "Pluryprint no pudo preparar una carpeta temporal para la conversión. Comprueba el espacio libre en disco.",
+        "cannot_write_output": "No se pudo guardar el PDF convertido. Comprueba el espacio libre en disco.",
+        "converter_failed": "{{tool}} no pudo convertir este archivo a PDF.",
+        "converter_start_failed": "{{tool}} está instalado, pero no se pudo iniciar.",
+        "converter_crashed": "{{tool}} se detuvo de forma inesperada.",
+        "converter_no_output": "{{tool}} terminó sin generar ninguna página.",
+        "pdf_invalid": "Este archivo no es un PDF válido.",
+        "pdf_truncated": "El PDF está incompleto o dañado.",
+        "pdf_no_pages": "El PDF no tiene páginas.",
+        "pdf_decrypt_failed": "El PDF se desbloqueó, pero no se pudo preparar para imprimirlo.",
+        "image_damaged": "La imagen está dañada o usa una variante de su formato que no se puede leer.",
+        "heif_decode_failed": "No se pudo descodificar la foto HEIC/HEIF; puede estar dañada.",
+        "heif_size_unsupported": "No se admiten imágenes HEIC/HEIF de {{width}}×{{height}}.",
+        "svg_invalid": "Este archivo SVG está dañado o no es una imagen SVG válida.",
+        "svg_too_large": "Esta imagen SVG es demasiado grande o compleja para convertirla (límite: {{limit}} MB).",
+        "svg_convert_failed": "No se pudo convertir la imagen SVG a PDF.",
+        "render_failed": "No se pudo maquetar la página para imprimirla.",
+        "page_too_large": "Esta página necesita más memoria de la que Pluryprint permite para imprimir una página (límite: {{limit}} MB). Quita las imágenes muy grandes o divídela en páginas más pequeñas, e imprímela de nuevo.",
+        "render_worker_missing": "No se encontró la aplicación Pluryprint, que maqueta las páginas para imprimirlas, junto a la herramienta de línea de comandos. Reinstala Pluryprint.",
+        "share_reference_refused": "La página usaba un archivo de una carpeta compartida de red, que Pluryprint no carga. Ahora las páginas se imprimen siempre con el renderizador del sistema, que deja fuera esos archivos: vuelve a imprimirla.",
+        "page_not_checkable": "Pluryprint no pudo preparar esta página para imprimirla de forma segura: su comienzo está mal formado (por ejemplo, un <!DOCTYPE> que no termina), así que no se pudo poner su política de seguridad en primer lugar. Corrige el comienzo de la página, o vuelve a guardarla desde un navegador o editor, e imprímela de nuevo.",
+        "text_unreadable": "No se pudo leer el archivo como texto."
+      },
+      "print_failed": {
+        "sumatra_start_failed": "No se pudo iniciar SumatraPDF.",
+        "sumatra_exit": "SumatraPDF no pudo enviar el trabajo a la impresora (código de salida {{status}}).",
+        "spooler_rejected": "El servicio de impresión del sistema rechazó el trabajo.",
+        "wait_failed": "Pluryprint perdió el control del proceso de impresión. Revisa la impresora antes de reintentarlo."
+      },
+      "unsupported_format": {
+        "no_extension": "Este archivo no tiene extensión, así que no se sabe de qué tipo es.",
+        "unsupported_type": "Los archivos .{{ext}} no se pueden imprimir.",
+        "gif_not_supported": "Las imágenes GIF no se admiten. Convierte antes la imagen a PNG o JPEG."
+      },
+      "pdf_protected": {
+        "password_required": "Este PDF está protegido con contraseña. Escríbela para imprimir el archivo.",
+        "password_incorrect": "Esa contraseña no abre este PDF. Revísala y vuelve a intentarlo.",
+        "printing_not_allowed": "El autor de este PDF no permite imprimirlo.",
+        "unsupported_encryption": "Este PDF usa un tipo de cifrado que Pluryprint no puede abrir."
+      }
+    }
+  },
+  "password": {
+    "rowAction": "Escribe la contraseña de {{file}}",
+    "title": "Este PDF necesita una contraseña",
+    "body": "«{{file}}» está protegido. Escribe su contraseña para imprimirlo. Pluryprint solo la usa para este trabajo: no se guarda en ningún sitio y se olvida al terminar el trabajo.",
+    "label": "Contraseña del PDF",
+    "applyToBatch_one": "Probarla también con el otro PDF protegido de este lote",
+    "applyToBatch_other": "Probarla también con los otros {{count}} PDF protegidos de este lote",
+    "submit": "Desbloquear e imprimir",
+    "checking": "Comprobando la contraseña…",
+    "incorrect": "Esa contraseña no abre este PDF. Revísala y vuelve a intentarlo.",
+    "empty": "Escribe antes la contraseña.",
+    "later": "Ahora no",
+    "cancelJob": "Cancelar este trabajo",
+    "enter": "Escribe la contraseña",
+    "waiting": "Contraseña recibida. El trabajo espera su turno en la cola; la contraseña se comprueba al convertir el archivo.",
+    "waitingPaused": "Contraseña recibida, pero la cola está en pausa: la contraseña se comprobará cuando reanudes la cola."
+  }
+}

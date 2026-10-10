@@ -1,10 +1,10 @@
 # Contributing
 
-> **TL;DR.** Open a discussion or issue before non-trivial work. Sign off commits with `git commit -s` (DCO), use Conventional Commits, keep PRs focused. Look for `good first issue` labels to start.
+> **TL;DR.** Open a discussion or issue before non-trivial work. Agree to the [Contributor License Agreement](../../CLA.md), use Conventional Commits, keep PRs focused. Look for `good first issue` labels to start.
 
-Welcome. MaeclyPrint is open source under [GPLv3](../09-legal/license.md), and we genuinely want help. This document is the social and procedural contract for contributing.
+Welcome. Pluryprint is open source under the [GNU AGPL v3.0](../09-legal/license.md), and we genuinely want help. This document is the social and procedural contract for contributing.
 
-The repository's root `CONTRIBUTING.md` is a stub that points here so GitHub's "Contributing" UI works; the real text lives in the docs tree so it can cross-link with other developer docs.
+The repository's root `CONTRIBUTING.md` gives the short version (the CLA, the checks, the licence and the name) and points here; the full text lives in the docs tree so it can cross-link with other developer docs.
 
 ## Code of Conduct
 
@@ -39,11 +39,11 @@ This avoids the painful situation where you spend a weekend on a PR that the mai
 
 Use the **Bug report** issue template. Include:
 
-- MaeclyPrint version (`maeclyprint --version` or in the About page).
+- Pluryprint version (`pluryprint --version` or in the About page).
 - OS version (Windows 10 22H2, macOS 14.4, etc.).
 - Reproduction steps. Be specific. "It doesn't work" is not a reproduction.
 - Expected vs actual behavior.
-- Logs from `%LOCALAPPDATA%\MaeclyPrint\logs\` (Windows) or `~/Library/Logs/MaeclyPrint/` (macOS). Redact filenames if sensitive.
+- Logs from `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\` (Windows) or `~/Library/Logs/Pluryprint/` (macOS). Redact filenames if sensitive.
 - Screenshots if it's a UI issue.
 
 ### Feature requests
@@ -93,7 +93,7 @@ screenshots or screen recordings.
 - [ ] Tests added / updated
 - [ ] Documentation updated (if user-facing)
 - [ ] CHANGELOG.md updated (if user-visible)
-- [ ] DCO sign-off on all commits
+- [ ] I have read the CLA and agree to it for this pull request
 - [ ] Conventional Commits format
 - [ ] CI green
 ```
@@ -123,31 +123,13 @@ Aim for PRs that one reviewer can fully understand in 30 minutes. As a rough gui
 
 Splitting a large change into a stack of small PRs (each independently mergeable) is appreciated and usually faster overall.
 
-### DCO sign-off
+### Contributor License Agreement
 
-We use the [Developer Certificate of Origin](https://developercertificate.org/) (DCO) as our contribution agreement.
+Contributions come in under the [Contributor License Agreement](../../CLA.md) (CLA). You keep the copyright in what you write; the agreement gives the project's owner a licence to it, including the right to publish it under other terms later (another open-source licence, or a commercial one). That is what lets Pluryprint stay AGPL-3.0 today and still be offered on other terms if the owner chooses to.
 
-Every commit must include a `Signed-off-by:` footer with your real name and email:
+You agree to it by opening a pull request: the pull request template has a checkbox for it, and a pull request without that confirmation is not merged. If you contribute on behalf of a company, or have a question about the agreement, write to hola@maecly.com before contributing.
 
-```
-fix(profiles): handle missing default field
-
-Profiles created in pre-1.0 versions don't have a `default` field; add a
-migration that defaults to `false`.
-
-Signed-off-by: Jane Doe <jane@example.com>
-```
-
-The easy way: `git commit -s -m "..."`. The `-s` flag adds the sign-off automatically using your `user.name` and `user.email` from `git config`.
-
-The DCO bot in CI will block merge if any commit lacks the sign-off. To fix existing commits in your branch:
-
-```bash
-git rebase --signoff origin/main
-git push --force-with-lease
-```
-
-By signing off, you assert the DCO terms — that you have the right to contribute the code, under the project's license (GPLv3).
+There is no CLA bot and no sign-off check in CI. A `Signed-off-by:` line (`git commit -s`) is still welcome, but it is not what the project relies on; the CLA is.
 
 ### Conventional Commits
 
@@ -184,7 +166,7 @@ In rough order of likelihood:
 2. **Out of scope.** New features that don't fit the project vision (e.g. cloud printing, OCR).
 3. **Insufficient testing.** New code without new tests.
 4. **CI red.** Self-explanatory.
-5. **License-incompatible code.** Copy-pasting from non-GPL-compatible source.
+5. **License-incompatible code.** Copy-pasting from source whose licence is not compatible with the AGPL-3.0.
 6. **Breaking changes** without a SemVer-major bump justification.
 
 We try to redirect rather than just close — most "rejected" PRs get reshaped into something acceptable through review.
@@ -238,7 +220,7 @@ We do **not** require the maintainer to be fluent in your language to merge; we 
 Documentation lives in `docs/`. Contributing docs follows the same PR flow as code, but:
 
 - The `docs:` Conventional Commit type applies.
-- DCO sign-off still required.
+- The CLA applies to documentation too.
 - We prefer existing-doc edits over new files (avoid sprawl).
 - Cross-links should use relative paths so they survive renames.
 
@@ -265,7 +247,7 @@ We have no minimum activity requirement, but maintainers who go inactive for >6 
 
 Every contributor is listed in `CHANGELOG.md` for the release that included their change. Major contributions are also called out in release announcement blog posts.
 
-There is no CLA requiring copyright assignment; you retain copyright on your contributions, licensed under GPLv3 per the DCO. See [license.md](../09-legal/license.md) for the full discussion.
+There is no copyright assignment: you keep the copyright in your contributions and license them to the project's owner under the [CLA](../../CLA.md). See [license.md](../09-legal/license.md) for the full discussion.
 
 ## Communication channels
 

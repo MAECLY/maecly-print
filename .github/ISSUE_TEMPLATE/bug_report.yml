@@ -1,5 +1,5 @@
 name: Bug report
-description: Report unexpected behavior in MaeclyPrint
+description: Report unexpected behavior in Pluryprint
 title: 'bug: '
 labels: ['bug', 'needs-triage']
 body:
@@ -12,8 +12,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: MaeclyPrint version
-      description: Find this in About → Version, or run `maeclyprint --version`.
+      label: Pluryprint version
+      description: Find this in About → Version, or run `pluryprint --version`.
       placeholder: '0.1.0-beta'
     validations:
       required: true
@@ -47,7 +47,7 @@ body:
       description: A minimal sequence that triggers the issue.
       placeholder: |
         1. Right-click 30 PDF files in Explorer
-        2. Click "Print all with MaeclyPrint"
+        2. Click "Print all with Pluryprint"
         3. ...
     validations:
       required: true
@@ -71,6 +71,6 @@ body:
     attributes:
       label: Logs
       description: |
-        Attach the latest JSONL log from `%LOCALAPPDATA%\MaeclyPrint\logs\` (Windows) or
-        `~/Library/Logs/MaeclyPrint/` (macOS). Redact any absolute paths you do not want public.
+        Attach the latest JSONL log from `%LOCALAPPDATA%\Pluryprint\logs\` (Windows) or
+        `~/Library/Logs/Pluryprint/` (macOS). Redact any absolute paths you do not want public.
       render: shell

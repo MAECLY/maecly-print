@@ -64,6 +64,29 @@ body,
   flex-direction: column;
 }
 
+/* Modal layer: portalled to <body>, outside .mp-app, so it restates the base
+ * typography and resets (see src/components/Modal.tsx). */
+.mp-modal-root,
+.mp-modal-root * {
+  box-sizing: border-box;
+}
+
+.mp-modal-root {
+  font-family: var(--mp-font-ui);
+  color: var(--mp-text);
+  font-feature-settings: 'ss01', 'cv11';
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mp-modal-root button,
+.mp-modal-root input,
+.mp-modal-root select,
+.mp-modal-root textarea {
+  font-family: inherit;
+  color: inherit;
+}
+
 .mp-mono {
   font-family: var(--mp-font-mono);
   font-feature-settings: 'calt', 'liga';

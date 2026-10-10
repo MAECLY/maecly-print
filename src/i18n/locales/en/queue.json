@@ -1,0 +1,241 @@
+{
+  "title": "Queue",
+  "subtitle": {
+    "counts": "{{active}} active · {{pending}} pending · {{done}} done",
+    "board": "Board view — kanban across job phases",
+    "timeline": "Timeline — chronological, with durations"
+  },
+  "views": {
+    "label": "Queue view",
+    "list": "List",
+    "board": "Board",
+    "timeline": "Timeline"
+  },
+  "actions": {
+    "pauseQueue": "Pause queue",
+    "resumeQueue": "Resume queue",
+    "clearDone": "Clear done",
+    "cancelAll": "Cancel all",
+    "pause": "Pause",
+    "resume": "Resume",
+    "retry": "Retry",
+    "cancel": "Cancel"
+  },
+  "groups": {
+    "active": "Active",
+    "pending": "Pending",
+    "done": "Recent",
+    "header": "{{label}} · {{count}}"
+  },
+  "board": {
+    "queued": "Queued",
+    "converting": "Converting",
+    "printing": "Printing",
+    "done": "Done"
+  },
+  "status": {
+    "queued": "Queued",
+    "converting": "Converting",
+    "converted": "Converted",
+    "printing": "Printing",
+    "paused": "Paused",
+    "done": "Done",
+    "unconfirmed": "Not confirmed",
+    "failed": "Failed",
+    "cancelled": "Cancelled"
+  },
+  "notice": {
+    "loadingTitle": "Loading the queue…",
+    "loadingBody": "Reading the current print jobs.",
+    "unavailableTitle": "Queue unavailable",
+    "unavailableBody": "The print queue is managed by the desktop app — run Pluryprint to see and control jobs.",
+    "errorTitle": "Queue unavailable",
+    "errorBody": "The queue could not be read.",
+    "errorHint": "Nothing was lost — the jobs are still in the desktop app. Retry to read the queue again."
+  },
+  "empty": {
+    "title": "No jobs in the queue",
+    "body": "Print something and it will show up here — active, pending, and recently finished jobs."
+  },
+  "progress": {
+    "label": "Progress of {{file}}",
+    "indeterminate": "In progress — the print spooler reports no percentage"
+  },
+  "note": {
+    "readyToPrint": "Ready to print",
+    "interruptedByShutdown": "Interrupted by shutdown · resume to continue",
+    "heldByPrinter": "Held in the system print queue · release it there to print",
+    "printerNeedsAttention": "The printer needs attention (paper, ink or offline)"
+  },
+  "job": {
+    "meta": "{{profile}} · {{printer}}",
+    "pages": "{{count}}p",
+    "times": "{{from}} → {{to}}",
+    "took": "took {{duration}}",
+    "defaultPrinter": "Default printer"
+  },
+  "duration": {
+    "seconds": "{{seconds}}s",
+    "minutes": "{{minutes}}m {{seconds}}s",
+    "hours": "{{hours}}h {{minutes}}m"
+  },
+  "confirm": {
+    "clearTitle": "Clear finished jobs",
+    "clearMessage_one": "Clear {{count}} finished job? It leaves the history — you get {{seconds}} seconds to undo.",
+    "clearMessage_other": "Clear {{count}} finished jobs? They leave the history — you get {{seconds}} seconds to undo.",
+    "cancelTitle": "Cancel this job?",
+    "cancelMessage": "“{{file}}” is printing. Cancel it? Pages already sent to the printer may still come out.",
+    "cancelConfirm": "Cancel job",
+    "cancelAllTitle": "Cancel every unfinished job?",
+    "cancelAllMessage_one": "{{count}} job that has not finished will be cancelled. This cannot be undone, and pages already sent to the printer may still come out.",
+    "cancelAllMessage_other": "{{count}} jobs that have not finished will be cancelled. This cannot be undone, and pages already sent to the printer may still come out.",
+    "cancelAllConfirm": "Cancel all"
+  },
+  "toast": {
+    "cleared_one": "Cleared {{count}} finished job",
+    "cleared_other": "Cleared {{count}} finished jobs",
+    "undo": "Undo",
+    "restored_one": "{{count}} finished job kept",
+    "restored_other": "{{count}} finished jobs kept",
+    "undoTooLate": "Too late to undo — the finished jobs were already cleared.",
+    "cancelledAll_one": "Cancelled {{count}} job",
+    "cancelledAll_other": "Cancelled {{count}} jobs"
+  },
+  "notify": {
+    "batchDone_one": "{{done}} of {{total}} file printed successfully",
+    "batchDone_other": "{{done}} of {{total}} files printed successfully",
+    "batchUnconfirmed_one": "{{unconfirmed}} file (of {{total}}) was sent to the printer without confirmation that it printed",
+    "batchUnconfirmed_other": "{{unconfirmed}} files (of {{total}}) were sent to the printer without confirmation that they printed",
+    "batchFailed_one": "{{failed}} of {{total}} file failed to print",
+    "batchFailed_other": "{{failed}} of {{total}} files failed to print",
+    "batchFailedHint": "{{file}}: {{error}} — open the logs folder for the full job log entry.",
+    "batchCancelled_one": "{{count}} job cancelled",
+    "batchCancelled_other": "{{count}} jobs cancelled",
+    "jobNeedsAction": "Printing stopped: {{file}} needs your attention",
+    "jobNeedsActionHint": "{{error}} — fix it, then resume the job from the queue.",
+    "openQueue": "Open queue",
+    "alreadyFinished": "“{{file}}” had already finished — there was nothing to cancel.",
+    "liveUnavailable": "Live queue updates are unavailable — reopen the app to retry.",
+    "jobNeedsPasswordHint": "{{error}} — use “Enter password” to unlock it.",
+    "enterPassword": "Enter password"
+  },
+  "rowActions": {
+    "pause": "Pause {{file}}",
+    "resume": "Resume {{file}}",
+    "retry": "Retry {{file}}",
+    "cancel": "Cancel {{file}}"
+  },
+  "fix": {
+    "oneSided": "Print one-sided",
+    "oneSidedLabel": "Print {{file}} one-sided",
+    "sendTo": "Send to another printer…",
+    "sendToLabel": "Send {{file}} to another printer",
+    "install": "Install what is missing…",
+    "installLabel": "Install what is missing for {{file}}",
+    "alreadyInstalled": "{{name}} is installed now — resuming the job.",
+    "resumed_one": "{{name}} is installed. The job that needed it is resuming.",
+    "resumed_other": "{{name}} is installed. The {{count}} jobs that needed it are resuming.",
+    "printersFailed": "The printers to send it to could not be loaded."
+  },
+  "jobErrors": {
+    "codes": {
+      "conversion_timeout": "The conversion took longer than {{secs}} s and was stopped.",
+      "conversion_failed": "The file could not be converted for printing: {{detail}}",
+      "print_failed": "Printing failed: {{detail}}",
+      "unsupported_setting": "The driver for “{{printer}}” does not support this setting: {{detail}}",
+      "dependency_missing": "A required program is missing: {{detail}}",
+      "unsupported_format": "Unsupported file format: {{detail}}",
+      "cancelled": "The job was cancelled.",
+      "print_timeout": "The printer did not finish within {{secs}} s. The job is still in the system print queue: check the printer before retrying.",
+      "print_unconfirmed": "Sent to the printer, but the system print queue did not confirm that it printed. Check the printer before printing it again.",
+      "printer_unavailable": "Printer “{{printer}}” is not installed. Choose another printer.",
+      "printer_disabled": "Printer “{{printer}}” was removed from Pluryprint. Restore it on the Printers screen, or choose another printer.",
+      "os_cancelled": "The job was cancelled in the system print queue.",
+      "print_aborted": "The printer aborted the job. Check the printer, then retry.",
+      "interrupted_by_shutdown": "Pluryprint was closed while this job was in progress.",
+      "pdf_protected": "This PDF is protected and cannot be printed as it is."
+    },
+    "reasons": {
+      "conversion_timeout": {
+        "converter": "The converter did not finish in time and was stopped: {{detail}}",
+        "tool_timed_out": "{{tool}} did not finish within {{secs}} s and was stopped."
+      },
+      "print_timeout": {
+        "spooler": "Sending the job to the printer took longer than {{secs}} s and was stopped."
+      },
+      "print_unconfirmed": {
+        "left_queue": "The job left the system print queue without reporting that it printed: it may have printed, or been deleted there. Check the printer before printing it again.",
+        "untracked": "The system print queue accepted the job but gives no way to follow it, so whether it printed is unknown. Check the printer before printing it again.",
+        "tracking_failed": "The system print queue stopped answering while the job was printing, so whether it printed is unknown. Check the printer before printing it again.",
+        "not_verifiable": "Pluryprint was closed while this job was in the system print queue and cannot tell it apart from other jobs any more, so whether it printed is unknown. Check the printer before printing it again."
+      },
+      "printer_unavailable": {
+        "no_printer": "No printer is configured. Choose a printer first.",
+        "ambiguous": "Several printers are named “{{printer}}” ({{candidates}}). Choose one on the Printers screen or remove the duplicate."
+      },
+      "unsupported_setting": {
+        "duplex": "The driver for “{{printer}}” cannot print two-sided.",
+        "paper": "The driver for “{{printer}}” does not offer the paper size {{paper}}."
+      },
+      "conversion_failed": {
+        "cannot_read_input": "“{{file}}” could not be read.",
+        "workdir_failed": "Pluryprint could not prepare a temporary folder for the conversion. Check the free disk space.",
+        "cannot_write_output": "The converted PDF could not be saved. Check the free disk space.",
+        "converter_failed": "{{tool}} could not convert this file to PDF.",
+        "converter_start_failed": "{{tool}} is installed but could not be started.",
+        "converter_crashed": "{{tool}} stopped unexpectedly.",
+        "converter_no_output": "{{tool}} finished without producing a page.",
+        "pdf_invalid": "This is not a valid PDF file.",
+        "pdf_truncated": "The PDF is truncated or damaged.",
+        "pdf_no_pages": "The PDF has no pages.",
+        "pdf_decrypt_failed": "The PDF was unlocked but could not be prepared for printing.",
+        "image_damaged": "The image is damaged or uses a variant of its format that cannot be read.",
+        "heif_decode_failed": "The HEIC/HEIF photo could not be decoded; it may be damaged.",
+        "heif_size_unsupported": "HEIC/HEIF images of {{width}}×{{height}} are not supported.",
+        "svg_invalid": "This SVG file is damaged or is not a valid SVG image.",
+        "svg_too_large": "This SVG image is too large or too complex to convert (limit: {{limit}} MB).",
+        "svg_convert_failed": "The SVG image could not be converted to PDF.",
+        "render_failed": "The page could not be laid out for printing.",
+        "page_too_large": "This page needs more memory than Pluryprint allows for printing a page (limit: {{limit}} MB). Remove very large pictures or split it into smaller pages, and print it again.",
+        "render_worker_missing": "The Pluryprint app, which lays out pages for printing, was not found next to the command-line tool. Reinstall Pluryprint.",
+        "share_reference_refused": "The page used a file on a network share, which Pluryprint does not load. Pages now always print with the system renderer, which leaves such files out: print it again.",
+        "page_not_checkable": "Pluryprint could not prepare this page safely for printing: its start is malformed (for example, a <!DOCTYPE> that never ends), so its security policy could not be placed first. Fix the start of the page, or save it again from a browser or editor, and print it again.",
+        "text_unreadable": "The text file could not be read as text."
+      },
+      "print_failed": {
+        "sumatra_start_failed": "SumatraPDF could not be started.",
+        "sumatra_exit": "SumatraPDF could not send the job to the printer (exit code {{status}}).",
+        "spooler_rejected": "The system print service rejected the job.",
+        "wait_failed": "Pluryprint lost track of the print process. Check the printer before retrying."
+      },
+      "unsupported_format": {
+        "no_extension": "This file has no extension, so its type is unknown.",
+        "unsupported_type": ".{{ext}} files cannot be printed.",
+        "gif_not_supported": "GIF images are not supported. Convert the image to PNG or JPEG first."
+      },
+      "pdf_protected": {
+        "password_required": "This PDF is protected with a password. Enter it to print the file.",
+        "password_incorrect": "That password does not open this PDF. Check it and try again.",
+        "printing_not_allowed": "The author of this PDF does not allow it to be printed.",
+        "unsupported_encryption": "This PDF uses a type of encryption Pluryprint cannot open."
+      }
+    }
+  },
+  "password": {
+    "rowAction": "Enter the password of {{file}}",
+    "title": "This PDF needs a password",
+    "body": "“{{file}}” is protected. Enter its password to print it. Pluryprint uses it only for this job: it is not saved anywhere and is forgotten when the job ends.",
+    "label": "PDF password",
+    "applyToBatch_one": "Also try it on the other protected PDF of this batch",
+    "applyToBatch_other": "Also try it on the other {{count}} protected PDFs of this batch",
+    "submit": "Unlock and print",
+    "checking": "Checking the password…",
+    "incorrect": "That password does not open this PDF. Check it and try again.",
+    "empty": "Enter the password first.",
+    "later": "Not now",
+    "cancelJob": "Cancel this job",
+    "enter": "Enter the password",
+    "waiting": "Password received. The job is waiting its turn in the queue; the password is checked when the file is converted.",
+    "waitingPaused": "Password received, but the queue is paused: the password is checked once you resume the queue."
+  }
+}

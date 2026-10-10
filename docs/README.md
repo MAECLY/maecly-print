@@ -1,8 +1,8 @@
-# MaeclyPrint — Documentation
+# Pluryprint — Documentation
 
 > Open source batch file printing for Windows and macOS. Right-click → print everything, with no 15-file limit, no Adobe required, and no $149 license fee.
 
-This directory contains the full documentation for the **MaeclyPrint** project: vision, research, requirements, architecture, features, roadmap, build/release pipelines, development guidelines, legal information, and Architecture Decision Records (ADRs).
+This directory contains the full documentation for the **Pluryprint** project: vision, research, requirements, architecture, features, roadmap, build/release pipelines, development guidelines, legal information, and Architecture Decision Records (ADRs).
 
 If you are reading this on GitHub, every link below is clickable.
 
@@ -15,7 +15,7 @@ If you are reading this on GitHub, every link below is clickable.
 | A user wanting to know what this is | [Product Vision](./01-vision/product-vision.md) → [Value Proposition](./01-vision/value-proposition.md) |
 | A contributor / developer | [Local Setup](./08-development/local-setup.md) → [Contributing](./08-development/contributing.md) → [Coding Standards](./08-development/coding-standards.md) |
 | A reviewer / decision-maker | [Tech Stack](./04-architecture/tech-stack.md) → [System Architecture](./04-architecture/system-architecture.md) → [ADRs](./adr/README.md) |
-| A packager / sysadmin | [Installer Windows](./07-build-and-release/installer-windows.md) → [Auto-Update Flow](./07-build-and-release/auto-update-flow.md) |
+| A packager / sysadmin | [Installer Windows](./07-build-and-release/installer-windows.md) → [Releasing](./07-build-and-release/releasing.md) → [Auto-Update Flow](./07-build-and-release/auto-update-flow.md) |
 | Curious about prior art | [Competitor Analysis](./02-research/competitor-analysis.md) → [Market Gap](./02-research/market-gap.md) |
 
 ---
@@ -26,13 +26,15 @@ These decisions are not up for re-debate during the MVP cycle. They are recorded
 
 | Item | Choice | ADR |
 |---|---|---|
-| Product name | **MaeclyPrint** | — |
+| Product name | **Pluryprint** | — |
 | Application stack | **Tauri 2 + Rust + React (TypeScript)** | [ADR-0001](./adr/0001-stack-tauri-rust-react.md) |
-| License | **GPLv3** | [ADR-0002](./adr/0002-license-gplv3.md) |
-| Print engine strategy | **Hybrid: SumatraPDF as final hop, format-specific converters upstream** | [ADR-0003](./adr/0003-hybrid-print-engine-strategy.md) |
-| Auto-update | **Tauri Updater plugin (built-in)** | [ADR-0004](./adr/0004-auto-updater-tauri-builtin.md) |
-| Windows shell extension | **Sparse MSIX + IExplorerCommand COM DLL** | [ADR-0005](./adr/0005-shell-extension-sparse-msix.md) |
-| Windows installer | **Inno Setup** | [ADR-0006](./adr/0006-installer-inno-setup.md) |
+| License | **AGPL-3.0-only**, contributions under a CLA (was GPLv3 until 2026-10-09) | [ADR-0010](./adr/0010-relicense-to-agpl-3.0.md) (supersedes [ADR-0002](./adr/0002-license-gplv3.md)) |
+| Print engine strategy | **Hybrid: SumatraPDF / CUPS as final hop, format-specific converters upstream** | [ADR-0003](./adr/0003-hybrid-print-engine-strategy.md) |
+| HTML, Markdown and text | **The system web view (WebView2 / WebKit) in a worker process** | [ADR-0012](./adr/0012-system-web-view-renderer.md) |
+| Auto-update | **Tauri Updater plugin (built-in)**, one manifest per channel on GitHub Releases | [ADR-0004](./adr/0004-auto-updater-tauri-builtin.md), [ADR-0011](./adr/0011-release-channel.md) |
+| Release signing | **No OS certificates; updates signed with minisign** | [ADR-0011](./adr/0011-release-channel.md) |
+| Windows shell extension | **IExplorerCommand COM DLL (Rust), registered per user; sparse package when a certificate exists** | [ADR-0013](./adr/0013-explorer-command-per-user-verb.md) (supersedes [ADR-0005](./adr/0005-shell-extension-sparse-msix.md)) |
+| Windows installer | **Tauri's per-user NSIS bundle** | [ADR-0008](./adr/0008-installer-nsis-per-user.md) (supersedes [ADR-0006](./adr/0006-installer-inno-setup.md)) |
 | Platform priority | **Windows first, macOS second** | [ADR-0007](./adr/0007-windows-first-mac-second.md) |
 | Documentation language | English | — |
 | Initial supported OS | Windows 10/11 (x64 + ARM64) | — |
@@ -46,7 +48,7 @@ These decisions are not up for re-debate during the MVP cycle. They are recorded
 
 - [Product Vision](./01-vision/product-vision.md) — mission, problem, intended outcome
 - [Target Users](./01-vision/target-users.md) — personas
-- [Value Proposition](./01-vision/value-proposition.md) — why MaeclyPrint vs alternatives
+- [Value Proposition](./01-vision/value-proposition.md) — why Pluryprint vs alternatives
 
 ### 02 — Research
 
@@ -95,10 +97,11 @@ These decisions are not up for re-debate during the MVP cycle. They are recorded
 
 ### 07 — Build & Release
 
-- [Installer (Windows)](./07-build-and-release/installer-windows.md) — Inno Setup + Sparse MSIX
-- [Installer (macOS)](./07-build-and-release/installer-macos.md) — pkgbuild + create-dmg
+- [Releasing](./07-build-and-release/releasing.md) — the runbook: signing key, channels, cutting and verifying a release
+- [Installer (Windows)](./07-build-and-release/installer-windows.md) — per-user NSIS, Explorer registration
+- [Installer (macOS)](./07-build-and-release/installer-macos.md) — ad-hoc-signed `.dmg` per architecture (and the Developer ID plan)
 - [Auto-Update Flow](./07-build-and-release/auto-update-flow.md) — end-to-end
-- [Code Signing](./07-build-and-release/code-signing.md) — Windows EV cert, Apple Developer ID
+- [Code Signing](./07-build-and-release/code-signing.md) — what is signed today (updates, minisign) and the certificate plan
 - [CI / CD](./07-build-and-release/ci-cd.md) — GitHub Actions matrix
 
 ### 08 — Development
@@ -112,8 +115,8 @@ These decisions are not up for re-debate during the MVP cycle. They are recorded
 
 ### 09 — Legal
 
-- [License](./09-legal/license.md) — what GPLv3 means in practice
-- [Third-Party Licenses](./09-legal/third-party-licenses.md) — SumatraPDF, LibreOffice, Tauri, etc.
+- [License](./09-legal/license.md) — what the AGPL-3.0 and the CLA mean in practice
+- [Third-Party Licenses](./09-legal/third-party-licenses.md) — SumatraPDF, LibreOffice, Tauri, etc. (the shipped notice is [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md))
 - [Trademark](./09-legal/trademark.md) — name and logo usage policy
 - [Privacy](./09-legal/privacy.md) — telemetry, crash reports, logs
 
@@ -121,12 +124,13 @@ These decisions are not up for re-debate during the MVP cycle. They are recorded
 
 - [ADR Index](./adr/README.md)
 - [0001 — Stack: Tauri + Rust + React](./adr/0001-stack-tauri-rust-react.md)
-- [0002 — License: GPLv3](./adr/0002-license-gplv3.md)
+- [0002 — License: GPLv3](./adr/0002-license-gplv3.md) (superseded by 0010)
 - [0003 — Hybrid print engine strategy](./adr/0003-hybrid-print-engine-strategy.md)
 - [0004 — Auto-updater: Tauri built-in](./adr/0004-auto-updater-tauri-builtin.md)
 - [0005 — Shell extension: Sparse MSIX](./adr/0005-shell-extension-sparse-msix.md)
 - [0006 — Installer: Inno Setup](./adr/0006-installer-inno-setup.md)
 - [0007 — Platform priority: Windows first, macOS second](./adr/0007-windows-first-mac-second.md)
+- [0010 — Relicense to AGPL-3.0](./adr/0010-relicense-to-agpl-3.0.md)
 
 ---
 
@@ -138,8 +142,12 @@ For changes to architectural decisions, **add a new ADR** that supersedes the ol
 
 ## Status
 
-This project is **pre-alpha**. The documentation here precedes any production code. Expect rough edges; expect change. The locked decisions in the table above are stable, but the implementation has not started.
+This project is **pre-alpha · M1 (Print Core) largely delivered**. There is real production code behind most of these pages: a print engine, a persistent queue, profiles, settings, a headless CLI, and the Explorer/Finder context-menu handlers. There is also work that is still specification only — notably the installer and the download-and-install half of the updater.
+
+[**Roadmap → Milestones**](./06-roadmap/milestones.md) is the single source of truth for what is delivered and what is open; per-requirement status lives in the `Status` column of [Functional Requirements](./03-requirements/functional-requirements.md). Those two documents are deliberately the only place that tracks status, so it cannot drift in three directions at once.
+
+Expect rough edges; expect change. The locked decisions in the table above are stable.
 
 ## License of this documentation
 
-The documentation in this folder is released under the same license as the code: **[GPLv3](../LICENSE)**.
+The documentation in this folder is released under the same license as the code: **[AGPL-3.0](../LICENSE)**.

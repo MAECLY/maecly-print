@@ -1,0 +1,202 @@
+{
+  "title": "Trabajo de impresión",
+  "subtitle": "{{files}} · {{pages}} · {{size}}",
+  "units": {
+    "file_one": "{{count}} archivo",
+    "file_other": "{{count}} archivos",
+    "page_one": "{{count}} página",
+    "page_other": "{{count}} páginas",
+    "pageAtLeast_one": "al menos {{count}} página",
+    "pageAtLeast_other": "al menos {{count}} páginas"
+  },
+  "actions": {
+    "addFolder": "Añadir carpeta",
+    "addFiles": "Añadir archivos",
+    "print": "Imprimir {{count}}"
+  },
+  "list": {
+    "heading": "Archivos de este trabajo",
+    "label": "Archivos de este trabajo, en orden de impresión",
+    "reorderHint": "reordenar",
+    "reorderKeys": "Alt + ↑↓",
+    "row": "{{position}} de {{total}}: {{name}}",
+    "moveUp": "Subir {{name}}",
+    "moveDown": "Bajar {{name}}",
+    "remove": "Quitar {{name}}",
+    "image": "imagen",
+    "inFolder": "en {{folder}}",
+    "pagesUnknown": "páginas desconocidas",
+    "reorderKeysMac": "⌥ ↑↓",
+    "reorderKeysSpoken": "Alt + flecha arriba o abajo",
+    "reorderKeysSpokenMac": "Opción + flecha arriba o abajo"
+  },
+  "empty": {
+    "desktop": "Aún no hay archivos. Arrastra archivos o carpetas desde el Explorador o el Finder, o usa Añadir archivos.",
+    "web": "Para añadir archivos se necesita la aplicación de escritorio."
+  },
+  "dependencies": {
+    "title": "Falta una dependencia",
+    "affected_one": "{{count}} archivo de este trabajo la necesita.",
+    "affected_other": "{{count}} archivos de este trabajo la necesitan.",
+    "installButton": "Instalar…",
+    "checkAgain": "Comprobar de nuevo",
+    "checking": "Comprobando…"
+  },
+  "install": {
+    "title": "Instalar {{name}}",
+    "how": "Cómo instalarlo",
+    "method": {
+      "winget": "Instalar con winget (Administrador de paquetes de Windows)",
+      "winget-store": "Instalar desde Microsoft Store con winget",
+      "store": "Abrirlo en Microsoft Store",
+      "brew-cask": "Instalar con Homebrew",
+      "web": "Abrir la página de descarga"
+    },
+    "unavailable": "No está disponible en este equipo.",
+    "willRun": "Pluryprint ejecutará exactamente este comando:",
+    "willOpen": "Pluryprint abrirá:",
+    "needsAdmin": "Windows pedirá permiso de administrador (UAC) durante la instalación.",
+    "paid": "Este componente puede ser de pago en Microsoft Store.",
+    "size": "Tamaño de la descarga: unos {{mb}} MB.",
+    "neverSilent": "No se instala nada hasta que pulses el botón de abajo.",
+    "output": "Salida del instalador",
+    "running": "Instalando…",
+    "install": "Instalar",
+    "open": "Abrir",
+    "result": {
+      "installed": "{{name}} está instalado. Los archivos que lo necesitaban ya se pueden imprimir.",
+      "installedAlone": "{{name}} está instalado.",
+      "installedResumed_one": "{{name}} está instalado. El trabajo de la cola que lo necesitaba se reanuda.",
+      "installedResumed_other": "{{name}} está instalado. Los {{count}} trabajos de la cola que lo necesitaban se reanudan.",
+      "installedResumeFailed_one": "{{name}} está instalado, pero no se pudo reanudar el trabajo de la cola que lo necesitaba. Reanúdalo desde la cola.",
+      "installedResumeFailed_other": "{{name}} está instalado, pero no se pudieron reanudar {{count}} trabajos de la cola que lo necesitaban. Reanúdalos desde la cola.",
+      "installedResumeUnchecked": "{{name}} está instalado, pero Pluryprint no pudo leer la cola para reanudar los trabajos que lo necesitaban. Reanúdalos desde la cola.",
+      "notDetected": "El instalador terminó, pero Pluryprint aún no detecta {{name}}. Reinicia Pluryprint y vuelve a intentarlo.",
+      "opened": "Termina la instalación en la ventana que se ha abierto. Pluryprint lo vuelve a comprobar cuando regreses a Trabajo de impresión.",
+      "openedAlone": "Termina la instalación en la ventana que se ha abierto. Pluryprint vuelve a buscar {{name}} cuando abres Trabajo de impresión, y los trabajos de la cola que lo esperan se reanudan cuando vuelves a Pluryprint con la Cola abierta.",
+      "openedResumesJobs": "Termina la instalación en la ventana que se ha abierto. Pluryprint lo vuelve a comprobar cuando regreses y reanuda los trabajos que esperaban {{name}}.",
+      "failed": "La instalación no terminó (código {{code}}). Prueba con la página de descarga.",
+      "failedNoCode": "El instalador se detuvo sin indicar el motivo. Prueba con la página de descarga.",
+      "timedOut": "El instalador tardaba demasiado y se detuvo. Vuelve a intentarlo o usa la página de descarga.",
+      "cancelled": "Detuviste la instalación. No se ejecutará nada más salvo que la vuelvas a iniciar.",
+      "cancelRequestedInstallerMayContinue": "Pluryprint detuvo lo que pudo, pero el instalador de {{name}} se ejecuta con permisos de administrador y puede seguir trabajando: puede que su ventana siga abierta. Ciérrala allí si quieres detenerlo, o deja que termine.",
+      "cancelRequestedMayContinueUnconfirmed": "Pluryprint detuvo lo que pudo, pero no pudo confirmar que todo lo que inició el instalador de {{name}} haya terminado, así que puede seguir trabajando. Podrás volver a instalar cuando haya terminado.",
+      "timedOutInstallerMayContinue": "El instalador de {{name}} tardaba demasiado. Pluryprint detuvo lo que pudo, pero el instalador se ejecuta con permisos de administrador y puede seguir trabajando: puede que su ventana siga abierta. Ciérrala allí si quieres detenerlo, o deja que termine.",
+      "timedOutMayContinueUnconfirmed": "El instalador de {{name}} tardaba demasiado. Pluryprint detuvo lo que pudo, pero no pudo confirmar que todo lo que inició el instalador haya terminado, así que puede seguir trabajando. Podrás volver a instalar cuando haya terminado.",
+      "unknownEnd": "La instalación de {{name}} terminó mientras Pluryprint no la seguía, y no puede saber cómo. Vuelve a comprobar si {{name}} está instalado."
+    },
+    "background": "Seguir en segundo plano",
+    "backgroundHint": "Puedes seguir usando Pluryprint: cerrar esta ventana no detiene la instalación y te avisaremos cuando termine.",
+    "stop": "Detener la instalación",
+    "stopping": "Deteniendo la instalación…",
+    "busyWith": "Pluryprint está instalando {{name}}. Podrás instalar este componente cuando termine, o detener esa instalación desde aquí.",
+    "busyFinishing": "Puede que el instalador de {{name}} que se detuvo siga en marcha. Podrás volver a instalar cuando haya terminado."
+  },
+  "folders": {
+    "title_one": "{{count}} carpeta añadida",
+    "title_other": "{{count}} carpetas añadidas",
+    "question": "¿Imprimir todo lo que hay en «{{name}}», incluidas las subcarpetas?",
+    "recursive": "Incluir subcarpetas",
+    "topLevel": "Solo el primer nivel",
+    "skip": "Omitir esta carpeta",
+    "expanding": "Leyendo «{{name}}»…",
+    "empty": "«{{name}}» no contiene archivos imprimibles.",
+    "truncatedFiles": "«{{name}}» tiene más de {{max}} entradas: solo se han leído las {{max}} primeras.",
+    "truncatedDepth": "«{{name}}» tiene más de {{max}} niveles: las carpetas más profundas no se han leído."
+  },
+  "toasts": {
+    "rejected_one": "No se puede imprimir {{count}} archivo",
+    "rejected_other": "No se pueden imprimir {{count}} archivos",
+    "skipped_one": "Se ha descartado {{count}} archivo de «{{name}}»",
+    "skipped_other": "Se han descartado {{count}} archivos de «{{name}}»",
+    "added_one": "Se ha añadido {{count}} archivo de «{{name}}»",
+    "added_other": "Se han añadido {{count}} archivos de «{{name}}»",
+    "alreadyAdded": "Todos los archivos de «{{name}}» ya están en el trabajo."
+  },
+  "settings": {
+    "profile": "Perfil",
+    "builtinSuffix": " · integrado",
+    "printer": "Impresora",
+    "systemDefault": "Predeterminada del sistema",
+    "sides": "Caras",
+    "color": "Color",
+    "copies": "Copias",
+    "copiesSuffix": "× por archivo",
+    "collate": "Intercalar copias",
+    "paper": "Papel",
+    "paperPrinterDefault": "La de la impresora",
+    "orientation": "Orient.",
+    "orientationLabel": "Orientación",
+    "scaling": "Escalado",
+    "pageRange": "Intervalo de páginas",
+    "removedPrinterOption": "{{name}} (quitada de Pluryprint)"
+  },
+  "sides": {
+    "single": "Una cara",
+    "long": "Borde largo",
+    "short": "Borde corto"
+  },
+  "color": {
+    "color": "Color",
+    "monochrome": "B/N"
+  },
+  "orientation": {
+    "auto": "Automática",
+    "portrait": "Vertical",
+    "landscape": "Horizontal"
+  },
+  "scaling": {
+    "fit": "Ajustar",
+    "shrink": "Reducir",
+    "none": "100%"
+  },
+  "copies": {
+    "error": "Escribe un número entero del 1 al 999."
+  },
+  "pageRange": {
+    "placeholder": "p. ej. 1-5,10",
+    "syntaxError": "Usa números de página como 1-5,10 (los intervalos deben ir en orden ascendente).",
+    "outOfBounds_one": "«{{name}}» solo tiene {{count}} página.",
+    "outOfBounds_other": "«{{name}}» solo tiene {{count}} páginas.",
+    "hint": "Se aplica a los PDF y documentos: las imágenes ignoran el intervalo."
+  },
+  "preview": {
+    "title": "Comando resuelto",
+    "notePrefix": "nota",
+    "qualityWords": {
+      "draft": "borrador",
+      "high": "alta"
+    },
+    "notes": {
+      "quality_offered": "SumatraPDF no tiene opción de calidad de impresión, así que «{{quality}}» se aplica convirtiéndola en la configuración predeterminada de esta impresora para tu cuenta de Windows solo mientras el trabajo pasa a la cola de impresión; después se comprueba la configuración del propio trabajo y se anota en el registro.",
+      "quality_unknown": "SumatraPDF no tiene opción de calidad de impresión, así que se intenta aplicar «{{quality}}» convirtiéndola en la configuración predeterminada de esta impresora para tu cuenta de Windows mientras el trabajo pasa a la cola de impresión; después se comprueba si el driver la mantuvo y se anota en el registro.",
+      "quality_not_offered": "el driver de esta impresora no ofrece la calidad «{{quality}}», así que NO se aplica: se usa la calidad predeterminada de la impresora.",
+      "quality_pending_restore": "un cambio de calidad anterior en esta impresora todavía no se ha podido deshacer, así que «{{quality}}» NO se aplica: se usa la configuración predeterminada actual de la impresora hasta que Pluryprint restaure la tuya (consulta el registro).",
+      "collated_not_applied": "SumatraPDF no tiene opción de intercalado, así que «intercaladas» NO se aplica: se usa el intercalado del propio driver para las {{copies}} copias.",
+      "uncollated_not_applied": "SumatraPDF no tiene opción de intercalado, así que «sin intercalar» NO se aplica: se usa el intercalado del propio driver para las {{copies}} copias.",
+      "paper_not_listed": "el driver de esta impresora no incluye el tamaño de papel «{{paper}}», así que NO se aplica: se usa el papel configurado en la impresora.",
+      "tray_not_listed": "el driver de esta impresora no tiene ninguna bandeja llamada «{{tray}}», así que NO se aplica: se usa la bandeja predeterminada de la impresora."
+    }
+  },
+  "rejectReason": {
+    "not_found": "No se encontró el archivo",
+    "invalid_path": "No se pudo leer la ruta",
+    "folder": "Carpeta: añádela para imprimir los archivos que contiene",
+    "not_a_file": "No es un archivo",
+    "too_large": "Supera el límite de {{limit}} MB",
+    "too_large_unknown": "Supera el tamaño máximo de archivo",
+    "unsupported_type": "Tipo de archivo no compatible",
+    "gif_unsupported": "Las imágenes GIF no se admiten: conviértelas antes a PNG o JPEG"
+  },
+  "skipReason": {
+    "unsupported_format": "Tipo de archivo no compatible (.{{ext}})",
+    "too_large": "Supera el tamaño máximo de archivo",
+    "unreadable": "No se pudo leer"
+  },
+  "capability": {
+    "noDuplex": "{{name}} no puede imprimir a doble cara: el trabajo quedará en pausa hasta que elijas Una cara u otra impresora.",
+    "noColor": "{{name}} solo imprime en blanco y negro: las páginas en color saldrán en gris.",
+    "systemDefaultRemoved": "La predeterminada del sistema es {{name}}, que está quitada de Pluryprint: elige una impresora, o los archivos que no se envíen a otra por su tipo no se imprimirán.",
+    "printerRemoved": "{{name}} está quitada de Pluryprint: este trabajo se pausará hasta que la restaures en la pantalla Impresoras o elijas otra impresora."
+  }
+}

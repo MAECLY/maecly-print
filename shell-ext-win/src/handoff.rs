@@ -1,0 +1,296 @@
+//! Producer half of the JSON handoff file.
+//!
+//! `src-tauri/src/cli/handoff.rs` is the consumer and the source of truth for
+//! the schema; this module only *writes* what that module will accept. The two
+//! cannot be one crate today (the app is a standalone crate outside any
+//! workspace), so the contract is pinned here by
+//! `tests/handoff_roundtrip.rs`, which asserts the exact key set, the exact
+//! `action` spellings and the caps, and fails if the consumer's struct drifts.
+//!
+//! The rules the consumer enforces, and therefore the rules this module has to
+//! satisfy:
+//!
+//! * `schema_version` must be exactly [`SCHEMA_VERSION`];
+//! * `paths` must be non-empty and no longer than [`MAX_PATHS`];
+//! * the file must be no larger than [`MAX_BYTES`];
+//! * `invoked_at` must be an RFC 3339 stamp no older than 60 s (replay window),
+//!   and no more than 5 s in the future (clock skew);
+//! * the file must *canonicalize* inside [`handoff_dir`], so it has to be
+//!   written there and nowhere else.
+//!
+//! Everything here is portable and unit-testable on any host; nothing in this
+//! module touches Win32.
+
+use std::io;
+use std::path::{Path, PathBuf};
+
+use serde::Serialize;
+
+/// On-disk schema version. Mirrors `HANDOFF_SCHEMA_VERSION` in the app.
+pub const SCHEMA_VERSION: u32 = 1;
+
+/// Value written to `source`. The app uses it for telemetry and error text.
+pub const SOURCE: &str = "windows-explorer";
+
+/// Largest selection the app will honour (`MAX_HANDOFF_PATHS`). A bigger
+/// selection is truncated rather than sent whole, because the app refuses an
+/// over-long payload outright and the user would get nothing at all. The
+/// original size travels in [`Handoff::truncated_from`] so the app can tell the
+/// user what was left out.
+pub const MAX_PATHS: usize = 10_000;
+
+/// Largest file the app will read (`MAX_HANDOFF_BYTES`). A selection is
+/// trimmed to fit this as well as [`MAX_PATHS`]: very long paths can exceed
+/// the byte cap before the count cap, and the app refuses an oversized file
+/// outright, so the user would get nothing at all.
+pub const MAX_BYTES: usize = 64 * 1024 * 1024;
+
+/// Room kept in [`MAX_BYTES`] for everything but the paths (keys, action,
+/// profile id, timestamp).
+const ENVELOPE_RESERVE: usize = 64 * 1024;
+
+/// What a menu entry asks the app to do.
+///
+/// The wire spellings are the app's `ContextAction` serde representation
+/// (kebab-case). They are also the values accepted by the `--action` flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// Open the print dialog pre-loaded with the selection.
+    Configure,
+    /// Print immediately with the default (or requested) profile.
+    PrintDefault,
+    /// Add to the queue without starting it.
+    Queue,
+}
+
+impl Action {
+    /// The exact string that goes on the wire.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Action::Configure => "configure",
+            Action::PrintDefault => "print-default",
+            Action::Queue => "queue",
+        }
+    }
+}
+
+impl Serialize for Action {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
+/// The payload. Field order is the documented one; field *names* are the
+/// contract.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Handoff {
+    /// Payload format version ([`SCHEMA_VERSION`]); the app refuses any other.
+    pub schema_version: u32,
+    /// Which integration wrote the file; always [`SOURCE`] here.
+    pub source: String,
+    /// What the user picked from the menu.
+    pub action: Action,
+    /// Profile to print with, for a "Print with …" entry; `None` otherwise.
+    pub profile_id: Option<String>,
+    /// RFC 3339 UTC time of the click; the app refuses a stale payload.
+    pub invoked_at: String,
+    /// The selected items as Explorer reported them: never empty, at most
+    /// [`MAX_PATHS`], and cut short to keep the file under [`MAX_BYTES`].
+    pub paths: Vec<String>,
+    /// The real selection size when it was cut to [`MAX_PATHS`]; `null`
+    /// otherwise. The app shows a warning for it (FR-005: nothing is dropped
+    /// silently).
+    pub truncated_from: Option<u32>,
+}
+
+/// Build a payload from a selection.
+///
+/// Pure, with the clock injected, so the freshness contract can be asserted
+/// without waiting. A selection longer than [`MAX_PATHS`], or one whose
+/// serialized paths would not fit [`MAX_BYTES`], is truncated (see the
+/// constants for why) and the original length is recorded in
+/// [`Handoff::truncated_from`].
+pub fn build(
+    paths: &[PathBuf],
+    action: Action,
+    profile_id: Option<String>,
+    now: time::OffsetDateTime,
+) -> Handoff {
+    build_within(paths, action, profile_id, now, MAX_BYTES)
+}
+
+/// [`build`] with the byte budget explicit, so the trimming is testable
+/// without a 64 MiB selection.
+pub fn build_within(
+    paths: &[PathBuf],
+    action: Action,
+    profile_id: Option<String>,
+    now: time::OffsetDateTime,
+    max_bytes: usize,
+) -> Handoff {
+    let budget = max_bytes.saturating_sub(ENVELOPE_RESERVE);
+    let mut used = 0usize;
+    let mut kept: Vec<String> = Vec::with_capacity(paths.len().min(MAX_PATHS));
+    for p in paths.iter().take(MAX_PATHS) {
+        // to_string_lossy, not a fallible conversion: a Windows path that is
+        // not valid UTF-16-to-UTF-8 round-trippable is vanishingly rare and
+        // dropping the whole selection over one name would be worse than
+        // printing it with a replacement character in the log.
+        let path = p.to_string_lossy().into_owned();
+        // Its exact JSON size (quotes and escapes) plus the separating comma.
+        let cost = serde_json::to_string(&path).map_or(path.len() * 6 + 2, |s| s.len()) + 1;
+        if used + cost > budget {
+            break;
+        }
+        used += cost;
+        kept.push(path);
+    }
+    let truncated_from =
+        (kept.len() < paths.len()).then(|| u32::try_from(paths.len()).unwrap_or(u32::MAX));
+    let paths = kept;
+
+    Handoff {
+        schema_version: SCHEMA_VERSION,
+        source: SOURCE.to_string(),
+        action,
+        profile_id,
+        invoked_at: format_rfc3339(now),
+        paths,
+        truncated_from,
+    }
+}
+
+/// RFC 3339 in UTC, e.g. `2026-07-20T21:11:03Z`, which is what the consumer
+/// parses with `time`'s well-known `Rfc3339` description.
+pub fn format_rfc3339(at: time::OffsetDateTime) -> String {
+    at.to_offset(time::UtcOffset::UTC)
+        .format(&time::format_description::well_known::Rfc3339)
+        // The only way this fails is a year outside the formatter's range; a
+        // stamp we cannot format is better sent as one the consumer will
+        // reject as stale than as a silent success.
+        .unwrap_or_else(|_| String::from("1970-01-01T00:00:00Z"))
+}
+
+/// Directory both sides agree on: `<data_local_dir>/handoff`.
+///
+/// Resolved through the same `directories::ProjectDirs` call the app makes
+/// (`ProjectDirs::from("com", "Maecly", "Pluryprint")`), because the app
+/// canonicalizes the incoming path and refuses anything that does not land
+/// inside *its* idea of this directory. On Windows this is under
+/// `%LOCALAPPDATA%`, which is ACL'd to the user — unlike a shared temp dir,
+/// where another account could plant a payload.
+pub fn handoff_dir() -> io::Result<PathBuf> {
+    directories::ProjectDirs::from("com", "Maecly", "Pluryprint")
+        .map(|d| d.data_local_dir().join("handoff"))
+        .ok_or_else(|| io::Error::other("no home directory to resolve the handoff directory in"))
+}
+
+/// Write `payload` into `dir` as `sel-<uuid>.json` and return the path.
+///
+/// Atomic: the JSON goes to a `.tmp` sibling and is renamed into place, so the
+/// app can never observe a half-written file even though it may be launched
+/// the instant the rename lands.
+pub fn write_to_dir(dir: &Path, payload: &Handoff) -> io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+
+    let id = uuid::Uuid::now_v7().simple().to_string();
+    let path = dir.join(format!("sel-{id}.json"));
+    let tmp = dir.join(format!("sel-{id}.json.tmp"));
+
+    let bytes = serde_json::to_vec(payload).map_err(io::Error::other)?;
+    std::fs::write(&tmp, &bytes)?;
+    match std::fs::rename(&tmp, &path) {
+        Ok(()) => Ok(path),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
+}
+
+/// Build and write a handoff file in one step, into the real handoff directory.
+pub fn write(paths: &[PathBuf], action: Action, profile_id: Option<String>) -> io::Result<PathBuf> {
+    let payload = build(paths, action, profile_id, time::OffsetDateTime::now_utc());
+    write_to_dir(&handoff_dir()?, &payload)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(s: &str) -> time::OffsetDateTime {
+        time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339).unwrap()
+    }
+
+    #[test]
+    fn fr_001_builds_the_payload_the_app_expects() {
+        let h = build(
+            &[PathBuf::from(r"C:\a.pdf")],
+            Action::Configure,
+            None,
+            at("2026-07-20T21:11:03Z"),
+        );
+        assert_eq!(h.schema_version, SCHEMA_VERSION);
+        assert_eq!(h.source, "windows-explorer");
+        assert_eq!(h.invoked_at, "2026-07-20T21:11:03Z");
+        assert_eq!(h.paths, vec![r"C:\a.pdf"]);
+    }
+
+    #[test]
+    fn fr_003_truncates_at_the_limit_the_app_enforces() {
+        let many: Vec<PathBuf> = (0..MAX_PATHS + 10)
+            .map(|i| PathBuf::from(format!(r"C:\f{i}.pdf")))
+            .collect();
+        let h = build(&many, Action::Queue, None, at("2026-07-20T21:11:03Z"));
+        // Exactly at the cap, so the app accepts it instead of refusing the
+        // whole selection…
+        assert_eq!(h.paths.len(), MAX_PATHS);
+        // …and the app learns how much was left out.
+        assert_eq!(h.truncated_from, Some((MAX_PATHS + 10) as u32));
+
+        let few = build(&many[..3], Action::Queue, None, at("2026-07-20T21:11:03Z"));
+        assert_eq!(few.truncated_from, None);
+    }
+
+    /// FR-003: a selection is trimmed by bytes as well as by count, so the
+    /// app never refuses the file as too large (it used to: 10,000 deep
+    /// OneDrive paths went over the reader's cap and nothing printed).
+    #[test]
+    fn fr_003_truncates_by_size_before_the_app_would_refuse_the_file() {
+        let long = format!(
+            r"C:\Users\ana\OneDrive - Empresa\Facturación\{}",
+            "x".repeat(400)
+        );
+        let many: Vec<PathBuf> = (0..100)
+            .map(|i| PathBuf::from(format!(r"{long}\f{i}.pdf")))
+            .collect();
+        let budget = ENVELOPE_RESERVE + 10 * 1024;
+        let h = build_within(
+            &many,
+            Action::Queue,
+            None,
+            at("2026-07-20T21:11:03Z"),
+            budget,
+        );
+        assert!(
+            !h.paths.is_empty() && h.paths.len() < 100,
+            "{}",
+            h.paths.len()
+        );
+        assert_eq!(h.truncated_from, Some(100));
+        let bytes = serde_json::to_vec(&h).unwrap();
+        assert!(bytes.len() <= budget, "{} > {budget}", bytes.len());
+        // Kept in order: the first files of the selection, not a sample.
+        assert_eq!(h.paths[0], many[0].to_string_lossy());
+    }
+
+    #[test]
+    fn fr_001_offsets_are_normalized_to_utc() {
+        // A non-UTC clock must still produce a `Z` stamp: the consumer's
+        // freshness window compares against `now_utc()`.
+        assert_eq!(
+            format_rfc3339(at("2026-07-20T23:11:03+02:00")),
+            "2026-07-20T21:11:03Z"
+        );
+    }
+}

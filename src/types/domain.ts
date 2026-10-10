@@ -21,6 +21,7 @@ export type JobState =
   | 'converted'
   | 'printing'
   | 'done'
+  | 'unconfirmed'
   | 'failed'
   | 'paused'
   | 'cancelled';
@@ -29,12 +30,19 @@ export type JobState =
  * Lightweight UI-only representations the screens render. They are populated
  * from live IPC via the `toUi*` adapters in `src/lib/ipc.ts`.
  */
-export type UiPrinterType = 'laser' | 'mfp' | 'wide' | 'label' | 'virtual';
+export type UiPrinterType =
+  | 'laser'
+  | 'inkjet'
+  | 'mfp'
+  | 'wide'
+  | 'label'
+  | 'virtual'
+  | 'printer';
 
 /** Status the Printers screen renders (distinct from the IPC `PrinterStatus`). */
 export type UiPrinterStatus = 'ready' | 'offline' | 'error' | 'busy';
 
-/** MaeclyPrint-managed state for a printer (independent of the OS spooler). */
+/** Pluryprint-managed state for a printer (independent of the OS spooler). */
 export type UiPrinterState = 'default' | 'active' | 'disabled';
 
 export interface UiTray {
@@ -56,6 +64,14 @@ export interface UiPrinter {
   type: UiPrinterType;
   color: boolean;
   duplex: boolean;
+  /**
+   * The OS could not say whether it prints in colour / two-sided (a failed
+   * capability probe, a driver that does not answer, a colour option under a
+   * vendor name). `color`/`duplex` are then `false` but mean "unknown": no
+   * screen may warn that the printer cannot do it.
+   */
+  colorUnknown?: boolean;
+  duplexUnknown?: boolean;
   status: UiPrinterStatus;
   isDefault: boolean;
   location: string;
@@ -97,6 +113,11 @@ export interface UiProfile {
   scaling: 'fit' | 'shrink' | 'none';
   quality: 'draft' | 'normal' | 'high';
   tray: string;
+  /**
+   * Collate multiple copies (whole sets, 1-2-3 1-2-3) rather than grouping each
+   * page (1-1 2-2 3-3). Absent means collated, the backend's default.
+   */
+  collate?: boolean;
   /** Page-range expression (e.g. "1-5,8"); absent means all pages. */
   pageRange?: string;
 }
@@ -117,9 +138,16 @@ export interface UiQueueJob {
   ext: string;
   status: JobState;
   progress: number;
-  pages: number;
+  /**
+   * Page count, or `null` when it is unknown (a PDF too large or too broken
+   * to probe, or one that failed before conversion). Never `0` for "unknown":
+   * that reads as an empty document.
+   */
+  pages: number | null;
   profile: string;
-  printer: string;
+  /** The printer the job used or will use; absent means the system default
+   *  (the views render the translated "Default printer" label). */
+  printer?: string;
   startedAt: string;
   finishedAt?: string;
   sizeKb: number;

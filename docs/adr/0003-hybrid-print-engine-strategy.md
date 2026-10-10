@@ -1,8 +1,10 @@
 # ADR-0003: Hybrid print-engine strategy
 
+> The converters for HTML, Markdown and text are replaced by [ADR-0012](./0012-system-web-view-renderer.md) (the system web view, in a worker); the hybrid strategy itself stands.
+
 ## Status
 
-Accepted
+Accepted; HTML, Markdown and text converters superseded by ADR-0012
 
 ## Date
 

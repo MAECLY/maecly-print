@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import globals from 'globals';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
@@ -16,6 +17,10 @@ export default tseslint.config(
       'src/ipc/bindings.ts',
       'docs',
       'claude design',
+      // Agent worktrees are whole checkouts of this repo (with their own
+      // node_modules and build output); linting them from here would lint
+      // every branch twice and pick up their generated files.
+      '.claude/**',
     ],
   },
   {
@@ -44,6 +49,26 @@ export default tseslint.config(
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
     },
+  },
+  {
+    // Accessibility gate required by docs/08-development/coding-standards.md.
+    // Only JSX carries markup, so the plugin is scoped to .tsx files.
+    // TODO: the recommended rules are temporarily downgraded to 'warn' while the
+    // existing violations are split across the team; raise the severity map to
+    // 'error' at the end of the accessibility campaign so CI blocks regressions.
+    files: ['**/*.tsx'],
+    plugins: { 'jsx-a11y': jsxA11y },
+    rules: Object.fromEntries(
+      Object.entries(jsxA11y.configs.recommended.rules).map(([rule, entry]) => {
+        const [severity, ...options] = Array.isArray(entry) ? entry : [entry];
+        // Rules the preset deliberately disables stay disabled.
+        const downgraded = severity === 'off' ? 'off' : 'warn';
+        return [
+          rule,
+          options.length > 0 ? [downgraded, ...options] : downgraded,
+        ];
+      }),
+    ),
   },
   {
     // E2E specs run under WebdriverIO + Mocha in Node, not the browser. The

@@ -1,36 +1,167 @@
-//! Update-check IPC command.
+//! Update IPC commands.
 //!
-//! [`check_for_updates`] resolves the project's GitHub slug, fetches the latest
-//! release, and folds it against the running version into an [`UpdateCheck`].
-//! There is no download/install here — the frontend surfaces the link and the
-//! user decides.
+//! [`check_for_updates`] reads the release manifest of the configured channel
+//! (FR-085) and folds it against the running version into an [`UpdateCheck`].
+//! [`install_update`] is FR-084's "install now": it downloads the signed
+//! artifact named by the release manifest, verifies it (FR-082), installs it
+//! per-user (FR-083) and refuses a major jump without explicit opt-in
+//! (FR-087) — see [`crate::update::install`]. [`restart_app`] finishes the
+//! job on platforms where the new version runs only after a relaunch.
+//!
+//! [`get_update_state`] and [`set_skipped_update_version`] back the FR-084
+//! decision the app *can* honour today: "skip this version". The state itself
+//! lives in [`crate::update::UpdateState`].
+//!
+//! FR-080's launch-time check is scheduled from `lib.rs`'s `setup`
+//! ([`crate::update::run_startup_check`] after
+//! [`crate::update::STARTUP_CHECK_DELAY`]) and reaches the UI as the
+//! [`UpdateAvailable`] event declared below — the push counterpart to
+//! [`check_for_updates`], for the user who is not on the About screen.
 
-use crate::update::{self, UpdateCheck};
+use serde::Serialize;
+
+use crate::update::install::{UpdateDownloadProgress, UpdateInstallResult};
+use crate::update::{self, UpdateCheck, UpdateState};
 use crate::util::error::IpcError;
 
-/// Check GitHub for a newer release than the running build.
+/// A launch-time check found a release worth mentioning (FR-080).
+///
+/// Emitted **only** when [`crate::update::run_startup_check`] returns a result:
+/// the preference is on, the 24h window had elapsed, the release is strictly
+/// newer, and it is not the one the user skipped (FR-084). Silence is the
+/// normal case, so the frontend never has to filter this event — receiving it
+/// is already the decision to tell the user.
+///
+/// Lives here rather than in [`crate::ipc::events`] because it belongs to the
+/// update flow, the way `cli::pending::SelectionForwarded` belongs to the CLI
+/// one; the event name is the kebab-cased struct name, `"update-available"`.
+#[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
+pub struct UpdateAvailable(pub UpdateCheck);
+
+/// Check the configured channel's release manifest for a newer release than
+/// the running build.
 ///
 /// Runs off the IPC thread (a network round-trip). A misconfigured repository or
 /// any network/rate-limit failure surfaces as [`IpcError::UpdateCheckFailed`]
 /// with a short, user-facing message.
+///
+/// A successful check stamps [`UpdateState::last_check_at`], so a manual check
+/// postpones the next automatic one instead of stacking with it (FR-080). A
+/// failure to persist that stamp is logged, never surfaced: the user asked for
+/// a check, and they got one.
 #[tauri::command]
 #[specta::specta]
 pub async fn check_for_updates() -> Result<UpdateCheck, IpcError> {
     super::run_blocking(|| {
-        let (owner, repo) = update::repo_slug()
-            .ok_or_else(|| IpcError::UpdateCheckFailed("repository not configured".to_string()))?;
+        // FR-085: the channel picks the manifest; the install below reads
+        // the same one, so the version announced is the version installed.
+        let channel = crate::settings::Config::load_or_default().updater.channel;
 
-        // The configured channel is read but does not change the endpoint yet:
-        // every check hits the single `releases/latest` feed because separate
-        // beta/nightly feeds don't exist in this version.
-        let _channel = crate::settings::Config::load_or_default().updater.channel;
-
-        let release = update::fetch_latest(&owner, &repo).map_err(IpcError::UpdateCheckFailed)?;
-        Ok(update::evaluate(
+        let release = update::fetch_configured_latest(channel).map_err(IpcError::from)?;
+        let check = update::evaluate(
             env!("CARGO_PKG_VERSION"),
             release,
             crate::queue::job::now_rfc3339(),
-        ))
+        );
+
+        let mut state = UpdateState::load();
+        state.last_check_at = Some(check.checked_at.clone());
+        if let Err(e) = state.save() {
+            tracing::warn!(event = "update_state_save_failed", error = %e);
+        }
+
+        Ok(check)
     })
     .await
+}
+
+/// The persisted update bookkeeping: when the last check ran and which version
+/// the user skipped (FR-084), so the About screen can render "you skipped
+/// {version}" with a way back out. A skip that is no longer ahead of the
+/// running build is cleared on the way out.
+#[tauri::command]
+#[specta::specta]
+pub fn get_update_state() -> Result<UpdateState, IpcError> {
+    // A skip at or below the running version is history (the user upgraded
+    // past it), so it is dropped here rather than shown forever.
+    Ok(UpdateState::load_current_from(
+        &update::state_path(),
+        env!("CARGO_PKG_VERSION"),
+    ))
+}
+
+/// Record (or clear) the release the user chose to skip — FR-084's third
+/// option, next to "install now" and "remind me later".
+///
+/// `None` clears the skip, which is how the UI offers an undo. The value is
+/// stored verbatim (a release tag, `v1.2.0` or `1.2.0`); the comparison that
+/// decides whether to stay silent is version-aware, not textual, so either form
+/// works. Skipping is per-version: a *newer* release prompts again.
+#[tauri::command]
+#[specta::specta]
+pub fn set_skipped_update_version(version: Option<String>) -> Result<(), IpcError> {
+    let mut state = UpdateState::load();
+    state.skipped_version = version
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+    state.save().map_err(|e| {
+        IpcError::localized(
+            crate::util::error::IpcErrorCode::Internal,
+            "update_state_save_failed",
+            format!("could not save the update state: {e}"),
+        )
+    })
+}
+
+/// FR-084 "install now": download, verify and install the newest release.
+///
+/// Only ever runs because the user asked. `allow_major` is FR-087's separate
+/// opt-in for a major version jump; without it such a release is refused
+/// before anything is downloaded. `confirmed_version` is the release the user
+/// confirmed: a major jump to any *other* version (the manifest now names a
+/// newer one) is refused with `major_update_changed` instead of installed on
+/// the strength of a confirmation that was not for it. Progress is pushed as
+/// [`UpdateDownloadProgress`]. A tampered or unsigned artifact fails with
+/// [`IpcError::UpdateSignatureInvalid`] and nothing is installed.
+///
+/// On Windows a successful install hands over to the per-user installer and
+/// the app exits (the installer restarts it); elsewhere the result says a
+/// restart is required and the UI offers [`restart_app`].
+#[tauri::command]
+#[specta::specta]
+pub async fn install_update(
+    app: tauri::AppHandle,
+    allow_major: bool,
+    confirmed_version: Option<String>,
+) -> Result<UpdateInstallResult, IpcError> {
+    use tauri_specta::Event;
+
+    let channel = crate::settings::Config::load_or_default().updater.channel;
+    let Some(found) = update::install::find_update(&app, channel).await? else {
+        return Ok(UpdateInstallResult {
+            installed: None,
+            restart_required: false,
+        });
+    };
+    let emitter = app.clone();
+    update::install::install(
+        &found,
+        allow_major,
+        confirmed_version.as_deref(),
+        move |downloaded, total| {
+            let _ = UpdateDownloadProgress { downloaded, total }.emit(&emitter);
+        },
+    )
+    .await
+}
+
+/// Relaunch the app so an installed update takes effect.
+#[tauri::command]
+#[specta::specta]
+pub fn restart_app(app: tauri::AppHandle) {
+    tracing::info!(
+        event = "app_restart_requested",
+        "restarting to finish an update"
+    );
+    app.restart();
 }

@@ -1,15 +1,25 @@
 import { FileGlyph, MPCard, StatusDot } from '@/components/ui';
-import type { UiQueueJob } from '@/types/domain';
+import { useT } from '@/i18n/I18nProvider';
+import type { UiQueueJobView } from '@/lib/ipc';
+import { AttentionActions, type AttentionHandlers } from './AttentionActions';
+import { JobProgressBar } from './QueueListView';
+import { useJobLabels } from './useJobLabels';
 
-interface QueueBoardViewProps {
-  jobs: UiQueueJob[];
+interface QueueBoardViewProps extends AttentionHandlers {
+  jobs: UiQueueJobView[];
 }
 
-export function QueueBoardView({ jobs }: QueueBoardViewProps) {
+export function QueueBoardView({
+  jobs,
+  onEnterPassword,
+  onInstallDependency,
+}: QueueBoardViewProps) {
+  const t = useT('queue');
+  const labels = useJobLabels(jobs);
   const cols = [
     {
       key: 'queued',
-      label: 'Queued',
+      label: t('board.queued'),
       // `converted` (PDF ready, waiting for a printer) has no column of its own;
       // it belongs with the not-yet-printing work.
       items: jobs.filter((j) =>
@@ -18,19 +28,19 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
     },
     {
       key: 'converting',
-      label: 'Converting',
+      label: t('board.converting'),
       items: jobs.filter((j) => j.status === 'converting'),
     },
     {
       key: 'printing',
-      label: 'Printing',
+      label: t('board.printing'),
       items: jobs.filter((j) => j.status === 'printing'),
     },
     {
       key: 'done',
-      label: 'Done',
+      label: t('board.done'),
       items: jobs.filter((j) =>
-        ['done', 'failed', 'cancelled'].includes(j.status),
+        ['done', 'unconfirmed', 'failed', 'cancelled'].includes(j.status),
       ),
     },
   ];
@@ -42,14 +52,22 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
         overflow: 'auto',
         padding: 14,
         display: 'grid',
-        gridTemplateColumns: 'repeat(4,1fr)',
+        // minmax(0, …): a long file name ellipsizes instead of widening its
+        // column past the window at 880 px.
+        gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+        alignItems: 'start',
         gap: 12,
       }}
     >
       {cols.map((c) => (
         <div
           key={c.key}
-          style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            minWidth: 0,
+          }}
         >
           <div
             style={{
@@ -88,6 +106,7 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
               >
                 <FileGlyph ext={j.ext} size={18} />
                 <span
+                  title={j.file}
                   style={{
                     fontSize: 11.5,
                     fontWeight: 500,
@@ -109,28 +128,54 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
                   marginBottom: 8,
                 }}
               >
-                {j.pages}p · {j.profile}
+                {/* An unknown count is left out, never shown as "0p". */}
+                {j.pages != null && `${t('job.pages', { count: j.pages })} · `}
+                {j.profile}
+                {j.noteKey ? ` · ${t(`note.${j.noteKey}`)}` : ''}
               </div>
+              {/* FR-031 / WCAG 1.4.1: the Queued and Done columns mix several
+                  states, so each card says its state in words — the dot's
+                  colour alone cannot tell failed from printed. */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <StatusDot status={j.status} />
-                <div
+                <span
                   style={{
-                    flex: 1,
-                    height: 3,
-                    background: 'var(--mp-surface3)',
-                    borderRadius: 2,
-                    overflow: 'hidden',
+                    fontSize: 10,
+                    color:
+                      j.status === 'failed'
+                        ? 'var(--mp-error)'
+                        : 'var(--mp-textMuted)',
+                    textTransform: 'uppercase',
+                    whiteSpace: 'nowrap',
                   }}
                 >
-                  <div
-                    style={{
-                      height: '100%',
-                      width: `${(j.progress || 0) * 100}%`,
-                      background: 'var(--mp-accent)',
-                    }}
-                  />
+                  {t(`status.${j.status}`)}
+                </span>
+                <div style={{ flex: 1 }}>
+                  <JobProgressBar job={j} height={3} t={t} />
                 </div>
               </div>
+              {labels.error(j) && (
+                <div
+                  style={{
+                    fontSize: 10.5,
+                    // Unconfirmed is a warning, not a failure (FR-071).
+                    color:
+                      j.status === 'unconfirmed'
+                        ? 'var(--mp-warn)'
+                        : 'var(--mp-error)',
+                    marginTop: 6,
+                    overflowWrap: 'anywhere',
+                  }}
+                >
+                  {labels.error(j)}
+                </div>
+              )}
+              <AttentionActions
+                job={j}
+                onEnterPassword={onEnterPassword}
+                onInstallDependency={onInstallDependency}
+              />
             </MPCard>
           ))}
         </div>

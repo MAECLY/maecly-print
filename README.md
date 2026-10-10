@@ -1,9 +1,9 @@
-# MaeclyPrint
+# Pluryprint
 
 > **Open source batch file printing for Windows and macOS.** Right-click → print everything, with no 15-file limit, no Adobe required, and no $149 license fee.
 
 [![Status](https://img.shields.io/badge/status-pre--alpha-orange)](./docs/06-roadmap/milestones.md)
-[![License](https://img.shields.io/badge/license-GPLv3-blue)](./LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
 [![Stack](https://img.shields.io/badge/stack-Tauri%202%20%2B%20Rust%20%2B%20React-success)](./docs/04-architecture/tech-stack.md)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20%E2%86%92%20macOS-lightgrey)](./docs/06-roadmap/milestones.md)
 
@@ -15,40 +15,47 @@ Windows hides the **Print** verb from the right-click menu when you select more 
 
 So most people end up printing in tedious batches of 15-20 files, manually, again and again.
 
-## What MaeclyPrint does
+## What Pluryprint does
 
-MaeclyPrint adds a native entry to the **modern Windows 11 right-click menu**:
+Pluryprint adds an entry to the Explorer right-click menu (on Windows 11, under **Show more options**) and to the macOS Finder's **Services** menu:
 
 ```
-Right-click on any number of files → MaeclyPrint ▸
-                                       ├─ Print with default profile
-                                       ├─ Print with profile…
-                                       └─ Configure print job…
+Right-click on any number of files → Pluryprint ▸
+                                       ├─ Print 12 files          (default profile)
+                                       ├─ ──────────
+                                       ├─ Print with “Duplex BW”  (one row per profile, up to 8)
+                                       ├─ Print with “Photo Color”
+                                       ├─ ──────────
+                                       ├─ Configure print job…
+                                       └─ Add to print queue
 ```
 
 - Select **5, 50, or 500** files. They print.
-- Mix PDFs, images, Word docs, Excel sheets, HTML, Markdown — MaeclyPrint routes each to the right engine.
 - Use **profiles** (built-in or custom) to lock in your favorite settings: duplex BW, photo color, A3 simplex, whatever.
-- All **local**: no cloud, no telemetry, no account.
-- Auto-update built in: just click "Check for updates" — no GitHub Releases hunting.
+- **PDF** (encrypted ones too: it asks for the password and never stores it), **images** (JPG, PNG, TIFF, BMP, WebP, HEIC), **SVG**, **Word, Excel, PowerPoint and OpenDocument** (through LibreOffice), **RTF, TXT, HTML and Markdown**. GIF is not supported and is refused with a clear message.
+- All **local**: no cloud, no telemetry, no account. A printed page never reaches the network.
+
+The entry sits under **Show more options** on Windows 11 because a top-level entry needs a signed package, and Pluryprint ships without code-signing certificates for now ([ADR-0013](./docs/adr/0013-explorer-command-per-user-verb.md)).
 
 ## Status
 
-**Pre-alpha · M0 scaffold landed.** The repository now contains:
+**Pre-alpha, not yet released.** The repository stays private until the first stable release. What works today:
 
-- The full [`docs/`](./docs/README.md) tree (vision, requirements, architecture, ADRs, roadmap).
-- The Claude Design handoff bundle under [`claude design/`](./claude%20design/maeclyprint/README.md) — the source of truth for the visual design.
-- The frontend scaffold (`src/`): six screens (Home, Print Job, Queue, Profiles, Settings, About) ported 1:1 from the mockups, with mock data, theme + density switching, and an onboarding flow.
-- The backend skeleton (`src-tauri/`): Rust crate with `paths`, `error`, `logging`, `settings`, and a single diagnostic IPC command (`app_info`) wired through `tauri-specta` for typed bindings.
-- CI (`.github/workflows/ci.yml`), commit hooks (Husky + lint-staged + commitlint), and the standard community files (CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, CHANGELOG).
+- **Printing**, end to end, of every format above: PDFs pass through untouched; images, SVG, Markdown and text are converted inside the app; HTML, Markdown and text are paginated by the system's own web view (WebView2 / WebKit) in a sandboxed worker; Office and OpenDocument go through LibreOffice. Everything is spooled through the bundled SumatraPDF on Windows or `lp` (CUPS) on macOS. A missing LibreOffice (or, on Windows, the HEIC codecs) pauses the job, and the app offers to install it after asking.
+- **A persistent print queue** (`queue.json`): bounded concurrency, automatic retries with backoff, per-job and whole-queue pause/resume/cancel, crash recovery, and jobs followed in the OS queue until they really print (or end as _unconfirmed_).
+- **Profiles and settings on disk**: `profiles.toml` and `config.toml`, written atomically, plus profile import/export.
+- **Seven GUI screens** (Home, Print Job, Queue, Printers, Profiles, Settings, About) wired to the real backend, with keyboard shortcuts and the whole UI in English and Spanish.
+- **A headless CLI**: `pluryprint print|printers|profiles|queue|update`, `--help` everywhere, `--json` output, and documented exit codes (on Windows, `pluryprint-cli.exe`).
+- **A per-user Windows installer** (x64 and ARM64, English and Spanish, no administrator rights) that registers the Explorer entry, and an ad-hoc-signed `.dmg` per Mac architecture.
+- **Updates**: a check at start and from About, install in place with signature verification, stable and beta channels, defer / skip-this-version.
 
-**What is NOT here yet** — the M1 plan covers this:
+**What is NOT here yet:**
 
-- Real printing (queue, SumatraPDF adapter, image converter, CLI).
-- Persistence of profiles and config to disk via IPC.
-- Shell extension, multi-format adapters, auto-updater, signed installer.
+- **No published release.** The release workflow builds signed drafts on a tag ([releasing.md](./docs/07-build-and-release/releasing.md)); none has been published.
+- **No code-signing certificates**, by decision ([ADR-0011](./docs/adr/0011-release-channel.md)): expect SmartScreen and Gatekeeper warnings; the release notes say how to get past them. Updates are signed with Pluryprint's own key.
+- **No top-level Windows 11 menu entry** (see above), and no nightly builds.
 
-See the [roadmap](./docs/06-roadmap/milestones.md) for the full milestone path from `M0 — Foundation` through `M5 — macOS Port`.
+See the [roadmap](./docs/06-roadmap/milestones.md) for the milestone path, and the [functional requirements](./docs/03-requirements/functional-requirements.md) for per-requirement status.
 
 ## Quick start (developers)
 
@@ -72,7 +79,9 @@ pnpm dev
 pnpm tauri dev
 ```
 
-The web preview shows every screen with mock data so you can validate the UI without the Rust toolchain. The Tauri loop boots the real app, including the live `app_info` IPC round-trip on the About page.
+The web preview renders every screen without the Rust toolchain, but it has no Tauri host: IPC calls fail, so the screens show their empty and error states rather than real printers, jobs or profiles. Use it for layout and styling work only. `pnpm tauri dev` boots the real app against the real backend.
+
+The Explorer context-menu DLL is a separate crate with its own target directory — build and test it with `cargo build --manifest-path shell-ext-win/Cargo.toml` (Windows only; see [`shell-ext-win/README.md`](./shell-ext-win/README.md)). An installer build registers it; [installer-windows.md](./docs/07-build-and-release/installer-windows.md) has the three packaging steps.
 
 ## Documentation
 
@@ -87,36 +96,44 @@ All documentation lives under [`docs/`](./docs/README.md). Recommended starting 
 
 ## Stack
 
-| Layer                        | Technology                                                |
-| ---------------------------- | --------------------------------------------------------- |
-| Application framework        | [Tauri 2](https://tauri.app)                              |
-| Backend                      | Rust                                                      |
-| Frontend                     | React + TypeScript + Vite + Tailwind CSS                  |
-| Print engine (Win)           | [SumatraPDF](https://www.sumatrapdfreader.org/) (CLI)     |
-| Print engine (macOS, future) | CUPS (`lpr`)                                              |
-| Office conversion            | [LibreOffice](https://www.libreoffice.org/) (headless)    |
-| HTML conversion              | Chromium (headless)                                       |
-| Markdown conversion          | [Pandoc](https://pandoc.org/)                             |
-| Image preprocessing          | [ImageMagick](https://imagemagick.org/)                   |
-| Shell extension (Win)        | C++ COM DLL implementing `IExplorerCommand` + Sparse MSIX |
-| Installer (Win)              | [Inno Setup](https://jrsoftware.org/isinfo.php)           |
-| Auto-updater                 | Tauri Updater plugin                                      |
+| Layer                            | Technology                                                                                                  | State                          |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| Application framework            | [Tauri 2](https://tauri.app)                                                                                | In use                         |
+| Backend                          | Rust                                                                                                        | In use                         |
+| Frontend                         | React + TypeScript + Vite + Tailwind CSS                                                                    | In use                         |
+| Print engine (Win)               | [SumatraPDF](https://www.sumatrapdfreader.org/) 3.6.1 (CLI), bundled                                        | In use                         |
+| Print engine (macOS)             | CUPS (`lp`)                                                                                                 | In use                         |
+| Image, SVG, Markdown, text → PDF | Rust `image` + `lopdf`, `usvg` + `svg2pdf`, `pulldown-cmark` (no external binary)                           | In use                         |
+| HTML, Markdown, text pagination  | The system web view: WebView2 (Windows), WebKit (macOS), in a worker process                                | In use                         |
+| Office / ODF / RTF               | [LibreOffice](https://www.libreoffice.org/) (headless), installed by the user; RTF on macOS uses `textutil` | In use                         |
+| Shell extension (Win)            | Rust COM DLL implementing `IExplorerCommand`, registered per user                                           | In use; sparse package planned |
+| Finder integration               | `NSServices` provider inside the app (no separate `.appex`)                                                 | In use                         |
+| Installer (Win)                  | Tauri's per-user NSIS bundle                                                                                | In use                         |
+| Updates                          | Tauri Updater plugin, minisign-signed `latest.json` per channel on GitHub Releases                          | In use                         |
 
 Justification in [tech-stack.md](./docs/04-architecture/tech-stack.md) and the [ADRs](./docs/adr/README.md).
 
 ## License
 
-[GPLv3](./LICENSE). MaeclyPrint is and will remain free software. See [docs/09-legal/license.md](./docs/09-legal/license.md) for what that means in practice.
+Pluryprint is free software under the [GNU Affero General Public License v3.0](./LICENSE).
+Contributions are accepted under the [CLA](./CLA.md). The name, the wordmark and
+the mark belong to MAECLY and are not covered by that licence; see
+[TRADEMARKS.md](./TRADEMARKS.md). Bundled third-party licences:
+[THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md). For a commercial licence, write
+to hola@maecly.com. What the licence means in practice:
+[docs/09-legal/license.md](./docs/09-legal/license.md).
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING](./docs/08-development/contributing.md). Before opening a PR for non-trivial changes, please file an issue or start a discussion.
+Contributions are welcome — read [CONTRIBUTING.md](./CONTRIBUTING.md) and agree to the
+[Contributor License Agreement](./CLA.md); you keep the copyright in what you write.
+The full guide is in [docs/08-development/contributing.md](./docs/08-development/contributing.md). Before opening a PR for non-trivial changes, please file an issue or start a discussion.
 
 If you want to contribute a translation, see the [internationalization section](./docs/08-development/contributing.md#translations).
 
 ## Project name and trademark
 
-"MaeclyPrint" is a trademark of the project. Forks must rebrand. See [trademark policy](./docs/09-legal/trademark.md).
+"Pluryprint", its wordmark and the Abanico mark belong to the founder (MAECLY). Forks must rebrand: see [TRADEMARKS.md](./TRADEMARKS.md) and the [trademark policy](./docs/09-legal/trademark.md).
 
 ## Privacy
 
@@ -124,11 +141,11 @@ No telemetry by default. No cloud. Your files never leave your machine. See [pri
 
 ## Acknowledgements
 
-MaeclyPrint stands on the shoulders of these excellent open-source projects:
+Pluryprint stands on the shoulders of these excellent open-source projects:
 
 - [Tauri](https://tauri.app), [Rust](https://www.rust-lang.org/), [React](https://react.dev/)
 - [SumatraPDF](https://www.sumatrapdfreader.org/) for fast, reliable PDF printing on Windows
 - [LibreOffice](https://www.libreoffice.org/) for Office and ODF conversion
-- [Chromium](https://www.chromium.org/), [Pandoc](https://pandoc.org/), [ImageMagick](https://imagemagick.org/), [qpdf](https://github.com/qpdf/qpdf)
+- [resvg/usvg](https://github.com/linebender/resvg), [svg2pdf](https://github.com/typst/svg2pdf), [pulldown-cmark](https://github.com/pulldown-cmark/pulldown-cmark), [lopdf](https://github.com/J-F-Liu/lopdf) and the [image](https://github.com/image-rs/image) crate
 
 Full list and licenses in [third-party-licenses.md](./docs/09-legal/third-party-licenses.md).

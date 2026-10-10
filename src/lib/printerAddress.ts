@@ -67,6 +67,34 @@ export function isValidHost(s: string): boolean {
   return h.split('.').every((l) => label.test(l));
 }
 
+/** Bounds of a TCP port, for the port field. */
+export const MIN_PORT = 1;
+export const MAX_PORT = 65535;
+
+/**
+ * True when `s` is a TCP port: a plain integer from 1 to 65535. Rejects
+ * signs, decimals, exponents and blanks so `buildPrinterUri` never emits
+ * `ipp://host:-5/…` or `:70000`.
+ */
+export function isValidPort(s: string): boolean {
+  const p = s.trim();
+  if (!/^\d{1,5}$/.test(p)) return false;
+  const n = Number(p);
+  return n >= MIN_PORT && n <= MAX_PORT;
+}
+
+/**
+ * True when `s` can be a printer's display name: not blank, and free of
+ * control characters (the spooler stores it as the queue description). Any
+ * other character is fine — the backend derives an `lpadmin`-legal queue id
+ * from it and keeps this text verbatim for people to read.
+ */
+export function isValidDisplayName(s: string): boolean {
+  const n = s.trim();
+  // eslint-disable-next-line no-control-regex
+  return n.length > 0 && !/[\u0000-\u001f\u007f]/.test(n);
+}
+
 /**
  * Compose a spooler device URI, e.g.
  * `buildPrinterUri('ipp', '10.0.0.41')` → `ipp://10.0.0.41:631/ipp/print`.

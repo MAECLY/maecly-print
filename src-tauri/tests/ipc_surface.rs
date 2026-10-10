@@ -13,16 +13,19 @@
 //! - FIX 4: read paths skip ghost rows (blank/`builtin-` prefixed ids).
 //! - FIX 5: a corrupt `profiles.toml` never blocks switching the default to a
 //!   built-in id.
+//!
+//! It also owns the drift gate for the generated frontend bindings — see
+//! `bindings_ts_is_committed_in_sync`.
 
-use maeclyprint_lib::ipc::profiles::{
+use pluryprint_lib::ipc::profiles::{
     delete_profile_at, list_profiles_at, save_profile_at, set_default_profile_at,
 };
-use maeclyprint_lib::ipc::settings::set_app_settings_at;
-use maeclyprint_lib::profiles::{
+use pluryprint_lib::ipc::settings::set_app_settings_at;
+use pluryprint_lib::profiles::{
     self, Profile, ProfileDuplex, ProfilesFile, Quality, StoredProfile, BUILTIN_QUICK,
 };
-use maeclyprint_lib::queue::job::{ColorMode, Orientation, PaperSize, Scaling};
-use maeclyprint_lib::settings::{AppSettings, Config, Theme};
+use pluryprint_lib::queue::job::{ColorMode, Orientation, PaperSize, Scaling};
+use pluryprint_lib::settings::{AppSettings, Config, Theme};
 
 const GARBAGE: &[u8] = b"not = valid = toml ][";
 
@@ -40,6 +43,7 @@ fn stored(id: &str, name: &str) -> StoredProfile {
         page_range: None,
         quality: Quality::Normal,
         tray: "auto".to_string(),
+        collate: true,
     }
 }
 
@@ -53,6 +57,8 @@ fn app_settings_from(cfg: &Config) -> AppSettings {
         engine: cfg.engine.clone(),
         updater: cfg.updater.clone(),
         telemetry: cfg.telemetry.clone(),
+        // Server-computed annotations; a client sends whatever a read gave it.
+        meta: Default::default(),
     }
 }
 
@@ -186,27 +192,42 @@ fn fr_regression_fix2_dangling_default_still_allows_theme_save() {
     );
 }
 
+/// FR-008: `default_profile` has its own command (`set_default_profile`, also
+/// what `pluryprint profiles set-default` calls), so `set_app_settings` never
+/// writes it. A GUI holding a stale copy — the CLI changed the default and
+/// deleted the old one while the window was open — must neither revert the
+/// CLI's choice nor have every unrelated save refused because its stale id no
+/// longer names a profile.
 #[test]
-fn fr_regression_fix2_changed_default_to_nonexistent_rejects() {
+fn fr_008_set_app_settings_keeps_the_stored_default_profile() {
     let dir = tempfile::tempdir().unwrap();
     let config_path = dir.path().join("config.toml");
     let profiles_path = dir.path().join("profiles.toml");
 
-    Config::default().save_to(&config_path).unwrap();
+    let mut cfg = Config::default();
+    cfg.engine.default_profile = Some(BUILTIN_QUICK.to_string());
+    cfg.save_to(&config_path).unwrap();
 
-    // Now *change* the default to an id that names no profile → rejected.
+    // The window's cached bundle still names a profile that is gone.
     let mut settings = app_settings_from(&Config::load_from(&config_path));
-    settings.engine.default_profile = Some("does-not-exist".to_string());
-    let result = set_app_settings_at(&config_path, &profiles_path, settings);
-    assert!(
-        result.is_err(),
-        "changing the default to a nonexistent id must be rejected"
+    settings.engine.default_profile = Some("deleted-by-the-cli".to_string());
+    settings.app.theme = Theme::Dark;
+    let saved = set_app_settings_at(&config_path, &profiles_path, settings)
+        .expect("an unrelated toggle must still save");
+
+    assert_eq!(saved.app.theme, Theme::Dark);
+    assert_eq!(
+        saved.engine.default_profile.as_deref(),
+        Some(BUILTIN_QUICK),
+        "the reply carries the real default, so the client cache heals"
     );
-    // The rejected write left the stored default at its original (None) value.
-    assert!(Config::load_from(&config_path)
-        .engine
-        .default_profile
-        .is_none());
+    let reloaded = Config::load_from(&config_path);
+    assert_eq!(reloaded.app.theme, Theme::Dark);
+    assert_eq!(
+        reloaded.engine.default_profile.as_deref(),
+        Some(BUILTIN_QUICK),
+        "the stored default is never overwritten from this command"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -237,5 +258,166 @@ fn fr_regression_fix5_set_default_builtin_survives_corrupt_profiles() {
             .default_profile
             .as_deref(),
         Some(BUILTIN_QUICK)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Generated-bindings drift gate.
+// ---------------------------------------------------------------------------
+
+/// `src/ipc/bindings.ts` as **committed**: `include_str!` freezes the file at
+/// compile time, i.e. before a single test has run. Cargo tracks it as an input
+/// of this target, so editing the file forces a rebuild and refreshes this
+/// constant.
+const COMMITTED_BINDINGS: &str = include_str!("../../src/ipc/bindings.ts");
+
+/// Path of the same file on disk, read back *after* the run has regenerated it.
+fn bindings_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/ipc/bindings.ts")
+}
+
+/// First line where the two revisions disagree, rendered for a panic message.
+fn first_difference(committed: &str, regenerated: &str) -> String {
+    for (i, (old, new)) in committed.lines().zip(regenerated.lines()).enumerate() {
+        if old != new {
+            return format!(
+                "first difference at line {}:\n  committed:   {old}\n  regenerated: {new}",
+                i + 1
+            );
+        }
+    }
+    format!(
+        "line counts differ: committed {}, regenerated {}",
+        committed.lines().count(),
+        regenerated.lines().count()
+    )
+}
+
+/// The committed `src/ipc/bindings.ts` must already match the Rust command
+/// surface; a stale one fails the build instead of being silently rewritten.
+///
+/// How it works: `bindings_sync::bindings_are_current` (src/lib.rs) regenerates
+/// the file from the live `specta_builder()` earlier in the same `cargo test`
+/// run — cargo runs the lib's unit tests before the integration targets. So the
+/// bytes now on disk are the *regenerated* ones, while `COMMITTED_BINDINGS`
+/// still holds what was committed. They differ exactly when the checked-in file
+/// was out of date. (Running this target alone — `cargo test --test
+/// ipc_surface` — skips that regeneration, so the check only bites on a full
+/// `cargo test`, which is what CI runs.)
+///
+/// Regenerating on purpose: the refreshed file is already in the working tree
+/// when this fails, so the fix is to review and commit it. To refresh without
+/// failing the run, set `UPDATE_BINDINGS=1` (the only supported way to treat a
+/// rewrite as intentional):
+///
+/// ```text
+/// UPDATE_BINDINGS=1 cargo test --manifest-path src-tauri/Cargo.toml
+/// ```
+#[test]
+fn bindings_ts_is_committed_in_sync() {
+    let path = bindings_path();
+    let regenerated = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+
+    if regenerated == COMMITTED_BINDINGS {
+        return;
+    }
+
+    if std::env::var_os("UPDATE_BINDINGS").is_some() {
+        eprintln!(
+            "UPDATE_BINDINGS set: {} was refreshed from the Rust command surface — commit it.",
+            path.display()
+        );
+        return;
+    }
+
+    panic!(
+        "src/ipc/bindings.ts is out of sync with the Rust command surface.\n\
+         {}\n\n\
+         The regenerated file is already in your working tree — review and commit it.\n\
+         To regenerate without failing the run:\n  \
+         UPDATE_BINDINGS=1 cargo test --manifest-path src-tauri/Cargo.toml\n  \
+         (PowerShell: $env:UPDATE_BINDINGS=1; cargo test --manifest-path src-tauri/Cargo.toml)",
+        first_difference(COMMITTED_BINDINGS, &regenerated)
+    );
+}
+
+/// Every `#[tauri::command]` in the tree must be listed in the `invoke_handler`
+/// in `src/lib.rs`.
+///
+/// An unregistered command compiles, passes its own unit tests and looks
+/// finished in review, but never reaches `src/ipc/bindings.ts`, so the frontend
+/// has no way to call it. This campaign shipped that bug twice — once for
+/// `expand_folders` (folder support implemented and unreachable), once for a
+/// path-classification command that was never wired up and has since been
+/// removed — which is why it is a gate rather than a habit.
+///
+/// The check is textual on purpose: it needs to see the *source*, since an
+/// unregistered command leaves no trace in the compiled artifact to inspect.
+#[test]
+fn every_tauri_command_is_registered_in_the_invoke_handler() {
+    use std::collections::BTreeSet;
+
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let lib_rs = std::fs::read_to_string(src.join("lib.rs")).expect("read lib.rs");
+
+    // The `collect_commands![...]` list, which is what actually gets wired up.
+    let registered: BTreeSet<String> = lib_rs
+        .split_once("collect_commands![")
+        .map(|(_, rest)| rest.split_once(']').map(|(list, _)| list).unwrap_or(""))
+        .unwrap_or("")
+        .split(',')
+        .filter_map(|entry| entry.trim().rsplit("::").next())
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect();
+    assert!(
+        !registered.is_empty(),
+        "could not parse collect_commands! out of lib.rs — has the macro moved?"
+    );
+
+    let mut declared: BTreeSet<String> = BTreeSet::new();
+    let mut stack = vec![src];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("read_dir").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read source");
+            // Match the attribute only when it is the whole line, so prose that
+            // *mentions* `#[tauri::command]` is not mistaken for one. The
+            // function follows within a few lines, after `#[specta::specta]`
+            // and any doc comments.
+            let lines: Vec<&str> = text.lines().collect();
+            for (i, line) in lines.iter().enumerate() {
+                if line.trim() != "#[tauri::command]" {
+                    continue;
+                }
+                let name = lines[i + 1..]
+                    .iter()
+                    .find_map(|l| l.split_whitespace().skip_while(|t| *t != "fn").nth(1))
+                    .map(|tok| tok.split(['(', '<']).next().unwrap_or(tok));
+                if let Some(name) = name {
+                    declared.insert(name.to_owned());
+                }
+            }
+        }
+    }
+    assert!(
+        !declared.is_empty(),
+        "found no #[tauri::command] functions — has the scan broken?"
+    );
+
+    let missing: Vec<&String> = declared.difference(&registered).collect();
+    assert!(
+        missing.is_empty(),
+        "these #[tauri::command] functions are not in the collect_commands! list \
+         in src/lib.rs, so the frontend cannot call them: {missing:?}\n\
+         Either register them or drop the attribute if they are not IPC."
     );
 }

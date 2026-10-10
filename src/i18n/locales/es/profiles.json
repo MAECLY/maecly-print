@@ -1,0 +1,112 @@
+{
+  "title": "Perfiles",
+  "subtitle": "Combinaciones guardadas de impresora y ajustes",
+  "notice": {
+    "loadingTitle": "Cargando perfiles…",
+    "errorTitle": "Perfiles no disponibles",
+    "readOnly": "Para editar perfiles necesitas la aplicación de escritorio. Estos son los perfiles integrados.",
+    "loadingBody": "Leyendo tus perfiles guardados."
+  },
+  "actions": {
+    "newProfile": "Nuevo perfil",
+    "import": "Importar",
+    "export": "Exportar",
+    "clone": "Duplicar",
+    "makeDefault": "Predeterminado",
+    "delete": "Eliminar"
+  },
+  "badge": {
+    "unsaved": "sin guardar",
+    "builtin": "integrado",
+    "default": "predeterminado"
+  },
+  "builtinNames": {
+    "builtin-quick": "Rápido",
+    "builtin-duplex-bw": "Doble cara B/N",
+    "builtin-photo-color": "Foto color"
+  },
+  "detail": {
+    "id": "id: {{id}}",
+    "unsavedId": "(sin guardar)",
+    "simplex": "una cara",
+    "copyOf": "Copia de {{name}}",
+    "autoTray": "Automática"
+  },
+  "field": {
+    "name": "Nombre",
+    "printer": "Impresora",
+    "color": "Color",
+    "colorMode": "Modo de color",
+    "duplex": "Doble cara",
+    "copies": "Copias",
+    "paper": "Papel",
+    "orientation": "Orientación",
+    "scaling": "Escala",
+    "quality": "Calidad",
+    "tray": "Bandeja",
+    "pageRange": "Intervalo de páginas"
+  },
+  "option": {
+    "systemDefault": "Predeterminada del sistema",
+    "color": "Color",
+    "monochrome": "Blanco y negro",
+    "duplexOff": "Una cara",
+    "duplexLongEdge": "Doble cara · borde largo",
+    "duplexShortEdge": "Doble cara · borde corto",
+    "orientationAuto": "Automática",
+    "orientationPortrait": "Vertical",
+    "orientationLandscape": "Horizontal",
+    "scalingFit": "Ajustar a la página",
+    "scalingShrink": "Reducir si no cabe",
+    "scalingNone": "Tamaño real (100 %)",
+    "qualityDraft": "Borrador",
+    "qualityNormal": "Normal",
+    "qualityHigh": "Alta"
+  },
+  "editor": {
+    "namePlaceholder": "Nombre del perfil",
+    "trayPlaceholder": "auto",
+    "rangePlaceholder": "p. ej. 1-5,10",
+    "rangeHint": "Se aplica a los PDF y documentos; déjalo vacío para imprimir todas las páginas.",
+    "rangeError": "Usa números de página como 1-5,10 (los intervalos deben ir de menor a mayor).",
+    "copiesError": "Escribe un número entero del 1 al 999.",
+    "nameEmpty": "Escribe un nombre para el perfil.",
+    "nameTooLong": "El nombre no puede superar los 100 caracteres.",
+    "nameTaken": "Ya existe un perfil con este nombre.",
+    "trayQualityNote": "La bandeja y la calidad se envían con cada trabajo. La bandeja debe coincidir con el nombre que usa el driver de tu impresora. En Windows, Borrador y Alta se aplican convirtiéndolas en la configuración predeterminada de la impresora para tu cuenta solo mientras se envía el trabajo; si el driver no ofrece esa calidad, la vista previa de impresión lo indica.",
+    "restored": "Se han recuperado los cambios sin guardar de tu última visita.",
+    "cancel": "Cancelar",
+    "create": "Crear perfil",
+    "save": "Guardar cambios"
+  },
+  "confirm": {
+    "discardTitle": "¿Descartar los cambios sin guardar?",
+    "discardMessage": "Este perfil tiene cambios que no se han guardado. ¿Quieres descartarlos?",
+    "discardConfirm": "Descartar",
+    "deleteTitle": "Eliminar perfil",
+    "deleteMessage": "¿Eliminar «{{name}}»? Tendrás unos segundos para deshacerlo.",
+    "deleteConfirm": "Eliminar"
+  },
+  "toast": {
+    "saved": "Se ha guardado «{{name}}»",
+    "deleted": "Perfil eliminado",
+    "undo": "Deshacer",
+    "exported": "Se ha exportado «{{name}}»",
+    "imported_one": "Se ha importado {{count}} perfil",
+    "imported_other": "Se han importado {{count}} perfiles",
+    "changedOnDisk": "Este perfil se ha modificado fuera del editor. Si guardas, tu versión sustituirá a esa.",
+    "goneOnDisk": "Este perfil se ha eliminado fuera de la aplicación."
+  },
+  "tooltip": {
+    "deleteIsDefault": "Antes marca otro perfil como predeterminado",
+    "export": "Guarda este perfil como un archivo TOML que puedes compartir",
+    "exportDirty": "Guarda o descarta antes tus cambios: la exportación usa la versión guardada",
+    "import": "Añade perfiles desde un archivo TOML"
+  },
+  "dialog": {
+    "exportTitle": "Exportar perfil",
+    "importTitle": "Importar perfiles",
+    "fileType": "Perfil de Pluryprint",
+    "failed": "No se ha podido abrir el cuadro de diálogo de archivos."
+  }
+}

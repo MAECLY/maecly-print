@@ -1,0 +1,255 @@
+{
+  "actions": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close",
+    "done": "Done",
+    "retry": "Retry",
+    "delete": "Delete",
+    "reload": "Reload the app",
+    "openLogsFolder": "Open the logs folder"
+  },
+  "status": {
+    "loading": "Loading…",
+    "error": "Something went wrong",
+    "unavailable": "Unavailable"
+  },
+  "units": {
+    "file_one": "file",
+    "file_other": "files",
+    "job_one": "job",
+    "job_other": "jobs",
+    "page_one": "page",
+    "page_other": "pages"
+  },
+  "errors": {
+    "desktopOnly": "Printing requires the desktop app",
+    "unknown": "Unknown error"
+  },
+  "print": {
+    "sending_one": "Sending {{count}} file to printer…",
+    "sending_other": "Sending {{count}} files to printer…",
+    "queued_one": "{{count}} job queued",
+    "queued_other": "{{count}} jobs queued",
+    "held_one": "{{count}} job added to the queue, paused — start it from the Queue screen",
+    "held_other": "{{count}} jobs added to the queue, paused — start them from the Queue screen",
+    "nothingPrintable": "Nothing in that selection can be printed.",
+    "unknownProfile": "No profile is called “{{name}}”. Choose a profile before printing.",
+    "unknownProfileNotPrinted": "No profile is called “{{name}}”, so nothing was printed. The files are on the Print Job screen: choose a profile there.",
+    "profilesUnreadable": "Your profiles could not be read ({{reason}}). Choose a profile before printing.",
+    "profilesUnreadableNotPrinted": "Your profiles could not be read ({{reason}}), so nothing was printed. The files are on the Print Job screen."
+  },
+  "selection": {
+    "truncated": "Only the first {{sent}} of the {{total}} selected items reached Pluryprint. Select the rest separately to print them."
+  },
+  "shellMenu": {
+    "print_one": "Print 1 file",
+    "print_other": "Print {{count}} files",
+    "printWithProfile": "Print with “{{name}}”",
+    "configure": "Configure print job…",
+    "queue": "Add to print queue",
+    "tooltip": "Batch print the selected files with Pluryprint"
+  },
+  "errorBoundary": {
+    "title": "The app hit an unexpected error",
+    "hint": "This screen could not be rendered. Reloading usually clears it; the logs folder has the details.",
+    "detailsLabel": "Error details"
+  },
+  "ipcErrors": {
+    "codes": {
+      "FileNotFound": "File not found: {{detail}}",
+      "InvalidRequest": "The request was rejected: {{detail}}",
+      "UnsupportedFormat": "Unsupported file format: {{detail}}",
+      "ConversionFailed": "The file could not be converted for printing: {{detail}}",
+      "PrintFailed": "Printing failed: {{detail}}",
+      "UnsupportedSetting": "The printer does not support this setting: {{detail}}",
+      "DependencyMissing": "A required program is missing: {{detail}}",
+      "JobNotFound": "That job is no longer in the queue.",
+      "InvalidState": "That action is not possible for this job right now.",
+      "ProfileNotFound": "That profile no longer exists.",
+      "UpdateCheckFailed": "The update check failed: {{detail}}",
+      "UpdateInstallFailed": "The update could not be installed: {{detail}}",
+      "UpdateSignatureInvalid": "The downloaded update failed its signature check and was not installed.",
+      "Internal": "Something went wrong inside Pluryprint. The logs folder has the details.",
+      "PdfProtected": "This PDF is protected and cannot be printed as it is."
+    },
+    "reasons": {
+      "UpdateCheckFailed": {
+        "rate_limited": "GitHub's rate limit was reached. Try again later.",
+        "offline": "Could not reach github.com. Check your connection.",
+        "bad_status": "github.com returned an unexpected status ({{status}}).",
+        "bad_response": "GitHub sent an unexpected response. Try again later.",
+        "repo_missing": "This build's releases could not be reached on github.com: the repository is private or no longer exists.",
+        "not_configured": "This build has no update repository configured.",
+        "channel_unavailable": "No update has been published on this channel yet, or its releases are not public."
+      },
+      "Internal": {
+        "open_logs_failed": "Could not open the logs folder.",
+        "open_link_failed": "Could not open the link in your browser.",
+        "install_start_failed": "{{tool}} could not be started.",
+        "config_corrupt": "config.toml could not be read. Fix or remove it; your settings were not changed.",
+        "profiles_corrupt": "profiles.toml could not be read. Fix or remove it; nothing was changed.",
+        "profiles_invalid_entries": "profiles.toml has duplicate or invalid entries. Fix or remove it; nothing was changed.",
+        "path_unresolvable": "“{{path}}” could not be opened.",
+        "printer_list_unstable": "The printer list kept changing while it was being read. Try again.",
+        "printer_query_failed": "Windows reported an error while reading the printers.",
+        "discovery_failed": "Searching the network for printers failed.",
+        "update_state_save_failed": "Your update choice could not be saved."
+      },
+      "InvalidRequest": {
+        "url_not_allowed": "That link is not on the list of allowed sites.",
+        "unknown_default_profile": "The default profile no longer exists. Choose another one.",
+        "builtin_readonly": "Built-in profiles cannot be changed.",
+        "builtin_delete": "Built-in profiles cannot be deleted.",
+        "delete_default": "This is the default profile. Set another profile as default first.",
+        "id_too_long": "The profile id must be 100 characters or fewer.",
+        "name_empty": "The profile name cannot be empty.",
+        "name_too_long": "The profile name must be 100 characters or fewer.",
+        "name_taken": "A profile named “{{name}}” already exists.",
+        "copies_out_of_range": "Copies must be between 1 and 999.",
+        "page_range": "The page range is not valid.",
+        "import_too_large": "The file is too large to be a profile file.",
+        "import_unreadable": "The file could not be read.",
+        "import_malformed": "This is not a Pluryprint profile file.",
+        "import_unsupported_version": "The file uses profile format version {{version}}, which this version cannot read.",
+        "import_empty": "The file contains no profiles.",
+        "import_invalid_profile": "The profile “{{name}}” in the file is not valid.",
+        "add_printer_unsupported_scheme": "Pluryprint can't add a printer over {{scheme}}://. Add it from the system printer settings instead.",
+        "major_update_unconfirmed": "{{version}} is a major update from {{current}}; it is only installed after you confirm it.",
+        "major_update_changed": "You confirmed {{confirmed}}, but the update available now is {{version}}. Check for updates again and confirm that version.",
+        "reserved_id": "Profile ids starting with “builtin-” are reserved.",
+        "install_consent_required": "Nothing was installed: installing needs your confirmation.",
+        "install_not_offered": "That way of installing is not available for this component here.",
+        "install_tool_missing": "{{tool}} is not installed on this computer. Use the download page instead.",
+        "install_in_progress": "Another installation is still running, or an installer that was stopped is still finishing. Try again when it has ended.",
+        "no_files": "No files were selected to print.",
+        "not_a_file": "“{{name}}” is not a file.",
+        "file_too_large": "“{{name}}” is larger than the {{limit}} MB limit.",
+        "page_range_empty": "The page range is empty.",
+        "tray_empty": "Choose an input tray.",
+        "page_range_empty_entry": "The page range has an empty entry at position {{position}}.",
+        "page_range_incomplete": "“{{entry}}” is not a complete range; write it like “2-5”.",
+        "page_range_backwards": "The range “{{entry}}” runs backwards: {{start}} is greater than {{end}}.",
+        "page_number_invalid": "“{{token}}” is not a valid page number.",
+        "page_number_zero": "Page numbers start at 1, not 0.",
+        "page_range_outside_one": "“{{name}}”: {{span}} is outside the document, which has only 1 page.",
+        "page_range_outside_other": "“{{name}}”: {{span}} is outside the document, which has only {{count}} pages.",
+        "setting_out_of_range": "{{field}} must be between {{min}} and {{max}}.",
+        "setting_out_of_range_or_off": "{{field}} must be 0 (off) or between {{min}} and {{max}}.",
+        "locale_empty": "Choose a language.",
+        "path_empty": "The path is empty.",
+        "path_not_absolute": "“{{path}}” is not a full path.",
+        "printer_uri_invalid": "The printer address is not valid.",
+        "printer_option_invalid": "The paper size or tray set for this printer is not valid.",
+        "password_empty": "Enter the PDF's password."
+      },
+      "DependencyMissing": {
+        "ippfind_missing": "Network discovery needs the CUPS client tools (ippfind), which are not installed."
+      },
+      "PrintFailed": {
+        "set_default_failed": "The system could not set the default printer.",
+        "add_printer_needs_admin": "Adding a printer may require administrator rights. Use “Open printer settings” to add it from Windows.",
+        "spooler_down": "The Windows Print Spooler service is not running. Start it (Services → Print Spooler) and try again.",
+        "add_printer_no_ippurl": "This version of Windows cannot add an IPP printer from Pluryprint. Use “Open printer settings” to add it from Windows.",
+        "add_printer_failed": "The system could not add the printer. The logs folder has the details.",
+        "cups_unavailable": "The system print service (CUPS) did not respond.",
+        "test_page_failed": "The test page could not be prepared."
+      },
+      "UpdateSignatureInvalid": {
+        "signature_rejected": "The downloaded update failed its signature check and was NOT installed. It may have been tampered with or corrupted in transit; nothing on this computer was changed. Try again later, or download the release from the releases page."
+      },
+      "UpdateInstallFailed": {
+        "download_failed": "The update could not be downloaded. Check your connection and try again.",
+        "no_platform_update": "This release does not offer an update for this platform yet.",
+        "not_an_installed_app": "This copy of Pluryprint is not an installed app, so it cannot update itself. Download the release from the releases page instead.",
+        "install_failed": "The update could not be installed. The logs folder has the details.",
+        "bad_endpoint": "This build's update address is not valid.",
+        "app_not_located": "Pluryprint could not find its own installation to update it."
+      },
+      "InvalidState": {
+        "update_in_progress": "An update is already being installed.",
+        "resume_no_printer": "No printer is configured. Add one, or set a default on the Printers screen, then resume this job.",
+        "resume_printer_missing": "Printer “{{printer}}” is still not installed and nothing else is configured. Reinstall it, or reassign it on the Printers screen, then resume this job.",
+        "resume_printer_ambiguous": "Several printers are named “{{printer}}”. Choose one on the Printers screen or remove the duplicate, then resume this job.",
+        "resume_printer_disabled": "Printer “{{printer}}” is disabled in Pluryprint. Enable it on the Printers screen, then resume this job.",
+        "job_finished": "This job has already finished.",
+        "job_printing": "This job is already printing and can no longer be paused.",
+        "job_not_paused": "Only a paused job can be resumed.",
+        "job_not_failed": "Only a failed job can be retried.",
+        "job_cancelled": "The job was cancelled.",
+        "job_not_waiting_password": "This job is not waiting for a password."
+      },
+      "UnsupportedFormat": {
+        "not_printable": "Pluryprint cannot print files like “{{name}}”.",
+        "gif_not_supported": "“{{name}}” is a GIF image, and GIF is not supported. Convert it to PNG or JPEG first."
+      },
+      "PdfProtected": {
+        "password_required": "This PDF is protected with a password. Enter it to print the file.",
+        "password_incorrect": "That password does not open this PDF. Check it and try again.",
+        "printing_not_allowed": "The author of this PDF does not allow it to be printed.",
+        "unsupported_encryption": "This PDF uses a type of encryption Pluryprint cannot open."
+      }
+    },
+    "noHost": "This needs the desktop app (it is running in a plain browser preview)."
+  },
+  "toaster": {
+    "region": "Notifications",
+    "close": "Close notification"
+  },
+  "filePicker": {
+    "filterName": "Printable files"
+  },
+  "dialog": {
+    "close": "Close dialog"
+  },
+  "deps": {
+    "sumatra-pdf": {
+      "remediation": "SumatraPDF is missing, so no file can be printed on Windows. Install SumatraPDF, or place SumatraPDF.exe next to Pluryprint.exe."
+    },
+    "libre-office": {
+      "remediation": "LibreOffice is missing, so Office, OpenDocument and RTF files cannot be printed. Download it free from https://www.libreoffice.org/download",
+      "remediationMac": "LibreOffice is missing, so Office and OpenDocument files cannot be printed. Download it free from https://www.libreoffice.org/download"
+    },
+    "chromium": {
+      "remediation": "Pluryprint no longer uses Microsoft Edge or Google Chrome: HTML, Markdown and text files print with the system web view. Resume the job to print it."
+    },
+    "pandoc": {
+      "remediation": "Pluryprint no longer uses Pandoc: Markdown files print with the system web view. Resume the job to print it."
+    },
+    "heif-codec": {
+      "remediation": "The HEIF image decoder is missing, so HEIC/HEIF photos cannot be printed. Install “HEIF Image Extensions” (and “HEVC Video Extensions” for .heic) from the Microsoft Store. A job paused for it can then be resumed from the queue."
+    },
+    "hevc-codec": {
+      "remediation": "The HEVC video decoder this HEIC photo needs is missing. Install “HEVC Video Extensions” from the Microsoft Store. A job paused for it can then be resumed from the queue."
+    },
+    "no-heif-decoder": {
+      "remediation": "No HEIF image decoder is available on this system. Convert the photo to JPEG or PNG first."
+    },
+    "sips": {
+      "remediation": "sips, the macOS image tool, could not be found."
+    },
+    "cups": {
+      "remediation": "The system print service (CUPS) could not be started. Check that printing is set up on this computer."
+    },
+    "no-print-backend": {
+      "remediation": "Printing is not available on this platform."
+    }
+  },
+  "testPage": {
+    "title": "Pluryprint Test Page",
+    "tagline": "Open source batch printing for Windows and Mac.",
+    "headline": "Printer Test Page",
+    "confirm": "If you can read this clearly, your printer is working with Pluryprint.",
+    "prop1": "No 15-file limit",
+    "prop2": "No Adobe required",
+    "prop3": "No $149 license fee",
+    "defaults": "PRINTED WITH YOUR PLURYPRINT DEFAULTS",
+    "printer": "Printer",
+    "paper": "Paper",
+    "tray": "Tray",
+    "printerDefault": "printer default",
+    "color": "COLOR & ALIGNMENT",
+    "band": "Select 5, 50, or 500 files. Right-click. They print.",
+    "bandNote": "The commercial tools that do this cost $79-$149. Pluryprint is open source and free."
+  }
+}

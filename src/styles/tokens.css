@@ -1,5 +1,5 @@
 /*
- * MaeclyPrint design tokens.
+ * Pluryprint design tokens.
  * Ported 1:1 from `claude design/maeclyprint/project/brand.jsx` (MP_TOKENS).
  * Light  = warm-neutral, slightly papery.
  * Dark   = warm graphite, not blue-black.
@@ -10,6 +10,16 @@
  *
  * Theme is selected by adding `mp-light` or `mp-dark` to the document root
  * (see `src/lib/theme.ts`).
+ *
+ * Contrast (WCAG 2.1 AA, checked by `src/styles/tokens.test.ts`):
+ * - `textDim` / `textMuted` / `text` are real text, so they keep >= 4.5:1 on
+ *   bg, surface and surface2 (the sidebar and side panels).
+ * - `borderStrong` outlines form controls (checkbox, switch, input, select),
+ *   so it keeps >= 3:1 on bg, surface and surface2. `border` stays a quiet
+ *   divider and is never a control's only boundary.
+ * - `onAccent` is the text/glyph colour on an accent fill (primary buttons,
+ *   checked checkboxes): white on the light theme's burnt orange, near-black
+ *   on the dark theme's brighter orange — white there is only 2.8:1.
  */
 
 .mp-light {
@@ -18,11 +28,12 @@
   --mp-surface2: #f3f1ec;
   --mp-surface3: #eae7e0;
   --mp-border: #e2ded5;
-  --mp-borderStrong: #c9c3b7;
+  --mp-borderStrong: #8f897e;
   --mp-text: #1a1814;
   --mp-textMuted: #6b665d;
-  --mp-textDim: #9a9489;
+  --mp-textDim: #716b61;
   --mp-accent: #c2410c;
+  --mp-onAccent: #ffffff;
   --mp-accentSoft: #fdebd3;
   --mp-success: #3f6212;
   --mp-successSoft: #e5efd2;
@@ -48,11 +59,12 @@
   --mp-surface2: #23211b;
   --mp-surface3: #2d2a23;
   --mp-border: #33302a;
-  --mp-borderStrong: #4a4640;
+  --mp-borderStrong: #7a756b;
   --mp-text: #f0ede5;
   --mp-textMuted: #a8a296;
-  --mp-textDim: #6f6a60;
+  --mp-textDim: #8f897e;
   --mp-accent: #f97316;
+  --mp-onAccent: #1a1814;
   --mp-accentSoft: #3a1f0e;
   --mp-success: #9ccb4a;
   --mp-successSoft: #1f2a12;

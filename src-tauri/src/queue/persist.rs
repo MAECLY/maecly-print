@@ -94,7 +94,7 @@ pub fn load(path: &Path) -> QueueSnapshot {
                 event = "queue_schema_too_new",
                 found = snap.schema_version,
                 supported = SCHEMA_VERSION,
-                "queue.json was written by a newer MaeclyPrint; backing up and ignoring"
+                "queue.json was written by a newer Pluryprint; backing up and ignoring"
             );
             backup_corrupt(path);
             QueueSnapshot::default()
@@ -118,6 +118,14 @@ pub fn load(path: &Path) -> QueueSnapshot {
 /// left untouched. Pure; run this on the result of [`load`] before exposing the
 /// queue.
 ///
+/// One exception: a [`Printing`] job the spooler had already accepted (it
+/// carries its OS job id and the printer it went to) is **not** paused. Its
+/// paper may be coming out right now, and resuming it would spool a second
+/// copy; it stays `Printing` and the dispatcher picks the OS job up again
+/// when it starts ([`crate::queue::dispatcher`]'s bootstrap), so it ends as
+/// whatever the spooler says (done, cancelled, aborted). There is one print
+/// slot, so at most one such job can exist; any other is paused as usual.
+///
 /// [`Converting`]: crate::queue::job::JobState::Converting
 /// [`Printing`]: crate::queue::job::JobState::Printing
 /// [`Paused`]: crate::queue::job::JobState::Paused
@@ -129,14 +137,20 @@ pub fn recover(snap: QueueSnapshot) -> QueueSnapshot {
         jobs,
     } = snap;
 
+    let mut tracking = false;
     let jobs = jobs
         .into_iter()
         .map(|mut job| {
+            if !tracking && is_handed_off(&job) {
+                tracking = true;
+                job.progress = Some(crate::queue::job::JobProgress::indeterminate("printing"));
+                return job;
+            }
             if job.state.is_active() {
                 job.state = crate::queue::job::JobState::Paused;
                 job.error = Some(JobError::new(
                     "interrupted_by_shutdown",
-                    "MaeclyPrint was closed while this job was in progress.",
+                    "Pluryprint was closed while this job was in progress.",
                 ));
                 job.progress = None;
             }
@@ -149,6 +163,14 @@ pub fn recover(snap: QueueSnapshot) -> QueueSnapshot {
         queue_paused,
         jobs,
     }
+}
+
+/// Whether `job` was spooled and is waiting on its OS job: `Printing`, with
+/// the spooler's id and the printer it went to.
+pub fn is_handed_off(job: &Job) -> bool {
+    job.state == crate::queue::job::JobState::Printing
+        && job.os_job_id.is_some()
+        && job.printer_resolved.is_some()
 }
 
 /// Trim job history: keep every non-terminal job, plus the `cap` most recent
@@ -315,6 +337,37 @@ mod tests {
         // The untouched jobs never gained an error.
         assert!(recovered.jobs[2].error.is_none());
         assert!(recovered.jobs[3].error.is_none());
+    }
+
+    /// NFR-010 / FR-032: a print the spooler already accepted is not resumable
+    /// work. Pausing it as "interrupted" made Resume spool it a second time
+    /// while the first copy was still in the printer's queue.
+    #[test]
+    fn nfr_010_a_spooled_print_keeps_tracking_across_a_restart() {
+        let mut spooled = job(JobState::Printing, "2026-07-11T10:00:00Z");
+        spooled.os_job_id = Some("Office-42".to_string());
+        spooled.printer_resolved = Some("Office".to_string());
+        // Spooling had not returned an id yet: nothing to follow.
+        let mid_spool = job(JobState::Printing, "2026-07-11T10:01:00Z");
+
+        let recovered = recover(QueueSnapshot {
+            schema_version: SCHEMA_VERSION,
+            queue_paused: false,
+            jobs: vec![spooled, mid_spool],
+        });
+        let kept = &recovered.jobs[0];
+        assert_eq!(kept.state, JobState::Printing);
+        assert!(kept.error.is_none());
+        assert_eq!(kept.os_job_id.as_deref(), Some("Office-42"));
+        assert_eq!(
+            kept.progress.as_ref().map(|p| p.phase.as_str()),
+            Some("printing")
+        );
+        assert_eq!(recovered.jobs[1].state, JobState::Paused);
+        assert_eq!(
+            recovered.jobs[1].error.as_ref().unwrap().code,
+            "interrupted_by_shutdown"
+        );
     }
 
     #[test]

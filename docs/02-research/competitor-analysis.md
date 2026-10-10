@@ -1,6 +1,6 @@
 # Competitor Analysis
 
-> **TL;DR** — The batch-printing market is dominated by three commercial vendors (fCoder's Print Conductor / 2Printer / FolderMill, and Traction Software's Batch & Print Pro) and a handful of open-source projects that solve adjacent but not overlapping problems. None of the OSS projects covers the full intersection of *modern Windows shell integration*, *multi-format batch print*, and *active maintenance*. That intersection is the MaeclyPrint opportunity.
+> **TL;DR** — The batch-printing market is dominated by three commercial vendors (fCoder's Print Conductor / 2Printer / FolderMill, and Traction Software's Batch & Print Pro) and a handful of open-source projects that solve adjacent but not overlapping problems. None of the OSS projects covers the full intersection of *modern Windows shell integration*, *multi-format batch print*, and *active maintenance*. That intersection is the Pluryprint opportunity.
 
 ## Methodology
 
@@ -16,7 +16,7 @@ Each competitor below is evaluated on a consistent template:
 - **Platforms** — supported operating systems.
 - **Pros** — what they do well.
 - **Cons** — what they miss or do poorly.
-- **Notes for MaeclyPrint** — what we should learn, copy, or deliberately not do.
+- **Notes for Pluryprint** — what we should learn, copy, or deliberately not do.
 
 We treat published vendor materials as primary sources and supplement with hands-on observations where possible.
 
@@ -51,7 +51,7 @@ We treat published vendor materials as primary sources and supplement with hands
   - **No Windows context-menu integration.** Files must be added to the Print Conductor window; there is no right-click → Print all.
   - **No public API.** Automation is limited to importing file lists and command-line file passing.
   - Occasional reports of bugs in advanced settings (watermark + duplex interactions, n-up + collate edge cases) on user forums.
-- **Notes for MaeclyPrint.** Print Conductor sets the bar for breadth. We will not match its 90+ format list at MVP and we should not pretend to. We can match its feature *concepts* (profiles, load balancing, watermarks, separators) by v1.0, and we should beat it decisively on shell integration and price. Features we should adopt: file-list import (TXT/CSV), saved profiles, separator pages, n-up.
+- **Notes for Pluryprint.** Print Conductor sets the bar for breadth. We will not match its 90+ format list at MVP and we should not pretend to. We can match its feature *concepts* (profiles, load balancing, watermarks, separators) by v1.0, and we should beat it decisively on shell integration and price. Features we should adopt: file-list import (TXT/CSV), saved profiles, separator pages, n-up.
 
 ---
 
@@ -90,7 +90,7 @@ We treat published vendor materials as primary sources and supplement with hands
   - No GUI — strictly for users comfortable in a terminal.
   - $149 same as the GUI version, so users tend to buy Print Conductor for the same money.
   - Windows-only.
-- **Notes for MaeclyPrint.** 2Printer's flag design is a model. Our CLI should adopt the same conceptual structure (`--src`, `--printer`, `--props`, `--options`, `--postproc`) so that anyone migrating from 2Printer feels at home. Single Print Job Mode is a feature we should ship from the start: it is the antidote to the ordering races that plague `ShellExecute`-based scripts.
+- **Notes for Pluryprint.** 2Printer's flag design is a model. Our CLI should adopt the same conceptual structure (`--src`, `--printer`, `--props`, `--options`, `--postproc`) so that anyone migrating from 2Printer feels at home. Single Print Job Mode is a feature we should ship from the start: it is the antidote to the ordering races that plague `ShellExecute`-based scripts.
 
 ---
 
@@ -125,7 +125,7 @@ We treat published vendor materials as primary sources and supplement with hands
   - GUI feels dated.
   - No Windows shell context-menu integration.
   - Closed source.
-- **Notes for MaeclyPrint.** The hot folder + cloud monitoring + service mode combination is what makes Batch & Print Pro genuinely differentiated. Hot folders should be on our v1+ roadmap. Page text matching is novel and worth considering as a plugin. We should *not* try to compete on email monitoring at MVP — it pulls us into IMAP/OAuth complexity that distracts from the shell integration story.
+- **Notes for Pluryprint.** The hot folder + cloud monitoring + service mode combination is what makes Batch & Print Pro genuinely differentiated. Hot folders should be on our v1+ roadmap. Page text matching is novel and worth considering as a plugin. We should *not* try to compete on email monitoring at MVP — it pulls us into IMAP/OAuth complexity that distracts from the shell integration story.
 
 ---
 
@@ -149,7 +149,7 @@ We treat published vendor materials as primary sources and supplement with hands
   - No interactive print experience — you cannot use it to print *now*; you drop a file and wait.
   - No shell integration.
   - Closed source.
-- **Notes for MaeclyPrint.** FolderMill is the gold standard for hot-folder workflows. We should plan our hot-folder feature with the same rule/action mental model. We should not try to compete on the *24/7 service* angle until well after v1.0 — running as a Windows Service brings a different security and packaging surface (LocalSystem credentials, GP integration) that we should defer.
+- **Notes for Pluryprint.** FolderMill is the gold standard for hot-folder workflows. We should plan our hot-folder feature with the same rule/action mental model. We should not try to compete on the *24/7 service* angle until well after v1.0 — running as a Windows Service brings a different security and packaging surface (LocalSystem credentials, GP integration) that we should defer.
 
 ---
 
@@ -177,7 +177,7 @@ We treat published vendor materials as primary sources and supplement with hands
   - Closed source despite being freeware.
   - UI shows its 1990s heritage.
   - Not actively maintained at the cadence of modern projects.
-- **Notes for MaeclyPrint.** PrintFile's pretty-printing feature is something we could absorb later (a "format source code" preprocessing option for code files), but the rest of its functionality is supplanted by anything that handles modern formats. Useful as a reminder that there is space for small, focused, free utilities — but legacy-only feature scope is not where MaeclyPrint should live.
+- **Notes for Pluryprint.** PrintFile's pretty-printing feature is something we could absorb later (a "format source code" preprocessing option for code files), but the rest of its functionality is supplanted by anything that handles modern formats. Useful as a reminder that there is space for small, focused, free utilities — but legacy-only feature scope is not where Pluryprint should live.
 
 ---
 
@@ -203,8 +203,8 @@ We treat published vendor materials as primary sources and supplement with hands
   - Well architected for its problem domain.
   - ARM64 support is a forward-looking choice.
 - **Cons.**
-  - **Solves the inverse problem** — converts print jobs to files, not files to print jobs. It is complementary to MaeclyPrint, not competitive.
-- **Notes for MaeclyPrint.** clawPDF is a useful sister project. We should mention it in the README's "Related projects" section and consider documenting interoperability ("use clawPDF to convert, then MaeclyPrint to batch-print"). Its codebase is also worth studying for Windows print-driver integration patterns and for ARM64 packaging.
+  - **Solves the inverse problem** — converts print jobs to files, not files to print jobs. It is complementary to Pluryprint, not competitive.
+- **Notes for Pluryprint.** clawPDF is a useful sister project. We should mention it in the README's "Related projects" section and consider documenting interoperability ("use clawPDF to convert, then Pluryprint to batch-print"). Its codebase is also worth studying for Windows print-driver integration patterns and for ARM64 packaging.
 
 ---
 
@@ -227,7 +227,7 @@ We treat published vendor materials as primary sources and supplement with hands
   - Requires manual tuning of the timer that decides when to kill Reader.
   - No error handling.
   - No ordering guarantees.
-- **Notes for MaeclyPrint.** This is exactly the kind of project our existence makes obsolete. Worth linking in our docs as "the previous state of the OSS art."
+- **Notes for Pluryprint.** This is exactly the kind of project our existence makes obsolete. Worth linking in our docs as "the previous state of the OSS art."
 
 ---
 
@@ -248,7 +248,7 @@ We treat published vendor materials as primary sources and supplement with hands
   - Beta status at time of abandonment.
   - .NET Framework target predates modern Windows packaging.
   - Heavy reliance on application automation (Office Interop, Adobe DDE) inherits all the brittleness those approaches imply.
-- **Notes for MaeclyPrint.** A cautionary tale. The lesson is to (a) avoid hard dependencies on the user having Word, Excel, or Adobe installed, (b) build on a foundation that will still be supported a decade out (Tauri + Rust over .NET Framework + Office Interop), and (c) prioritize a sustainable maintenance model over feature ambition.
+- **Notes for Pluryprint.** A cautionary tale. The lesson is to (a) avoid hard dependencies on the user having Word, Excel, or Adobe installed, (b) build on a foundation that will still be supported a decade out (Tauri + Rust over .NET Framework + Office Interop), and (c) prioritize a sustainable maintenance model over feature ambition.
 
 ---
 
@@ -266,14 +266,14 @@ The detailed feature-by-feature comparison lives in [feature-matrix.md](./featur
 | clawPDF | AGPL-3.0 | $0 | n/a (virtual printer) | n/a | ✓ | ✓ |
 | Batch PDF Printer | GPL-3.0 | $0 | ✗ (PDF only) | ✗ | Limited | ✓ |
 | DarkStorm's BPH | GPL-2.0 | $0 | Partial | ✗ | ✗ (2015) | ✓ |
-| **MaeclyPrint MVP** | **GPL-3.0** | **$0** | **Partial (PDF, Office, images, text)** | **✓ (modern + legacy)** | **✓** | **✓** |
-| **MaeclyPrint v1.0** | **GPL-3.0** | **$0** | **✓ (broad)** | **✓** | **✓** | **✓** |
+| **Pluryprint MVP** | **AGPL-3.0** | **$0** | **Partial (PDF, Office, images, text)** | **✓ (modern + legacy)** | **✓** | **✓** |
+| **Pluryprint v1.0** | **AGPL-3.0** | **$0** | **✓ (broad)** | **✓** | **✓** | **✓** |
 
 ## Strategic Conclusions
 
-1. **Do not compete on format breadth at MVP.** Print Conductor has a 20-year head start on its renderer pipeline. MaeclyPrint should ship the formats users batch-print 95% of the time (PDF, Office, images, text), then add formats methodically based on issue tracker demand.
+1. **Do not compete on format breadth at MVP.** Print Conductor has a 20-year head start on its renderer pipeline. Pluryprint should ship the formats users batch-print 95% of the time (PDF, Office, images, text), then add formats methodically based on issue tracker demand.
 2. **Compete decisively on shell integration.** It is the gap none of the incumbents fills.
-3. **Compete decisively on price (zero).** Free GPLv3 is unanswerable for a category whose lowest-priced commercial option is $79.95.
+3. **Compete decisively on price (zero).** Free AGPL-3.0 software is unanswerable for a category whose lowest-priced commercial option is $79.95.
 4. **Borrow CLI design from 2Printer.** No need to invent a new flag taxonomy.
 5. **Borrow the rule/action model from FolderMill** when we add hot folders.
 6. **Borrow load balancing from Print Conductor 11** when we add multi-printer support.

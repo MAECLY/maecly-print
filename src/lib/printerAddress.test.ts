@@ -3,9 +3,42 @@ import { describe, it, expect } from 'vitest';
 import {
   buildPrinterUri,
   DEFAULT_PORTS,
+  isValidDisplayName,
   isValidHost,
+  isValidPort,
   type PrinterProtocol,
 } from './printerAddress';
+
+describe('isValidPort', () => {
+  it.each([
+    ['631', true],
+    ['1', true],
+    ['65535', true],
+    [' 9100 ', true],
+    ['0', false],
+    ['-5', false],
+    ['70000', false],
+    ['631.5', false],
+    ['1e3', false],
+    ['', false],
+    ['abc', false],
+  ])('FR-044: isValidPort(%j) === %s', (input, expected) => {
+    expect(isValidPort(input)).toBe(expected);
+  });
+});
+
+describe('isValidDisplayName', () => {
+  it.each([
+    ["Ana's printer", true],
+    ['Impresora de recepción', true],
+    ['Printer?2', true],
+    ['', false],
+    ['   ', false],
+    ['tab\there', false],
+  ])('FR-044: isValidDisplayName(%j) === %s', (input, expected) => {
+    expect(isValidDisplayName(input)).toBe(expected);
+  });
+});
 
 describe('isValidHost', () => {
   it.each([
@@ -89,6 +122,26 @@ describe('buildPrinterUri', () => {
     expect(buildPrinterUri('ipp', '  10.0.0.41  ')).toBe(
       'ipp://10.0.0.41:631/ipp/print',
     );
+  });
+
+  it('FR-044: keeps a bracketed IPv6 literal intact in the authority', () => {
+    // The brackets are what separate the address's colons from the port —
+    // dropping them would produce `ipp://fe80::1:631/…`, a different host.
+    expect(buildPrinterUri('ipp', '[fe80::1]')).toBe(
+      'ipp://[fe80::1]:631/ipp/print',
+    );
+    expect(buildPrinterUri('socket', '[2001:db8::1]', 9100)).toBe(
+      'socket://[2001:db8::1]:9100',
+    );
+  });
+
+  it('FR-042: only builds URIs the backend can install', () => {
+    // Every scheme the form can emit is one the platform layer accepts
+    // (`lpadmin -m everywhere` for ipp/ipps, `-m raw` for socket/lpd).
+    const schemes = (['ipp', 'ipps', 'socket', 'lpd'] as PrinterProtocol[]).map(
+      (p) => buildPrinterUri(p, 'host').split('://')[0],
+    );
+    expect(schemes).toEqual(['ipp', 'ipps', 'socket', 'lpd']);
   });
 
   it('resolves each protocol to its default port', () => {

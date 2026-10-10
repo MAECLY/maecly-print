@@ -1,8 +1,10 @@
 # ADR-0002: License — GPLv3
 
+> Superseded on 2026-10-09 by [ADR-0010](./0010-relicense-to-agpl-3.0.md): Pluryprint is now AGPL-3.0-only, with contributions under a CLA.
+
 ## Status
 
-Accepted
+Superseded by ADR-0010
 
 ## Date
 

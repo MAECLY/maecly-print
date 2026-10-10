@@ -1,0 +1,202 @@
+{
+  "title": "Print Job",
+  "subtitle": "{{files}} · {{pages}} · {{size}}",
+  "units": {
+    "file_one": "{{count}} file",
+    "file_other": "{{count}} files",
+    "page_one": "{{count}} page",
+    "page_other": "{{count}} pages",
+    "pageAtLeast_one": "at least {{count}} page",
+    "pageAtLeast_other": "at least {{count}} pages"
+  },
+  "actions": {
+    "addFolder": "Add folder",
+    "addFiles": "Add files",
+    "print": "Print {{count}}"
+  },
+  "list": {
+    "heading": "Files in this job",
+    "label": "Files in this job, in print order",
+    "reorderHint": "reorder",
+    "reorderKeys": "Alt + ↑↓",
+    "row": "{{position}} of {{total}}: {{name}}",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "remove": "Remove {{name}}",
+    "image": "image",
+    "inFolder": "in {{folder}}",
+    "pagesUnknown": "pages unknown",
+    "reorderKeysMac": "⌥ ↑↓",
+    "reorderKeysSpoken": "Alt + Up or Down arrow",
+    "reorderKeysSpokenMac": "Option + Up or Down arrow"
+  },
+  "empty": {
+    "desktop": "No files yet. Drag files or folders from Explorer or Finder, or use Add files.",
+    "web": "Adding files requires the desktop app."
+  },
+  "dependencies": {
+    "title": "Missing dependency",
+    "affected_one": "{{count}} file in this job needs it.",
+    "affected_other": "{{count}} files in this job need it.",
+    "installButton": "Install…",
+    "checkAgain": "Check again",
+    "checking": "Checking…"
+  },
+  "install": {
+    "title": "Install {{name}}",
+    "how": "How to install it",
+    "method": {
+      "winget": "Install with winget (Windows Package Manager)",
+      "winget-store": "Install from the Microsoft Store with winget",
+      "store": "Open it in the Microsoft Store",
+      "brew-cask": "Install with Homebrew",
+      "web": "Open the download page"
+    },
+    "unavailable": "Not available on this computer.",
+    "willRun": "Pluryprint will run exactly this command:",
+    "willOpen": "Pluryprint will open:",
+    "needsAdmin": "Windows will ask for administrator permission (UAC) during the installation.",
+    "paid": "This component may cost money in the Microsoft Store.",
+    "size": "Download size: about {{mb}} MB.",
+    "neverSilent": "Nothing is installed until you press the button below.",
+    "output": "Installer output",
+    "running": "Installing…",
+    "install": "Install",
+    "open": "Open",
+    "result": {
+      "installed": "{{name}} is installed. The files that needed it can print now.",
+      "installedAlone": "{{name}} is installed.",
+      "installedResumed_one": "{{name}} is installed. The job in the queue that needed it is resuming.",
+      "installedResumed_other": "{{name}} is installed. The {{count}} jobs in the queue that needed it are resuming.",
+      "installedResumeFailed_one": "{{name}} is installed, but the job in the queue that needed it could not be resumed. Resume it from the queue.",
+      "installedResumeFailed_other": "{{name}} is installed, but {{count}} jobs in the queue that needed it could not be resumed. Resume them from the queue.",
+      "installedResumeUnchecked": "{{name}} is installed, but Pluryprint could not read the queue to resume the jobs that needed it. Resume them from the queue.",
+      "notDetected": "The installer finished, but Pluryprint does not see {{name}} yet. Restart Pluryprint and try again.",
+      "opened": "Finish the installation in the window that opened. Pluryprint checks again when you come back to Print Job.",
+      "openedAlone": "Finish the installation in the window that opened. Pluryprint looks for {{name}} again when you open Print Job, and the jobs in the queue waiting for it resume when you come back to Pluryprint with the Queue open.",
+      "openedResumesJobs": "Finish the installation in the window that opened. Pluryprint checks again when you come back to it and resumes the jobs waiting for {{name}}.",
+      "failed": "The installation did not finish (code {{code}}). Try the download page instead.",
+      "failedNoCode": "The installer stopped without saying why. Try the download page instead.",
+      "timedOut": "The installer took too long and was stopped. Try again, or use the download page instead.",
+      "cancelled": "You stopped the installation. Nothing else will run unless you start it again.",
+      "cancelRequestedInstallerMayContinue": "Pluryprint stopped what it could, but the {{name}} installer runs with administrator rights and may still be working: its window may still be open. Close it there if you want to stop it, or let it finish.",
+      "cancelRequestedMayContinueUnconfirmed": "Pluryprint stopped what it could, but it could not confirm that everything the {{name}} installer started has ended, so it may still be working. You can install again once it has finished.",
+      "timedOutInstallerMayContinue": "The {{name}} installer took too long. Pluryprint stopped what it could, but the installer runs with administrator rights and may still be working: its window may still be open. Close it there if you want to stop it, or let it finish.",
+      "timedOutMayContinueUnconfirmed": "The {{name}} installer took too long. Pluryprint stopped what it could, but it could not confirm that everything the installer started has ended, so it may still be working. You can install again once it has finished.",
+      "unknownEnd": "The installation of {{name}} ended while Pluryprint was not watching, and it cannot tell how. Check again to see whether {{name}} is installed."
+    },
+    "background": "Run in background",
+    "backgroundHint": "You can keep using Pluryprint: closing this window does not stop the installation, and you will be told when it ends.",
+    "stop": "Stop installation",
+    "stopping": "Stopping the installation…",
+    "busyWith": "Pluryprint is installing {{name}}. You can install this one when it finishes, or stop that installation here.",
+    "busyFinishing": "The {{name}} installer that was stopped may still be running. You can install again once it has finished."
+  },
+  "folders": {
+    "title_one": "{{count}} folder added",
+    "title_other": "{{count}} folders added",
+    "question": "Print everything inside “{{name}}”, including subfolders?",
+    "recursive": "Include subfolders",
+    "topLevel": "Top level only",
+    "skip": "Skip this folder",
+    "expanding": "Reading “{{name}}”…",
+    "empty": "“{{name}}” holds no printable files.",
+    "truncatedFiles": "“{{name}}” holds more than {{max}} entries — only the first {{max}} were read.",
+    "truncatedDepth": "“{{name}}” is deeper than {{max}} levels — the deepest folders were not read."
+  },
+  "toasts": {
+    "rejected_one": "Can't print {{count}} file",
+    "rejected_other": "Can't print {{count}} files",
+    "skipped_one": "Skipped {{count}} file in “{{name}}”",
+    "skipped_other": "Skipped {{count}} files in “{{name}}”",
+    "added_one": "Added {{count}} file from “{{name}}”",
+    "added_other": "Added {{count}} files from “{{name}}”",
+    "alreadyAdded": "Every file in “{{name}}” is already in the job."
+  },
+  "settings": {
+    "profile": "Profile",
+    "builtinSuffix": " · built-in",
+    "printer": "Printer",
+    "systemDefault": "System default",
+    "sides": "Sides",
+    "color": "Color",
+    "copies": "Copies",
+    "copiesSuffix": "× per file",
+    "collate": "Collate copies",
+    "paper": "Paper",
+    "paperPrinterDefault": "Printer default",
+    "orientation": "Orient.",
+    "orientationLabel": "Orientation",
+    "scaling": "Scaling",
+    "pageRange": "Page range",
+    "removedPrinterOption": "{{name}} (removed from Pluryprint)"
+  },
+  "sides": {
+    "single": "Single",
+    "long": "Long",
+    "short": "Short"
+  },
+  "color": {
+    "color": "Color",
+    "monochrome": "B&W"
+  },
+  "orientation": {
+    "auto": "Auto",
+    "portrait": "Portrait",
+    "landscape": "Landscape"
+  },
+  "scaling": {
+    "fit": "Fit",
+    "shrink": "Shrink",
+    "none": "100%"
+  },
+  "copies": {
+    "error": "Enter a whole number from 1 to 999."
+  },
+  "pageRange": {
+    "placeholder": "e.g. 1-5,10",
+    "syntaxError": "Use page numbers like 1-5,10 (ranges must ascend).",
+    "outOfBounds_one": "“{{name}}” only has {{count}} page.",
+    "outOfBounds_other": "“{{name}}” only has {{count}} pages.",
+    "hint": "Applies to PDFs and documents — images ignore the range."
+  },
+  "preview": {
+    "title": "Resolved command",
+    "notePrefix": "note",
+    "qualityWords": {
+      "draft": "draft",
+      "high": "high"
+    },
+    "notes": {
+      "quality_offered": "SumatraPDF has no print-quality switch, so \"{{quality}}\" is applied by making it this printer's default for your Windows account only while the job is handed to the spooler; the job's own settings are checked afterwards and logged.",
+      "quality_unknown": "SumatraPDF has no print-quality switch, so \"{{quality}}\" is tried by making it this printer's default for your Windows account while the job is handed to the spooler; whether the driver kept it is checked afterwards and logged.",
+      "quality_not_offered": "the driver for this printer offers no \"{{quality}}\" quality, so it is NOT applied — the printer's own default quality is used.",
+      "quality_pending_restore": "an earlier quality change on this printer could not be undone yet, so \"{{quality}}\" is NOT applied — the printer's current default is used until Pluryprint puts your own back (see the log).",
+      "collated_not_applied": "SumatraPDF has no collate switch, so \"collated\" is NOT applied — the driver's own collation is used for the {{copies}} copies.",
+      "uncollated_not_applied": "SumatraPDF has no collate switch, so \"uncollated\" is NOT applied — the driver's own collation is used for the {{copies}} copies.",
+      "paper_not_listed": "the driver for this printer does not list the paper size \"{{paper}}\", so it is NOT applied — the printer's own paper setting is used.",
+      "tray_not_listed": "the driver for this printer lists no tray named \"{{tray}}\", so it is NOT applied — the printer's default tray is used."
+    }
+  },
+  "rejectReason": {
+    "not_found": "File not found",
+    "invalid_path": "The path could not be read",
+    "folder": "Folder — add it to print the files inside",
+    "not_a_file": "Not a file",
+    "too_large": "Larger than the {{limit}} MB limit",
+    "too_large_unknown": "Larger than the file size limit",
+    "unsupported_type": "Unsupported file type",
+    "gif_unsupported": "GIF images are not supported — convert them to PNG or JPEG first"
+  },
+  "skipReason": {
+    "unsupported_format": "Unsupported file type (.{{ext}})",
+    "too_large": "Larger than the file size limit",
+    "unreadable": "Could not be read"
+  },
+  "capability": {
+    "noDuplex": "{{name}} cannot print two-sided: the job will pause until you choose Single or another printer.",
+    "noColor": "{{name}} prints in black and white only: color pages come out in grey.",
+    "systemDefaultRemoved": "System default is {{name}}, which is removed from Pluryprint: choose a printer, or files that are not routed elsewhere will not print.",
+    "printerRemoved": "{{name}} is removed from Pluryprint: this job will pause until you restore it on the Printers screen or choose another printer."
+  }
+}

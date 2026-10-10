@@ -1,143 +1,152 @@
 # Functional Requirements
 
-> **TL;DR** — Numbered, testable statements of what MaeclyPrint must do, grouped by capability area, each tagged with priority (`MUST`/`SHOULD`/`MAY`) and MVP inclusion (yes/no).
+> **TL;DR** — Numbered, testable statements of what Pluryprint must do, grouped by capability area, each tagged with priority (`MUST`/`SHOULD`/`MAY`), MVP inclusion (yes/no), and **implementation status verified against the source** (Done / Partial / Open).
 
-This document is the canonical list of functional requirements (FRs) for MaeclyPrint. Each requirement has a stable ID (`FR-XXX`) used in commit messages, PR descriptions, and test names. Non-functional requirements (performance, security, accessibility, i18n) live in [non-functional-requirements.md](./non-functional-requirements.md).
+This document is the canonical list of functional requirements (FRs) for Pluryprint. Each requirement has a stable ID (`FR-XXX`) used in commit messages, PR descriptions, and test names. Non-functional requirements (performance, security, accessibility, i18n) live in [non-functional-requirements.md](./non-functional-requirements.md).
 
 ## Conventions
 
 - **Priority** uses RFC 2119 keywords: `MUST` (mandatory), `SHOULD` (recommended), `MAY` (optional).
 - **MVP** is `yes` if the requirement must ship in v0.1.0, `no` otherwise.
+- **Status** is what the code does *today*, not what is planned. Three values only:
+  - **Done** — implemented and reachable by a user, with test coverage.
+  - **Partial** — some of it works; the row says which part does not. A requirement whose machinery is written but which a user cannot actually reach is Partial, not Done.
+  - **Open** — not implemented.
 - Requirements may be revised between drafts but their ID is permanent. Withdrawn requirements remain in the file marked `[WITHDRAWN]` with a pointer to the replacement.
+
+> **Status audit: 2026-07-20, revised after round 3 (2026-10-10).** Every row below was checked against the source, not against another document. Where a doc and the code disagreed, the code won. Milestone-level status lives in [milestones.md](../06-roadmap/milestones.md); this table and that page are the only two places status is tracked.
+>
+> The installer gap that dominated the first audit is closed: the per-user NSIS installer ([ADR-0008](../adr/0008-installer-nsis-per-user.md)) registers the Explorer command, a Start-menu shortcut and the uninstaller, and was verified on Windows 11 ARM64. What remains open for a user is the Windows 11 **top-level** menu, which needs a signed sparse package (decision D3), and the first published release: `release.yml` builds signed drafts on a tag, but the repository stays private until the first stable release.
 
 ---
 
 ## 1. Selection & Invocation
 
-| ID | Requirement | Priority | MVP |
-|---|---|---|---|
-| FR-001 | The user MUST be able to invoke MaeclyPrint by selecting one or more files in Windows Explorer and choosing **Print with MaeclyPrint** from the right-click context menu. | MUST | yes |
-| FR-002 | The context menu entry MUST appear in the **modern Windows 11 menu** (not relegated to "Show more options"). | MUST | yes |
-| FR-003 | The system MUST accept selections of **any size** (no 15-file limit). The shell extension SHALL receive the full `IShellItemArray` regardless of count. | MUST | yes |
-| FR-004 | The system MUST accept folder selections; when a folder is right-clicked, the user MUST be offered the option to recurse or stay top-level. | MUST | yes |
-| FR-005 | The system MUST filter out files whose extension is not in the supported list, and warn the user before discarding them. | MUST | yes |
-| FR-006 | The user MUST be able to launch the GUI via Start menu, desktop shortcut, or `maeclyprint` command. | MUST | yes |
-| FR-007 | The user MUST be able to drag and drop files/folders onto the GUI window to enqueue them for printing. | SHOULD | yes |
-| FR-008 | The user MAY invoke MaeclyPrint headlessly via CLI: `maeclyprint print --files <list> [--profile <name>] [--printer <name>] [...settings]`. | MUST | yes |
-| FR-009 | The CLI MUST return non-zero exit codes on failure with stable, documented codes. See [ipc-and-cli.md](../04-architecture/ipc-and-cli.md). | MUST | yes |
-| FR-010 | The CLI MUST support `--json` mode that emits machine-readable status to stdout. | SHOULD | no |
-| FR-011 | The system MAY accept selections via Windows "Send to" menu as a fallback when the modern menu is unavailable. | MAY | no |
+| ID | Requirement | Priority | MVP | Status |
+|---|---|---|---|---|
+| FR-001 | The user MUST be able to invoke Pluryprint by selecting one or more files in Windows Explorer and choosing **Print with Pluryprint** from the right-click context menu. | MUST | yes | **Done** — the per-user installer registers the `IExplorerCommand` handler (`shell-ext-win/`) as an `HKCU` verb on files and folders, choosing the DLL of the operating system's native architecture, and the handoff into the app is tested (`cli::handoff`). The entry is in the Windows 10 menu and, on Windows 11, under **Show more options** (Shift+F10). Verified with the installed build on Windows 11 24H2 ARM64 with UAC on, real right-clicks included (`scripts/vm/r3-contextmenu-e2e.ps1`). With UAC turned off Explorer runs elevated and ignores per-user COM classes, so the entry does not appear. macOS: Finder **Services › Print with Pluryprint**. |
+| FR-002 | The context menu entry MUST appear in the **modern Windows 11 menu** (not relegated to "Show more options"). | MUST | yes | **Open** — a third-party entry reaches the modern menu only through a packaged app identity, and Windows registers a sparse package only when it is signed with a certificate the machine trusts. There is no code-signing certificate (decision D3), so the sparse package is designed but not built ([shell-extensions.md §2.5](../04-architecture/shell-extensions.md)); the entry lives under **Show more options**. |
+| FR-003 | The system MUST accept selections of **any size** (no 15-file limit). The shell extension SHALL receive the full `IShellItemArray` regardless of count. | MUST | yes | **Done** — the handler enumerates the whole array with no cap, and a selection too large for argv (32,767 chars on Windows) travels in a JSON handoff file. Round-trip tested. The handoff carries at most 10,000 paths; a larger selection is cut to that and the original size travels in `truncated_from`, so the app warns that only the first 10,000 arrived instead of dropping the rest silently. |
+| FR-004 | The system MUST accept folder selections; when a folder is right-clicked, the user MUST be offered the option to recurse or stay top-level. | MUST | yes | **Done** — folders always qualify in the handler; `inspect_files` reports whether a folder has subfolders, the screen asks recurse-or-top-level only when there is something to recurse into, and `expand_folders` walks it with the answer. |
+| FR-005 | The system MUST filter out files whose extension is not in the supported list, and warn the user before discarding them. | MUST | yes | **Done** — filtered against `SUPPORTED_EXTS`; discarded files are returned with a reason and surfaced in the UI, never dropped silently. |
+| FR-006 | The user MUST be able to launch the GUI via Start menu, desktop shortcut, or `pluryprint` command. | MUST | yes | **Partial** — the installer creates a Start-menu shortcut, and a desktop shortcut from the checkbox on its last page (always for a silent or passive install); running the binary with no subcommand opens the GUI. Nothing puts `pluryprint` on `PATH`: the CLI is run by its full path (Home's **Run from CLI** card copies it). |
+| FR-007 | The user MUST be able to drag and drop files/folders onto the GUI window to enqueue them for printing. | SHOULD | yes | **Done** — files and folders both, folders through the same recurse prompt as FR-004. |
+| FR-008 | The user MAY invoke Pluryprint headlessly via CLI: `pluryprint print --files <list> [--profile <name>] [--printer <name>] [...settings]`. | MUST | yes | **Done** — `clap` surface in `cli::args`, five subcommand roots (`print`, `printers`, `profiles`, `queue`, `update`), no window created in headless mode. |
+| FR-009 | The CLI MUST return non-zero exit codes on failure with stable, documented codes. See [ipc-and-cli.md](../04-architecture/ipc-and-cli.md). | MUST | yes | **Done** — `cli::exit::ExitCode` maps every `IpcError` variant to a stable code; pinned by `tests/cli_contract.rs`. `queue cancel` / `cancel-all` fail (code 1, nothing written) while the app is running instead of reporting a cancel that would not happen. On Windows, shells only wait for (and read the code of) the console-subsystem `pluryprint-cli.exe` (`tests/cli_console_binary.rs`), which the installer places next to `pluryprint.exe`; the GUI-subsystem `pluryprint.exe` needs `start /wait` / `Start-Process -Wait`. A protected PDF is exit 13 (`PdfProtected`), and `print --json` keeps each failed file's stable reason. |
+| FR-010 | The CLI MUST support `--json` mode that emits machine-readable status to stdout. | SHOULD | no | **Done**, ahead of MVP — global `--json`, machine-readable on stdout, errors as JSON on stderr. |
+| FR-011 | The system MAY accept selections via Windows "Send to" menu as a fallback when the modern menu is unavailable. | MAY | no | **Open** — nothing registers a "Send to" target. |
 
 ## 2. Profile Management
 
-| ID | Requirement | Priority | MVP |
-|---|---|---|---|
-| FR-020 | The user MUST be able to create, read, update, and delete print profiles. | MUST | yes |
-| FR-021 | The system MUST ship with **3 built-in profiles** that cannot be deleted but can be cloned: `Quick`, `Duplex BW`, `Photo Color`. | MUST | yes |
-| FR-022 | The user MUST be able to mark exactly one profile as **default** for context menu invocations. | MUST | yes |
-| FR-023 | A profile MUST persist all supported print settings (printer, duplex, color, copies, paper, orientation, scaling, page ranges if applicable). | MUST | yes |
-| FR-024 | The user SHOULD be able to import and export profiles as TOML files for sharing across machines. | SHOULD | no |
-| FR-025 | The user MAY assign a profile-specific keyboard shortcut from the GUI (e.g., `Ctrl+Shift+1` invokes "Quick" profile on selected files). | MAY | no |
-| FR-026 | Profile changes MUST be saved atomically; an interrupted save MUST NOT corrupt the profile store. | MUST | yes |
-| FR-027 | The system MUST support an unlimited number of user-defined profiles (no artificial cap). | MUST | yes |
+| ID | Requirement | Priority | MVP | Status |
+|---|---|---|---|---|
+| FR-020 | The user MUST be able to create, read, update, and delete print profiles. | MUST | yes | **Done** — `ipc::profiles` CRUD behind a Profiles screen with an editor, clone and delete-with-undo. |
+| FR-021 | The system MUST ship with **3 built-in profiles** that cannot be deleted but can be cloned: `Quick`, `Duplex BW`, `Photo Color`. | MUST | yes | **Done** — built-ins live in code, are rejected for deletion, and clone into customs. |
+| FR-022 | The user MUST be able to mark exactly one profile as **default** for context menu invocations. | MUST | yes | **Done** — the default id lives in `config.toml`; `set_default_profile` switches it. |
+| FR-023 | A profile MUST persist all supported print settings (printer, duplex, color, copies, paper, orientation, scaling, page ranges if applicable). | MUST | yes | **Done** for every setting listed. A profile *also* carries `tray` and `quality`; both persist, are editable, and travel with every job (`toJobSettings`): CUPS applies both; on Windows the tray goes to SumatraPDF as the driver's bin id, and Draft/High through a temporary per-user default that is restored as soon as the job is in the spooler (decision D16, [print-settings.md](./print-settings.md#quality)). The printer is stored as the printer id (queue name), not its display name. |
+| FR-024 | The user SHOULD be able to import and export profiles as TOML files for sharing across machines. | SHOULD | no | **Done**, ahead of plan (was v0.3) — `export_profile` / `import_profiles`, wired to the Profiles screen. Not available from the CLI, and no drag-drop import. |
+| FR-025 | The user MAY assign a profile-specific keyboard shortcut from the GUI (e.g., `Ctrl+Shift+1` invokes "Quick" profile on selected files). | MAY | no | **Open** — app-wide shortcuts exist (NFR-034), per-profile ones do not. |
+| FR-026 | Profile changes MUST be saved atomically; an interrupted save MUST NOT corrupt the profile store. | MUST | yes | **Done** — temp-file + rename, covered by `tests/profile_roundtrip.rs::fr_026_atomic_save_no_partial_file`. |
+| FR-027 | The system MUST support an unlimited number of user-defined profiles (no artificial cap). | MUST | yes | **Done** — no cap in the store; `fr_027_five_hundred_profiles` exercises 500. The *menu* caps how many profiles it lists, which is a display limit, not a store limit. |
 
 ## 3. Print Job Lifecycle
 
-| ID | Requirement | Priority | MVP |
-|---|---|---|---|
-| FR-030 | The system MUST maintain a queue of pending and active print jobs persisted to disk so that a crash does not lose unprinted work. | MUST | yes |
-| FR-031 | The user MUST be able to view queue status: pending, converting, spooling, printed, failed. | MUST | yes |
-| FR-032 | The user MUST be able to **pause**, **resume**, and **cancel** individual jobs. | MUST | yes |
-| FR-033 | The user MUST be able to **pause/resume the entire queue**. | MUST | yes |
-| FR-034 | Failed jobs MUST be retried automatically up to **3 times** with exponential backoff before being marked permanently failed. | MUST | yes |
-| FR-035 | The system MUST log every job (start time, end time, file path, profile used, printer, page count, status, error if any) in a structured format. | MUST | yes |
-| FR-036 | The user MUST be able to view and clear the job history from the GUI. | SHOULD | yes |
-| FR-037 | The system SHOULD process jobs concurrently up to a configurable limit (default: 2 concurrent jobs to avoid printer queue contention). | SHOULD | no |
-| FR-038 | The system MAY support reordering pending jobs in the queue via drag and drop. | MAY | no |
+| ID | Requirement | Priority | MVP | Status |
+|---|---|---|---|---|
+| FR-030 | The system MUST maintain a queue of pending and active print jobs persisted to disk so that a crash does not lose unprinted work. | MUST | yes | **Done** — `queue.json` behind a single-writer dispatcher with crash recovery on boot. |
+| FR-031 | The user MUST be able to view queue status: pending, converting, spooling, printed, failed. | MUST | yes | **Done** — three views (list, board, timeline) fed by typed `queue-updated` / `job-progress-event` events. "Printed" is real: a spooled job stays `printing` until the OS job completes (CUPS `ipptool`/`lpstat`, Windows `GetJob`), and a job the OS queue holds, or a printer that needs attention, is shown as such. A job that left the OS queue without the spooler saying it printed, or that could not be followed, ends as **unconfirmed** (`print_unconfirmed`), never as printed. A Windows job reference carries the spooler's submission stamp, so a job id the spooler reuses after a restart is never followed or cancelled as ours. |
+| FR-032 | The user MUST be able to **pause**, **resume**, and **cancel** individual jobs. | MUST | yes | **Done** — `pause_job` / `resume_job` / `cancel_job`, plus `retry_job` and `cancel_all`. A job paused because its printer cannot print two-sided or is missing offers **Print one-sided** and **Send to another printer** (`adjust_job`), and one paused for a PDF password offers **Enter password** (`job_supply_password`). |
+| FR-033 | The user MUST be able to **pause/resume the entire queue**. | MUST | yes | **Done** — `pause_queue` / `resume_queue`. |
+| FR-034 | Failed jobs MUST be retried automatically up to **3 times** with exponential backoff before being marked permanently failed. | MUST | yes | **Done** — `MAX_ATTEMPTS = 4` (initial attempt plus 3 retries) with `RETRY_BACKOFFS` of 1s/5s/25s. Errors the user must fix (missing dependency, unsupported setting) pause instead of burning retries. |
+| FR-035 | The system MUST log every job (start time, end time, file path, profile used, printer, page count, status, error if any) in a structured format. | MUST | yes | **Done** — structured `tracing` records per job. Full paths are deliberately kept out of the default-level log (NFR-082): records carry the file name and the job id, so the "file path" clause is satisfied by an identifier, not an absolute path. The absolute path is emitted only at TRACE (`job_input_path`), for a user who opts in through `RUST_LOG`. The same rule covers `file_rejected`, `page_range_out_of_bounds`, `cli_job_printed`, `cache_delete_failed` and the handoff records. |
+| FR-036 | The user MUST be able to view and clear the job history from the GUI. | SHOULD | yes | **Partial** — finished jobs are visible in the Queue and clearable via `clear_done` behind a confirm dialog with an undo window. There is no separate persisted history with search/filter; that is v0.8. |
+| FR-037 | The system SHOULD process jobs concurrently up to a configurable limit (default: 2 concurrent jobs to avoid printer queue contention). | SHOULD | no | **Done**, ahead of MVP, with one scoping correction: the limit bounds concurrent **conversions**, not concurrent spooling. `engine.max_concurrent_conversions`, clamped 1–8 in both the loader and the IPC command, default 2, read into the dispatcher at app start and pushed to it again whenever the setting is saved (no restart). A paused, cancelled or timed-out conversion keeps its slot until its task actually stops, so the cap counts conversions in flight rather than jobs in the `converting` state. |
+| FR-038 | The system MAY support reordering pending jobs in the queue via drag and drop. | MAY | no | **Open** — no reorder command exists. |
 
 ## 4. Settings
 
 See [print-settings.md](./print-settings.md) for the full settings matrix.
 
-| ID | Requirement | Priority | MVP |
-|---|---|---|---|
-| FR-040 | The user MUST be able to override profile settings on a per-invocation basis without modifying the saved profile. | MUST | yes |
-| FR-041 | The "Configure print job" GUI MUST display all overridable settings with the profile's current values pre-filled. | MUST | yes |
-| FR-042 | The system MUST validate setting values before submitting (e.g., page ranges must parse, copies must be ≥1). | MUST | yes |
-| FR-043 | Invalid settings MUST surface inline error messages, not generic dialog boxes. | SHOULD | yes |
-| FR-044 | The system MUST list available printers from the OS spooler dynamically; no hard-coded printer names. | MUST | yes |
-| FR-045 | The system SHOULD remember the last-used printer per profile if the profile's `printer = "<default>"` placeholder is used. | SHOULD | no |
+| ID | Requirement | Priority | MVP | Status |
+|---|---|---|---|---|
+| FR-040 | The user MUST be able to override profile settings on a per-invocation basis without modifying the saved profile. | MUST | yes | **Done** — the Print Job screen edits a job-local copy; the profile is untouched unless explicitly saved. |
+| FR-041 | The "Configure print job" GUI MUST display all overridable settings with the profile's current values pre-filled. | MUST | yes | **Partial** — every setting except two is shown pre-filled and overridable, including the page range. The profile's `tray` and `quality` are sent with the job but the screen neither shows nor overrides them; change them in the profile. |
+| FR-042 | The system MUST validate setting values before submitting (e.g., page ranges must parse, copies must be ≥1). | MUST | yes | **Done** — `engine::pagerange` parses and bounds-checks against real page counts on both sides of the IPC boundary; an out-of-range value blocks Print. |
+| FR-043 | Invalid settings MUST surface inline error messages, not generic dialog boxes. | SHOULD | yes | **Done** — errors render inline next to the field. |
+| FR-044 | The system MUST list available printers from the OS spooler dynamically; no hard-coded printer names. | MUST | yes | **Done** — `list_printers` / `discover_printers` over the Windows spooler and CUPS; the queue id is what gets sent, not the display name. |
+| FR-045 | The system SHOULD remember the last-used printer per profile if the profile's `printer = "<default>"` placeholder is used. | SHOULD | no | **Open** — the `"<default>"` sentinel exists and resolves to the app or OS default printer, but nothing records a *last-used* printer per profile. |
 
 ## 5. Format Support
 
 See [supported-formats.md](./supported-formats.md) for the full per-format matrix.
 
-| ID | Requirement | Priority | MVP |
-|---|---|---|---|
-| FR-050 | The system MUST print **PDF** files natively (no conversion). | MUST | yes |
-| FR-051 | The system MUST print common raster images: **JPG, PNG**. | MUST | yes |
-| FR-052 | The system SHOULD print additional images: **TIFF, BMP, WebP, HEIC**. | SHOULD | yes |
-| FR-053 | The system SHOULD print **DOCX, XLSX, PPTX** via LibreOffice headless conversion. | SHOULD | no |
-| FR-054 | The system SHOULD print **ODT, ODS, ODP** via LibreOffice. | SHOULD | no |
-| FR-055 | The system SHOULD print **HTML** via Chromium headless `--print-to-pdf`. | SHOULD | no |
-| FR-056 | The system SHOULD print **Markdown** via Pandoc → PDF pipeline. | SHOULD | no |
-| FR-057 | The system SHOULD print **TXT** and **RTF** via LibreOffice. | SHOULD | no |
-| FR-058 | The system MUST detect missing optional dependencies (LibreOffice, Chromium, Pandoc) at startup and provide a clear remediation message in the UI ("LibreOffice is not installed — Office files will be skipped"). | MUST | no |
-| FR-059 | The system MUST NOT silently skip files; every unsupported file MUST be reported in the job log with reason. | MUST | yes |
-| FR-060 | The system MAY support additional formats via a plugin API in v2+ (CAD, Visio, EPUB, email). | MAY | no |
+| ID | Requirement | Priority | MVP | Status |
+|---|---|---|---|---|
+| FR-050 | The system MUST print **PDF** files natively (no conversion). | MUST | yes | **Done** — passthrough to SumatraPDF (Windows) or `lp` (macOS). |
+| FR-051 | The system MUST print common raster images: **JPG, PNG**. | MUST | yes | **Done** — but not the way the docs used to say. The pipeline is pure Rust: the `image` crate decodes and `lopdf` embeds the bitmap in a one-page PDF. **No ImageMagick dependency.** |
+| FR-052 | The system SHOULD print additional images: **TIFF, BMP, WebP, HEIC**. | SHOULD | yes | **Done** — TIFF, BMP and WebP are decoded in-process, and transparency is flattened onto white. HEIC/HEIF use the OS decoder (`engine::convert::heif`): `sips` on macOS, WIC on Windows. On Windows the Microsoft Store *HEIF Image Extensions* and *HEVC Video Extensions* are dependencies of their own, asked of WIC and Media Foundation; a missing one pauses the job with a `DependencyMissing` that names it and offers its Store install. The dependency report was run on Windows 11 ARM64 (HEIF found, HEVC missing); a real HEIC print on Windows has not been recorded. GIF is not in this list and is refused by name (decision D9). |
+| FR-052a | The system SHOULD print **SVG** and **SVGZ** drawings. | SHOULD | no | **Done** — `usvg` + `svg2pdf` write one vector page of the drawing's own size in a hidden worker process (`pluryprint --worker svg`), bounded like every converter, so a parser panic takes down the worker, not the app. Nothing is fetched: an `<image>` loads only from the SVG's own folder, never a share or URL, and SVGZ is inflated with a 64 MB cap. The worker is the resource boundary: a 1 GiB memory cap (Job Object on Windows, `RLIMIT_DATA` + watchdog on macOS/Linux) ends an oversized drawing as the terminal `svg_too_large`, the timeout as `tool_timed_out`. `tests/svg_worker.rs`. |
+| FR-053 | The system SHOULD print **DOCX, XLSX, PPTX** via LibreOffice headless conversion. | SHOULD | no | **Done** — `engine::convert::office` runs `soffice --headless --convert-to pdf` with a private `-env:UserInstallation` profile per conversion, so it works while LibreOffice is open. The profile is hardened first: linked pictures and objects are not fetched, links are not updated on load, macros and OLE/DDE are off, and LibreOffice's HTTP goes to a dead proxy (`fr_053_real_libreoffice_fetches_no_linked_resource`). It is bounded by the conversion timeout and the job's cancel flag (the process tree is killed). Legacy DOC/XLS/PPT take the same path. |
+| FR-054 | The system SHOULD print **ODT, ODS, ODP** via LibreOffice. | SHOULD | no | **Done** — the same LibreOffice path as FR-053. |
+| FR-055 | The system SHOULD print **HTML** via Chromium headless `--print-to-pdf`. | SHOULD | no | **Done**, by a different route (decision D15): the operating system's own web view (WebView2 `PrintToPdf` on Windows, `WKWebView` on macOS) prints a staged copy of the page in a hidden worker (`pluryprint --worker render-pdf`), with scripts off, no network, no file share and the job's paper. Nothing has to be installed. The web view's network layer is the security boundary: a WebView2 request filter answers every request (only the document's folder, `data:` and `blob:`; everything else gets a 403), on macOS the worker's own `WKURLSchemeHandler` serves the page and the document's folder (no symbolic link is followed out of it, round 7) and a `WKContentRuleList` blocks every other load, `file:` included; navigations away from the page are cancelled. The headless Edge/Chrome fallback (`[engine] html_renderer = "browser"`) was removed in round 6; a stored `"browser"` is ignored and the app says so once. `tests/render_worker.rs`. |
+| FR-056 | The system SHOULD print **Markdown** via Pandoc → PDF pipeline. | SHOULD | no | **Done**, by a different route: `pulldown-cmark` turns it into HTML in-process (raw HTML dropped, only local images kept), and the FR-055 renderer prints it. No Pandoc, no browser, no LaTeX. |
+| FR-057 | The system SHOULD print **TXT** and **RTF** via LibreOffice. | SHOULD | no | **Done**, with less LibreOffice than asked: TXT is decoded in-process (BOM, UTF-8, else Windows-1252) and printed by the FR-055 renderer; RTF goes through `textutil` and that renderer on macOS, and through the FR-053 LibreOffice path on Windows. |
+| FR-058 | The system MUST detect missing optional dependencies (LibreOffice, Chromium, Pandoc) at startup and provide a clear remediation message in the UI ("LibreOffice is not installed — Office files will be skipped"). | MUST | no | **Done**, ahead of MVP — `engine::deps` looks for each dependency in bundled dirs, on `PATH` and in per-OS install locations, and reports through `app_info`. Since round 3 the dependencies that can block a file are SumatraPDF (Windows), LibreOffice and, on Windows, the HEIF and HEVC Store extensions; Edge/Chrome and Pandoc block nothing. Each report lists the extensions it blocks while missing, and its remediation names the program and where to get it, in the user's language. The Print Job screen shows that text for the dependencies the selected files need, with **Install…**: a consent dialog that shows the exact winget/brew command, Store page or download page, the UAC prompt, the price and the size, and runs nothing until the user confirms (`install_dependency`, decision D13). A stop or timeout the installer may outlive is reported as such (`*-installer-may-continue`, with administrator rights named only for an elevated installer), and the one-install slot stays taken until the installer is gone; `dependency_install_status` lets a reloaded window find a running install again. When an install ends with the program found, the queue jobs paused on it resume (`resume_job`), with or without the Queue on screen. A job that reaches a missing converter **pauses** with the same text (`DependencyMissing`) instead of being skipped. No always-on Settings panel yet (v0.2). |
+| FR-059 | The system MUST NOT silently skip files; every unsupported file MUST be reported in the job log with reason. | MUST | yes | **Done** — discarded files come back from inspection and folder expansion with a reason, are toasted, and are recorded against the job; a GIF is named as such. An encrypted PDF is never skipped either: one that needs a password pauses with **Enter password** (CLI: `--password-file` / `--password-stdin`) and is decrypted in-process, one that forbids printing is refused with `printing_not_allowed`, and the password is never stored (`engine::convert::pdf_security`). |
+| FR-060 | The system MAY support additional formats via a plugin API in v2+ (CAD, Visio, EPUB, email). | MAY | no | **Open** — v2. |
 
 ## 6. Notifications
 
-| ID | Requirement | Priority | MVP |
-|---|---|---|---|
-| FR-070 | The system MUST surface job completion via a non-modal toast notification ("12 of 12 files printed successfully"). | MUST | yes |
-| FR-071 | The system MUST surface job failures with actionable error text and a link to the job log entry. | MUST | yes |
-| FR-072 | The system SHOULD use native OS notifications (Windows Toast, macOS UNNotification) when available. | SHOULD | yes |
-| FR-073 | The system MUST allow disabling notifications globally and per-profile. | SHOULD | no |
-| FR-074 | The system MAY support custom notification sounds. | MAY | no |
+| ID | Requirement | Priority | MVP | Status |
+|---|---|---|---|---|
+| FR-070 | The system MUST surface job completion via a non-modal toast notification ("12 of 12 files printed successfully"). | MUST | yes | **Done** — the queue store announces a batch once, when every job in it is terminal; an all-cancelled batch is reported as cancelled, not printed. |
+| FR-071 | The system MUST surface job failures with actionable error text and a link to the job log entry. | MUST | yes | **Partial** — a failed batch reports the error and offers the logs folder, and a job the dispatcher pauses on a user-fixable error (`printer_unavailable`, `dependency_missing`, `unsupported_setting`, …) is announced on its own with an **Open queue** action, since its batch never completes. The link is to the logs folder and the Queue, not to the individual job's log entry: the backend has no per-entry deep link. |
+| FR-072 | The system SHOULD use native OS notifications (Windows Toast, macOS UNNotification) when available. | SHOULD | yes | **Done** — `tauri-plugin-notification`, driven Rust-side by `notify_native`. A finished batch, a failed batch and a job stopped for the user are offered to the OS notification centre, which shows them only while the window is unfocused, hidden or minimized, and only while **Settings → Native notifications** (`app.native_notifications`, on by default) is on. |
+| FR-073 | The system MUST allow disabling notifications globally and per-profile. | SHOULD | no | **Partial** — **Settings → Native notifications** (`app.native_notifications`) turns OS notifications off globally. In-app toasts cannot be turned off, and there is no per-profile switch. |
+| FR-074 | The system MAY support custom notification sounds. | MAY | no | **Open**. |
 
 ## 7. Updates
 
-| ID | Requirement | Priority | MVP |
-|---|---|---|---|
-| FR-080 | The system MUST check for updates on startup (delayed by 30 seconds) and at most once per 24 hours. | MUST | yes |
-| FR-081 | The system MUST allow the user to manually trigger an update check from the **About** dialog ("Check for updates now"). | MUST | yes |
-| FR-082 | The system MUST verify the cryptographic signature of any downloaded update before applying it. Updates with invalid signatures MUST be rejected. | MUST | yes |
-| FR-083 | The system MUST install updates without requiring administrator privileges (per-user install). | MUST | yes |
-| FR-084 | The user MUST be able to **defer**, **install now**, or **skip this version** when an update is available. | MUST | yes |
-| FR-085 | The system SHOULD support release channels: **stable**, **beta**, **nightly**. Default channel is `stable`. | SHOULD | no |
-| FR-086 | The user MUST be able to switch channels from Settings; switching to a lower channel MUST require explicit confirmation. | MUST | no |
-| FR-087 | The system MUST never auto-install a major version bump (e.g., 1.x → 2.x); these require explicit user opt-in. | MUST | no |
+| ID | Requirement | Priority | MVP | Status |
+|---|---|---|---|---|
+| FR-080 | The system MUST check for updates on startup (delayed by 30 seconds) and at most once per 24 hours. | MUST | yes | **Done** — runs in Rust `setup` on a detached thread, so a cold start never waits on the network, and single-instance guarantees it runs once per process. The 24 h throttle is persisted. It reads the updater manifest (`latest.json`) of the user's channel from the GitHub release assets, the same file the installer uses, not `updates.maecly.com` and not the GitHub REST API. |
+| FR-081 | The system MUST allow the user to manually trigger an update check from the **About** dialog ("Check for updates now"). | MUST | yes | **Done**. |
+| FR-082 | The system MUST verify the cryptographic signature of any downloaded update before applying it. Updates with invalid signatures MUST be rejected. | MUST | yes | **Done** — `tauri-plugin-updater` verifies the minisign signature of the downloaded artifact against `plugins.updater.pubkey` before installing anything. A bad signature fails with `UpdateSignatureInvalid` ("failed its signature check and was not installed"), in About and as exit code 11 from `update install`. Releases are signed with `TAURI_SIGNING_PRIVATE_KEY` (see [ADR-0008](../adr/0008-installer-nsis-per-user.md)) by `.github/workflows/release.yml`, which also checks every signature in the draft against the key compiled into the app, and that a tampered file fails ([releasing.md](../07-build-and-release/releasing.md)). No release has been published yet. |
+| FR-083 | The system MUST install updates without requiring administrator privileges (per-user install). | MUST | yes | **Done** — Windows installs and updates through the per-user NSIS setup (`installMode: "currentUser"`, run passively by the updater). macOS swaps the `.app` in place and refuses to update a binary outside an app bundle. |
+| FR-084 | The user MUST be able to **defer**, **install now**, or **skip this version** when an update is available. | MUST | yes | **Done** — About offers **Install now** (`install_update`, with download progress and a restart), **Remind me later**, and **Skip this version**. Skipping is persisted and version-scoped, so a newer release prompts again, and a skip at or below the running version is cleared. |
+| FR-085 | The system SHOULD support release channels: **stable**, **beta**, **nightly**. Default channel is `stable`. | SHOULD | no | **Partial** — `updater.channel` (default `stable`) picks the manifest: stable reads `releases/latest/download/latest.json`, beta reads the `latest.json` of the fixed `channel-beta` release, which `release-channels.yml` moves forward on every publish ([ADR-0011](../adr/0011-release-channel.md)). The check and the install read the same manifest. No nightly builds are published, so **nightly** follows the beta manifest. |
+| FR-086 | The user MUST be able to switch channels from Settings; switching to a lower channel MUST require explicit confirmation. | MUST | no | **Done** — the Settings selector writes the value and its note says what each channel receives. A move to a more stable channel opens a confirmation saying nothing is downgraded and the next update comes once that channel publishes a newer version. A beta user is offered the stable release of the same version, and switching back to stable never offers an older version. |
+| FR-087 | The system MUST never auto-install a major version bump (e.g., 1.x → 2.x); these require explicit user opt-in. | MUST | no | **Done** — nothing installs on its own. A major jump needs a separate confirmation: a dialog in About (`allowMajor`, which the backend requires) and `--yes` or a typed "yes" to a prompt naming the major update on the CLI. |
 
 ## 8. Internationalization
 
 See [non-functional-requirements.md](./non-functional-requirements.md#internationalization) for non-functional aspects.
 
-| ID | Requirement | Priority | MVP |
-|---|---|---|---|
-| FR-090 | The GUI MUST be available in **English** in MVP. | MUST | yes |
-| FR-091 | The GUI SHOULD be available in **Spanish** by v1.0. | SHOULD | no |
-| FR-092 | All user-facing strings MUST be externalized in JSON resource files; no hard-coded strings in components. | MUST | yes |
-| FR-093 | The system MUST detect the OS locale on first run and select the matching language if available, falling back to English. | MUST | no |
-| FR-094 | The user MUST be able to override the language from Settings. | MUST | no |
+| ID | Requirement | Priority | MVP | Status |
+|---|---|---|---|---|
+| FR-090 | The GUI MUST be available in **English** in MVP. | MUST | yes | **Done** — `en-US` is the default and the fallback for every missing key. |
+| FR-091 | The GUI SHOULD be available in **Spanish** by v1.0. | SHOULD | no | **Done**, well ahead of plan — `es-ES`, complete across all eight namespaces. There is no separate `es-MX`; it matches on the language subtag. |
+| FR-092 | All user-facing strings MUST be externalized in JSON resource files; no hard-coded strings in components. | MUST | yes | **Done** — `src/i18n/locales/{lang}/<namespace>.json`, one file per screen. Backend errors carry a stable `code` + `reason` + `params` (`IpcError`, see [ipc-and-cli.md §4](../04-architecture/ipc-and-cli.md#4-error-model)) that `src/lib/ipcError.ts` maps to `common:ipcErrors.*`; file refusals and folder skips are translated from `reason_code` / `SkipReason`; job failure and pause messages (queue views, Home, toasts, OS notifications) are translated from `JobError.code` + `reason` + `params` by `src/lib/jobError.ts` (`queue:jobErrors.*`). Since round 3 the converter, spooler, printer-management, submission, page-range, settings and job-action refusals all carry a registered `reason` with params, and a tool's own words (`lp`, `lpadmin`, the spooler) are kept as the technical detail; an unknown code reads "Unknown error", never an English literal. The printed test page and its spooler title follow `app.locale`. Only an error with an unknown code falls back to the backend's English text. The Finder Services titles are localized through `ServicesMenu.strings` (they follow the system language). The Windows installer's own pages and the hooks' messages are in English and Spanish (`windows/installer-strings.nsh`, `tests/installer_i18n.rs`). |
+| FR-093 | The system MUST detect the OS locale on first run and select the matching language if available, falling back to English. | MUST | no | **Done**, ahead of plan — detected from `navigator.language`, narrowed to a supported locale, persisted once so the detection never overrides a later manual choice. The "detected" marker is only set after that write is saved, so a refused write (locked or unreadable `config.toml`) retries on the next launch. |
+| FR-094 | The user MUST be able to override the language from Settings. | MUST | no | **Done**, ahead of plan — a Settings selector writing `app.locale`; the UI re-renders as soon as the write lands. |
 
 ## 9. Configuration & Persistence
 
-| ID | Requirement | Priority | MVP |
-|---|---|---|---|
-| FR-100 | The system MUST persist configuration in human-readable TOML files at OS-appropriate locations (`%APPDATA%\MaeclyPrint\` on Windows, `~/Library/Application Support/MaeclyPrint/` on macOS). | MUST | yes |
-| FR-101 | The system MUST gracefully handle a missing or corrupt config file by falling back to defaults and surfacing a recoverable error. | MUST | yes |
-| FR-102 | All config writes MUST be atomic (write to temp + rename). | MUST | yes |
-| FR-103 | The system MUST embed a `schema_version` field in every persisted file and migrate old schemas forward when loading. | MUST | yes |
+| ID | Requirement | Priority | MVP | Status |
+|---|---|---|---|---|
+| FR-100 | The system MUST persist configuration in human-readable TOML files at OS-appropriate locations (`%APPDATA%\Maecly\Pluryprint\config\` on Windows, `~/Library/Application Support/com.Maecly.Pluryprint/` on macOS). | MUST | yes | **Done** — `config.toml` and `profiles.toml` in `util::paths::config_dir()`, which is `directories::ProjectDirs::from("com", "Maecly", "Pluryprint")`: exactly the two locations above (on macOS the folder is the bundle-style `com.Maecly.Pluryprint`, not `Pluryprint`). Live state (`queue.json`, `update-state.json`, `shell-menu.json`) is in the data dir instead: `%LOCALAPPDATA%\Maecly\Pluryprint\data\` on Windows, the same folder as the config on macOS. Covered by `tests/settings_persist.rs::fr_100_*` and the resolved shapes by `util::paths::tests::fr_100_fr_113_dirs_have_the_documented_shape`. |
+| FR-101 | The system MUST gracefully handle a missing or corrupt config file by falling back to defaults and surfacing a recoverable error. | MUST | yes | **Done** — `fr_101_*`. |
+| FR-102 | All config writes MUST be atomic (write to temp + rename). | MUST | yes | **Done** — `fr_102_atomic_write`. |
+| FR-103 | The system MUST embed a `schema_version` field in every persisted file and migrate old schemas forward when loading. | MUST | yes | **Partial** — `schema_version` is embedded in `config.toml`, `profiles.toml` and `queue.json` and is validated on load (`fr_103_schema_version_embedded`). There is no forward-migration path yet, because there is only one schema version; the requirement's second clause is untested until there is a second. |
 
 ## 10. Help & Discoverability
 
-| ID | Requirement | Priority | MVP |
-|---|---|---|---|
-| FR-110 | The GUI MUST include an **About** dialog showing version, license link, and a link to the documentation site. | MUST | yes |
-| FR-111 | The GUI MUST include a **First Run** wizard that explains the context menu integration and creates a desktop shortcut on opt-in. | SHOULD | yes |
-| FR-112 | The CLI MUST support `--help` for every subcommand. | MUST | yes |
-| FR-113 | The system MUST log to a user-accessible file (`%LOCALAPPDATA%\MaeclyPrint\logs\app.log`) with rotation. | MUST | yes |
+| ID | Requirement | Priority | MVP | Status |
+|---|---|---|---|---|
+| FR-110 | The GUI MUST include an **About** dialog showing version, license link, and a link to the documentation site. | MUST | yes | **Done** — version and build date from the build, honest component versions read from the real manifests, filesystem paths with open-logs, and allow-listed external links. A test fails the build if About claims a dependency the project does not have. |
+| FR-111 | The GUI MUST include a **First Run** wizard that explains the context menu integration and creates a desktop shortcut on opt-in. | SHOULD | yes | **Partial** — a five-step onboarding flow exists (welcome, printers, CLI, profiles, ready) and says where the right-click entry is (Windows 11: under **Show more options**; macOS: Finder Services). The desktop shortcut is offered by the installer's last page, not by the wizard. |
+| FR-112 | The CLI MUST support `--help` for every subcommand. | MUST | yes | **Done** — `clap`-derived help on every subcommand and sub-verb, pinned by `tests/cli_contract.rs`. |
+| FR-113 | The system MUST log to a user-accessible file (`%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\pluryprint-YYYY-MM-DD.jsonl`) with rotation. | MUST | yes | **Done** — at the path above on Windows; on macOS the logs go to `~/Library/Logs/Pluryprint/` (where Console.app looks), same file names. A new file starts each UTC day or when the current one passes **10 MB** (`pluryprint-YYYY-MM-DD.<n>.jsonl`, n ≥ 2), and a sweep at startup and on every roll drops files older than **14 days** and keeps the newest **7** (`logging::Policy`; NFR-081), rather than `tracing-appender`'s clock-boundary rolling, which never deletes. About shows the live log folder and has an **Open logs folder** action. Covered by `logging::tests::fr_113_*` / `nfr_081_*` and `util::paths::tests::fr_100_fr_113_dirs_have_the_documented_shape`. |
 
 ---
 
@@ -145,8 +154,18 @@ See [non-functional-requirements.md](./non-functional-requirements.md#internatio
 
 Every functional requirement above SHOULD be referenced by:
 
-- At least one **acceptance test** in the test suite (`tests/fr_XXX_*.rs` or `tests/fr_XXX_*.spec.ts`).
+- At least one **acceptance test**, tagged with the requirement id. The convention is a **test name**, not a file name: Rust test functions are named `fr_<NNN>_<scenario>` (`fr_026_atomic_save_no_partial_file`, `fr_102_atomic_write`), and Vitest `it()` titles are prefixed `FR-###:`. Integration binaries are named after the feature (`profile_roundtrip.rs`, `cli_contract.rs`, `folder_expansion.rs`), and the full naming table lives in [testing-strategy.md](../08-development/testing-strategy.md). *An earlier version of this section asked for files called `tests/fr_XXX_*.rs`; no such file has ever existed and none should be created.*
 - At least one **issue or PR** that introduces or modifies the corresponding code path.
 - A row in the **release checklist** for manual QA verification when relevant.
 
 Requirements without coverage at release time MUST be either implemented, withdrawn (`[WITHDRAWN]` tag), or deferred (move `MVP: yes` → `no`).
+
+### Open scope decisions raised by the 2026-07-20 audit
+
+These are contradictions the audit could not resolve by reading the code, because they are decisions rather than defects. They need a human call before v0.1.0 is cut.
+
+1. ~~**FR-052 / HEIC.**~~ Resolved: HEIC/HEIF are decoded by the OS (`sips` on macOS, WIC on Windows) rather than by a bundled codec. See the FR-052 row.
+2. **FR-072 / native notifications.** *Resolved:* implemented with `tauri-plugin-notification` (see the FR-072 row).
+3. **FR-082 / FR-083 vs. the MVP line.** *Resolved:* both are implemented (see [ADR-0008](../adr/0008-installer-nsis-per-user.md)), and `release.yml` signs and verifies the artifacts of a tagged draft release ([ADR-0011](../adr/0011-release-channel.md)). No release has been published yet.
+4. **Windows 10.** *Resolved by the registry verb:* the installer registers the `IExplorerCommand` handler as an `ExplorerCommandHandler` verb, which is what the Windows 10 menu and the Windows 11 classic menu show. It was verified on Windows 11's classic menu; no Windows 10 machine has run it. The `IShellExtInit` + `IContextMenu` route stays unregistered (`shell-ext-win/README.md`).
+5. **Requirements ahead of their milestone.** FR-010, FR-024, FR-037, FR-058, FR-091, FR-093 and FR-094 are all `MVP: no` and all done. The `MVP` column no longer describes the build. Consider flipping them to `yes` so the column stays meaningful, or accept that it records original intent and read the `Status` column instead.

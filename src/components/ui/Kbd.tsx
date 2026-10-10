@@ -2,12 +2,23 @@ import type { ReactNode } from 'react';
 
 interface MPKbdProps {
   children: ReactNode;
+  /**
+   * Spoken form of the key when the glyph alone does not read well (arrows,
+   * symbols). Purely a text alternative — the badge is never interactive.
+   */
+  'aria-label'?: string;
 }
 
-export function MPKbd({ children }: MPKbdProps) {
+/**
+ * Key cap. A real `<kbd>` so screen readers announce it as keyboard input
+ * rather than plain text, and never as a control the user could activate:
+ * the shortcut itself is owned by whoever handles the key event.
+ */
+export function MPKbd({ children, 'aria-label': ariaLabel }: MPKbdProps) {
   return (
-    <span
+    <kbd
       className="mp-mono"
+      {...(ariaLabel !== undefined ? { 'aria-label': ariaLabel } : {})}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -24,6 +35,6 @@ export function MPKbd({ children }: MPKbdProps) {
       }}
     >
       {children}
-    </span>
+    </kbd>
   );
 }
