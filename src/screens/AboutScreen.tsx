@@ -31,8 +31,10 @@ import {
 } from '@/lib/ipc';
 import {
   APP_LICENSE,
+  CLA_URL,
   DOCS_URL,
   LICENSE_URL,
+  NOTICES_URL,
   RELEASES_URL,
   REPO_URL,
   UNKNOWN_VERSION,
@@ -908,6 +910,24 @@ export function AboutScreen() {
             onClick={() => void open(LICENSE_URL)}
           >
             {t('links.license')}
+          </MPButton>
+          <MPButton
+            variant="ghost"
+            icon="list"
+            size="sm"
+            disabled={!tauri}
+            onClick={() => void open(NOTICES_URL)}
+          >
+            {t('links.notices')}
+          </MPButton>
+          <MPButton
+            variant="ghost"
+            icon="edit"
+            size="sm"
+            disabled={!tauri}
+            onClick={() => void open(CLA_URL)}
+          >
+            {t('links.cla')}
           </MPButton>
           <MPButton
             variant="ghost"

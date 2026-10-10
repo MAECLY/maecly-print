@@ -19,12 +19,13 @@ A single scrolling column: an identity header, the update-check action and its r
 │  │ ✓ You're up to date        version 0.1.0 · checked 14:22                │  │
 │  └─────────────────────────────────────────────────────────────────────────┘  │
 │  COMPONENTS                                                                     │
-│  │ Pluryprint   0.1.0     GPL-3.0          │                                  │
+│  │ Pluryprint   0.1.0     AGPL-3.0         │                                  │
 │  │ React         18.x      MIT              │                                  │
 │  │ Tauri         2.x       MIT/Apache-2.0   │  Platform: macos · aarch64       │
 │  FILE LOCATIONS                                                                 │
 │  │ config: …  data: …  logs: … │            [ 🗀 Open logs folder ]            │
-│  LINKS   [Release notes] [License GPL-3.0] [Documentation] [Report an issue]   │
+│  LINKS   [Release notes] [License AGPL-3.0] [Third-party notices]             │
+│          [Contributor agreement (CLA)] [Documentation] [Report an issue]       │
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -86,7 +87,7 @@ A static-plus-live card. Pluryprint's version comes from `app_info`; React from 
 
 | Component     | Value source                     | License         |
 | ------------- | -------------------------------- | --------------- |
-| Pluryprint   | `app_info().version`             | GPL-3.0         |
+| Pluryprint   | `app_info().version`             | AGPL-3.0        |
 | React         | `react`'s `version` export       | MIT             |
 | Tauri         | `@tauri-apps/api` package version | MIT/Apache-2.0 |
 
@@ -101,7 +102,9 @@ A row of buttons, each opening an allow-listed external URL through `open_extern
 | Link                | Command / target                                                     |
 | ------------------- | -------------------------------------------------------------------- |
 | **Release notes**   | `open_external(RELEASES_URL)` — `…/releases`                         |
-| **License GPL-3.0** | `open_external(LICENSE_URL)` — `…/blob/main/LICENSE`                 |
+| **License AGPL-3.0** | `open_external(LICENSE_URL)` — `…/blob/main/LICENSE`                |
+| **Third-party notices** | `open_external(NOTICES_URL)` — `…/blob/main/THIRD-PARTY-NOTICES.md` (the same file ships in the bundle) |
+| **Contributor agreement (CLA)** | `open_external(CLA_URL)` — `…/blob/main/CLA.md`        |
 | **Documentation**   | `open_external(DOCS_URL)` — `…/tree/main/docs`                       |
 | **Report an issue** | `report_issue("")` — opens a prefilled GitHub new-issue page         |
 | repository (footer) | `open_external(REPO_URL)` — `github.com/MAECLY/maecly-print`         |

@@ -66,6 +66,8 @@
   "links": {
     "releaseNotes": "Release notes",
     "license": "License AGPL-3.0",
+    "notices": "Third-party notices",
+    "cla": "Contributor agreement (CLA)",
     "documentation": "Documentation",
     "reportIssue": "Report an issue"
   },

@@ -19,8 +19,10 @@ import { Toaster } from '@/components/AppShell/Toaster';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import {
   APP_LICENSE,
+  CLA_URL,
   DOCS_URL,
   LICENSE_URL,
+  NOTICES_URL,
   RELEASES_URL,
   REPO_URL,
   UNKNOWN_VERSION,
@@ -183,6 +185,27 @@ describe('AboutScreen', () => {
         .map((c) => c.args.url);
       expect(urls).toContain(LICENSE_URL);
       expect(urls).toContain(DOCS_URL);
+    });
+  });
+
+  it('opens the third-party notices and the contributor agreement', async () => {
+    const calls = mockAbout();
+    renderAbout();
+    expect(await waitForAppInfo()).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /third-party notices/i }),
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: /contributor agreement \(cla\)/i }),
+    );
+
+    await waitFor(() => {
+      const urls = calls
+        .filter((c) => c.cmd === 'open_external')
+        .map((c) => c.args.url);
+      expect(urls).toContain(NOTICES_URL);
+      expect(urls).toContain(CLA_URL);
     });
   });
 
@@ -806,14 +829,20 @@ describe('project identity (src/lib/repo.ts)', () => {
   });
 
   it('derives every link from the one slug', () => {
-    for (const url of [RELEASES_URL, LICENSE_URL, DOCS_URL]) {
+    for (const url of [
+      RELEASES_URL,
+      LICENSE_URL,
+      CLA_URL,
+      NOTICES_URL,
+      DOCS_URL,
+    ]) {
       expect(url.startsWith(`${REPO_URL}/`)).toBe(true);
     }
   });
 
   it('points the blob/tree links at paths that exist on the default branch', () => {
     // `git symbolic-ref refs/remotes/origin/HEAD` → refs/remotes/origin/main.
-    for (const url of [LICENSE_URL, DOCS_URL]) {
+    for (const url of [LICENSE_URL, CLA_URL, NOTICES_URL, DOCS_URL]) {
       const [, kind, branch, ...rest] = url.slice(REPO_URL.length).split('/');
       expect(kind).toMatch(/^(blob|tree)$/);
       expect(branch).toBe('main');

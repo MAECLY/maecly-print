@@ -11,12 +11,15 @@
  *
  * Every URL here is under `github.com`, which the Rust `open_external`
  * allow-list permits. The `blob`/`tree` links target `main` (the default
- * branch) and paths that really exist in the tree: `LICENSE` and `docs/`.
+ * branch) and paths that really exist in the tree: `LICENSE`, `CLA.md`,
+ * `THIRD-PARTY-NOTICES.md` and `docs/`.
  */
 
 export const REPO_URL = 'https://github.com/MAECLY/maecly-print';
 export const RELEASES_URL = REPO_URL + '/releases';
 export const LICENSE_URL = REPO_URL + '/blob/main/LICENSE';
+export const CLA_URL = REPO_URL + '/blob/main/CLA.md';
+export const NOTICES_URL = REPO_URL + '/blob/main/THIRD-PARTY-NOTICES.md';
 export const DOCS_URL = REPO_URL + '/tree/main/docs';
 
 /**
