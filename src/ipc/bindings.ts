@@ -639,7 +639,23 @@ updateDownloadProgress: "update-download-progress"
 
 /** user-defined types **/
 
-export type AppCfg = { locale: string; theme: Theme; launch_minimized: boolean; 
+/**
+ * The `[app]` section: UI and launch preferences.
+ */
+export type AppCfg = { 
+/**
+ * UI language as a BCP 47 tag, e.g. `"en-US"`.
+ */
+locale: string; 
+/**
+ * Colour scheme of the window.
+ */
+theme: Theme; 
+/**
+ * Start with the main window minimized (a plain launch only; see
+ * [`should_start_minimized`]).
+ */
+launch_minimized: boolean; 
 /**
  * UI spacing preference. `#[serde(default)]` so a config written before this
  * field existed still loads (filling in [`Density::Comfortable`]).
@@ -717,7 +733,23 @@ executable?: string | null }
  * `get_app_settings` / `set_app_settings`. Deliberately excludes `printers`
  * (owned by the Printers screen) and `schema_version` (server-managed).
  */
-export type AppSettings = { app: AppCfg; engine: EngineCfg; updater: UpdaterCfg; telemetry: TelemetryCfg; 
+export type AppSettings = { 
+/**
+ * The `[app]` section.
+ */
+app: AppCfg; 
+/**
+ * The `[engine]` section.
+ */
+engine: EngineCfg; 
+/**
+ * The `[updater]` section.
+ */
+updater: UpdaterCfg; 
+/**
+ * The `[telemetry]` section.
+ */
+telemetry: TelemetryCfg; 
 /**
  * Server-computed annotations; `#[serde(default)]` so a client that does
  * not know about them (or a test building the bundle by hand) still
@@ -784,7 +816,15 @@ export type ContextAction =
 /**
  * UI spacing density.
  */
-export type Density = "comfortable" | "compact"
+export type Density = 
+/**
+ * Default spacing.
+ */
+"comfortable" | 
+/**
+ * Tighter spacing, for more rows on screen.
+ */
+"compact"
 /**
  * An external program the print pipeline can depend on.
  */
@@ -930,7 +970,19 @@ default_profile?: string | null }
  * The bounds of every numeric engine knob, as one bundle. Exposed on the wire
  * so the UI can render and validate the limits without duplicating them.
  */
-export type EngineLimits = { max_concurrent_conversions: Bounds; conversion_timeout_seconds: Bounds; max_file_size_mb: Bounds; 
+export type EngineLimits = { 
+/**
+ * Bounds of [`EngineCfg::max_concurrent_conversions`].
+ */
+max_concurrent_conversions: Bounds; 
+/**
+ * Bounds of [`EngineCfg::conversion_timeout_seconds`].
+ */
+conversion_timeout_seconds: Bounds; 
+/**
+ * Bounds of [`EngineCfg::max_file_size_mb`].
+ */
+max_file_size_mb: Bounds; 
 /**
  * How long one print may take, from spooling until the OS job leaves the
  * queue. Separate from the conversion budget: a print waits on paper and a
@@ -1614,7 +1666,18 @@ export type PrinterKind =
  * as a plain "Printer" rather than guessed as laser.
  */
 "printer"
-export type PrinterOverride = { tray?: string | null; paper?: string | null }
+/**
+ * One printer's default tray and paper, applied when a job leaves them unset.
+ */
+export type PrinterOverride = { 
+/**
+ * Tray to use by default, or `None` for the printer's own default.
+ */
+tray?: string | null; 
+/**
+ * Paper size to use by default, or `None` for the printer's own default.
+ */
+paper?: string | null }
 /**
  * Organization-managed printer policy. Every field is optional so an empty or
  * partial `policy.json` still deserializes.
@@ -1962,8 +2025,31 @@ black: number | null }
  * metrics leave the machine. They exist so the choice survives restarts and a
  * future build can honour it.
  */
-export type TelemetryCfg = { crash_reports?: boolean; anonymous_usage_metrics?: boolean }
-export type Theme = "light" | "dark" | "system"
+export type TelemetryCfg = { 
+/**
+ * Consent to sending crash reports.
+ */
+crash_reports?: boolean; 
+/**
+ * Consent to sending anonymous usage metrics.
+ */
+anonymous_usage_metrics?: boolean }
+/**
+ * Colour scheme preference.
+ */
+export type Theme = 
+/**
+ * Always light.
+ */
+"light" | 
+/**
+ * Always dark.
+ */
+"dark" | 
+/**
+ * Follow the OS appearance.
+ */
+"system"
 /**
  * One input tray/bin. `paper` and `level` are optional because most OS APIs
  * expose the tray *name* but not the loaded media or fill level.
@@ -1998,7 +2084,19 @@ export type UpdateAvailable = UpdateCheck
 /**
  * Which release stream the user follows.
  */
-export type UpdateChannel = "stable" | "beta" | "nightly"
+export type UpdateChannel = 
+/**
+ * Final releases only (the default).
+ */
+"stable" | 
+/**
+ * Beta pre-releases.
+ */
+"beta" | 
+/**
+ * Nightly builds.
+ */
+"nightly"
 /**
  * The result of an update check, returned to the frontend. `latest` is the tag
  * of the newest published release (when one was found), `available` is whether
@@ -2057,7 +2155,15 @@ skipped_version?: string | null }
  * `channel` is recorded but every check currently hits the `latest` release
  * feed (there are no separate beta/nightly feeds yet).
  */
-export type UpdaterCfg = { channel: UpdateChannel; check_on_startup: boolean }
+export type UpdaterCfg = { 
+/**
+ * Release stream to follow (recorded only; see the type docs).
+ */
+channel: UpdateChannel; 
+/**
+ * Check for an update once at startup.
+ */
+check_on_startup: boolean }
 /**
  * How a stored `0` is treated for one knob, on top of the `min..=max` range.
  */

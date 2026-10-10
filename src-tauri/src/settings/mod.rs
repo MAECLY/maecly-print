@@ -19,6 +19,7 @@ pub mod policy;
 
 pub use policy::PrinterPolicy;
 
+/// Current `config.toml` format version, written into every saved file.
 pub const SCHEMA_VERSION: u32 = 1;
 
 /// Refusal message returned by every `config.toml` mutator when the file exists
@@ -68,16 +69,22 @@ pub(crate) static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// section entirely) still loads, filling the missing sections with defaults.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    /// Format version the file was written with (see [`SCHEMA_VERSION`]).
     #[serde(default = "default_schema_version")]
     pub schema_version: u32,
+    /// `[app]`: UI and launch preferences.
     #[serde(default)]
     pub app: AppCfg,
+    /// `[printers]`: MaeclyPrint's own printer preferences.
     #[serde(default)]
     pub printers: PrinterPrefs,
+    /// `[engine]`: conversion and printing limits.
     #[serde(default)]
     pub engine: EngineCfg,
+    /// `[updater]`: update-check preferences.
     #[serde(default)]
     pub updater: UpdaterCfg,
+    /// `[telemetry]`: consent flags (nothing is transmitted).
     #[serde(default)]
     pub telemetry: TelemetryCfg,
     /// What [`Config::load_strict`] read off disk, kept so [`Config::save_to`]
@@ -164,8 +171,11 @@ impl Bounds {
 /// so the UI can render and validate the limits without duplicating them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct EngineLimits {
+    /// Bounds of [`EngineCfg::max_concurrent_conversions`].
     pub max_concurrent_conversions: Bounds,
+    /// Bounds of [`EngineCfg::conversion_timeout_seconds`].
     pub conversion_timeout_seconds: Bounds,
+    /// Bounds of [`EngineCfg::max_file_size_mb`].
     pub max_file_size_mb: Bounds,
     /// How long one print may take, from spooling until the OS job leaves the
     /// queue. Separate from the conversion budget: a print waits on paper and a
@@ -293,7 +303,9 @@ impl EngineCfg {
 /// feed (there are no separate beta/nightly feeds yet).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct UpdaterCfg {
+    /// Release stream to follow (recorded only; see the type docs).
     pub channel: UpdateChannel,
+    /// Check for an update once at startup.
     pub check_on_startup: bool,
 }
 
@@ -310,9 +322,12 @@ impl Default for UpdaterCfg {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum UpdateChannel {
+    /// Final releases only (the default).
     #[default]
     Stable,
+    /// Beta pre-releases.
     Beta,
+    /// Nightly builds.
     Nightly,
 }
 
@@ -322,8 +337,10 @@ pub enum UpdateChannel {
 /// future build can honour it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct TelemetryCfg {
+    /// Consent to sending crash reports.
     #[serde(default)]
     pub crash_reports: bool,
+    /// Consent to sending anonymous usage metrics.
     #[serde(default)]
     pub anonymous_usage_metrics: bool,
 }
@@ -366,9 +383,13 @@ impl Default for SettingsMeta {
 /// (owned by the Printers screen) and `schema_version` (server-managed).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 pub struct AppSettings {
+    /// The `[app]` section.
     pub app: AppCfg,
+    /// The `[engine]` section.
     pub engine: EngineCfg,
+    /// The `[updater]` section.
     pub updater: UpdaterCfg,
+    /// The `[telemetry]` section.
     pub telemetry: TelemetryCfg,
     /// Server-computed annotations; `#[serde(default)]` so a client that does
     /// not know about them (or a test building the bundle by hand) still
@@ -394,10 +415,13 @@ pub struct PrinterPrefs {
     pub overrides: BTreeMap<String, PrinterOverride>,
 }
 
+/// One printer's default tray and paper, applied when a job leaves them unset.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct PrinterOverride {
+    /// Tray to use by default, or `None` for the printer's own default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tray: Option<String>,
+    /// Paper size to use by default, or `None` for the printer's own default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paper: Option<String>,
 }
@@ -406,10 +430,15 @@ fn default_schema_version() -> u32 {
     SCHEMA_VERSION
 }
 
+/// The `[app]` section: UI and launch preferences.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct AppCfg {
+    /// UI language as a BCP 47 tag, e.g. `"en-US"`.
     pub locale: String,
+    /// Colour scheme of the window.
     pub theme: Theme,
+    /// Start with the main window minimized (a plain launch only; see
+    /// [`should_start_minimized`]).
     pub launch_minimized: bool,
     /// UI spacing preference. `#[serde(default)]` so a config written before this
     /// field existed still loads (filling in [`Density::Comfortable`]).
@@ -439,11 +468,15 @@ impl Default for AppCfg {
     }
 }
 
+/// Colour scheme preference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
+    /// Always light.
     Light,
+    /// Always dark.
     Dark,
+    /// Follow the OS appearance.
     System,
 }
 
@@ -451,8 +484,10 @@ pub enum Theme {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Density {
+    /// Default spacing.
     #[default]
     Comfortable,
+    /// Tighter spacing, for more rows on screen.
     Compact,
 }
 
@@ -460,6 +495,7 @@ pub enum Density {
 /// use, plus whether it is a stand-in for a file that could not be read.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConfigLoad {
+    /// The configuration to use.
     pub config: Config,
     /// The file exists but could not be read/parsed; `config` is the default.
     pub unreadable: bool,
@@ -523,6 +559,7 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Absolute path of `config.toml` in the config directory.
     pub fn config_path() -> PathBuf {
         paths::config_dir().join("config.toml")
     }
