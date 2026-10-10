@@ -53,7 +53,7 @@
     return t;
   }
 
-  /* Hero: pick «Print with Pluryprint», the printer fans sheets out in three
+  /* Hero: pick «Print with Pluryprint (default profile)», the printer fans sheets out in three
      directions while the queue counts to its total, then the three resting
      sheets settle into the icon's fan. */
   function hero() {
