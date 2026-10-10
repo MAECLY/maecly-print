@@ -593,8 +593,18 @@ pub fn spec(dep: Dependency, os: Os) -> Spec {
                 Os::MacOs => LIBREOFFICE_BLOCKS_MACOS,
                 _ => LIBREOFFICE_BLOCKS_WINDOWS,
             },
-            effect: "Office, OpenDocument and RTF files cannot be printed until \
-                     it is installed. Download it free from https://www.libreoffice.org/download",
+            // RTF only where LibreOffice is its route (Windows): on macOS it
+            // goes through `textutil` and prints without LibreOffice.
+            effect: match os {
+                Os::MacOs => {
+                    "Office and OpenDocument files cannot be printed until it is \
+                     installed. Download it free from https://www.libreoffice.org/download"
+                }
+                _ => {
+                    "Office, OpenDocument and RTF files cannot be printed until \
+                     it is installed. Download it free from https://www.libreoffice.org/download"
+                }
+            },
             install: match os {
                 Os::Windows => LIBREOFFICE_INSTALL_WINDOWS,
                 Os::MacOs => LIBREOFFICE_INSTALL_MACOS,
@@ -1148,6 +1158,21 @@ mod tests {
         assert!(!spec(Dependency::LibreOffice, Os::MacOs)
             .blocks
             .contains(&"rtf"));
+    }
+
+    /// FR-058: the LibreOffice remediation names RTF only where a missing
+    /// LibreOffice really blocks it (Windows), never on macOS.
+    #[test]
+    fn fr_058_libreoffice_effect_mentions_rtf_only_where_it_is_blocked() {
+        for os in [Os::Windows, Os::MacOs] {
+            let s = spec(Dependency::LibreOffice, os);
+            assert_eq!(
+                s.effect.contains("RTF"),
+                s.blocks.contains(&"rtf"),
+                "{os:?}: {}",
+                s.effect
+            );
+        }
         assert!(spec(Dependency::LibreOffice, Os::Windows)
             .blocks
             .contains(&"rtf"));

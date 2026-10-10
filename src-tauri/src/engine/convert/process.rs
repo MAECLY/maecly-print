@@ -227,7 +227,7 @@ pub fn wait_bounded(
 /// helpers with it. Windows needs nothing up front: `taskkill /T` walks the
 /// tree by parent pid. The Windows console window is suppressed so a
 /// conversion does not flash a terminal in the user's face.
-fn isolate_process_tree(cmd: &mut Command) {
+pub(crate) fn isolate_process_tree(cmd: &mut Command) {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -243,7 +243,7 @@ fn isolate_process_tree(cmd: &mut Command) {
 
 /// Kill `child` and everything it spawned, then reap it. Best effort: each
 /// step ignores failures because the child may already be gone.
-fn kill_tree(child: &mut Child) {
+pub(crate) fn kill_tree(child: &mut Child) {
     let pid = child.id();
     #[cfg(unix)]
     {

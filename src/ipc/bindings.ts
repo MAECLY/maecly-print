@@ -101,6 +101,20 @@ async installDependency(id: Dependency, method: InstallMethod, consent: boolean)
 }
 },
 /**
+ * Stop the install that is running, if any, with every process it started
+ * (FR-058: the user can always back out of an install they began). Returns
+ * whether there was one to stop; the install's own call then resolves with
+ * [`InstallStatus::Cancelled`].
+ */
+async cancelDependencyInstall() : Promise<Result<boolean, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_dependency_install") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * List every printer the OS spooler knows about, with capabilities.
  */
 async listPrinters() : Promise<Result<Printer[], IpcError>> {
@@ -1323,7 +1337,15 @@ export type InstallStatus =
 /**
  * A Store or web page was opened; the user finishes there.
  */
-"opened"
+"opened" | 
+/**
+ * The command ran past [`INSTALL_TIMEOUT`] and was stopped.
+ */
+"timed-out" | 
+/**
+ * The user stopped the command.
+ */
+"cancelled"
 export type IpcError = { 
 /**
  * Stable error family. Never renamed.

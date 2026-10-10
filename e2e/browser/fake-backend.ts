@@ -424,6 +424,19 @@ export class FakeBackend {
         if (!report) throw err('InvalidRequest', `unknown dependency ${a.id}`);
         return { status: 'opened', exit_code: null, report: clone(report) };
       }
+      // Nothing runs in the browser, so there is never an install to stop.
+      case 'cancel_dependency_install':
+        return false;
+      // FR-059: the password is taken and the job goes back to the queue,
+      // where the timer converts it (any password "opens" the fake PDF).
+      case 'job_supply_password':
+        return this.mutateJob(a.id as string, (j) => {
+          if (j.state !== 'paused' || j.error?.code !== 'pdf_protected') {
+            throw err('InvalidState', `job ${j.id} is not waiting for one`);
+          }
+          j.state = 'queued';
+          j.error = null;
+        });
 
       default:
         throw err('Internal', `not stubbed in the E2E fake backend: ${cmd}`);

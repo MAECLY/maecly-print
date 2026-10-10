@@ -11,7 +11,8 @@
 //!
 //! - **winget / brew** run with an argument vector (no shell), their output
 //!   streamed line by line as [`DependencyInstallProgress`] events, bounded by
-//!   [`INSTALL_TIMEOUT`]. One install at a time.
+//!   [`INSTALL_TIMEOUT`]. One install at a time; the user can stop it
+//!   ([`cancel_dependency_install`]), which kills the whole process tree.
 //! - **Store / web** open the page with the OS handler; the user finishes
 //!   there.
 //!
@@ -19,7 +20,7 @@
 //! report comes back, so the UI knows at once whether the files it blocked can
 //! print now.
 
-use std::io::{BufRead, BufReader, Read};
+use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,14 +31,19 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri_specta::Event;
 
+use crate::engine::convert::process;
 use crate::engine::deps::{self, Dependency, DependencyReport, InstallMethod, InstallTool, Os};
 use crate::util::error::{IpcError, IpcErrorCode};
 
 /// How long a winget/brew install may run before it is stopped.
 pub const INSTALL_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
-/// Set while an install runs: one at a time.
+/// Set while an install runs: one at a time. Only [`InstallSlot`] touches it.
 static INSTALLING: AtomicBool = AtomicBool::new(false);
+
+/// Set by [`cancel_dependency_install`]; the running install sees it within a
+/// poll and kills its process tree.
+static CANCEL: AtomicBool = AtomicBool::new(false);
 
 /// How an install ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -52,6 +58,10 @@ pub enum InstallStatus {
     Failed,
     /// A Store or web page was opened; the user finishes there.
     Opened,
+    /// The command ran past [`INSTALL_TIMEOUT`] and was stopped.
+    TimedOut,
+    /// The user stopped the command.
+    Cancelled,
 }
 
 /// The result of [`install_dependency`].
@@ -135,6 +145,15 @@ fn tool_name(tool: InstallTool) -> &'static str {
     }
 }
 
+/// Whether one piece of installer output is worth a line on screen: lines
+/// that are only a spinner (`-`, `\`) or an empty progress bar are dropped.
+fn worth_showing(line: &str) -> bool {
+    !line.is_empty()
+        && line
+            .chars()
+            .any(|c| c.is_alphanumeric() && !matches!(c, '█' | '▒'))
+}
+
 /// Split installer output into lines worth showing: winget redraws progress
 /// with carriage returns and spinners, so `\r` ends a line too, and lines
 /// that are only a spinner or a bar are dropped. Pure.
@@ -142,40 +161,94 @@ pub fn output_lines(chunk: &str) -> Vec<String> {
     chunk
         .split(['\r', '\n'])
         .map(str::trim)
-        .filter(|line| {
-            !line.is_empty()
-                && line
-                    .chars()
-                    .any(|c| c.is_alphanumeric() && !matches!(c, '█' | '▒'))
-        })
+        .filter(|line| worth_showing(line))
         .map(str::to_string)
         .collect()
 }
 
-/// Run `program args`, sending each output line to `on_line`, stopping it at
-/// `timeout`. Returns the exit code (`None` when it was stopped or the OS
-/// gave none).
+/// Cuts a byte stream into lines as the bytes arrive, ending a line at `\r`
+/// as well as `\n`. winget redraws its download bar with bare carriage
+/// returns and writes no newline until the step ends, so splitting only on
+/// `\n` would hold minutes of progress back and release it in one burst.
+/// Both bytes are ASCII, so a cut never lands inside a UTF-8 sequence.
+#[derive(Debug, Default)]
+pub struct LineSplitter {
+    pending: Vec<u8>,
+}
+
+impl LineSplitter {
+    /// Feed the next bytes; returns every line they complete.
+    pub fn push(&mut self, bytes: &[u8]) -> Vec<String> {
+        let mut out = Vec::new();
+        for &b in bytes {
+            if b == b'\r' || b == b'\n' {
+                self.flush_into(&mut out);
+            } else {
+                self.pending.push(b);
+            }
+        }
+        out
+    }
+
+    /// The stream ended: whatever is left is the last line.
+    pub fn finish(&mut self) -> Vec<String> {
+        let mut out = Vec::new();
+        self.flush_into(&mut out);
+        out
+    }
+
+    fn flush_into(&mut self, out: &mut Vec<String>) {
+        if self.pending.is_empty() {
+            return;
+        }
+        let text = String::from_utf8_lossy(&self.pending);
+        let line = text.trim();
+        if worth_showing(line) {
+            out.push(line.to_string());
+        }
+        self.pending.clear();
+    }
+}
+
+/// How [`run_streaming`] ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunEnd {
+    /// The program exited on its own, with this code (`None`: the OS gave
+    /// none, e.g. it was killed by a signal).
+    Exited(Option<i32>),
+    /// It ran past the time allowed and was stopped, with its whole tree.
+    TimedOut,
+    /// The user stopped it ([`cancel_dependency_install`]), tree and all.
+    Cancelled,
+}
+
+/// How long the output readers may keep draining once the installer itself
+/// has ended. A helper the installer started (an MSI, a cask's `pkg`) can
+/// inherit the pipes and hold them open for as long as it lives; the install
+/// is over for us either way, so the readers are left behind rather than
+/// joined forever.
+const DRAIN_GRACE: Duration = Duration::from_secs(2);
+
+/// Run `program args`, sending each output line to `on_line` as it is
+/// written (split on `\r` and `\n`), stopping it — with everything it started
+/// — at `timeout` or as soon as `cancel` is set.
 pub fn run_streaming(
     program: &PathBuf,
     args: &[String],
     timeout: Duration,
+    cancel: &AtomicBool,
     on_line: &dyn Fn(String),
-) -> std::io::Result<Option<i32>> {
+) -> std::io::Result<RunEnd> {
     let mut cmd = Command::new(program);
     cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        /// CREATE_NO_WINDOW: no console flashes up behind the app.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
+    // Own process group on Unix (so the kill takes brew's helpers too) and no
+    // console window on Windows (CREATE_NO_WINDOW).
+    process::isolate_process_tree(&mut cmd);
     let mut child = cmd.spawn()?;
     let (tx, rx) = mpsc::channel::<String>();
-    let mut readers = Vec::new();
     for stream in [
         child
             .stdout
@@ -190,42 +263,95 @@ pub fn run_streaming(
     .flatten()
     {
         let tx = tx.clone();
-        readers.push(std::thread::spawn(move || {
-            let mut reader = BufReader::new(stream);
-            let mut buf = Vec::new();
-            // Split on both \r and \n as they arrive (winget's progress).
-            while reader.read_until(b'\n', &mut buf).is_ok_and(|n| n > 0) {
-                for line in output_lines(&String::from_utf8_lossy(&buf)) {
-                    let _ = tx.send(line);
+        // Detached on purpose: see DRAIN_GRACE.
+        std::thread::spawn(move || {
+            let mut stream = stream;
+            let mut splitter = LineSplitter::default();
+            let mut buf = [0u8; 4096];
+            loop {
+                match stream.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        for line in splitter.push(&buf[..n]) {
+                            if tx.send(line).is_err() {
+                                return;
+                            }
+                        }
+                    }
                 }
-                buf.clear();
             }
-        }));
+            for line in splitter.finish() {
+                let _ = tx.send(line);
+            }
+        });
     }
     drop(tx);
     let started = Instant::now();
-    let code = loop {
+    let end = loop {
         while let Ok(line) = rx.try_recv() {
             on_line(line);
         }
-        if let Some(status) = child.try_wait()? {
-            break status.code();
+        if cancel.load(Ordering::SeqCst) {
+            process::kill_tree(&mut child);
+            break RunEnd::Cancelled;
         }
         if started.elapsed() > timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            on_line(format!("stopped after {} minutes", timeout.as_secs() / 60));
-            break None;
+            process::kill_tree(&mut child);
+            break RunEnd::TimedOut;
+        }
+        if let Some(status) = child.try_wait()? {
+            break RunEnd::Exited(status.code());
         }
         std::thread::sleep(Duration::from_millis(100));
     };
-    for reader in readers {
-        let _ = reader.join();
+    // Drain what is still buffered, but never wait on a pipe some grandchild
+    // keeps open: the readers end when every writer is gone, or are left.
+    let deadline = Instant::now() + DRAIN_GRACE;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(left) {
+            Ok(line) => on_line(line),
+            Err(_) => break,
+        }
     }
-    while let Ok(line) = rx.try_recv() {
-        on_line(line);
+    Ok(end)
+}
+
+/// Holds the one-install-at-a-time slot. Releasing it — and clearing a
+/// pending cancel — happens on drop, so every way out of an install (success,
+/// error, a panic in the blocking task, a dropped future) frees the slot; a
+/// stuck slot would refuse every later install with `install_in_progress`
+/// until the app restarted.
+pub struct InstallSlot(());
+
+impl InstallSlot {
+    /// Take the slot, or `None` when another install holds it.
+    pub fn acquire() -> Option<Self> {
+        if INSTALLING.swap(true, Ordering::SeqCst) {
+            return None;
+        }
+        CANCEL.store(false, Ordering::SeqCst);
+        Some(Self(()))
     }
-    Ok(code)
+}
+
+impl Drop for InstallSlot {
+    fn drop(&mut self) {
+        CANCEL.store(false, Ordering::SeqCst);
+        INSTALLING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// What [`InstallStatus`] (and exit code) an install that ran a command ended
+/// in. Pure.
+pub fn status_of(end: RunEnd, found: bool) -> (InstallStatus, Option<i32>) {
+    match end {
+        RunEnd::Exited(Some(0)) if found => (InstallStatus::Installed, Some(0)),
+        RunEnd::Exited(Some(0)) => (InstallStatus::NotDetected, Some(0)),
+        RunEnd::Exited(code) => (InstallStatus::Failed, code),
+        RunEnd::TimedOut => (InstallStatus::TimedOut, None),
+        RunEnd::Cancelled => (InstallStatus::Cancelled, None),
+    }
 }
 
 /// Install the dependency `id` the way the user agreed to (`method`), after
@@ -260,14 +386,17 @@ pub async fn install_dependency(
             })
         }
         Plan::Run { tool, args } => {
-            if INSTALLING.swap(true, Ordering::SeqCst) {
+            let Some(slot) = InstallSlot::acquire() else {
                 return Err(IpcError::localized(
                     IpcErrorCode::InvalidRequest,
                     "install_in_progress",
                     "another dependency is being installed",
                 ));
-            }
-            let result = super::run_blocking(move || {
+            };
+            super::run_blocking(move || {
+                // Moved in, so the slot is released when this task ends, by
+                // whatever path.
+                let _slot = slot;
                 let program = deps::locate_tool(tool).ok_or_else(|| {
                     IpcError::localized(
                         IpcErrorCode::InvalidRequest,
@@ -280,32 +409,42 @@ pub async fn install_dependency(
                 let emit = |line: String| {
                     let _ = DependencyInstallProgress { id, line }.emit(&app);
                 };
-                let code = run_streaming(&program, &args, INSTALL_TIMEOUT, &emit).map_err(|e| {
-                    IpcError::localized(
-                        IpcErrorCode::Internal,
-                        "install_start_failed",
-                        format!("could not start {}: {e}", program.display()),
-                    )
-                    .with_param("tool", tool_name(tool))
-                })?;
+                let end = run_streaming(&program, &args, INSTALL_TIMEOUT, &CANCEL, &emit)
+                    .map_err(|e| {
+                        IpcError::localized(
+                            IpcErrorCode::Internal,
+                            "install_start_failed",
+                            format!("could not start {}: {e}", program.display()),
+                        )
+                        .with_param("tool", tool_name(tool))
+                    })?;
                 let report = deps::report(id, os, None);
-                let status = match code {
-                    Some(0) if report.found => InstallStatus::Installed,
-                    Some(0) => InstallStatus::NotDetected,
-                    _ => InstallStatus::Failed,
-                };
-                tracing::info!(event = "dependency_install_finished", dependency = ?id, ?code, ?status);
+                let (status, exit_code) = status_of(end, report.found);
+                tracing::info!(event = "dependency_install_finished", dependency = ?id, ?end, ?status);
                 Ok(InstallOutcome {
                     status,
-                    exit_code: code,
+                    exit_code,
                     report,
                 })
             })
-            .await;
-            INSTALLING.store(false, Ordering::SeqCst);
-            result
+            .await
         }
     }
+}
+
+/// Stop the install that is running, if any, with every process it started
+/// (FR-058: the user can always back out of an install they began). Returns
+/// whether there was one to stop; the install's own call then resolves with
+/// [`InstallStatus::Cancelled`].
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_dependency_install() -> Result<bool, IpcError> {
+    if !INSTALLING.load(Ordering::SeqCst) {
+        return Ok(false);
+    }
+    CANCEL.store(true, Ordering::SeqCst);
+    tracing::info!(event = "dependency_install_cancel_requested");
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -421,28 +560,174 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn fr_058_run_streaming_reports_lines_and_the_exit_code() {
+        let never = AtomicBool::new(false);
         let lines = std::sync::Mutex::new(Vec::new());
-        let code = run_streaming(
+        let end = run_streaming(
             &PathBuf::from("/bin/sh"),
             &["-c".into(), "echo one; echo two >&2; exit 3".into()],
             Duration::from_secs(10),
+            &never,
             &|l| lines.lock().unwrap().push(l),
         )
         .unwrap();
-        assert_eq!(code, Some(3));
+        assert_eq!(end, RunEnd::Exited(Some(3)));
         let mut got = lines.into_inner().unwrap();
         got.sort();
         assert_eq!(got, ["one", "two"]);
 
         let started = Instant::now();
-        let code = run_streaming(
+        let end = run_streaming(
             &PathBuf::from("/bin/sh"),
             &["-c".into(), "sleep 20".into()],
             Duration::from_millis(300),
+            &never,
             &|_| {},
         )
         .unwrap();
-        assert_eq!(code, None, "stopped at the timeout");
+        assert_eq!(end, RunEnd::TimedOut, "stopped at the timeout");
         assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn fr_058_timeout_and_cancel_have_their_own_status_not_an_english_line() {
+        assert_eq!(
+            status_of(RunEnd::TimedOut, false),
+            (InstallStatus::TimedOut, None)
+        );
+        assert_eq!(
+            status_of(RunEnd::Cancelled, false),
+            (InstallStatus::Cancelled, None)
+        );
+        assert_eq!(
+            status_of(RunEnd::Exited(Some(0)), true),
+            (InstallStatus::Installed, Some(0))
+        );
+        assert_eq!(
+            status_of(RunEnd::Exited(Some(0)), false),
+            (InstallStatus::NotDetected, Some(0))
+        );
+        assert_eq!(
+            status_of(RunEnd::Exited(None), false),
+            (InstallStatus::Failed, None)
+        );
+    }
+
+    #[test]
+    fn fr_058_winget_progress_streams_on_carriage_returns() {
+        let mut s = LineSplitter::default();
+        // A bar redrawn with bare \r: each redraw is a line as soon as the
+        // next \r arrives, without waiting for a newline.
+        assert_eq!(
+            s.push(b"Downloading 10 MB / 350 MB\r"),
+            ["Downloading 10 MB / 350 MB"]
+        );
+        assert_eq!(s.push(b"  -\r  \\\r"), Vec::<String>::new());
+        assert_eq!(s.push(b"Downloading 20 MB"), Vec::<String>::new());
+        assert_eq!(s.push(b" / 350 MB\r"), ["Downloading 20 MB / 350 MB"]);
+        assert_eq!(
+            s.push("Instalado correctamente".as_bytes()),
+            Vec::<String>::new()
+        );
+        assert_eq!(s.finish(), ["Instalado correctamente"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fr_058_run_streaming_emits_a_cr_line_before_the_program_ends() {
+        let never = AtomicBool::new(false);
+        let (tx, rx) = mpsc::channel::<(String, Instant)>();
+        let started = Instant::now();
+        let end = run_streaming(
+            &PathBuf::from("/bin/sh"),
+            &[
+                "-c".into(),
+                "printf 'progress 1\\r'; sleep 1; printf 'done\\n'".into(),
+            ],
+            Duration::from_secs(10),
+            &never,
+            &move |l| {
+                let _ = tx.send((l, Instant::now()));
+            },
+        )
+        .unwrap();
+        assert_eq!(end, RunEnd::Exited(Some(0)));
+        let got: Vec<_> = rx.try_iter().collect();
+        assert_eq!(got[0].0, "progress 1");
+        assert!(
+            got[0].1.duration_since(started) < Duration::from_millis(900),
+            "the \\r line arrived only after the program ended"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fr_058_a_grandchild_holding_the_pipe_does_not_hang_the_install() {
+        let never = AtomicBool::new(false);
+        let started = Instant::now();
+        // The background sleep inherits stdout and keeps the pipe open after
+        // the shell exits — like an MSI the installer started.
+        let end = run_streaming(
+            &PathBuf::from("/bin/sh"),
+            &["-c".into(), "sleep 8 & echo started; exit 0".into()],
+            Duration::from_secs(30),
+            &never,
+            &|_| {},
+        )
+        .unwrap();
+        assert_eq!(end, RunEnd::Exited(Some(0)));
+        assert!(
+            started.elapsed() < Duration::from_secs(6),
+            "waited on the grandchild's pipe: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fr_058_cancel_kills_the_install_tree() {
+        let cancel = std::sync::Arc::new(AtomicBool::new(false));
+        let flag = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            flag.store(true, Ordering::SeqCst);
+        });
+        let started = Instant::now();
+        let end = run_streaming(
+            &PathBuf::from("/bin/sh"),
+            &["-c".into(), "sleep 20 & sleep 20".into()],
+            Duration::from_secs(60),
+            &cancel,
+            &|_| {},
+        )
+        .unwrap();
+        assert_eq!(end, RunEnd::Cancelled);
+        assert!(started.elapsed() < Duration::from_secs(6));
+    }
+
+    #[test]
+    fn fr_058_install_slot_is_released_on_every_exit_path() {
+        let slot = InstallSlot::acquire().expect("free at first");
+        assert!(InstallSlot::acquire().is_none(), "one install at a time");
+        assert!(
+            cancel_dependency_install().unwrap(),
+            "a running install can be stopped"
+        );
+        drop(slot);
+        assert!(
+            !cancel_dependency_install().unwrap(),
+            "nothing left to stop"
+        );
+        // A panic inside the install still frees the slot.
+        let caught = std::panic::catch_unwind(|| {
+            let _slot = InstallSlot::acquire().expect("free again");
+            panic!("installer task blew up");
+        });
+        assert!(caught.is_err());
+        let again = InstallSlot::acquire();
+        assert!(again.is_some(), "the slot leaked after a panic");
+        assert!(
+            !CANCEL.load(Ordering::SeqCst),
+            "a fresh install starts uncancelled"
+        );
     }
 }
