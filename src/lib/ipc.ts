@@ -512,12 +512,18 @@ export function toUiQueueJob(job: Job): UiQueueJobView {
   // `percent: null` means "running, but no fraction is knowable" — distinct
   // from "no progress reported at all" (`progress: null`) and from 0 %.
   const percent = job.progress?.percent ?? null;
+  // Done and unconfirmed jobs were handed to the spooler in full: their bar
+  // is full (an unconfirmed one in the warning colour), never empty as if
+  // nothing had happened, and never a pulse left over from the print phase.
+  const handedOver = job.state === 'done' || job.state === 'unconfirmed';
   const ui: UiQueueJobView = {
     id: job.id,
     file: job.file_name,
     ext: job.input_ext,
     status: job.state,
-    progress: percent ?? (job.state === 'done' ? 1 : 0),
+    // An unconfirmed job was handed to the spooler in full: its bar is full
+    // (painted in the warning colour), not empty as if nothing had happened.
+    progress: handedOver ? 1 : (percent ?? 0),
     pages: job.pages ?? null,
     profile: job.profile_name ?? '—',
     startedAt: toClock(job.started_at),
@@ -525,7 +531,9 @@ export function toUiQueueJob(job: Job): UiQueueJobView {
   };
   const printer = job.printer_resolved ?? job.settings.printer;
   if (printer) ui.printer = printer;
-  if (job.progress != null && percent === null) ui.indeterminate = true;
+  if (!handedOver && job.progress != null && percent === null) {
+    ui.indeterminate = true;
+  }
   const duration = elapsedMs(job.started_at, job.finished_at);
   if (duration !== null) ui.durationMs = duration;
   if (job.finished_at) {

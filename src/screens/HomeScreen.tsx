@@ -363,11 +363,19 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
                     j.finishedAt}
                 </div>
               )}
-              {labels.error(j) && (
-                <div style={{ color: 'var(--mp-error)' }}>
-                  {t('recent.error')}: {labels.error(j)}
-                </div>
-              )}
+              {labels.error(j) &&
+                // Unconfirmed: handed to the spooler, nobody confirmed it
+                // printed. A warning, as everywhere else — calling it an
+                // error invites a reprint, the duplicate it warns about.
+                (j.status === 'unconfirmed' ? (
+                  <div style={{ color: 'var(--mp-warn)' }}>
+                    {t('recent.unconfirmed')}: {labels.error(j)}
+                  </div>
+                ) : (
+                  <div style={{ color: 'var(--mp-error)' }}>
+                    {t('recent.error')}: {labels.error(j)}
+                  </div>
+                ))}
               <div style={{ marginTop: 4 }}>
                 <MPButton
                   variant="ghost"

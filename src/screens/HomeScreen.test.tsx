@@ -361,6 +361,32 @@ describe('HomeScreen', () => {
     expect(screen.getByText(/Finished:.*2020/)).toBeInTheDocument();
   });
 
+  it('FR-031: an unconfirmed job is a warning in recent activity, never a red "Error"', () => {
+    const unconfirmed = toUiQueueJob(
+      mkJob({
+        id: 'j-unconfirmed',
+        state: 'unconfirmed',
+        file_name: 'Maybe-Printed.pdf',
+        error: {
+          code: 'print_unconfirmed',
+          reason: 'left_queue',
+          message: 'left the queue',
+        },
+        finished_at: '2026-07-11T10:39:00Z',
+      }),
+    );
+    setQueue([unconfirmed]);
+    renderHome();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /show the details of Maybe-Printed\.pdf/i,
+      }),
+    );
+    const line = screen.getByText(/^Not confirmed:/);
+    expect(line).toHaveStyle({ color: 'var(--mp-warn)' });
+    expect(screen.queryByText(/^Error:/)).not.toBeInTheDocument();
+  });
+
   it('offers a way into the queue from the expanded job', () => {
     setQueue([doneJob]);
     const onAction = renderHome();
