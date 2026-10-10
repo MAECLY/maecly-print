@@ -656,13 +656,23 @@ fn resolve_printer(
 }
 
 /// An [`IpcError`] as the `{code, message}` pair the queue stores on a job, so
-/// a CLI report and a queue entry describe a failure identically.
+/// a CLI report and a queue entry describe a failure identically. A localized
+/// error also keeps its stable `reason` and `params`, so a script can tell,
+/// say, `password_required` from `printing_not_allowed` (both exit 13).
 fn job_error(err: &IpcError) -> JobError {
-    let code = serde_json::to_value(err)
-        .ok()
-        .and_then(|v| v["code"].as_str().map(str::to_string))
+    let value = serde_json::to_value(err).ok();
+    let field = |name: &str| value.as_ref().map(|v| v[name].clone());
+    let code = field("code")
+        .and_then(|c| c.as_str().map(str::to_string))
         .unwrap_or_else(|| "Internal".to_string());
-    JobError::new(code, err.to_string())
+    let mut error = JobError::new(code, err.to_string());
+    // Set directly: these are IPC-family reasons (already registered under
+    // their IPC code), not the queue's job-code reasons `with_reason` checks.
+    error.reason = err.reason().map(str::to_string);
+    error.params = field("params")
+        .and_then(|p| serde_json::from_value(p).ok())
+        .filter(|p: &std::collections::BTreeMap<String, String>| !p.is_empty());
+    error
 }
 
 /// Human-mode rendering: the resolved target, then one row per file.
@@ -697,6 +707,30 @@ mod tests {
 
     fn quick() -> Profile {
         crate::profiles::builtins().remove(0)
+    }
+
+    /// FR-010 / FR-059: a failed file in the JSON report keeps the stable
+    /// reason (and params) of a localized error, so a script can tell the
+    /// exit-13 cases apart; a plain error has none.
+    #[test]
+    fn fr_059_report_error_keeps_the_reason() {
+        use crate::engine::{EngineError, PdfProtection};
+        let err = IpcError::from(EngineError::PdfProtected(PdfProtection::PrintingNotAllowed));
+        let row = job_error(&err);
+        assert_eq!(row.code, "PdfProtected");
+        assert_eq!(row.reason.as_deref(), Some("printing_not_allowed"));
+
+        let gif = crate::queue::unsupported_format_error(
+            "/x/a.gif",
+            std::path::Path::new("/x/a.gif"),
+            "gif",
+        );
+        let row = job_error(&gif);
+        assert_eq!(row.reason.as_deref(), Some("gif_not_supported"));
+        assert_eq!(row.params.unwrap()["name"], "a.gif");
+
+        let plain = job_error(&IpcError::PrintFailed("lp exploded".into()));
+        assert_eq!((plain.reason, plain.params), (None, None));
     }
 
     /// FR-059: the password is the first line, without its line ending (a
