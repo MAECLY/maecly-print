@@ -225,5 +225,22 @@
     "no-print-backend": {
       "remediation": "Printing is not available on this platform."
     }
+  },
+  "testPage": {
+    "title": "Pluryprint Test Page",
+    "tagline": "Open source batch printing for Windows and Mac.",
+    "headline": "Printer Test Page",
+    "confirm": "If you can read this clearly, your printer is working with Pluryprint.",
+    "prop1": "No 15-file limit",
+    "prop2": "No Adobe required",
+    "prop3": "No $149 license fee",
+    "defaults": "PRINTED WITH YOUR PLURYPRINT DEFAULTS",
+    "printer": "Printer",
+    "paper": "Paper",
+    "tray": "Tray",
+    "printerDefault": "printer default",
+    "color": "COLOR & ALIGNMENT",
+    "band": "Select 5, 50, or 500 files. Right-click. They print.",
+    "bandNote": "The commercial tools that do this cost $79-$149. Pluryprint is open source and free."
   }
 }

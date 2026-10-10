@@ -308,10 +308,14 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
     use crate::engine::print::sumatra;
     use std::io::Write as _;
 
-    let prefs = crate::settings::Config::load_or_default().printers;
+    let config = crate::settings::Config::load_or_default();
+    // The sheet and its job title are in the app's language (FR-092).
+    let locale = config.app.locale.clone();
+    let prefs = config.printers;
     let over = prefs.overrides.get(name).cloned().unwrap_or_default();
 
     let pdf = super::testpage::render(&super::testpage::TestPageInfo {
+        locale: locale.clone(),
         printer: name.to_string(),
         paper: over.paper.clone(),
         tray: over.tray.clone(),
@@ -351,7 +355,7 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
         tmp.path(),
         name,
         &settings,
-        "Pluryprint Test Page",
+        &super::testpage::Strings::for_locale(&locale).title,
         Some(Duration::from_secs(120)),
     ) {
         Ok(_) => Ok(()),

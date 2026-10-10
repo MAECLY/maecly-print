@@ -225,5 +225,22 @@
     "no-print-backend": {
       "remediation": "La impresión no está disponible en esta plataforma."
     }
+  },
+  "testPage": {
+    "title": "Página de prueba de Pluryprint",
+    "tagline": "Impresión por lotes de código abierto para Windows y Mac.",
+    "headline": "Página de prueba",
+    "confirm": "Si puedes leer esto con claridad, tu impresora funciona con Pluryprint.",
+    "prop1": "Sin límite de 15 archivos",
+    "prop2": "Sin necesidad de Adobe",
+    "prop3": "Sin pagar 149 $ de licencia",
+    "defaults": "IMPRESA CON TUS AJUSTES PREDETERMINADOS DE PLURYPRINT",
+    "printer": "Impresora",
+    "paper": "Papel",
+    "tray": "Bandeja",
+    "printerDefault": "el de la impresora",
+    "color": "COLOR Y ALINEACIÓN",
+    "band": "Elige 5, 50 o 500 archivos. Clic derecho. Se imprimen.",
+    "bandNote": "Las herramientas comerciales cuestan de 79 a 149 $. Pluryprint es libre y gratuito."
   }
 }

@@ -1192,6 +1192,7 @@ mod tests {
         std::fs::write(
             &pdf,
             crate::platform::testpage::render(&crate::platform::testpage::TestPageInfo {
+                locale: "en".into(),
                 printer: "Maecly_Hold".into(),
                 paper: None,
                 tray: None,

@@ -107,7 +107,10 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
     use std::io::Write as _;
 
     // The app's saved defaults for this printer.
-    let prefs = crate::settings::Config::load_or_default().printers;
+    let config = crate::settings::Config::load_or_default();
+    // The sheet and its job title are in the app's language (FR-092).
+    let locale = config.app.locale.clone();
+    let prefs = config.printers;
     let over = prefs.overrides.get(name).cloned().unwrap_or_default();
 
     // A friendlier display name for the page.
@@ -119,6 +122,7 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
         .unwrap_or_else(|| name.to_string());
 
     let pdf = super::testpage::render(&super::testpage::TestPageInfo {
+        locale: locale.clone(),
         printer: display,
         paper: over.paper.clone(),
         tray: over.tray.clone(),
@@ -148,7 +152,7 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
         "-d".to_string(),
         name.to_string(),
         "-t".to_string(),
-        "Pluryprint Test Page".to_string(),
+        super::testpage::Strings::for_locale(&locale).title,
     ];
     // The saved names go to `lp -o`, which splits a value on whitespace into
     // extra options; refuse anything that is not a single CUPS keyword.
