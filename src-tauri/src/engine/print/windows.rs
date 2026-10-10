@@ -145,7 +145,13 @@ pub fn id_for_name(names: &[String], ids: &[u16], name: &str) -> Option<u16> {
     let pos = names
         .iter()
         .position(|n| n == name)
-        .or_else(|| names.iter().position(|n| n.eq_ignore_ascii_case(name)))?;
+        .or_else(|| names.iter().position(|n| n.eq_ignore_ascii_case(name)))
+        // A paper override saved before driver names were trimmed.
+        .or_else(|| {
+            names
+                .iter()
+                .position(|n| n.trim().eq_ignore_ascii_case(name.trim()))
+        })?;
     ids.get(pos).copied()
 }
 
@@ -567,6 +573,16 @@ mod tests {
         assert_eq!(id_for_name(&names, &ids, "Carta"), Some(1));
         assert_eq!(id_for_name(&names, &ids, "oficio"), Some(5));
         assert_eq!(id_for_name(&names, &ids, "Tabloid"), None);
+    }
+
+    /// FR-044: driver paper names are trimmed now; an override saved with the
+    /// IPP class driver's padding still finds its sheet.
+    #[test]
+    fn fr_044_a_padded_saved_paper_name_still_matches() {
+        let names = vec!["8 5x13 4in".to_string(), "A4".into()];
+        let ids = vec![300u16, 9];
+        assert_eq!(id_for_name(&names, &ids, " 8 5x13 4in"), Some(300));
+        assert_eq!(id_for_name(&names, &ids, "8 5x13 4in"), Some(300));
     }
 
     /// FR-041: on Spanish Windows a driver lists "Carta"/"Oficio"; the gate's

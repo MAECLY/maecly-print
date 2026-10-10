@@ -1306,7 +1306,12 @@ connection: string; driver: string; shared: boolean; queued_jobs: number; max_dp
 /**
  * Coarse printer family, used by the UI only to pick an icon.
  */
-export type PrinterKind = "laser" | "mfp" | "wide" | "label" | "virtual"
+export type PrinterKind = "laser" | "inkjet" | "mfp" | "wide" | "label" | "virtual" | 
+/**
+ * A physical printer whose technology the names do not reveal. Shown
+ * as a plain "Printer" rather than guessed as laser.
+ */
+"printer"
 export type PrinterOverride = { tray?: string | null; paper?: string | null }
 /**
  * Organization-managed printer policy. Every field is optional so an empty or

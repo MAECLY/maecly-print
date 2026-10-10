@@ -23,10 +23,12 @@
   },
   "type": {
     "laser": "Láser",
+    "inkjet": "Inyección de tinta",
     "mfp": "Multifunción",
     "wide": "Gran formato",
     "label": "Etiquetas",
-    "virtual": "Virtual"
+    "virtual": "Virtual",
+    "printer": "Impresora"
   },
   "status": {
     "ready": "Lista",

@@ -65,6 +65,26 @@ const WIDE_WORDS: &[&str] = &[
     "versastudio",
     "versaexpress",
 ];
+/// Inkjet families whose names do not say "multifunction". EcoTank models
+/// (`EPSON L15160`, `ET-2850`) are matched by [`is_epson_ecotank`], since a
+/// bare `l` or `et-` would match far too much.
+const INKJET_WORDS: &[&str] = &[
+    "inkjet",
+    "ink jet",
+    "ecotank",
+    "eco tank",
+    "smart tank",
+    "ink tank",
+    "inktank",
+    "deskjet",
+    "envy",
+    "stylus",
+    "maxify",
+    "bubblejet",
+];
+/// Words that do say laser. Anything else that matches no family is a
+/// generic [`PrinterKind::Printer`].
+const LASER_WORDS: &[&str] = &["laser", "lbp", "i-sensys"];
 const MFP_WORDS: &[&str] = &[
     "mfp",
     "workforce",
@@ -85,7 +105,10 @@ const MFP_WORDS: &[&str] = &[
 /// model, and CUPS reports the model but hides the transport in the URI.
 ///
 /// Order matters: virtual wins over everything (a "Fax MFP" is still virtual),
-/// then label, then wide format, then multifunction, else a plain laser.
+/// then label, then wide format, then multifunction, then inkjet, then laser
+/// (only when a name says so). A device that matches nothing is a generic
+/// printer: the old fallback called every unknown device a laser, an EPSON
+/// EcoTank inkjet included.
 pub fn infer_kind(model: &str, name: &str, port_or_uri: Option<&str>) -> PrinterKind {
     let haystack = format!(
         "{} {} {}",
@@ -102,9 +125,31 @@ pub fn infer_kind(model: &str, name: &str, port_or_uri: Option<&str>) -> Printer
         PrinterKind::Wide
     } else if has(MFP_WORDS) {
         PrinterKind::Mfp
-    } else {
+    } else if has(INKJET_WORDS) || is_epson_ecotank(&haystack) {
+        PrinterKind::Inkjet
+    } else if has(LASER_WORDS) {
         PrinterKind::Laser
+    } else {
+        PrinterKind::Printer
     }
+}
+
+/// An EPSON EcoTank model in a lower-cased name: `epson` plus a word that is
+/// `l` followed by digits (`L15160`, `L3250`) or `et-` followed by a digit
+/// (`ET-2850`). EPSON's `LQ`/`LX` impact printers do not match.
+fn is_epson_ecotank(haystack: &str) -> bool {
+    haystack.contains("epson")
+        && haystack
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+            .any(|w| {
+                let l_series = w.strip_prefix('l').is_some_and(|rest| {
+                    rest.len() >= 3 && rest.chars().all(|c| c.is_ascii_digit())
+                });
+                let et_series = w
+                    .strip_prefix("et-")
+                    .is_some_and(|rest| rest.chars().next().is_some_and(|c| c.is_ascii_digit()));
+                l_series || et_series
+            })
 }
 
 #[cfg(unix)]
@@ -311,12 +356,32 @@ mod tests {
             ),
             ("Canon PIXMA MFP", "Canon", None, PrinterKind::Mfp),
             ("EPSON WorkForce WF-7840", "Epson", None, PrinterKind::Mfp),
-            // Fallback.
+            // Laser only when a name says so.
             (
                 "HP LaserJet Pro M404",
                 "Office laser",
                 Some("USB001"),
                 PrinterKind::Laser,
+            ),
+            ("Canon LBP6030", "Canon", None, PrinterKind::Laser),
+            // Inkjet: the EcoTank behind the Microsoft IPP class driver used to
+            // read "laser".
+            (
+                "Microsoft IPP Class Driver",
+                "EPSON L15160 (IPP)",
+                Some("WSD-1"),
+                PrinterKind::Inkjet,
+            ),
+            ("EPSON ET-2850 Series", "Epson", None, PrinterKind::Inkjet),
+            ("HP DeskJet 2700", "HP", None, PrinterKind::Inkjet),
+            // An EPSON impact printer is not an EcoTank.
+            ("EPSON LQ-590II", "Epson", None, PrinterKind::Printer),
+            // Nothing in the names: a generic printer, not a guessed laser.
+            (
+                "Generic PCL",
+                "Front desk",
+                Some("USB002"),
+                PrinterKind::Printer,
             ),
         ];
         for (model, name, uri, expected) in cases {

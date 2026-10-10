@@ -76,10 +76,12 @@ type T = TFunction<'printers'>;
 /** Icon per printer family; the label comes from the `type.*` catalog keys. */
 const TYPE_ICON: Record<UiPrinterType, IconName> = {
   laser: 'printer',
+  inkjet: 'printer',
   mfp: 'printer',
   wide: 'image',
   label: 'page',
   virtual: 'file',
+  printer: 'printer',
 };
 
 const STATUS_META: Record<

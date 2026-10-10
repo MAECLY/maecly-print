@@ -121,6 +121,20 @@ describe('PrintersScreen', () => {
     );
   });
 
+  it('FR-044: an inkjet and an unidentified printer are not labelled laser', async () => {
+    mockPrinters({
+      printers: [
+        { ...fixturePrinters[0], kind: 'inkjet' },
+        { ...fixturePrinters[1], kind: 'printer' },
+      ],
+    });
+    renderScreen(false);
+    await screen.findByText(/2 configured/);
+    expect(screen.getAllByText(/Inkjet/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/· Printer/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Laser/)).not.toBeInTheDocument();
+  });
+
   it('FR-044 regression: hides the Max resolution row when the driver reports no DPI', async () => {
     mockPrinters();
     renderScreen(false);

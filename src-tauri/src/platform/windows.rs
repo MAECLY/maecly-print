@@ -823,7 +823,9 @@ fn dc_flag(device: PCWSTR, port: PCWSTR, cap: PRINTER_DEVICE_CAPABILITIES) -> i3
 ///
 /// Empty names are kept (as empty strings) so the array stays parallel to the
 /// matching id array (`DC_PAPERS`/`DC_BINS`); callers that show the names
-/// filter blanks themselves.
+/// filter blanks themselves. Names are trimmed: the Microsoft IPP class driver
+/// pads some (`" 8 5x13 4in"`), and the padding then showed in the UI and in a
+/// saved paper override.
 fn dc_names(
     device: PCWSTR,
     port: PCWSTR,
@@ -843,7 +845,7 @@ fn dc_names(
         .take(got as usize)
         .map(|chunk| {
             let end = chunk.iter().position(|&c| c == 0).unwrap_or(chunk.len());
-            String::from_utf16_lossy(&chunk[..end])
+            String::from_utf16_lossy(&chunk[..end]).trim().to_string()
         })
         .collect()
 }

@@ -23,10 +23,14 @@ use crate::util::error::IpcError;
 #[serde(rename_all = "lowercase")]
 pub enum PrinterKind {
     Laser,
+    Inkjet,
     Mfp,
     Wide,
     Label,
     Virtual,
+    /// A physical printer whose technology the names do not reveal. Shown
+    /// as a plain "Printer" rather than guessed as laser.
+    Printer,
 }
 
 /// Normalized printer state (a small superset-free view of the OS state).

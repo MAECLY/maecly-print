@@ -41,7 +41,7 @@ Each printer is described by the following fields (`UiPrinter` in `src/types/dom
 | ------------ | ------------------------------------- | ------------------------------------ | ---------------------- |
 | `id`         | string                                | `hp404`                              | spooler key — **the only value ever spooled to** |
 | `name`       | string                                | `HP LaserJet Pro M404dn`             | `PrinterInfo.name` (display only; accepted as input and resolved to `id` by `ipc::printers::match_installed`) |
-| `type`       | `laser\|mfp\|wide\|label\|virtual`    | `laser`                              | inferred from driver   |
+| `type`       | `laser\|inkjet\|mfp\|wide\|label\|virtual\|printer` | `laser`                   | inferred from driver, queue name and port (`platform::infer_kind`); `printer` when nothing reveals the technology, never a guessed `laser` |
 | `color`      | boolean                               | `false`                              | driver capability      |
 | `duplex`     | boolean                               | `true`                               | driver capability      |
 | `status`     | `ready\|offline\|error\|busy`         | `ready`                              | spooler state          |
@@ -72,10 +72,12 @@ The IPC `PrinterInfo` ([data-model](../04-architecture/data-model.md)) is the **
 | `type`    | Label         | Icon    |
 | --------- | ------------- | ------- |
 | `laser`   | Laser         | printer |
+| `inkjet`  | Inkjet        | printer |
 | `mfp`     | Multifunction | printer |
 | `wide`    | Wide format   | image   |
 | `label`   | Label         | page    |
 | `virtual` | Virtual       | file    |
+| `printer` | Printer       | printer |
 
 ## Detail sections
 

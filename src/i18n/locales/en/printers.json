@@ -23,10 +23,12 @@
   },
   "type": {
     "laser": "Laser",
+    "inkjet": "Inkjet",
     "mfp": "Multifunction",
     "wide": "Wide format",
     "label": "Label",
-    "virtual": "Virtual"
+    "virtual": "Virtual",
+    "printer": "Printer"
   },
   "status": {
     "ready": "Ready",
