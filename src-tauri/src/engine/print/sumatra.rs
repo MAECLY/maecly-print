@@ -351,13 +351,91 @@ pub fn locate() -> Result<PathBuf, EngineError> {
     }))
 }
 
+/// The file name a job is spooled under, from its `title` (the original
+/// file's name). Pure.
+///
+/// SumatraPDF has no job-title flag and names the spooler document after the
+/// file it prints, so the PDF is handed to it under this name
+/// ([`stage_for_spool`]): the Windows print queue then shows `report.docx.pdf`
+/// instead of a cache UUID. Characters Windows forbids in a file name become
+/// `_`, the name is capped at 120 characters, and a `.pdf` extension is added
+/// unless the title already has one (SumatraPDF picks its engine by
+/// extension).
+pub fn spool_file_name(title: &str) -> String {
+    let mut name: String = title
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    name = name.trim().trim_end_matches(['.', ' ']).to_string();
+    if name.is_empty() {
+        name = "document".to_string();
+    }
+    let is_pdf = name.to_ascii_lowercase().ends_with(".pdf");
+    let budget = if is_pdf { 120 } else { 116 };
+    if name.chars().count() > budget {
+        let keep = if is_pdf { budget - 4 } else { budget };
+        let stem: String = name.chars().take(keep).collect();
+        name = if is_pdf {
+            format!("{}.pdf", stem.trim_end())
+        } else {
+            stem
+        };
+    }
+    if is_pdf {
+        name
+    } else {
+        format!("{name}.pdf")
+    }
+}
+
+/// A private folder holding `pdf` under [`spool_file_name`]`(title)`: a hard
+/// link when the volume allows it, a copy otherwise. The folder (and the
+/// link) disappears when the returned guard drops, after SumatraPDF has
+/// handed the job to the spooler, which keeps its own copy of the data.
+pub fn stage_for_spool(pdf: &Path, title: &str) -> std::io::Result<(tempfile::TempDir, PathBuf)> {
+    let dir = tempfile::Builder::new()
+        .prefix("maeclyprint-spool-")
+        .tempdir()?;
+    let staged = dir.path().join(spool_file_name(title));
+    if std::fs::hard_link(pdf, &staged).is_err() {
+        std::fs::copy(pdf, &staged)?;
+    }
+    Ok((dir, staged))
+}
+
+/// At most this many bytes of SumatraPDF's output are quoted in an error.
+#[cfg_attr(not(windows), allow(dead_code))]
+const LOG_TAIL: usize = 600;
+
+/// The last [`LOG_TAIL`] bytes of SumatraPDF's own output, for an error
+/// message. Empty when there is none.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn log_tail(log: &Path) -> String {
+    let Ok(bytes) = std::fs::read(log) else {
+        return String::new();
+    };
+    let start = bytes.len().saturating_sub(LOG_TAIL);
+    String::from_utf8_lossy(&bytes[start..]).trim().to_string()
+}
+
 /// Spool `pdf` via SumatraPDF, hiding the child's console window. SumatraPDF
 /// reports no OS job id itself, so the spooler's job list is compared before
 /// and after ([`super::windows::find_spooled_job`]); `os_job_id` is `None` when
-/// either list could not be read, or no new job of this user carries `pdf`'s
-/// path (it already left, or it cannot be told apart from another).
-/// `title` is accepted for parity with the CUPS backend but SumatraPDF has no
-/// job-title flag, so it is not forwarded.
+/// either list could not be read, or no new job of this user carries the
+/// spooled file's name (it already left, or it cannot be told apart from
+/// another).
+///
+/// SumatraPDF has no job-title flag, so the job is titled by printing the PDF
+/// under `title`'s name ([`stage_for_spool`]). Its diagnostic output (it logs
+/// its whole start-up to an inherited stdout) goes to a file next to that
+/// copy, never to our own stdout, where it would corrupt `print --json`; the
+/// tail of it is quoted when it fails.
 ///
 /// The wait is bounded by `timeout` and the child killed when it expires (see
 /// [`super::wait_with_timeout`]): SumatraPDF blocks until the spooler accepts
@@ -405,7 +483,6 @@ pub fn spool_with(
 
     // Suppress the transient console window when spawning the child.
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let _ = title;
 
     for note in unsupported_notes(settings) {
         tracing::warn!(
@@ -426,7 +503,14 @@ pub fn spool_with(
     }
 
     let exe = locate()?;
-    let args = sumatra_args_with(printer, settings, pdf, paper_choice);
+    let (stage, staged) = stage_for_spool(pdf, title).map_err(|e| {
+        EngineError::PrintFailed(format!("cannot prepare the file for the print queue: {e}"))
+    })?;
+    let log_path = stage.path().join("sumatrapdf.log");
+    let (log_out, log_err) = std::fs::File::create(&log_path)
+        .and_then(|f| Ok((f.try_clone()?, f)))
+        .map_err(|e| EngineError::PrintFailed(format!("cannot create the print log: {e}")))?;
+    let args = sumatra_args_with(printer, settings, &staged, paper_choice);
     // SumatraPDF reports no job id, so take the spooler's job list before and
     // after: the new job carrying this file's path is the one to track. If the
     // "before" list cannot be read there is nothing to compare against, so the
@@ -445,6 +529,9 @@ pub fn spool_with(
     };
     let mut child = Command::new(exe)
         .args(&args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(log_out))
+        .stderr(std::process::Stdio::from(log_err))
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| EngineError::PrintFailed(format!("failed to run SumatraPDF: {e}")))?;
@@ -452,7 +539,7 @@ pub fn spool_with(
     let status = super::wait_with_timeout(&mut child, timeout)?;
 
     if status.success() {
-        let document = pdf.to_string_lossy();
+        let document = staged.to_string_lossy();
         Ok(super::SpoolOutcome {
             os_job_id: before
                 .as_deref()
@@ -460,7 +547,13 @@ pub fn spool_with(
                 .map(|id| id.to_string()),
         })
     } else {
-        Err(EngineError::PrintFailed(format!("SumatraPDF exited with {status}")).into())
+        let tail = log_tail(&log_path);
+        let detail = if tail.is_empty() {
+            String::new()
+        } else {
+            format!(": {tail}")
+        };
+        Err(EngineError::PrintFailed(format!("SumatraPDF exited with {status}{detail}")).into())
     }
 }
 
@@ -471,6 +564,38 @@ mod tests {
 
     fn strs(v: &[String]) -> Vec<&str> {
         v.iter().map(String::as_str).collect()
+    }
+
+    /// The Windows queue shows the original file's name, never the cache
+    /// path or a UUID, and the name is always a legal Windows file name.
+    #[test]
+    fn nfr_082_the_spooled_document_is_named_after_the_original_file() {
+        assert_eq!(spool_file_name("report.pdf"), "report.pdf");
+        assert_eq!(spool_file_name("Report.PDF"), "Report.PDF");
+        assert_eq!(spool_file_name("letter.docx"), "letter.docx.pdf");
+        assert_eq!(spool_file_name("a:b*c?.png"), "a_b_c_.png.pdf");
+        assert_eq!(spool_file_name("  "), "document.pdf");
+        assert_eq!(spool_file_name("dots..."), "dots.pdf");
+        let long = "x".repeat(300) + ".pdf";
+        let name = spool_file_name(&long);
+        assert!(name.chars().count() <= 120 && name.ends_with(".pdf"), "{name}");
+        let long = "y".repeat(300) + ".docx";
+        let name = spool_file_name(&long);
+        assert!(name.chars().count() <= 120 && name.ends_with(".pdf"), "{name}");
+    }
+
+    #[test]
+    fn nfr_082_staging_links_the_pdf_under_its_title_and_cleans_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = dir.path().join("0192-uuid.pdf");
+        std::fs::write(&pdf, b"%PDF-1.4\n%%EOF\n").unwrap();
+        let (guard, staged) = stage_for_spool(&pdf, "Quarterly report.docx").unwrap();
+        assert_eq!(staged.file_name().unwrap(), "Quarterly report.docx.pdf");
+        assert_eq!(std::fs::read(&staged).unwrap(), std::fs::read(&pdf).unwrap());
+        let folder = guard.path().to_path_buf();
+        drop(guard);
+        assert!(!folder.exists());
+        assert!(pdf.exists(), "the source file is never touched (NFR-011)");
     }
 
     #[test]

@@ -220,8 +220,13 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Run a CLI and succeed only on a zero exit status.
 fn run_ok(program: &str, args: &[&str]) -> anyhow::Result<()> {
+    // stdout/stderr never reach our own handles: a CLI run's `--json` output
+    // must stay parseable.
     let status = Command::new(program)
         .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .creation_flags(CREATE_NO_WINDOW)
         .status()?;
     if status.success() {
