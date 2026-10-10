@@ -107,7 +107,8 @@ The `image` crate has no HEIF decoder. Bundling `libheif` would bring a native b
 
 - **Isolation.** A hostile drawing can make a parser panic, and the release build aborts on panic, so the conversion runs in `pluryprint --worker svg <in> <out>`, bounded by the conversion timeout and the cancel flag. The worker's failure comes back as `svg_invalid`, `svg_too_large` or `svg_convert_failed`.
 - **Nothing is fetched.** `usvg` has no network code, ignores `<script>`, `<foreignObject>` and animation, and its XML parser has no external entities (no XXE). An `<image>` loads only a file inside the SVG's own folder, symlinks resolved: never a UNC share (which would hand the user's NTLM credentials to that host over SMB), a `file://host/` URL, a `../` outside the folder or a URL.
-- **SVGZ** is inflated by Pluryprint with a 64 MB cap. Text uses the system fonts, loaded only when the drawing has text.
+- **SVGZ** is inflated by Pluryprint with a 64 MB cap. Text uses the system fonts, loaded once and only when the parsed drawing has text or embeds an image; no font is ever loaded from a URL or a path in the drawing.
+- **Resource caps.** The worker runs under a 1 GiB memory cap (a Job Object on Windows; `RLIMIT_DATA` and a memory watchdog on macOS/Linux) and the conversion timeout. A drawing that needs more memory fails with `svg_too_large`, one that needs more time with `tool_timed_out`; both are terminal. Before that, a drawing that would expand past the work budget (nested `<use>`, markers, patterns, or masks, clip paths and filters re-built for every element that uses them), a raster `<image>` over 64 Mpx, filter effects over 64 Mpx in all, more than 256 MB of images or a PDF over 512 MB is refused with `svg_too_large` at once. An SVG used as an `<image>` goes through the same caps.
 
 ### Office (DOCX, XLSX, PPTX, DOC, XLS, PPT), OpenDocument (ODT, ODS, ODP), and RTF on Windows
 

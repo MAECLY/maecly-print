@@ -139,6 +139,13 @@ pluryprint --worker svg <in.svg> <out.pdf>
 
 (`engine::convert::svg`, FR-052a.) `usvg` parses and `svg2pdf` writes one vector page of the drawing's own size at 96 dpi, clamped to 200 in; the printer's scaling fits it to the paper. A parser panic on a hostile drawing aborts the worker, not the app. Failures are `svg_invalid`, `svg_too_large` or `svg_convert_failed`. An `<image>` loads only from the SVG's own folder (no UNC, `file://host/`, `../` or URL), there is no network, script or external entity, and an `.svgz` is inflated with a 64 MB cap.
 
+**The worker is the resource boundary** (security note 8). The parent starts it through `process::run_capped` with a 1 GiB memory cap (`svg::WORKER_MEMORY_CAP`):
+
+- **Windows:** the worker is put in a Job Object with `JOB_OBJECT_LIMIT_PROCESS_MEMORY` (an allocation past the cap fails, and Rust aborts on it), `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (it dies with the job handle, even if the app crashes) and an active-process limit of 1 (it cannot start helpers). The job's completion port reports `JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT`. The worker waits until it is inside a job with that limit before it reads its input, and refuses to work otherwise, so it never runs uncapped.
+- **macOS / Linux:** the worker lowers `RLIMIT_DATA` to the cap before it reads its input. macOS does not enforce `RLIMIT_DATA` or `RLIMIT_AS` on `mmap`, so the parent also samples the worker's memory every 20 ms (macOS: physical footprint from `proc_pid_rusage`, compressed pages included; Linux: resident set) and kills it past the cap.
+
+A worker stopped for memory ends the job with the terminal `svg_too_large` (its `limit` is the cap in MB); one that runs past the conversion timeout with the terminal `tool_timed_out`; a PDF over 512 MB is `svg_too_large` too. Inside the worker, cheaper checks fail fast with the same reason but are not the boundary: the byte, entity and node caps; a bounded-work walk of what usvg would expand the parsed document to (`<use>`, markers, patterns, and masks, clip paths and filters with `objectBoundingBox` units, which usvg converts again for every reference), charged step by step against one budget; at most 64 Mpx per raster `<image>` and 64 Mpx of filter rasterisation, both read from usvg's own tree; and 256 MB of image resources in all. An SVG embedded as an image (a file or a `data:` URI) goes through the same caps instead of usvg's uncapped loader. Every external reference is decided in usvg's `ImageHrefResolver`, on the exact string usvg parsed.
+
 ### 3.6 CUPS `lp` (macOS / Linux, shipped)
 
 ```
