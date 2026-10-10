@@ -376,10 +376,13 @@ pub struct RollingJsonl {
 }
 
 impl RollingJsonl {
+    /// A writer that dates files by the real UTC clock.
     pub fn new(dir: PathBuf, policy: Policy) -> Self {
         Self::with_clock(dir, policy, Box::new(today_utc))
     }
 
+    /// A writer that dates files by `clock` instead of the wall clock, so tests
+    /// can step through a daily roll.
     pub fn with_clock(dir: PathBuf, policy: Policy, clock: Box<dyn Fn() -> Date + Send>) -> Self {
         Self {
             dir,
