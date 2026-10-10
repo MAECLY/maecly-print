@@ -14,6 +14,9 @@
 ; needs a code-signing certificate this project does not have yet (ADR-0008,
 ; Risks).
 ;
+; Before any of that, NSIS_HOOK_PREINSTALL takes over an install made under
+; the product's former name, MaeclyPrint (ADR-0009); see its section below.
+;
 ; This file is ASCII on purpose, and the CLSID below must match
 ; shell-ext-win/src/clsid.rs (src-tauri/tests/installer_hooks.rs checks both).
 
@@ -57,6 +60,51 @@
   WriteRegStr HKCU "Software\Classes\${CLASS}\shell\${PLURYPRINT_SHELLEXT_VERB}" "MultiSelectModel" "Player"
   WriteRegStr HKCU "Software\Classes\${CLASS}\shell\${PLURYPRINT_SHELLEXT_VERB}" "Icon" "$INSTDIR\pluryprint.exe,0"
 !macroend
+
+; ---- Taking over a MaeclyPrint install (ADR-0009) --------------------------
+;
+; Take over an install made under the product's former name, MaeclyPrint
+; (ADR-0009). Tauri derives the per-user install folder, the Uninstall key,
+; the HKCU\Software\<publisher>\<product> key and the shortcuts from
+; productName, so a Pluryprint install would otherwise sit next to a
+; MaeclyPrint one, both in "Apps & features" and both answering Explorer.
+;
+; User data is not touched here: the app moves it from the MaeclyPrint
+; folders on its first launch (src-tauri/src/util/legacy.rs). The MaeclyPrint
+; uninstaller only deletes app data when its "delete app data" box is ticked,
+; which a silent run never does.
+
+!define PLURY_LEGACY_PRODUCT "MaeclyPrint"
+!define PLURY_LEGACY_UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PLURY_LEGACY_PRODUCT}"
+
+!macro NSIS_HOOK_PREINSTALL
+  ReadRegStr $R0 HKCU "${PLURY_LEGACY_UNINSTKEY}" "UninstallString"
+  ReadRegStr $R1 HKCU "${PLURY_LEGACY_UNINSTKEY}" "InstallLocation"
+  ${If} $R0 != ""
+    DetailPrint "Removing the previous ${PLURY_LEGACY_PRODUCT} install"
+    ${If} $R1 != ""
+      ; _?= runs the uninstaller in place, so ExecWait really waits for it.
+      ExecWait '$R0 /S _?=$R1' $R2
+      Delete "$R1\uninstall.exe"
+      RMDir "$R1"
+    ${Else}
+      ExecWait '$R0 /S' $R2
+    ${EndIf}
+    DetailPrint "${PLURY_LEGACY_PRODUCT} uninstaller exited with $R2"
+  ${EndIf}
+
+  ; Whatever registration the old install (or a developer following the old
+  ; shell-ext-win README) left behind, whether or not an uninstaller ran.
+  DeleteRegKey HKCU "${PLURY_LEGACY_UNINSTKEY}"
+  DeleteRegKey HKCU "Software\Maecly\${PLURY_LEGACY_PRODUCT}"
+  DeleteRegKey HKCU "Software\Classes\*\shell\${PLURY_LEGACY_PRODUCT}"
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\${PLURY_LEGACY_PRODUCT}"
+  DeleteRegKey HKCU "Software\Classes\AllFileSystemObjects\shellex\ContextMenuHandlers\${PLURY_LEGACY_PRODUCT}"
+  Delete "$SMPROGRAMS\${PLURY_LEGACY_PRODUCT}.lnk"
+  Delete "$DESKTOP\${PLURY_LEGACY_PRODUCT}.lnk"
+!macroend
+
+; ---- End of the MaeclyPrint takeover ---------------------------------------
 
 !macro NSIS_HOOK_POSTINSTALL
   !insertmacro PLURYPRINT_MOVE_LOADED_DLL_ASIDE
