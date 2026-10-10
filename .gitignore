@@ -63,3 +63,6 @@ src-tauri/resources/sumatrapdf/*
 
 # Built by scripts/build-shell-ext.ps1 for the installer; never committed
 src-tauri/windows/*.dll
+
+# Local MCP browser-tool residue (screenshots, snapshots, console logs)
+.playwright-mcp/
