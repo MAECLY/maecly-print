@@ -54,38 +54,11 @@ pre, blockquote, table, img { page-break-inside: avoid; }
 /// Whether an image source loads from the local disk. Local means a relative
 /// path, a drive path (`C:\x.png`), `file:///…` with no host, or a `data:`
 /// URI; a protocol-relative or UNC source (`//host/x`, `\\host\x`,
-/// `file://host/x`, `file:////host/x`) and any other scheme are not. Pure.
+/// `file://host/x`, `file:////host/x`, and their escaped or slash-mixed
+/// spellings) and any other scheme are not. This is the shared predicate of
+/// [`super::local_ref`]. Pure.
 pub fn is_local_image(src: &str) -> bool {
-    let src = src.trim();
-    let lower = src.to_ascii_lowercase();
-    if lower.starts_with("data:") {
-        return true;
-    }
-    let bytes = src.as_bytes();
-    if bytes.len() >= 2 && matches!(bytes[0], b'/' | b'\\') && matches!(bytes[1], b'/' | b'\\') {
-        return false;
-    }
-    if bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && matches!(bytes[2], b'/' | b'\\')
-    {
-        return true;
-    }
-    let scheme_end = src.find(':');
-    let is_scheme = scheme_end.is_some_and(|end| {
-        end > 0
-            && src[..end].chars().enumerate().all(|(i, c)| {
-                c.is_ascii_alphabetic() || (i > 0 && matches!(c, '0'..='9' | '+' | '-' | '.'))
-            })
-    });
-    if !is_scheme {
-        return true;
-    }
-    match lower.strip_prefix("file:///") {
-        Some(rest) => !rest.starts_with('/') && !rest.starts_with('\\'),
-        None => false,
-    }
+    super::local_ref::is_local_ref(src)
 }
 
 /// Escape text for HTML content.
@@ -302,6 +275,12 @@ mod tests {
             ("file://host/x.png", false),
             ("file:////host/x.png", false),
             ("file:///\\\\host/x.png", false),
+            // Round 4 bypass vectors: escaped and slash-mixed shares.
+            ("file:///%5C%5Chost/x.png", false),
+            ("%5C%5Chost%5Cx.png", false),
+            ("\\/host/x.png", false),
+            ("\\\\?\\UNC\\host\\x.png", false),
+            ("/\t/host/x.png", false),
             ("smb://host/x.png", false),
             ("javascript:alert(1)", false),
         ] {
