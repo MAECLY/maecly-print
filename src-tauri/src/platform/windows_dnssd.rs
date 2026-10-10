@@ -208,7 +208,7 @@ fn to_resolved(i: Instance, service_type: &str) -> dnssd::Resolved {
 pub fn browse(service_types: &[&str], window: Duration) -> anyhow::Result<Vec<dnssd::Resolved>> {
     // ---- browse ---------------------------------------------------------
     let mut running = Vec::new();
-    let mut started = Ok(());
+    let mut started: anyhow::Result<()> = Ok(());
     for &service_type in service_types {
         let id = next_id();
         lock().browses.insert(id, Vec::new());
