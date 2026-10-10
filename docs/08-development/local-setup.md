@@ -1,6 +1,6 @@
 # Local Setup
 
-> **TL;DR.** Install Rust stable, Node 20 LTS + pnpm, the platform's native build tools (Visual Studio Build Tools 2022 on Windows; Xcode CLT on macOS), then `pnpm install && pnpm tauri dev`. The app boots with hot reload in under 30 seconds on a typical dev machine.
+> **TL;DR.** Install Rust stable, Node 24 LTS + pnpm, the platform's native build tools (Visual Studio Build Tools 2022 on Windows; Xcode CLT on macOS), then `pnpm install && pnpm tauri dev`. The app boots with hot reload in under 30 seconds on a typical dev machine.
 
 This document is the developer onboarding checklist. Follow it once on a clean machine; afterward, daily work is `git pull && pnpm install && pnpm tauri dev`.
 
@@ -11,7 +11,7 @@ This document is the developer onboarding checklist. Follow it once on a clean m
 | Tool | Version | Install via |
 |---|---|---|
 | Rust | stable; `rust-version = "1.78"` is the crate's floor | [rustup.rs](https://rustup.rs/) — accepts default options |
-| Node.js | 20 LTS (`engines.node: ">=20"`) | [nodejs.org](https://nodejs.org/) or `winget install OpenJS.NodeJS.LTS` |
+| Node.js | 24 LTS, what CI uses (`engines.node: ">=20"`) | [nodejs.org](https://nodejs.org/) or `winget install OpenJS.NodeJS.LTS` |
 | pnpm | 9.x (`packageManager: pnpm@9.15.0`) | `npm install -g pnpm` or `corepack enable` |
 | Visual Studio Build Tools 2022 | latest | [VS Build Tools download](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) |
 | Windows SDK | 10.0.22621 or newer | Bundled with VS Build Tools |
@@ -42,7 +42,7 @@ macOS is a fully supported development platform: the whole Rust suite, the whole
 | Tool | Version | Install via |
 |---|---|---|
 | Rust | stable | [rustup.rs](https://rustup.rs/) |
-| Node.js | 20 LTS | [nodejs.org](https://nodejs.org/) or `brew install node@20` |
+| Node.js | 24 LTS | [nodejs.org](https://nodejs.org/) or `brew install node@24` |
 | pnpm | 9.x | `npm install -g pnpm` or `corepack enable` |
 | Xcode Command Line Tools | latest | `xcode-select --install` |
 | Xcode | 15+ | Only if you need the full IDE; the CLT alone is enough to build |

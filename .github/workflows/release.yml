@@ -114,7 +114,7 @@ jobs:
       # turned off by name rather than left to its npm-only default.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version: 24
           package-manager-cache: false
 
       - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
@@ -195,7 +195,7 @@ jobs:
       # turned off by name rather than left to its npm-only default.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version: 24
           package-manager-cache: false
 
       # rustup is on every hosted runner, so the toolchain needs no action.
@@ -388,7 +388,7 @@ jobs:
       # turned off by name rather than left to its npm-only default.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version: 24
           package-manager-cache: false
 
       # The tauri CLI at the version the lockfile pins, with no install
