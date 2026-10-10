@@ -75,6 +75,45 @@ describe('localizeJobError (FR-092)', () => {
     );
   });
 
+  it('FR-058/FR-092: a missing dependency says the shared remediation, in Spanish', () => {
+    const missing = {
+      code: 'dependency_missing',
+      reason: 'libre-office',
+      message: 'LibreOffice is not installed',
+      params: { detail: 'LibreOffice is not installed' },
+    };
+    const es = localizeJobError(missing, { locale: 'es-ES' });
+    expect(es).toBe(CATALOGS['es-ES'].common.deps['libre-office'].remediation);
+    expect(es).not.toMatch(/is not installed/);
+    // A job stored before reasons existed keeps the family sentence.
+    expect(
+      localizeJobError(
+        {
+          code: 'dependency_missing',
+          message: 'x',
+          params: { detail: 'lp' },
+        },
+        { locale: 'es-ES' },
+      ),
+    ).toBe('Falta un programa necesario: lp');
+  });
+
+  it('FR-092: an engine reason is said without its English detail', () => {
+    const text = localizeJobError(
+      {
+        code: 'conversion_failed',
+        reason: 'converter_failed',
+        message: 'conversion failed: LibreOffice failed (exit status: 1)',
+        params: {
+          tool: 'LibreOffice',
+          detail: 'LibreOffice failed (exit status: 1)',
+        },
+      },
+      { locale: 'es-ES' },
+    );
+    expect(text).toBe('LibreOffice no pudo convertir este archivo a PDF.');
+  });
+
   it('FR-092: a reason picks the variant sentence', () => {
     expect(
       localizeJobError(

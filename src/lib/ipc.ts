@@ -121,9 +121,9 @@ export async function unwrap<T>(
   p: Promise<{ status: 'ok'; data: T } | { status: 'error'; error: IpcError }>,
 ): Promise<T> {
   // The generated bindings resolve to the error branch for command-returned
-  // IpcErrors, but the invoke itself can also REJECT with a plain string (e.g.
-  // "command not allowed" from the Tauri layer) — normalize both into a
-  // readable Error instead of surfacing "undefined" toasts.
+  // IpcErrors. The invoke itself can also fail: a non-Error rejection (e.g.
+  // the Tauri layer's "command not allowed" string) arrives in the error
+  // branch and is handled below; an Error the JS side threw is rethrown.
   let r;
   try {
     r = await p;
@@ -131,7 +131,13 @@ export async function unwrap<T>(
     throw e instanceof Error ? e : new Error(String(e));
   }
   if (r.status === 'ok') return r.data;
-  throw new IpcFailure((r.error as IpcErrorPayload | undefined) ?? {});
+  // The bindings pass a non-Error rejection through as the error branch, so
+  // a bare string here is the Tauri layer's, not a command's IpcError.
+  const error: unknown = r.error;
+  if (typeof error === 'string') {
+    throw new IpcFailure({ code: 'Internal', message: error });
+  }
+  throw new IpcFailure((error as IpcErrorPayload | undefined) ?? {});
 }
 
 /** The stable IPC error code of a failure thrown by {@link unwrap}, if any. */

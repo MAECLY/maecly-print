@@ -116,7 +116,6 @@
     "not_a_file": "No es un archivo",
     "too_large": "Supera el límite de {{limit}} MB",
     "too_large_unknown": "Supera el tamaño máximo de archivo",
-    "heif_unsupported": "HEIC aún no es compatible: conviértelo antes a JPEG o PNG",
     "unsupported_type": "Tipo de archivo no compatible",
     "gif_unsupported": "Las imágenes GIF no se admiten: conviértelas antes a PNG o JPEG"
   },

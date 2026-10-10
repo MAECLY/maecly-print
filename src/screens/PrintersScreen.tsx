@@ -47,6 +47,7 @@ import {
   type PrinterPolicy,
   type PrinterPrefs,
 } from '@/lib/ipc';
+import { errorTechnical } from '@/lib/ipcError';
 import {
   buildPrinterUri,
   DEFAULT_PORTS,
@@ -553,7 +554,7 @@ export function PrintersScreen() {
         });
       }
     } catch (e) {
-      toast.error(errText(e), { id });
+      toast.error(errText(e), { id, description: errorTechnical(e) });
     } finally {
       setBusy(false);
     }
@@ -570,7 +571,7 @@ export function PrintersScreen() {
       // more than the backend knows.
       toast.success(t('toast.testPageSent', { name: sel.name }), { id });
     } catch (e) {
-      toast.error(errText(e), { id });
+      toast.error(errText(e), { id, description: errorTechnical(e) });
     } finally {
       setBusy(false);
     }
@@ -2002,7 +2003,7 @@ function NetworkTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
     } catch (err) {
       const msg = errText(err);
       setRowError((e) => ({ ...e, [d.id]: msg }));
-      toast.error(msg, { id: tid });
+      toast.error(msg, { id: tid, description: errorTechnical(err) });
     } finally {
       setAddingId(null);
     }
@@ -2220,7 +2221,7 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
     } catch (err) {
       const msg = errText(err);
       setErrorMsg(msg);
-      toast.error(msg, { id: tid });
+      toast.error(msg, { id: tid, description: errorTechnical(err) });
     } finally {
       setBusy(false);
     }

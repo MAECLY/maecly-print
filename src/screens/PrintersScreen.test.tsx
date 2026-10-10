@@ -274,6 +274,42 @@ describe('PrintersScreen', () => {
     ).toBeInTheDocument();
   });
 
+  it("FR-092: a refused test page says why in the app's words, with the tool's own line under it", async () => {
+    mockPrinters();
+    // Override print_test_page to fail the way the CUPS backend reports it.
+    mockIPC((cmd) => {
+      if (cmd === 'print_test_page') {
+        // A plain object is the command-returned error branch.
+        throw {
+          code: 'PrintFailed',
+          reason: 'spooler_rejected',
+          params: { detail: 'lp: The printer or class does not exist.' },
+          message: 'lp: The printer or class does not exist.',
+        };
+      }
+      if (cmd === 'app_info') return { ...fixtureAppInfo, os: 'macos' };
+      if (cmd === 'list_printers') return fixturePrinters;
+      if (cmd === 'default_printer') return 'EPSON_L15160';
+      if (cmd === 'get_printer_prefs') return {};
+      if (cmd === 'get_printer_policy') return { default_printer: null };
+      return null;
+    });
+    renderScreen();
+    await screen.findByText(/2 configured/);
+
+    fireEvent.click(screen.getByText('Test page'));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Send test page' }),
+    );
+
+    expect(
+      await screen.findByText('The system print service rejected the job.'),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText('lp: The printer or class does not exist.'),
+    ).toBeInTheDocument();
+  });
+
   it('NFR-032: cancels the test page without printing', async () => {
     const calls = mockPrinters();
     renderScreen();

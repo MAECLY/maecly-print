@@ -68,7 +68,7 @@
       "UpdateCheckFailed": "The update check failed: {{detail}}",
       "UpdateInstallFailed": "The update could not be installed: {{detail}}",
       "UpdateSignatureInvalid": "The downloaded update failed its signature check and was not installed.",
-      "Internal": "Internal error: {{detail}}",
+      "Internal": "Something went wrong inside Pluryprint. The logs folder has the details.",
       "PdfProtected": "This PDF is protected and cannot be printed as it is."
     },
     "reasons": {
@@ -139,7 +139,7 @@
         "ippfind_missing": "Network discovery needs the CUPS client tools (ippfind), which are not installed."
       },
       "PrintFailed": {
-        "set_default_failed": "Windows could not set the default printer.",
+        "set_default_failed": "The system could not set the default printer.",
         "add_printer_needs_admin": "Adding a printer may require administrator rights. Use “Open printer settings” to add it from Windows.",
         "spooler_down": "The Windows Print Spooler service is not running. Start it (Services → Print Spooler) and try again.",
         "add_printer_no_ippurl": "This version of Windows cannot add an IPP printer from Pluryprint. Use “Open printer settings” to add it from Windows.",

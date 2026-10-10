@@ -68,7 +68,7 @@
       "UpdateCheckFailed": "No se pudo comprobar si hay actualizaciones: {{detail}}",
       "UpdateInstallFailed": "No se pudo instalar la actualización: {{detail}}",
       "UpdateSignatureInvalid": "La actualización descargada no superó la comprobación de firma y no se instaló.",
-      "Internal": "Error interno: {{detail}}",
+      "Internal": "Algo ha fallado dentro de Pluryprint. La carpeta de registros tiene los detalles.",
       "PdfProtected": "Este PDF está protegido y no se puede imprimir tal cual."
     },
     "reasons": {
@@ -139,7 +139,7 @@
         "ippfind_missing": "La detección en red necesita las herramientas cliente de CUPS (ippfind), que no están instaladas."
       },
       "PrintFailed": {
-        "set_default_failed": "Windows no pudo establecer la impresora predeterminada.",
+        "set_default_failed": "El sistema no pudo establecer la impresora predeterminada.",
         "add_printer_needs_admin": "Añadir una impresora puede requerir permisos de administrador. Usa «Abrir la configuración de impresoras» para añadirla desde Windows.",
         "spooler_down": "El servicio Cola de impresión de Windows no se está ejecutando. Inícialo (Servicios → Cola de impresión) y vuelve a intentarlo.",
         "add_printer_no_ippurl": "Esta versión de Windows no puede añadir una impresora IPP desde Pluryprint. Usa «Abrir la configuración de impresoras» para añadirla desde Windows.",
