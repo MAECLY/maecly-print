@@ -97,6 +97,11 @@ lopdf = "0.39"
 # two copies of the SVG parser. Both MIT OR Apache-2.0.
 svg2pdf = "0.13"
 usvg = "=0.45.1"
+# The page around svg2pdf's drawing (`to_chunk` + a scaled form XObject):
+# `to_pdf` scales the content to the 96 dpi page but not its pattern
+# matrices, which stretched every gradient by 4/3. The same 0.12 line
+# svg2pdf is built on, already in the tree. MIT OR Apache-2.0.
+pdf-writer = "0.12"
 # SVGZ is inflated by us, with a size cap, instead of by usvg (which inflates
 # without one: a gzip bomb). Already in the tree through usvg/lopdf/png.
 # MIT OR Apache-2.0.
