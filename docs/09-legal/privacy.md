@@ -1,8 +1,8 @@
 # Privacy Policy
 
-> **TL;DR.** Pluryprint does not collect telemetry, does not phone home, does not transmit your file contents, and does not have user accounts. The only network call it makes by default is an update **check** against the public GitHub Releases API (`api.github.com`) — no download, no identifiers, no payload. An update is downloaded only when you choose **Install now** (or run `pluryprint update install`). **This version transmits nothing else at all: there is no crash reporter and no usage-metrics reporter in the shipped code**, opt-in or otherwise. Logs stay on your machine.
+> **TL;DR.** Pluryprint does not collect telemetry, does not phone home, does not transmit your file contents, and does not have user accounts. The only network call it makes by default is an update **check** that reads a small manifest (`latest.json`) from Pluryprint's GitHub releases — no binary, no identifiers, no payload. An update is downloaded only when you choose **Install now** (or run `pluryprint update install`). **This version transmits nothing else at all: there is no crash reporter and no usage-metrics reporter in the shipped code**, opt-in or otherwise. Logs stay on your machine.
 
-This document describes what data Pluryprint collects, transmits, stores, and shares — which is nearly nothing. It is current as of **2026-07-21** and applies to all installed versions of Pluryprint on Windows and macOS.
+This document describes what data Pluryprint collects, transmits, stores, and shares — which is nearly nothing. It is current as of **2026-10-10** and applies to all installed versions of Pluryprint on Windows and macOS.
 
 ## Our principles
 
@@ -38,19 +38,19 @@ There is exactly one kind of outbound network call Pluryprint makes by default, 
 
 ### Update check
 
-- **Endpoint:** `https://api.github.com/repos/<owner>/<repo>/releases/latest`, where `<owner>/<repo>` is this build's own repository, compiled into the binary. If that request returns `404`, one follow-up request to `https://api.github.com/repos/<owner>/<repo>` distinguishes "no releases yet" from "the repository URL in this build is wrong". Those are the only two URLs the automatic check requests.
+- **Endpoint:** the updater manifest of your update channel, compiled into the binary: `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json` for **Stable**, `https://github.com/MAECLY/maecly-print/releases/download/channel-beta/latest.json` for **Beta** and **Nightly**. GitHub answers with a redirect to its own download host. That is the only URL the automatic check requests; it no longer calls the GitHub REST API (`api.github.com`).
 - **Frequency:** at most once every 24 hours, and only 30 seconds after launch — never during startup. Plus on demand when you press "Check for updates" or run `pluryprint update check`.
 - **Request payload:** none. It is a plain unauthenticated HTTPS GET. No account, no token, no install id.
-- **Request headers:** `User-Agent: Pluryprint/<version>`, plus GitHub's `Accept` and API-version headers. The user agent carries the app version and nothing else — no OS string, no identifiers.
+- **Request headers:** `User-Agent: Pluryprint/<version>` and `Accept: application/json`. The user agent carries the app version and nothing else — no OS string, no identifiers.
 - **Proxy:** if `HTTPS_PROXY` / `HTTP_PROXY` (or their lowercase forms) are set in your environment, the request goes through that proxy. Nothing else about your environment is read.
-- **What is downloaded:** only the release metadata JSON — a tag name, a link to the release page, and the release notes. The check never downloads a binary and never installs anything.
-- **What GitHub sees:** whatever any unauthenticated HTTPS request to `api.github.com` exposes — your IP address, the user agent above, and the requested URL. GitHub's privacy policy governs that; we operate no server in this path and therefore keep no logs of it.
+- **What is downloaded:** only the manifest — the version, the release notes, and for each platform the address and signature of its update file. The check never downloads a binary and never installs anything.
+- **What GitHub sees:** whatever any unauthenticated HTTPS request to `github.com` exposes — your IP address, the user agent above, and the requested URL. GitHub's privacy policy governs that; we operate no server in this path and therefore keep no logs of it.
 - **What you can disable:** the automatic check, via Settings → Updates (`[updater].check_on_startup`). The on-demand button still works when you want it.
 
 ### Installing an update (only when you ask)
 
 - **When:** only after you press **Install now** on the About screen or run `pluryprint update install`. Nothing is installed automatically, and a major version asks you a second time.
-- **Endpoint:** `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json` (a small manifest), then the installer file it names, both served by GitHub. The request carries the updater's own user agent and no identifiers.
+- **Endpoint:** the same manifest as the check, then the installer file it names, both served by GitHub. The request carries the updater's own user agent and no identifiers.
 - **Verification:** the file is checked against Pluryprint's release signature before it is installed. A file that fails the check is discarded and nothing on your computer changes.
 
 ### Things this version does **not** do over the network
@@ -58,6 +58,8 @@ There is exactly one kind of outbound network call Pluryprint makes by default, 
 - It does not download or install updates unless you ask it to (see above).
 - It does not fetch fonts, scripts, styles or images from any CDN — the webview loads only the bundled app, and the one font it uses ships inside the bundle.
 - It does not check for updates of external converters.
+- It does not install a missing converter on its own. **Install…** on the Print Job screen shows the exact command (`winget`, `brew`), Store page or download page first, and runs or opens it only after you confirm; winget, Homebrew, the Microsoft Store or your browser then make their own requests.
+- A file being printed cannot reach the network: HTML, Markdown and text pages are printed with scripts off and every request refused, SVG drawings load nothing remote, and LibreOffice's private profile blocks linked pictures and objects and points its own HTTP at a dead proxy. On Windows none of them opens a file share either, so printing a document cannot hand your Windows credentials to another machine.
 - It does not contact printer manufacturers' cloud services.
 - It does not contact `maecly.com` on its own. The **About** screen and the "report an issue" button open links in your normal browser when *you* click them; that is your browser making the request, not the app, and only `github.com`, `maecly.com` and `*.maecly.com` over HTTPS are accepted as link targets.
 
@@ -98,7 +100,8 @@ This data stays on your device. We never transmit it. You can inspect or delete 
 When Pluryprint prints a file:
 
 - The file is read from disk by Pluryprint.
-- If it is not already a PDF, it is converted to one — images are converted **inside Pluryprint itself** (no external tool involved). HEIC photos are decoded by your operating system (`sips` on macOS, Windows Imaging Component on Windows). Other formats are handed to a converter installed on your machine (LibreOffice, Edge/Chrome/Chromium, Pandoc), which runs as a normal subprocess under your user account with a private, temporary profile that is deleted afterwards.
+- If it is not already a PDF, it is converted to one — images are converted **inside Pluryprint itself** (no external tool involved). HEIC photos are decoded by your operating system (`sips` on macOS, Windows Imaging Component on Windows). SVG drawings, Markdown and plain text are also converted inside Pluryprint. HTML, Markdown and text pages are paginated by your operating system's own web view (WebView2 on Windows, WebKit on macOS) in a hidden Pluryprint worker process. Office and OpenDocument files (and RTF on Windows) are handed to LibreOffice, installed on your machine, which runs as a normal subprocess under your user account with a private, temporary profile that is deleted afterwards.
+- A **PDF password** you type is used only to decrypt that file for that print job. It is never written to disk, to a log or to a command line, and is forgotten when the job ends; the decrypted copy lives in Pluryprint's cache and is deleted with the job.
 - The resulting PDF is handed to the printing backend: SumatraPDF on Windows, the CUPS `lp` command on macOS/Linux.
 - The rendered output is sent to your printer (via the OS print spooler).
 
@@ -145,8 +148,8 @@ We do **not** use Google Analytics, Facebook Pixel, ad networks, marketing platf
 
 Although unrelated to privacy directly, security is the foundation of any privacy claim. Brief notes:
 
-- We sign all binaries (see [code-signing.md](../07-build-and-release/code-signing.md)) so you can verify they came from us, unmodified.
-- The app never downloads or replaces its own code. Because there is no in-app updater, there is no updater payload to sign and no path by which a network response can become executable code on your machine — see [auto-updater.md](../04-architecture/auto-updater.md).
+- Update files are signed with Pluryprint's own key, and the app installs only a file whose signature matches the public key built into it. The installers themselves carry no Apple or Microsoft code-signing certificate (see [code-signing.md](../07-build-and-release/code-signing.md)); each release lists the SHA-256 of every file so you can check a download.
+- The app replaces its own code only when you choose **Install now** (or run `pluryprint update install`), and only with a signed update — see [auto-updater.md](../04-architecture/auto-updater.md).
 - We disclose vulnerabilities responsibly per `SECURITY.md`.
 - We do not bundle remote-code-execution tools or scripting engines that would let an update silently change app behavior beyond what the new version does.
 
@@ -184,6 +187,7 @@ For privacy questions or concerns:
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.2 | 2026-10-10 | The update check reads the channel's `latest.json` manifest on `github.com` instead of `api.github.com`; documents the consented dependency install, the no-network printing of documents, the PDF password, and signed in-app updates in place of "no in-app updater". |
 | 1.1 | 2026-07-21 | Corrected to match the shipped code: the update check targets `api.github.com`, not `updates.maecly.com`; removed the description of a crash reporter and a metrics ping that do not exist (the consent flags are inert); replaced the local-storage table with the real file names and paths; removed Cloudflare and Sentry from third-party services. |
 | 1.0 | 2026-05-03 | Initial policy. |
 
