@@ -35,7 +35,9 @@ use super::{extension_of, EngineError, Failure};
 
 pub mod heif;
 pub mod html;
+pub mod html_scan;
 pub mod image;
+pub mod local_ref;
 pub mod markdown;
 pub mod office;
 pub mod pdf_security;
