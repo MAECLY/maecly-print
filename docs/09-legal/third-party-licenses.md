@@ -14,13 +14,13 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 
 | Crate | Declared version | License (typical) | Used for | AGPL-3.0 compatible? |
 |---|---|---|---|---|
-| `tauri` | 2.1 | MIT / Apache-2.0 | App framework | Yes |
-| `tauri-build` | 2.0 | MIT / Apache-2.0 | Build script (not distributed) | N/A |
+| `tauri` | 2.12 | MIT / Apache-2.0 | App framework | Yes |
+| `tauri-build` | 2.7 | MIT / Apache-2.0 | Build script (not distributed) | N/A |
 | `tauri-plugin-dialog` | 2 | MIT / Apache-2.0 | Native file picker | Yes |
 | `tauri-plugin-opener` | 2 | MIT / Apache-2.0 | Open URLs / reveal folders | Yes |
 | `tauri-plugin-single-instance` | 2 | MIT / Apache-2.0 | Forward a second launch (NFR-014) | Yes |
-| `tauri-plugin-notification` | ~2.4 | MIT / Apache-2.0 | Native OS notifications (FR-072) | Yes |
-| `tauri-plugin-updater` | ~2.12 | MIT / Apache-2.0 | Signed update download, verification and install (FR-082/083) | Yes |
+| `tauri-plugin-notification` | ~2.5 | MIT / Apache-2.0 | Native OS notifications (FR-072) | Yes |
+| `tauri-plugin-updater` | ~2.13 | MIT / Apache-2.0 | Signed update download, verification and install (FR-082/083) | Yes |
 | `serde`, `serde_json` | 1 | MIT / Apache-2.0 | Serialization | Yes |
 | `toml` | 1 | MIT / Apache-2.0 | `config.toml`, `profiles.toml` | Yes |
 | `tokio` | 1.41 | MIT | Async runtime (queue dispatcher) | Yes |
@@ -52,9 +52,9 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `uuid` | 1 (`v7`) | MIT / Apache-2.0 | Time-sortable job ids | Yes |
 | `time` | 0.3 | MIT / Apache-2.0 | RFC 3339 timestamps | Yes |
 | `windows` *(Windows targets only)* | 0.58 | MIT / Apache-2.0 | winspool + GDI `DeviceCapabilities`, PrintTicket ↔ DEVMODE, console attach, policy registry/owner checks | Yes |
-| `webview2-com` *(Windows targets only)* | 0.38 | MIT | WebView2 `PrintToPdf` in the render worker (FR-055) | Yes |
-| `windows-core` *(Windows targets only)* | 0.61 | MIT / Apache-2.0 | COM base types (`HSTRING`, `BOOL`, `Interface`) of the line `webview2-com` is generated against | Yes |
-| `windows-webview` *(the `windows` crate, Windows targets only)* | 0.61 | MIT / Apache-2.0 | `IStream` and `SHCreateStreamOnFileEx`, so the render worker serves the staged page and the document's files itself (the line `webview2-com` and wry already use) | Yes |
+| `webview2-com` *(Windows targets only)* | 0.39 | MIT | WebView2 `PrintToPdf` in the render worker (FR-055) | Yes |
+| `windows-core` *(Windows targets only)* | 0.62 | MIT / Apache-2.0 | COM base types (`HSTRING`, `BOOL`, `Interface`) of the line `webview2-com` is generated against | Yes |
+| `windows-webview` *(the `windows` crate, Windows targets only)* | 0.62 | MIT / Apache-2.0 | `IStream` and `SHCreateStreamOnFileEx`, so the render worker serves the staged page and the document's files itself (the line `webview2-com` and wry already use) | Yes |
 | `objc2` *(macOS only)* | 0.6 | MIT | Objective-C runtime for the NSServices provider | Yes |
 | `objc2-app-kit`, `objc2-foundation` *(macOS only)* | 0.3 | MIT | AppKit/Foundation bindings (feature-narrowed) | Yes |
 | `objc2-web-kit` *(macOS only)* | 0.3 | Zlib / Apache-2.0 / MIT | WKWebView printing in the render worker (FR-055) | Yes |
@@ -79,8 +79,8 @@ This crate is deliberately **not** a workspace member (see [`../04-architecture/
 | Package | Declared version | License | Used for |
 |---|---|---|---|
 | `react`, `react-dom` | ^19.3.0 | MIT | UI runtime |
-| `@tauri-apps/api` | ^2.1.1 | MIT / Apache-2.0 | IPC + event bridge |
-| `@tauri-apps/plugin-dialog` | ^2.7.1 | MIT / Apache-2.0 | File picker binding |
+| `@tauri-apps/api` | ^2.12.1 | MIT / Apache-2.0 | IPC + event bridge |
+| `@tauri-apps/plugin-dialog` | ^2.8.1 | MIT / Apache-2.0 | File picker binding |
 | `zustand` | ^5.0.15 | MIT | Frontend state |
 | `sonner` | ^2.0.8 | MIT | Toasts |
 | JetBrains Mono (font, bundled `.woff2`) | — | SIL OFL 1.1 | Monospace typeface shipped offline |

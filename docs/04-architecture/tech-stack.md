@@ -8,8 +8,8 @@ Everything in this table is declared in `src-tauri/Cargo.toml`, `shell-ext-win/C
 
 | Layer                  | Choice                                                  |
 | ---------------------- | ------------------------------------------------------- |
-| Application shell      | **Tauri 2.1** (Rust host + system webview)              |
-| Backend / core logic   | **Rust 1.78+** (stable, edition 2021)                   |
+| Application shell      | **Tauri 2.12** (Rust host + system webview)             |
+| Backend / core logic   | **Rust 1.90+** (stable, edition 2021)                   |
 | Frontend / UI          | **React 19 + TypeScript 5 + Vite 7 + Tailwind CSS 3** (layout utilities only; design tokens are CSS custom properties, Tailwind `preflight` disabled) |
 | Frontend state         | `zustand` 5; toasts via `sonner`                        |
 | Localization           | **In-house** (`src/i18n/`, JSON catalogues per screen) — no i18n library |
@@ -218,7 +218,7 @@ Packages named in earlier drafts and **not** used: `@radix-ui/*`, `react-hook-fo
 
 | Tool          | Required version    |
 | ------------- | ------------------- |
-| Rust          | 1.78 stable+        |
+| Rust          | 1.90 stable+        |
 | Node.js       | 24 LTS (CI); 22.22.2+ minimum |
 | pnpm          | 9.x (preferred over npm/yarn) |
 | Tauri CLI     | 2.x                 |
@@ -227,7 +227,7 @@ Packages named in earlier drafts and **not** used: `@radix-ui/*`, `react-hook-fo
 | WebView2 Runtime | Evergreen (auto-installed by Win 11; bootstrapper for Win 10) |
 | Xcode         | 15+ (Mac)           |
 
-`package.json` pins the package manager (`pnpm@9.15.0`) and declares `engines.node >= 22.22.2` (the floor jsdom 30 and Vitest 5 set for the test toolchain); both `Cargo.toml`s declare `rust-version = "1.78"`. There is **no `rust-toolchain.toml`** in the repo, so the Rust version CI uses is whatever `.github/workflows/ci.yml` installs — adding one is an open item (see [`security-model.md`](./security-model.md) §9). Inno Setup is not part of the toolchain; the Windows installer comes from Tauri's NSIS target.
+`package.json` pins the package manager (`pnpm@9.15.0`) and declares `engines.node >= 22.22.2` (the floor jsdom 30 and Vitest 5 set for the test toolchain); `src-tauri/Cargo.toml` declares `rust-version = "1.90"` (the floor Tauri 2.12 and its plugins set) and `shell-ext-win/Cargo.toml` `rust-version = "1.78"`. There is **no `rust-toolchain.toml`** in the repo, so the Rust version CI uses is whatever `.github/workflows/ci.yml` installs — adding one is an open item (see [`security-model.md`](./security-model.md) §9). Inno Setup is not part of the toolchain; the Windows installer comes from Tauri's NSIS target.
 
 ## 7. Where this decision is recorded
 

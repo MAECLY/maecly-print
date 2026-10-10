@@ -12,7 +12,7 @@ This document is the style guide for all code in the repository. Linters enforce
 |---|---|---|
 | Toolchain | `stable` | Stable only. No nightly features. |
 | Edition | `2024` | Latest edition; future-proof. |
-| MSRV (Minimum Supported Rust Version) | `1.80` | Far enough behind stable that most users have it; recent enough for `let-else`, `let-chains`, async-fn-in-trait. |
+| MSRV (Minimum Supported Rust Version) | `1.90` (app crate) | Far enough behind stable that most users have it; recent enough for `let-else`, `let-chains`, async-fn-in-trait. |
 | Format | `rustfmt` (default config) | Stop arguing about formatting. |
 | Lint | `cargo clippy --all-targets --all-features -- -D warnings` | All warnings are errors. |
 | Audit | `cargo audit` (in CI) | Catches known vulnerable deps. |
