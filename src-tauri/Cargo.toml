@@ -298,7 +298,7 @@ webview2-com = "0.39"
 # The COM base types (HSTRING, BOOL, Interface::cast) of the line webview2-com
 # 0.39 is generated against; our own `windows` 0.58 types are not
 # interchangeable with them. Already in the tree through wry. MIT OR Apache-2.0.
-windows-core = "0.62"
+windows-core = "0.100"
 # FR-055: the render worker answers the web view's requests itself, streaming
 # the staged page and the document's files (`SHCreateStreamOnFileEx`), so both
 # share one origin. The `windows` line webview2-com 0.39 and wry are built on
