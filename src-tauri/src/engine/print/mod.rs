@@ -962,9 +962,11 @@ mod tests {
         let cmd = preview_command("job.pdf", "Office", &settings, &PrinterCaps::unknown());
 
         if cfg!(windows) {
-            assert!(cmd.contains("bin=Tray 2"), "{cmd}");
-            // Quality is not expressible: the panel says so instead of hiding it.
-            assert!(cmd.contains("NOT applied"), "{cmd}");
+            // No such printer, so no driver id for the tray: said, not sent.
+            assert!(!cmd.contains("bin="), "{cmd}");
+            assert!(cmd.contains("\"Tray 2\", so it is NOT applied"), "{cmd}");
+            // Quality has no token: the panel says how it is carried instead.
+            assert!(cmd.contains("\"high\""), "{cmd}");
         } else {
             // Multi-word values stay one argument when pasted into a shell.
             assert!(cmd.contains("'InputSlot=Tray 2'"), "{cmd}");
