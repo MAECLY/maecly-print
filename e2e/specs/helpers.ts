@@ -163,8 +163,16 @@ export async function restoreDefaultSettings(): Promise<void> {
  */
 export async function forceEnglishUi(): Promise<void> {
   await dismissOnboarding();
-  let settings = await $('button*=Settings');
-  if (!(await settings.isExisting())) settings = await $('button*=Ajustes');
+  // The sidebar may still be rendering when the session starts. Wait for it
+  // in either language before picking one: an early English miss would fall
+  // back to "Ajustes" on an English UI and burn its whole timeout.
+  const english = await $('button*=Settings');
+  const spanish = await $('button*=Ajustes');
+  await browser.waitUntil(
+    async () => (await english.isExisting()) || (await spanish.isExisting()),
+    { timeout: 15_000, timeoutMsg: 'the sidebar never rendered' },
+  );
+  const settings = (await english.isExisting()) ? english : spanish;
   await settings.waitForClickable({ timeout: 10_000 });
   await settings.click();
   await selectLanguage('en-US');
