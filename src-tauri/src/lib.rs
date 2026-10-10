@@ -385,6 +385,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::profiles::import_profiles,
             ipc::settings::get_app_settings,
             ipc::settings::set_app_settings,
+            ipc::settings::take_retired_renderer_notice,
             ipc::update::check_for_updates,
             ipc::update::get_update_state,
             ipc::update::set_skipped_update_version,

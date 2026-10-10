@@ -577,6 +577,21 @@ async setAppSettings(settings: AppSettings) : Promise<Result<AppSettings, IpcErr
 }
 },
 /**
+ * Whether to tell the user, once, that the headless-browser renderer they
+ * had chosen by hand (`[engine] html_renderer = "browser"`) is gone and
+ * their pages now print with the system web view. Removes the retired key
+ * from `config.toml` ([`crate::settings::take_retired_html_renderer_at`]),
+ * so it answers `true` at most once. The window asks at launch.
+ */
+async takeRetiredRendererNotice() : Promise<Result<boolean, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("take_retired_renderer_notice") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Check the configured channel's release manifest for a newer release than
  * the running build.
  * 
@@ -910,9 +925,11 @@ export type Dependency =
  */
 "libre-office" | 
 /**
- * Edge or Chrome: only the hidden `html_renderer = "browser"` fallback
- * (D15) uses it; HTML, Markdown and text print through the system web
- * view by default, so it is not in [`ALL`] and blocks nothing.
+ * No longer used: Edge or Chrome served only the headless-browser
+ * fallback for HTML (D15), which was removed (round 6, ADR-0012); HTML,
+ * Markdown and text print through the system web view. Kept so a
+ * `queue.json` that names it still loads, and its reason stays valid. It
+ * is not in [`ALL`] and blocks nothing.
  */
 "chromium" | 
 /**

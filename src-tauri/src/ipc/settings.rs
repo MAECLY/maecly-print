@@ -60,6 +60,22 @@ fn meta(config_path: &Path, config_unreadable: bool) -> SettingsMeta {
     }
 }
 
+/// Whether to tell the user, once, that the headless-browser renderer they
+/// had chosen by hand (`[engine] html_renderer = "browser"`) is gone and
+/// their pages now print with the system web view. Removes the retired key
+/// from `config.toml` ([`crate::settings::take_retired_html_renderer_at`]),
+/// so it answers `true` at most once. The window asks at launch.
+#[tauri::command]
+#[specta::specta]
+pub async fn take_retired_renderer_notice() -> Result<bool, IpcError> {
+    super::run_blocking(|| {
+        Ok(crate::settings::take_retired_html_renderer_at(
+            &Config::config_path(),
+        ))
+    })
+    .await
+}
+
 /// Validate and persist the app settings, returning the saved value.
 ///
 /// Under [`CONFIG_LOCK`] this loads the full config, replaces exactly the four
@@ -122,12 +138,13 @@ pub fn set_app_settings_at(
         Config::load_strict(config_path).map_err(|_| crate::settings::config_corrupt_error())?;
 
     let default_profile = cfg.engine.default_profile.take();
-    // Hidden, file-only knob (D15): the wire never carries it.
-    let html_renderer = cfg.engine.html_renderer;
+    // The retired renderer key stays until the app has told the user about
+    // it once (`take_retired_renderer_notice`); the wire never carries it.
+    let retired_html_renderer = cfg.engine.retired_html_renderer.take();
     cfg.app = settings.app;
     cfg.engine = settings.engine;
     cfg.engine.default_profile = default_profile;
-    cfg.engine.html_renderer = html_renderer;
+    cfg.engine.retired_html_renderer = retired_html_renderer;
     cfg.updater = settings.updater;
     cfg.telemetry = settings.telemetry;
     // `settings.meta` is deliberately dropped: it is server-computed, and the
@@ -495,12 +512,12 @@ mod tests {
         assert_eq!(third.updater.channel, UpdateChannel::Beta);
     }
 
-    /// D15: the hidden renderer switch lives only in the file. A settings
-    /// save from the window (which never carries it) keeps it, and the
-    /// default is never written.
+    /// Round 6: the retired renderer key survives a settings save from the
+    /// window (which never carries it) until the one-time notice took it,
+    /// and the default config never writes it.
     #[test]
-    fn fr_055_hidden_html_renderer_survives_a_settings_save() {
-        use crate::settings::{Config, HtmlRenderer};
+    fn fr_055_retired_html_renderer_survives_a_settings_save_until_taken() {
+        use crate::settings::Config;
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("config.toml");
         let profiles_path = dir.path().join("profiles.toml");
@@ -515,18 +532,21 @@ mod tests {
             text.replace("[engine]\n", "[engine]\nhtml_renderer = \"browser\"\n"),
         )
         .unwrap();
-        assert_eq!(
-            Config::load_from(&config_path).engine.html_renderer,
-            HtmlRenderer::Browser
-        );
         let mut from_window = get_app_settings_at(&config_path).unwrap();
-        from_window.engine.html_renderer = HtmlRenderer::System; // not on the wire
+        from_window.engine.retired_html_renderer = None; // not on the wire
         from_window.app.theme = Theme::Dark;
         set_app_settings_at(&config_path, &profiles_path, from_window).unwrap();
         assert_eq!(
-            Config::load_from(&config_path).engine.html_renderer,
-            HtmlRenderer::Browser
+            Config::load_from(&config_path)
+                .engine
+                .retired_html_renderer
+                .as_deref(),
+            Some("browser")
         );
+        assert!(crate::settings::take_retired_html_renderer_at(&config_path));
+        let cfg = Config::load_from(&config_path);
+        assert_eq!(cfg.engine.retired_html_renderer, None);
+        assert_eq!(cfg.app.theme, Theme::Dark);
     }
 
     #[test]

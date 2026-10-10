@@ -246,34 +246,20 @@ pub struct EngineCfg {
     /// serialize a bare `Option::None` value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_profile: Option<String>,
-    /// **Hidden** (D15): what renders HTML, Markdown and text to PDF. Only a
-    /// hand edit of `config.toml` (`[engine] html_renderer = "browser"`)
-    /// changes it; it is not on the wire (`specta(skip)`), the Settings
-    /// screen does not show it, and a settings save keeps the stored value.
-    /// Written to the file only when it is not the default.
-    #[serde(default, skip_serializing_if = "HtmlRenderer::is_system")]
+    /// **Retired** (round 6): the value of the removed `[engine]
+    /// html_renderer` key, when an older build's `config.toml` still has it.
+    /// HTML, Markdown and text always print through the system web view now
+    /// (the headless-browser fallback is gone, ADR-0012), so the engine never
+    /// reads this. It is kept on disk only until the app has told the user
+    /// once ([`take_retired_html_renderer_at`]); a settings save preserves it
+    /// until then. Not on the wire (`specta(skip)`).
+    #[serde(
+        default,
+        rename = "html_renderer",
+        skip_serializing_if = "Option::is_none"
+    )]
     #[specta(skip)]
-    pub html_renderer: HtmlRenderer,
-}
-
-/// Which program renders HTML, Markdown and text to PDF (FR-055/056/057, D15).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum HtmlRenderer {
-    /// The operating system's own web view (WebView2 / WKWebView) in the
-    /// hidden render worker: no Edge, Chrome or Pandoc needed.
-    #[default]
-    System,
-    /// The pre-round-3 path: a headless Edge/Chrome/Chromium. Kept for one
-    /// version as a fallback, then removed.
-    Browser,
-}
-
-impl HtmlRenderer {
-    /// Whether this is the default, [`HtmlRenderer::System`].
-    pub fn is_system(&self) -> bool {
-        *self == Self::System
-    }
+    pub retired_html_renderer: Option<String>,
 }
 
 impl Default for EngineCfg {
@@ -284,7 +270,7 @@ impl Default for EngineCfg {
             max_file_size_mb: ENGINE_LIMITS.max_file_size_mb.default,
             print_timeout_seconds: ENGINE_LIMITS.print_timeout_seconds.default,
             default_profile: None,
-            html_renderer: HtmlRenderer::System,
+            retired_html_renderer: None,
         }
     }
 }
@@ -324,7 +310,7 @@ impl EngineCfg {
                 .print_timeout_seconds
                 .sanitize(self.print_timeout_seconds),
             default_profile: self.default_profile.clone(),
-            html_renderer: self.html_renderer,
+            retired_html_renderer: self.retired_html_renderer.clone(),
         }
     }
 }
@@ -586,6 +572,31 @@ pub fn launch_minimized() -> bool {
 /// nothing — so the window opens normally then.
 pub fn should_start_minimized(launch_minimized: bool, has_selection: bool) -> bool {
     launch_minimized && !has_selection
+}
+
+/// The one-time migration of the retired `[engine] html_renderer` key
+/// (round 6): remove it from `config_path` and say whether it named the
+/// headless browser (`"browser"`, any case), the case the app tells the user
+/// about once — their pages now print with the system web view. Any other
+/// value is removed silently, and a missing, unreadable or key-less file is
+/// left alone (`false`). Takes [`CONFIG_LOCK`], so the caller must not hold
+/// it.
+pub fn take_retired_html_renderer_at(config_path: &Path) -> bool {
+    let _guard = CONFIG_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let Ok(mut cfg) = Config::load_strict(config_path) else {
+        return false;
+    };
+    let Some(value) = cfg.engine.retired_html_renderer.take() else {
+        return false;
+    };
+    if let Err(e) = cfg.save_to(config_path) {
+        // Not removed: the notice comes back on the next launch instead.
+        tracing::warn!(event = "retired_html_renderer_not_removed", error = %e);
+        return false;
+    }
+    let was_browser = value.trim().eq_ignore_ascii_case("browser");
+    tracing::info!(event = "retired_html_renderer_removed", was_browser);
+    was_browser
 }
 
 impl Default for Config {
@@ -1268,5 +1279,58 @@ mod tests {
         c.save_to(&path).unwrap();
         let loaded = Config::load_from(&path);
         assert_eq!(loaded, c);
+    }
+
+    /// Round 6: the headless-browser renderer is gone. A `config.toml` that
+    /// still names it loads (the value is kept, never used), is cleaned on
+    /// the first take, and only `"browser"` asks for the one-time notice.
+    #[test]
+    fn fr_055_retired_html_renderer_is_migrated_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        assert!(!take_retired_html_renderer_at(&path), "missing file");
+
+        let mut c = Config::default();
+        c.app.theme = Theme::Dark;
+        c.save_to(&path).unwrap();
+        let clean = std::fs::read_to_string(&path).unwrap();
+        assert!(!clean.contains("html_renderer"), "{clean}");
+        assert!(!take_retired_html_renderer_at(&path), "nothing to retire");
+
+        std::fs::write(
+            &path,
+            clean.replace("[engine]\n", "[engine]\nhtml_renderer = \"Browser\"\n"),
+        )
+        .unwrap();
+        let loaded = Config::load_from(&path);
+        assert_eq!(
+            loaded.engine.retired_html_renderer.as_deref(),
+            Some("Browser")
+        );
+        assert_eq!(loaded.app.theme, Theme::Dark);
+        assert!(take_retired_html_renderer_at(&path), "told once");
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(!after.contains("html_renderer"), "{after}");
+        assert_eq!(Config::load_from(&path).app.theme, Theme::Dark);
+        assert!(!take_retired_html_renderer_at(&path), "only once");
+
+        // "system" (the old default, written by hand) is removed silently.
+        std::fs::write(
+            &path,
+            clean.replace("[engine]\n", "[engine]\nhtml_renderer = \"system\"\n"),
+        )
+        .unwrap();
+        assert!(!take_retired_html_renderer_at(&path));
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("html_renderer"));
+
+        // A corrupt file is never rewritten.
+        std::fs::write(&path, "html_renderer = ][").unwrap();
+        assert!(!take_retired_html_renderer_at(&path));
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "html_renderer = ]["
+        );
     }
 }
