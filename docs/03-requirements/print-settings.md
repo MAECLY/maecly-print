@@ -67,6 +67,8 @@ If the printer reports that it cannot duplex, the job is **paused** with `Engine
 
 There is no `auto` value. On CUPS, `color` emits no flag at all — the driver's own default is the colour path — and only `monochrome` forces `ColorModel=Gray`.
 
+On Windows, SumatraPDF's `color` / `monochrome` only set the public `dmColor`. A PrintTicket driver need not read that as colour: the Microsoft IPP Class Driver keeps its private `ColorMode` (`AutoSelect` by default) and spooled a `color` job as `psk:PageOutputColor = psk:AutoSelect`, so the printer received `print-color-mode=auto` (round 8, Windows 11 ARM64). A colour job therefore also goes through the [quality](#quality) DEVMODE swap, selecting `psk:Color`, whenever the driver offers `psk:Color` and the user's default does not already select it; the job's own ticket is read back and logged (`print_setting_applied` / `print_setting_not_applied`, `setting = "color"`). `monochrome` needs no swap: the same driver turns `dmColor = DMCOLOR_MONOCHROME` into `psk:Grayscale`. A driver without a PrintTicket provider reads `dmColor` itself and is left alone. Checked on the paused IPP Class Driver queue: `--color` spools `psk:Color` (private `ColorMode=Color`), `--mono` spools `psk:Grayscale`, and the user's default is unchanged afterwards.
+
 ### `copies` and `collate`
 
 `copies` is validated as `1..=999` by `JobSettings::validate` and sets the number of copies of the **whole job**. It is only emitted when greater than 1 (`<N>x` for SumatraPDF, `-n N` for `lp`).
@@ -129,7 +131,7 @@ CUPS implements n-up natively (`number-up`); nothing emits that flag today. On W
 
 > **Shipped.** `quality` is on `JobSettings` (`Draft`/`Normal`/`High`, defaulting to `Normal`). CUPS gets `-o print-quality=3|4|5` plus `-o cupsPrintQuality=Draft|Normal|High`. On Windows it goes through a temporary per-user default, described below, and only when the printer's driver offers that level.
 
-**Windows (decision D16, `engine::print::devmode_swap`).** SumatraPDF has no quality switch, but it starts every job from the printer's **per-user default DEVMODE**. For Draft and High (Normal is never forced):
+**Windows (decision D16, `engine::print::devmode_swap`).** SumatraPDF has no quality switch, but it starts every job from the printer's **per-user default DEVMODE**. For Draft and High (Normal is never forced), and for a colour job whose driver would not otherwise select `psk:Color` (see [`color_mode`](#color_mode)):
 
 1. A DEVMODE carrying the quality is built from the user's current default, through a PrintTicket (`psk:PageOutputQuality`) for v4 and class drivers such as the Microsoft IPP Class Driver, or through `dmPrintQuality` (`DMRES_DRAFT`/`DMRES_HIGH`) for a driver with no PrintTicket provider. A driver that offers neither is left alone, and the job says the quality was not applied.
 2. Under a per-printer OS file lock, and after the original is written to a journal (`<data>\devmode-swap\`), that DEVMODE becomes the user's default (`SetPrinter` level 9: no administrator, other users untouched).
@@ -243,7 +245,7 @@ Full argument vector: `-print-to <printer> -print-settings <string> -silent -exi
 |---|---|
 | Page range | `1-5,10` — bare, no key, whitespace stripped, **first** |
 | Duplex none / long / short | `simplex` / `duplex` / `duplexshort` — always emitted |
-| Colour / monochrome | `color` / `monochrome` — always emitted |
+| Colour / monochrome | `color` / `monochrome` — always emitted; colour is also made explicit in the PrintTicket through the DEVMODE swap when the driver needs it (see [`color_mode`](#color_mode)) |
 | Scaling fit / shrink / none | `fit` / `shrink` / `noscale` — always emitted |
 | Paper size | `paperkind=<id>`: the driver's `DMPAPER_*` id for its own paper name, else the standard id for a size Pluryprint names (`A4` = 9, `Letter` = 1, …). Never `paper=<name>`, which SumatraPDF matches against the driver's **localized** names (on Spanish Windows Letter is "Carta"). `auto` emits nothing; a size with no id is left out and a `# note:` line in the preview says it is not applied |
 | Copies | `<N>x` (e.g. `3x`), **only when N > 1** — SumatraPDF silently skips the `copies=N` spelling; collation cannot be expressed (preview note) |
