@@ -12,11 +12,11 @@
 //! | duplex none/long/short| `simplex` / `duplex` / `duplexshort`       |
 //! | colour / monochrome   | `color` / `monochrome`                     |
 //! | scaling fit/shrink/none| `fit` / `shrink` / `noscale`              |
-//! | paper                 | `paper=<A2…A6\|letter\|legal\|tabloid\|statement>` |
-//! | tray                  | `bin=<bin name or number>`                 |
+//! | paper                 | `paperkind=<DMPAPER id>`                   |
+//! | tray                  | `bin=<DMBIN id>`                           |
 //! | copies > 1            | `<n>x` (e.g. `3x`)                         |
 //! | orientation land/port | `landscape` / `portrait` *(auto omitted)*  |
-//! | **quality**           | **not expressible — see below**            |
+//! | **quality**           | **no token — a temporary per-user default, see below** |
 //!
 //! The doc table lists only `duplex`/`duplexshort`; SumatraPDF also accepts
 //! `simplex` and `noscale`, which we use for the "none" cases so every setting
@@ -24,65 +24,80 @@
 //! parser accepts; an unknown token such as `copies=N` is skipped without a
 //! warning, which is how an earlier version printed one copy of everything.
 //!
-//! ## The quality gap
+//! ## Paper and tray go by id
 //!
-//! SumatraPDF's `-print-settings` has no print-quality switch: its vocabulary
-//! covers pages, orientation, scaling, colour, duplex, copies, `paper=` and
-//! `bin=`, and nothing else. A draft/normal/high choice therefore **cannot** be
-//! carried to the Windows spooler by this backend, and the printer prints at
-//! whatever quality its own driver defaults to.
+//! SumatraPDF's `paper=<name>` and `bin=<name>` look the name up in the
+//! **driver's** list (`DC_PAPERNAMES`, `DC_BINNAMES`), which is localized: on
+//! Spanish Windows Letter is "Carta", so `paper=Letter` matched nothing and
+//! the job silently printed on the size of the document's first page. Both
+//! also accept the numeric id, and that is all we send: `paperkind=<id>` with
+//! the `DMPAPER_*` id (the driver's own id for a driver paper name, the
+//! standard one for a size Pluryprint names), `bin=<id>` with the driver's
+//! `DMBIN_*` id for the bin name. A tray name with a comma in it now works
+//! too, since the name never reaches the comma-separated list. A paper or
+//! tray the driver does not list cannot be sent, and [`unsupported_notes`]
+//! says so.
 //!
-//! We do not paper over that. There is no plausible fake for it either —
-//! `resolution=NxM` exists, but Pluryprint does not know the device's DPI
-//! ladder, so mapping "high" to an invented number would be a guess dressed up
-//! as a setting. Instead [`quality_note`] states the limitation in the honesty
-//! preview the user reads before printing, and [`spool`] logs it against the
-//! job, so nobody is left believing a quality preset was applied.
+//! ## Quality
+//!
+//! SumatraPDF has no print-quality switch, but it starts every job from the
+//! printer's per-user default DEVMODE. For Draft and High,
+//! [`super::devmode_swap`] makes a DEVMODE with that quality the user's
+//! default only while SumatraPDF hands the job over, then restores it and
+//! reads the job back to log what it really got. Normal is never forced: it is
+//! what the driver does anyway. [`quality_note`] tells the user which of
+//! those will happen before printing.
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use crate::engine::{deps, EngineError};
-use crate::queue::job::{ColorMode, Duplex, JobSettings, Orientation, PaperSize, Quality, Scaling};
-
-/// The sizes SumatraPDF's `paper=` understands (its own vocabulary, matched
-/// case-insensitively). Anything else cannot be expressed on its command line.
-const SUMATRA_PAPERS: [&str; 9] = [
-    "A2",
-    "A3",
-    "A4",
-    "A5",
-    "A6",
-    "letter",
-    "legal",
-    "tabloid",
-    "statement",
-];
+use super::devmode_swap::QualitySupport;
+use crate::engine::{deps, EngineError, Failure, PdfProtection};
+use crate::queue::job::{ColorMode, Duplex, JobSettings, Orientation, Quality, Scaling};
 
 #[cfg(windows)]
 use std::process::Command;
 
-/// Whether `-print-settings` names a paper size.
-///
-/// A job always carries one ([`JobSettings::paper_size`] is not optional), so
-/// [`PaperToken::FromSettings`] is the normal case. [`PaperToken::Omit`] is for
-/// callers with no paper preference at all — the test page with no per-printer
-/// paper override — where any `paper=` would override the driver's own default
-/// (an A4 page forced onto a Letter-only printer stops it with "load A4").
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PaperToken {
-    /// Send the job's own `paper_size` as SumatraPDF's `paper=` setting.
-    FromSettings,
-    /// Send no `paper=` at all, leaving the driver's default media.
-    Omit,
+/// The driver ids that stand for a job's paper and tray on one printer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DriverIds {
+    /// `DMPAPER_*` for `paperkind=`, or `None` (auto, or not resolvable).
+    pub paper: Option<u16>,
+    /// `DMBIN_*` for `bin=`, or `None` (no tray, or not in the driver's list).
+    pub bin: Option<u16>,
 }
 
-/// Build SumatraPDF's `-print-settings` value from `settings`.
-pub fn print_settings_string(settings: &JobSettings) -> String {
-    print_settings_string_with(settings, PaperToken::FromSettings)
+impl DriverIds {
+    /// Resolve `settings`' paper and tray to ids. `paper_by_name` and
+    /// `bin_by_name` ask the driver (its localized names → ids); a paper the
+    /// driver does not name falls back to the standard id of a size
+    /// Pluryprint names itself ([`super::windows::dmpaper_for_size`]).
+    pub fn resolve(
+        settings: &JobSettings,
+        paper_by_name: impl Fn(&str) -> Option<u16>,
+        bin_by_name: impl Fn(&str) -> Option<u16>,
+    ) -> Self {
+        let paper = if settings.paper_size.is_auto() {
+            None
+        } else {
+            paper_by_name(settings.paper_size.as_str())
+                .or_else(|| super::windows::dmpaper_for_size(&settings.paper_size))
+        };
+        Self {
+            paper,
+            bin: settings.selected_tray().and_then(bin_by_name),
+        }
+    }
+
+    /// [`DriverIds::resolve`] with no driver to ask: standard paper ids only.
+    pub fn without_driver(settings: &JobSettings) -> Self {
+        Self::resolve(settings, |_| None, |_| None)
+    }
 }
 
-/// [`print_settings_string`] with an explicit choice about `paper=`.
-pub fn print_settings_string_with(settings: &JobSettings, paper_choice: PaperToken) -> String {
+/// Build SumatraPDF's `-print-settings` value from `settings` and the ids
+/// they resolved to on the target printer.
+pub fn print_settings_string(settings: &JobSettings, ids: &DriverIds) -> String {
     let mut parts: Vec<String> = Vec::new();
 
     // Page ranges first, as bare comma-separated tokens (SumatraPDF takes them
@@ -120,20 +135,13 @@ pub fn print_settings_string_with(settings: &JobSettings, paper_choice: PaperTok
         .to_string(),
     );
 
-    // Paper — only a size SumatraPDF can name; `auto` and any other size send
-    // nothing (the printer's own setting applies), and
-    // [`unsupported_notes`] says so for the latter. A caller with no paper
-    // preference at all ([`PaperToken::Omit`]) sends none either.
-    if paper_choice == PaperToken::FromSettings {
-        if let Some(paper) = paper_token(&settings.paper_size) {
-            parts.push(format!("paper={paper}"));
-        }
+    // Paper and tray by id (see the module docs); nothing when there is none,
+    // so the printer's own setting applies.
+    if let Some(id) = ids.paper {
+        parts.push(format!("paperkind={id}"));
     }
-
-    // Tray: SumatraPDF takes the driver's own bin name or number. Only emitted
-    // when the job names one — otherwise the printer's default bin wins.
-    if let Some(tray) = bin_token(settings) {
-        parts.push(format!("bin={tray}"));
+    if let Some(id) = ids.bin {
+        parts.push(format!("bin={id}"));
     }
 
     // SumatraPDF spells copies `<n>x` (`3x`). It silently skips tokens it does
@@ -153,22 +161,17 @@ pub fn print_settings_string_with(settings: &JobSettings, paper_choice: PaperTok
 
 /// Full SumatraPDF argument vector:
 /// `-print-to <printer> -print-settings <string> -silent -exit-when-done <pdf>`.
-pub fn sumatra_args(printer: &str, settings: &JobSettings, pdf: &Path) -> Vec<String> {
-    sumatra_args_with(printer, settings, pdf, PaperToken::FromSettings)
-}
-
-/// [`sumatra_args`] with an explicit choice about `paper=`.
-pub fn sumatra_args_with(
+pub fn sumatra_args(
     printer: &str,
     settings: &JobSettings,
+    ids: &DriverIds,
     pdf: &Path,
-    paper_choice: PaperToken,
 ) -> Vec<String> {
     vec![
         "-print-to".to_string(),
         printer.to_string(),
         "-print-settings".to_string(),
-        print_settings_string_with(settings, paper_choice),
+        print_settings_string(settings, ids),
         "-silent".to_string(),
         "-exit-when-done".to_string(),
         pdf.to_string_lossy().into_owned(),
@@ -185,8 +188,7 @@ pub fn sumatra_args_with(
 pub fn apply_printer_tray<'a>(
     settings: &'a JobSettings,
     printer_tray: Option<&str>,
-) -> std::borrow::Cow<'a, JobSettings> {
-    use std::borrow::Cow;
+) -> Cow<'a, JobSettings> {
     let fallback = printer_tray.map(str::trim).filter(|t| !t.is_empty());
     match (settings.selected_tray(), fallback) {
         (None, Some(tray)) => Cow::Owned(JobSettings {
@@ -197,112 +199,78 @@ pub fn apply_printer_tray<'a>(
     }
 }
 
-/// Turn a driver paper name SumatraPDF has no keyword for into the canonical
-/// size it stands for, using `driver_paper` (the driver's own name → id →
-/// size lookup on Windows).
-///
-/// Per-printer paper overrides and the sizes the Print Job screen offers are
-/// the *driver's* names, which are localized ("Carta" for Letter on Spanish
-/// Windows) or decorated ("A4 210 x 297 mm"). SumatraPDF's `paper=` only knows
-/// its own keywords, so without this such a job printed on the driver's
-/// default sheet with nothing but a log line to say so. A size SumatraPDF
-/// already names, `auto`, or a name the driver does not resolve is left as is.
-pub fn resolve_paper<'a>(
-    settings: std::borrow::Cow<'a, JobSettings>,
-    driver_paper: impl Fn(&str) -> Option<PaperSize>,
-) -> std::borrow::Cow<'a, JobSettings> {
-    if settings.paper_size.is_auto() || paper_token(&settings.paper_size).is_some() {
-        return settings;
-    }
-    match driver_paper(settings.paper_size.as_str()).filter(|p| paper_token(p).is_some()) {
-        Some(paper) => {
-            let mut owned = settings.into_owned();
-            owned.paper_size = paper;
-            std::borrow::Cow::Owned(owned)
-        }
-        None => settings,
-    }
+/// The settings SumatraPDF is actually given for `printer`, and their ids.
+pub struct Resolved<'a> {
+    /// The job's settings plus the printer's saved default tray.
+    pub settings: Cow<'a, JobSettings>,
+    /// What the paper and tray resolve to on the printer's driver.
+    pub ids: DriverIds,
 }
 
-/// The settings SumatraPDF is actually given for `printer`: the job's own,
-/// plus the printer's saved default tray when the job names none, with a
-/// driver paper name mapped to SumatraPDF's keyword ([`resolve_paper`]). Used
-/// by both [`spool`] and the honesty preview, so the preview shows the same
-/// `bin=` and `paper=`.
-pub fn resolve_for_printer<'a>(
-    settings: &'a JobSettings,
-    printer: &str,
-) -> std::borrow::Cow<'a, JobSettings> {
-    let with_tray = if settings.selected_tray().is_some() {
-        std::borrow::Cow::Borrowed(settings)
+/// The job's own settings plus the printer's saved default tray when the job
+/// names none, resolved to the driver's ids (on Windows, through
+/// `DeviceCapabilities`). Used by both [`spool`] and the honesty preview, so
+/// the preview shows the same `paperkind=` and `bin=`.
+pub fn resolve_for_printer<'a>(settings: &'a JobSettings, printer: &str) -> Resolved<'a> {
+    let settings = if settings.selected_tray().is_some() {
+        Cow::Borrowed(settings)
     } else {
         let prefs = crate::settings::Config::load_or_default().printers;
         let tray = prefs.overrides.get(printer).and_then(|o| o.tray.clone());
         apply_printer_tray(settings, tray.as_deref())
     };
     #[cfg(windows)]
-    let driver_paper = |name: &str| crate::platform::paper_size_for_driver_name(printer, name);
+    let ids = DriverIds::resolve(
+        &settings,
+        |name| crate::platform::driver_paper_id(printer, name),
+        |name| crate::platform::driver_bin_id(printer, name),
+    );
     #[cfg(not(windows))]
-    let driver_paper = |_: &str| None;
-    resolve_paper(with_tray, driver_paper)
+    let ids = {
+        let _ = printer;
+        DriverIds::without_driver(&settings)
+    };
+    Resolved { settings, ids }
 }
 
-/// The bin name to put in `bin=`, or `None` when there is nothing safe to say.
+/// The sentence the honesty preview shows about the job's quality, or `None`
+/// for Normal (the driver's own default, never forced).
 ///
-/// `-print-settings` is a **comma-separated** list, so a bin name containing a
-/// comma cannot be expressed in it at all: emitting it would split into two
-/// garbage tokens and SumatraPDF would print from some other tray. Such a name
-/// is dropped (the printer's default bin is used) rather than mangled, and
-/// [`spool`] logs the drop — the same rule as the quality gap: never claim a
-/// setting we did not send.
-fn bin_token(settings: &JobSettings) -> Option<&str> {
-    settings.selected_tray().filter(|t| !t.contains(','))
-}
-
-/// The sentence to show the user when their quality preset cannot be honoured
-/// on this backend, or `None` when there is nothing to warn about.
-///
-/// [`Quality::Normal`] returns `None` deliberately: "normal" is what an
-/// unconfigured driver does anyway, so warning about it would be noise the user
-/// learns to ignore. Anything else is a deliberate choice that will not happen,
-/// and saying so is the whole point.
-///
-/// Written as a `#` comment so the honesty preview (a PowerShell line) stays
+/// Written as a `#` comment so the preview (a PowerShell line) stays
 /// copy-pasteable.
-pub fn quality_note(settings: &JobSettings) -> Option<&'static str> {
-    match settings.quality {
-        Quality::Normal => None,
-        Quality::Draft => Some(
-            "# note: SumatraPDF has no print-quality switch, so \"draft\" is NOT applied — the printer's own default quality is used.",
+pub fn quality_note(settings: &JobSettings, support: QualitySupport) -> Option<String> {
+    let word = match settings.quality {
+        Quality::Normal => return None,
+        Quality::Draft => "draft",
+        Quality::High => "high",
+    };
+    Some(match support {
+        QualitySupport::Offered => format!(
+            "# note: SumatraPDF has no print-quality switch, so \"{word}\" is applied by making it this printer's default for your Windows account only while the job is handed to the spooler; the job's own settings are checked afterwards and logged."
         ),
-        Quality::High => Some(
-            "# note: SumatraPDF has no print-quality switch, so \"high\" is NOT applied — the printer's own default quality is used.",
+        QualitySupport::Unknown => format!(
+            "# note: SumatraPDF has no print-quality switch, so \"{word}\" is tried by making it this printer's default for your Windows account while the job is handed to the spooler; whether the driver kept it is checked afterwards and logged."
         ),
-    }
+        QualitySupport::NotOffered => format!(
+            "# note: the driver for this printer offers no \"{word}\" quality, so it is NOT applied — the printer's own default quality is used."
+        ),
+    })
 }
 
-/// SumatraPDF's own spelling of `paper`, or `None` for `auto` or a size it has
-/// no keyword for. The classic four keep their established spelling
-/// (`A4`, `Letter`, `Legal`, `A3`).
-fn paper_token(paper: &PaperSize) -> Option<&str> {
-    if paper.is_auto() {
-        return None;
-    }
-    if PaperSize::CLASSIC.contains(paper) {
-        return Some(paper.as_str());
-    }
-    SUMATRA_PAPERS
-        .iter()
-        .find(|p| p.eq_ignore_ascii_case(paper.as_str()))
-        .copied()
-}
-
-/// Every setting the SumatraPDF command line cannot carry, as `#` comment
-/// lines for the honesty preview (and the job log): quality, and a paper size
-/// outside SumatraPDF's vocabulary.
-pub fn unsupported_notes(settings: &JobSettings) -> Vec<String> {
-    let mut notes: Vec<String> = quality_note(settings)
-        .map(str::to_string)
+/// Every setting that will not reach the printer as asked, as `#` comment
+/// lines for the honesty preview (and the job log): a quality the driver does
+/// not offer (or how it is applied), collation, and a paper or tray the
+/// driver has no id for.
+///
+/// `quality` is what the driver said about the job's quality; `None` leaves
+/// quality out (the spool path logs what really happened instead).
+pub fn unsupported_notes(
+    settings: &JobSettings,
+    ids: &DriverIds,
+    quality: Option<QualitySupport>,
+) -> Vec<String> {
+    let mut notes: Vec<String> = quality
+        .and_then(|support| quality_note(settings, support))
         .into_iter()
         .collect();
     if settings.copies > 1 {
@@ -312,13 +280,86 @@ pub fn unsupported_notes(settings: &JobSettings) -> Vec<String> {
             settings.copies
         ));
     }
-    if !settings.paper_size.is_auto() && paper_token(&settings.paper_size).is_none() {
+    if !settings.paper_size.is_auto() && ids.paper.is_none() {
         notes.push(format!(
-            "# note: SumatraPDF has no keyword for the paper size \"{}\", so it is NOT applied — the printer's own paper setting is used.",
+            "# note: the driver for this printer does not list the paper size \"{}\", so it is NOT applied — the printer's own paper setting is used.",
             settings.paper_size
         ));
     }
+    if let (Some(tray), None) = (settings.selected_tray(), ids.bin) {
+        notes.push(format!(
+            "# note: the driver for this printer lists no tray named \"{tray}\", so it is NOT applied — the printer's default tray is used."
+        ));
+    }
     notes
+}
+
+/// What the driver of `printer` says about `settings`' quality, for the
+/// preview. Normal needs no answer; off Windows nobody can be asked.
+pub fn quality_support_for(printer: &str, settings: &JobSettings) -> QualitySupport {
+    let Some(target) = super::devmode_swap::Target::for_quality(settings.quality) else {
+        return QualitySupport::Offered;
+    };
+    #[cfg(windows)]
+    {
+        cached_quality_support(printer, target)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (printer, target);
+        QualitySupport::Unknown
+    }
+}
+
+/// The preview is rebuilt on every settings change; asking the driver's
+/// PrintTicket provider each time would be wasted work, so answers are kept a
+/// minute.
+#[cfg(windows)]
+fn cached_quality_support(printer: &str, target: super::devmode_swap::Target) -> QualitySupport {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+    type Cache = Mutex<HashMap<(String, &'static str), (Instant, QualitySupport)>>;
+    static CACHE: OnceLock<Cache> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let key = (printer.to_lowercase(), target.label());
+    if let Some((at, s)) = cache.lock().ok().and_then(|c| c.get(&key).copied()) {
+        if at.elapsed() < Duration::from_secs(60) {
+            return s;
+        }
+    }
+    let s = super::devmode_swap::quality_support(printer, target);
+    if let Ok(mut c) = cache.lock() {
+        c.insert(key, (Instant::now(), s));
+    }
+    s
+}
+
+/// What SumatraPDF logs when the document opened but its permissions forbid
+/// printing (`PrintFile2` in 3.5.2 and 3.6.1: `AllowsPrinting()` is false, so
+/// the engine is dropped). It exits 1 like any other failure — its exit code
+/// is the number of files that failed, nothing more — so the log is the only
+/// thing that tells this case apart.
+const NO_PRINT_MARKER: &str = "PrintFile2: engine is null";
+
+/// The error for a SumatraPDF run that exited with `code` after writing
+/// `log`. Pure.
+///
+/// A PDF that forbids printing is [`PdfProtection::PrintingNotAllowed`]:
+/// terminal, never retried (FR-059). The engine's own check refuses such a
+/// file before it gets here; this catches what that check could not read.
+pub fn failure_from_exit(code: Option<i32>, log: &str) -> EngineError {
+    if log.contains(NO_PRINT_MARKER) {
+        return EngineError::PdfProtected(PdfProtection::PrintingNotAllowed);
+    }
+    let status = code.map_or_else(|| "?".to_string(), |c| c.to_string());
+    let tail = log.trim();
+    let detail = if tail.is_empty() {
+        format!("SumatraPDF exited with code {status}")
+    } else {
+        format!("SumatraPDF exited with code {status}: {tail}")
+    };
+    EngineError::PrintFailed(Failure::new("sumatra_exit", detail).param("status", status))
 }
 
 fn strip_ws(s: &str) -> String {
@@ -405,15 +446,18 @@ pub fn stage_for_spool(pdf: &Path, title: &str) -> std::io::Result<(tempfile::Te
 #[cfg_attr(not(windows), allow(dead_code))]
 const LOG_TAIL: usize = 600;
 
-/// The last [`LOG_TAIL`] bytes of SumatraPDF's own output, for an error
-/// message. Empty when there is none.
+/// SumatraPDF's own output: the whole of it (to look for
+/// [`NO_PRINT_MARKER`]) and its last [`LOG_TAIL`] bytes, for an error message.
 #[cfg_attr(not(windows), allow(dead_code))]
-fn log_tail(log: &Path) -> String {
+fn read_log(log: &Path) -> (String, String) {
     let Ok(bytes) = std::fs::read(log) else {
-        return String::new();
+        return (String::new(), String::new());
     };
     let start = bytes.len().saturating_sub(LOG_TAIL);
-    String::from_utf8_lossy(&bytes[start..]).trim().to_string()
+    (
+        String::from_utf8_lossy(&bytes).into_owned(),
+        String::from_utf8_lossy(&bytes[start..]).trim().to_string(),
+    )
 }
 
 /// Spool `pdf` via SumatraPDF, hiding the child's console window. SumatraPDF
@@ -434,10 +478,11 @@ fn log_tail(log: &Path) -> String {
 /// the job, so a driver dialog or a stalled spooler would otherwise hold the
 /// queue's single print slot forever.
 ///
-/// Anything the command line cannot express — a quality preset ([`quality_note`])
-/// or a bin name with a comma in it ([`bin_token`]) — is logged against the job
-/// before spooling, so the job log records what was *not* sent as well as what
-/// was.
+/// A Draft or High quality goes through [`super::devmode_swap`]: the user's
+/// default for the printer carries it only until the job shows up in the
+/// queue, and the job is then read back. Anything not sent as asked is logged
+/// against the job ([`unsupported_notes`]), as is what the quality check
+/// found.
 ///
 /// The printer's saved default tray is applied when the job names none
 /// ([`resolve_for_printer`]).
@@ -449,51 +494,38 @@ pub fn spool(
     title: &str,
     timeout: Option<std::time::Duration>,
 ) -> Result<super::SpoolOutcome, super::PrintError> {
-    let settings = resolve_for_printer(settings, printer);
+    let resolved = resolve_for_printer(settings, printer);
     spool_with(
         pdf,
         printer,
-        &settings,
+        &resolved.settings,
+        &resolved.ids,
         title,
         timeout,
-        PaperToken::FromSettings,
     )
 }
 
-/// [`spool`] with `settings` taken as final and an explicit `paper=` choice.
-/// For callers that resolved the printer defaults themselves (the test page).
+/// [`spool`] with the settings and their driver ids taken as final.
 #[cfg(windows)]
 pub fn spool_with(
     pdf: &Path,
     printer: &str,
     settings: &JobSettings,
+    ids: &DriverIds,
     title: &str,
     timeout: Option<std::time::Duration>,
-    paper_choice: PaperToken,
 ) -> Result<super::SpoolOutcome, super::PrintError> {
     use std::os::windows::process::CommandExt;
+    use std::time::{Duration, Instant};
+
+    use super::devmode_swap::{self as swap, QualityOutcome, Target};
 
     // Suppress the transient console window when spawning the child.
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    // How often the queue is looked at while the user's default is swapped.
+    const SWAP_POLL: Duration = Duration::from_millis(50);
 
-    for note in unsupported_notes(settings) {
-        tracing::warn!(
-            event = "print_setting_not_applied",
-            backend = "sumatra",
-            printer = %printer,
-            message = %note,
-        );
-    }
-    if settings.selected_tray().is_some() && bin_token(settings).is_none() {
-        tracing::warn!(
-            event = "print_setting_not_applied",
-            setting = "tray",
-            backend = "sumatra",
-            printer = %printer,
-            message = "the bin name contains a comma, which -print-settings cannot express",
-        );
-    }
-
+    let target = Target::for_quality(settings.quality);
     let exe = locate()?;
     let (stage, staged) = stage_for_spool(pdf, title).map_err(|e| {
         EngineError::PrintFailed(format!("cannot prepare the file for the print queue: {e}").into())
@@ -504,7 +536,7 @@ pub fn spool_with(
         .map_err(|e| {
             EngineError::PrintFailed(format!("cannot create the print log: {e}").into())
         })?;
-    let args = sumatra_args_with(printer, settings, &staged, paper_choice);
+    let args = sumatra_args(printer, settings, ids, &staged);
     // SumatraPDF reports no job id, so take the spooler's job list before and
     // after: the new job carrying this file's path is the one to track. If the
     // "before" list cannot be read there is nothing to compare against, so the
@@ -521,46 +553,159 @@ pub fn spool_with(
             None
         }
     };
-    let mut child = Command::new(exe)
+
+    // The quality swap, made last so the user's default is changed for as
+    // short a time as possible. A swap that cannot be made is not a failure:
+    // the job prints at the driver's default and says so.
+    let mut quality_swap = None;
+    if let Some(target) = target {
+        match swap::Swap::begin(
+            swap::SpoolerDefaults,
+            &swap::journal_dir(),
+            printer,
+            target,
+            swap::LOCK_TIMEOUT,
+            || swap::build_job_devmode(printer, target),
+        ) {
+            Ok(s) => quality_swap = Some(s),
+            Err(e) => {
+                tracing::warn!(
+                    event = "print_setting_not_applied",
+                    setting = "quality",
+                    backend = "sumatra",
+                    printer = %printer,
+                    quality = target.label(),
+                    message = %e,
+                );
+            }
+        }
+    }
+    let swapped = quality_swap.is_some();
+    for note in unsupported_notes(settings, ids, None) {
+        tracing::warn!(
+            event = "print_setting_not_applied",
+            backend = "sumatra",
+            printer = %printer,
+            message = %note,
+        );
+    }
+
+    let document = staged.to_string_lossy().into_owned();
+    let mut child = match Command::new(exe)
         .args(&args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(log_out))
         .stderr(std::process::Stdio::from(log_err))
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
-        .map_err(|e| EngineError::PrintFailed(format!("failed to run SumatraPDF: {e}").into()))?;
+    {
+        Ok(child) => child,
+        Err(e) => {
+            // `quality_swap` restores on drop.
+            return Err(EngineError::PrintFailed(Failure::new(
+                "sumatra_start_failed",
+                format!("failed to run SumatraPDF: {e}"),
+            ))
+            .into());
+        }
+    };
 
-    let status = super::wait_with_timeout(&mut child, timeout)?;
-
-    if status.success() {
-        let document = staged.to_string_lossy();
-        Ok(super::SpoolOutcome {
-            os_job_id: before
-                .as_deref()
-                .and_then(|before| super::windows::find_spooled_job(printer, before, &document))
-                .map(|id| id.to_string()),
-        })
-    } else {
-        let tail = log_tail(&log_path);
-        let detail = if tail.is_empty() {
-            String::new()
-        } else {
-            format!(": {tail}")
-        };
-        Err(
-            EngineError::PrintFailed(format!("SumatraPDF exited with {status}{detail}").into())
-                .into(),
-        )
+    // While the default is swapped: restore it the moment the job is in the
+    // queue (SumatraPDF has its own copy of the settings by then), or when
+    // SumatraPDF exits, or at the deadline.
+    let started = Instant::now();
+    let mut seen_job = None;
+    if let Some(s) = quality_swap.as_mut() {
+        loop {
+            if let Some(before) = &before {
+                seen_job = super::windows::new_job_of(printer, before, &document);
+            }
+            let exited = matches!(child.try_wait(), Ok(Some(_)) | Err(_));
+            let late = timeout.is_some_and(|t| started.elapsed() >= t);
+            if seen_job.is_some() || exited || late {
+                break;
+            }
+            std::thread::sleep(SWAP_POLL);
+        }
+        if let Err(e) = s.restore() {
+            tracing::error!(event = "devmode_swap_restore_failed", printer = %printer, error = %e);
+        }
     }
+
+    let remaining = timeout.map(|t| t.saturating_sub(started.elapsed()));
+    let status = super::wait_with_timeout(&mut child, remaining).map_err(|e| match e {
+        super::PrintError::TimedOut { .. } => super::PrintError::TimedOut {
+            seconds: timeout.map_or(0, |t| t.as_secs()),
+        },
+        other => other,
+    })?;
+    drop(quality_swap);
+
+    if !status.success() {
+        let (log, tail) = read_log(&log_path);
+        return Err(match failure_from_exit(status.code(), &log) {
+            EngineError::PrintFailed(_) => failure_from_exit(status.code(), &tail),
+            refused => refused,
+        }
+        .into());
+    }
+
+    let os_job_id = seen_job.or_else(|| {
+        before
+            .as_deref()
+            .and_then(|before| super::windows::find_spooled_job(printer, before, &document))
+    });
+
+    if let (Some(target), true) = (target, swapped) {
+        let outcome = match os_job_id {
+            Some(id) => swap::job_quality(printer, id, target),
+            None => QualityOutcome::Unverified("the job could not be found in the queue".into()),
+        };
+        match outcome {
+            QualityOutcome::Applied => tracing::info!(
+                event = "print_setting_applied",
+                setting = "quality",
+                backend = "sumatra",
+                printer = %printer,
+                quality = target.label(),
+            ),
+            QualityOutcome::NotApplied(why) => tracing::warn!(
+                event = "print_setting_not_applied",
+                setting = "quality",
+                backend = "sumatra",
+                printer = %printer,
+                quality = target.label(),
+                message = %why,
+            ),
+            QualityOutcome::Unverified(why) => tracing::info!(
+                event = "print_setting_unverified",
+                setting = "quality",
+                backend = "sumatra",
+                printer = %printer,
+                quality = target.label(),
+                message = %why,
+            ),
+        }
+    }
+
+    Ok(super::SpoolOutcome {
+        os_job_id: os_job_id.map(|id| id.to_string()),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::queue::job::PaperSize;
     use std::path::Path;
 
     fn strs(v: &[String]) -> Vec<&str> {
         v.iter().map(String::as_str).collect()
+    }
+
+    /// The settings string with no driver to ask (standard paper ids only).
+    fn plain(settings: &JobSettings) -> String {
+        print_settings_string(settings, &DriverIds::without_driver(settings))
     }
 
     /// The Windows queue shows the user's file name, as CUPS does, never the
@@ -598,8 +743,8 @@ mod tests {
     #[test]
     fn defaults_string_is_explicit() {
         assert_eq!(
-            print_settings_string(&JobSettings::default()),
-            "simplex,color,fit,paper=A4"
+            plain(&JobSettings::default()),
+            "simplex,color,fit,paperkind=9"
         );
     }
 
@@ -618,74 +763,141 @@ mod tests {
             tray: Some("Drawer 1".to_string()),
             collate: true,
         };
+        let ids = DriverIds {
+            paper: Some(8),
+            bin: Some(260),
+        };
         assert_eq!(
-            print_settings_string(&settings),
-            "1-5,10,duplex,monochrome,noscale,paper=A3,bin=Drawer 1,2x,landscape"
+            print_settings_string(&settings, &ids),
+            "1-5,10,duplex,monochrome,noscale,paperkind=8,bin=260,2x,landscape"
         );
     }
 
-    /// FR-041: the tray the profile editor offers must reach SumatraPDF's
-    /// `bin=`, and the quality it offers must not be silently swallowed.
+    /// The driver's paper names are localized: "Carta" on Spanish Windows.
+    /// SumatraPDF's `paper=` looks a name up in that list, so `paper=Letter`
+    /// matched nothing there; the id is what reaches it now.
     #[test]
-    fn fr_041_tray_reaches_bin_and_quality_is_declared_unsupported() {
-        let with = |quality, tray: Option<&str>| JobSettings {
-            quality,
+    fn print_settings_paper_localized_name_uses_paperkind() {
+        let driver_paper = |name: &str| match name {
+            "Carta" => Some(1u16),
+            "Sobre n.º 10" => Some(20),
+            "A4 210 x 297 mm" => Some(9),
+            _ => None,
+        };
+        let job = |paper: &str| JobSettings {
+            paper_size: PaperSize::parse(paper).unwrap(),
+            ..JobSettings::default()
+        };
+        let ids = |s: &JobSettings| DriverIds::resolve(s, driver_paper, |_| None);
+
+        // A driver name, whatever its language or decoration.
+        for (paper, id) in [("Carta", 1), ("Sobre n.º 10", 20), ("A4 210 x 297 mm", 9)] {
+            let s = job(paper);
+            let string = print_settings_string(&s, &ids(&s));
+            assert!(string.contains(&format!("paperkind={id}")), "{string}");
+            assert!(!string.contains("paper="), "{string}");
+            assert!(unsupported_notes(&s, &ids(&s), None).is_empty());
+        }
+        // A size Pluryprint names, on a driver that spells it otherwise.
+        let letter = job("Letter");
+        assert_eq!(ids(&letter).paper, Some(1));
+        // Neither the driver nor Pluryprint knows it: not sent, and said.
+        let photo = job("4x6");
+        assert_eq!(ids(&photo).paper, None);
+        assert!(!print_settings_string(&photo, &ids(&photo)).contains("paper"));
+        let notes = unsupported_notes(&photo, &ids(&photo), None);
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].contains("4x6") && notes[0].contains("NOT applied"));
+        // `auto`: nothing sent, nothing to say, the driver is not asked.
+        let auto = job("auto");
+        let never = |_: &str| -> Option<u16> { panic!("must not be asked") };
+        assert_eq!(
+            DriverIds::resolve(&auto, never, never),
+            DriverIds::default()
+        );
+        assert!(unsupported_notes(&auto, &DriverIds::default(), None).is_empty());
+    }
+
+    /// FR-041: the tray reaches SumatraPDF as the driver's bin id, so a
+    /// localized or comma-carrying bin name works; a name the driver does not
+    /// list is said, not sent.
+    #[test]
+    fn print_settings_paper_bin_numeric() {
+        let bins = |name: &str| match name {
+            "Bandeja 2" => Some(259u16),
+            "Tray 2, Legal" => Some(262),
+            _ => None,
+        };
+        let job = |tray: Option<&str>| JobSettings {
             tray: tray.map(String::from),
             ..JobSettings::default()
         };
+        let ids = |s: &JobSettings| DriverIds::resolve(s, |_| None, bins);
 
+        let s = job(Some("Bandeja 2"));
         assert_eq!(
-            print_settings_string(&with(Quality::Normal, Some("Tray 2"))),
-            "simplex,color,fit,paper=A4,bin=Tray 2"
+            print_settings_string(&s, &ids(&s)),
+            "simplex,color,fit,paperkind=9,bin=259"
         );
-        // No tray → no token at all, so the printer's default bin is used.
-        assert!(!print_settings_string(&with(Quality::Normal, None)).contains("bin="));
-        // A blank name is not a bin name.
-        assert!(!print_settings_string(&with(Quality::Normal, Some(" "))).contains("bin="));
-        // A comma cannot survive the comma-separated list, so it is dropped
-        // rather than mangled into a token that selects the wrong tray.
-        assert!(
-            !print_settings_string(&with(Quality::Normal, Some("Tray 2, Legal"))).contains("bin=")
-        );
+        let comma = job(Some("Tray 2, Legal"));
+        assert!(print_settings_string(&comma, &ids(&comma)).ends_with(",bin=262"));
+        assert!(unsupported_notes(&comma, &ids(&comma), None).is_empty());
 
-        // Quality has no token to emit — and is never faked as one.
-        for quality in [Quality::Draft, Quality::Normal, Quality::High] {
-            let s = print_settings_string(&with(quality, None));
-            assert!(!s.contains("quality"), "{quality:?}: {s}");
-            assert!(!s.contains("resolution"), "{quality:?}: {s}");
-        }
+        let unknown = job(Some("Drawer 9"));
+        assert!(!print_settings_string(&unknown, &ids(&unknown)).contains("bin="));
+        let notes = unsupported_notes(&unknown, &ids(&unknown), None);
+        assert!(notes
+            .iter()
+            .any(|n| n.contains("Drawer 9") && n.contains("NOT applied")));
 
-        // …instead it is stated out loud, for every choice that is not the
-        // driver's own default behaviour.
-        assert!(quality_note(&with(Quality::Normal, None)).is_none());
-        for quality in [Quality::Draft, Quality::High] {
-            let note = quality_note(&with(quality, None)).expect("non-default quality is declared");
-            assert!(note.starts_with("# "), "stays copy-pasteable: {note}");
-            assert!(note.contains("NOT applied"), "{note}");
+        // No tray, or a blank one: no token, no note, the driver is not asked.
+        let never = |_: &str| -> Option<u16> { panic!("must not be asked") };
+        for s in [job(None), job(Some(" "))] {
+            assert_eq!(DriverIds::resolve(&s, |_| None, never).bin, None);
+            assert!(unsupported_notes(&s, &DriverIds::without_driver(&s), None).is_empty());
         }
     }
 
-    /// SumatraPDF names a fixed set of sizes; anything else is stated as not
-    /// applied rather than mangled into a token, and `auto` says nothing.
+    /// D16: Draft and High are carried by a temporary per-user default, and
+    /// the preview says how — or that the driver has no such quality. They
+    /// are never faked as a command-line token.
     #[test]
-    fn paper_outside_sumatras_vocabulary_is_declared_not_applied() {
-        let with = |name: &str| JobSettings {
-            paper_size: PaperSize::parse(name).unwrap(),
+    fn print_settings_quality_note_says_what_really_happens() {
+        let with = |quality| JobSettings {
+            quality,
             ..JobSettings::default()
         };
-        assert!(print_settings_string(&with("Tabloid")).contains("paper=tabloid"));
-        assert!(print_settings_string(&with("a5")).contains("paper=A5"));
-        assert!(unsupported_notes(&with("A5")).is_empty());
+        for quality in [Quality::Draft, Quality::Normal, Quality::High] {
+            let s = plain(&with(quality));
+            assert!(!s.contains("quality") && !s.contains("resolution"), "{s}");
+        }
+        for support in [
+            QualitySupport::Offered,
+            QualitySupport::NotOffered,
+            QualitySupport::Unknown,
+        ] {
+            assert!(quality_note(&with(Quality::Normal), support).is_none());
+        }
+        let offered = quality_note(&with(Quality::Draft), QualitySupport::Offered).unwrap();
+        assert!(offered.starts_with("# ") && offered.contains("\"draft\" is applied"));
+        assert!(!offered.contains("NOT applied"));
+        let unknown = quality_note(&with(Quality::High), QualitySupport::Unknown).unwrap();
+        assert!(unknown.contains("\"high\" is tried") && unknown.contains("checked"));
+        let not = quality_note(&with(Quality::High), QualitySupport::NotOffered).unwrap();
+        assert!(not.contains("NOT applied") && not.contains("\"high\""));
 
-        let photo = with("4x6");
-        assert!(!print_settings_string(&photo).contains("paper="));
-        let notes = unsupported_notes(&photo);
-        assert_eq!(notes.len(), 1);
-        assert!(notes[0].contains("4x6") && notes[0].contains("NOT applied"));
-
-        let auto = with("auto");
-        assert!(!print_settings_string(&auto).contains("paper="));
-        assert!(unsupported_notes(&auto).is_empty());
+        // The preview carries it; the spool path logs the outcome instead.
+        let s = with(Quality::Draft);
+        let ids = DriverIds::without_driver(&s);
+        assert_eq!(
+            unsupported_notes(&s, &ids, Some(QualitySupport::Offered)).len(),
+            1
+        );
+        assert!(unsupported_notes(&s, &ids, None).is_empty());
+        assert_eq!(
+            quality_support_for("P", &with(Quality::Normal)),
+            QualitySupport::Offered
+        );
     }
 
     #[test]
@@ -695,12 +907,12 @@ mod tests {
             collate,
             ..JobSettings::default()
         };
-        assert!(unsupported_notes(&with(1, false)).is_empty());
-        let notes = unsupported_notes(&with(3, false));
-        assert!(notes
+        let notes = |s: &JobSettings| unsupported_notes(s, &DriverIds::without_driver(s), None);
+        assert!(notes(&with(1, false)).is_empty());
+        assert!(notes(&with(3, false))
             .iter()
             .any(|n| n.contains("uncollated") && n.contains("NOT applied")));
-        assert!(!print_settings_string(&with(3, false)).contains("collate"));
+        assert!(!plain(&with(3, false)).contains("collate"));
     }
 
     /// FR-041: SumatraPDF's `-print-settings` only understands copies as
@@ -712,26 +924,19 @@ mod tests {
             copies,
             ..JobSettings::default()
         };
-        assert_eq!(
-            print_settings_string(&with(3)),
-            "simplex,color,fit,paper=A4,3x"
-        );
-        assert!(!print_settings_string(&with(3)).contains("copies"));
+        assert_eq!(plain(&with(3)), "simplex,color,fit,paperkind=9,3x");
+        assert!(!plain(&with(3)).contains("copies"));
         // One copy is the default and is not stated at all.
-        assert_eq!(
-            print_settings_string(&with(1)),
-            "simplex,color,fit,paper=A4"
-        );
+        assert_eq!(plain(&with(1)), "simplex,color,fit,paperkind=9");
     }
 
-    /// The printer's saved default tray reaches `bin=` when the job names no
-    /// tray, and never overrides a tray the job did name.
+    /// The printer's saved default tray fills in when the job names no tray,
+    /// and never overrides a tray the job did name.
     #[test]
     fn fr_041_printer_default_tray_fills_in_only_when_the_job_has_none() {
         let none = JobSettings::default();
         let filled = apply_printer_tray(&none, Some("Manual Feed"));
         assert_eq!(filled.tray.as_deref(), Some("Manual Feed"));
-        assert!(print_settings_string(&filled).contains("bin=Manual Feed"));
 
         let own = JobSettings {
             tray: Some("Tray 2".into()),
@@ -748,19 +953,15 @@ mod tests {
         assert!(apply_printer_tray(&none, None).tray.is_none());
     }
 
-    /// With no paper preference at all the token is left out, so the driver's
-    /// own default paper is used instead of a forced A4.
+    /// With no paper preference at all (`auto`) the token is left out, so the
+    /// driver's own default paper is used instead of a forced A4.
     #[test]
-    fn paper_token_can_be_omitted() {
-        let s = print_settings_string_with(&JobSettings::default(), PaperToken::Omit);
-        assert_eq!(s, "simplex,color,fit");
-        let args = sumatra_args_with(
-            "P",
-            &JobSettings::default(),
-            Path::new("C:/t.pdf"),
-            PaperToken::Omit,
-        );
-        assert!(!args.iter().any(|a| a.contains("paper=")));
+    fn auto_paper_sends_no_paper_token() {
+        let auto = JobSettings {
+            paper_size: PaperSize::AUTO,
+            ..JobSettings::default()
+        };
+        assert_eq!(plain(&auto), "simplex,color,fit");
     }
 
     #[test]
@@ -773,16 +974,18 @@ mod tests {
             ..JobSettings::default()
         };
         assert_eq!(
-            print_settings_string(&settings),
-            "duplexshort,color,shrink,paper=Letter,portrait"
+            plain(&settings),
+            "duplexshort,color,shrink,paperkind=1,portrait"
         );
     }
 
     #[test]
     fn args_wrap_the_settings_string() {
+        let settings = JobSettings::default();
         let args = sumatra_args(
             "HP LaserJet",
-            &JobSettings::default(),
+            &settings,
+            &DriverIds::without_driver(&settings),
             Path::new("C:/x.pdf"),
         );
         assert_eq!(
@@ -791,7 +994,7 @@ mod tests {
                 "-print-to",
                 "HP LaserJet",
                 "-print-settings",
-                "simplex,color,fit,paper=A4",
+                "simplex,color,fit,paperkind=9",
                 "-silent",
                 "-exit-when-done",
                 "C:/x.pdf",
@@ -805,51 +1008,30 @@ mod tests {
         assert!(matches!(locate(), Err(EngineError::DependencyMissing(_))));
     }
 
-    /// FR-041: a driver paper name — a per-printer override "Carta", or a
-    /// size picked from the printer's own list — reaches SumatraPDF as the
-    /// keyword for the same sheet instead of being dropped.
+    /// FR-059: SumatraPDF exits 1 for any failed file (its exit code is the
+    /// number of files that failed), so a PDF whose permissions forbid
+    /// printing is recognized by what it logs, and becomes the terminal
+    /// `printing_not_allowed` the dispatcher never retries.
     #[test]
-    fn fr_041_driver_paper_names_reach_sumatra_as_its_keyword() {
-        use std::borrow::Cow;
-        let driver = |name: &str| match name {
-            "Carta" => Some(PaperSize::LETTER),
-            "A4 210 x 297 mm" => Some(PaperSize::A4),
-            "Sobre DL" => None,
-            _ => None,
-        };
-        let job = |paper: &str| JobSettings {
-            paper_size: PaperSize::parse(paper).unwrap(),
-            ..JobSettings::default()
-        };
-
-        let carta = job("Carta");
-        let resolved = resolve_paper(Cow::Borrowed(&carta), driver);
-        assert_eq!(resolved.paper_size, PaperSize::LETTER);
-        assert!(print_settings_string(&resolved).contains("paper=Letter"));
-        assert!(unsupported_notes(&resolved).is_empty());
-
-        let decorated = job("A4 210 x 297 mm");
-        let resolved = resolve_paper(Cow::Borrowed(&decorated), driver);
-        assert!(print_settings_string(&resolved).contains("paper=A4"));
-
-        // Not resolvable: left alone, and the note still says so.
-        let envelope = job("Sobre DL");
-        let resolved = resolve_paper(Cow::Borrowed(&envelope), driver);
-        assert!(matches!(resolved, Cow::Borrowed(_)));
-        assert!(!print_settings_string(&resolved).contains("paper="));
-        assert_eq!(unsupported_notes(&resolved).len(), 1);
-
-        // Already a SumatraPDF keyword, or `auto`: the driver is not asked.
-        let never = |_: &str| -> Option<PaperSize> { panic!("must not be asked") };
-        let a4 = job("A4");
+    fn fr_059_sumatra_no_print_refusal_is_terminal() {
+        let log =
+            "PrintFile: file: 'C:\\t\\locked.pdf', printer: 'Q'\nPrintFile2: engine is null\n";
+        let e = failure_from_exit(Some(1), log);
         assert!(matches!(
-            resolve_paper(Cow::Borrowed(&a4), never),
-            Cow::Borrowed(_)
+            e,
+            EngineError::PdfProtected(PdfProtection::PrintingNotAllowed)
         ));
-        let auto = job("auto");
-        assert!(matches!(
-            resolve_paper(Cow::Borrowed(&auto), never),
-            Cow::Borrowed(_)
-        ));
+        assert_eq!(crate::util::reasons::job_code_of(&e), "pdf_protected");
+
+        // Anything else is an ordinary, retryable print failure with its code.
+        let other = failure_from_exit(Some(1), "PrintToDevice: failed\n");
+        let EngineError::PrintFailed(f) = &other else {
+            panic!("{other:?}")
+        };
+        assert_eq!(f.reason, Some("sumatra_exit"));
+        assert_eq!(f.params.get("status").map(String::as_str), Some("1"));
+        assert!(f.detail.contains("PrintToDevice"));
+        let killed = failure_from_exit(None, "");
+        assert!(matches!(&killed, EngineError::PrintFailed(f) if f.params["status"] == "?"));
     }
 }

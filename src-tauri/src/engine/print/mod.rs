@@ -27,7 +27,6 @@ use crate::queue::job::{Duplex, JobSettings, PaperSize};
 use super::EngineError;
 
 pub mod cups;
-#[cfg(windows)]
 pub mod devmode_swap;
 pub mod sumatra;
 pub mod windows;
@@ -424,15 +423,25 @@ pub fn preview_command(
         // the printer's saved default tray shows up here exactly when it will
         // be sent.
         let resolved = sumatra::resolve_for_printer(settings, printer);
-        let settings: &JobSettings = &resolved;
-        let args = sumatra::sumatra_args(printer, settings, std::path::Path::new(&pdf_display));
+        let settings: &JobSettings = &resolved.settings;
+        let args = sumatra::sumatra_args(
+            printer,
+            settings,
+            &resolved.ids,
+            std::path::Path::new(&pdf_display),
+        );
         let cmd = std::iter::once("SumatraPDF.exe")
             .chain(args.iter().map(String::as_str))
             .map(powershell_quote)
             .collect::<Vec<_>>()
             .join(" ");
+        let quality = sumatra::quality_support_for(printer, settings);
         std::iter::once(cmd)
-            .chain(sumatra::unsupported_notes(settings))
+            .chain(sumatra::unsupported_notes(
+                settings,
+                &resolved.ids,
+                Some(quality),
+            ))
             .collect::<Vec<_>>()
             .join("\n")
     }

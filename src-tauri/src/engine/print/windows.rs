@@ -137,6 +137,29 @@ pub fn paper_size_for_dmpaper(id: u16) -> Option<PaperSize> {
     PaperSize::parse(name).ok()
 }
 
+/// The standard `DMPAPER_*` id of a sheet Pluryprint names itself (the
+/// inverse of [`paper_size_for_dmpaper`]), or `None` for `auto` and for a
+/// size only a driver can name. The ids are the Win32 ABI, the same on every
+/// driver and every Windows language, which is why SumatraPDF is given
+/// `paperkind=<id>` rather than a name it would have to find in the driver's
+/// localized list.
+pub fn dmpaper_for_size(paper: &PaperSize) -> Option<u16> {
+    const IDS: [(&str, u16); 9] = [
+        ("Letter", 1),
+        ("Tabloid", 3),
+        ("Legal", 5),
+        ("Statement", 6),
+        ("A3", 8),
+        ("A4", 9),
+        ("A5", 11),
+        ("A2", 66),
+        ("A6", 70),
+    ];
+    IDS.iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(paper.as_str()))
+        .map(|&(_, id)| id)
+}
+
 /// The id paired with `name` in two parallel `DeviceCapabilities` arrays
 /// (`DC_PAPERNAMES`/`DC_PAPERS`, `DC_BINNAMES`/`DC_BINS`). Exact match first,
 /// then case-insensitive.
@@ -362,6 +385,16 @@ pub fn find_spooled_job(printer: &str, before: &[u32], pdf: &str) -> Option<u32>
     }
 }
 
+/// [`find_spooled_job`] without the logging, for polling: the job of ours
+/// for `pdf` that was not on `printer` before, once it is there.
+#[cfg(windows)]
+pub fn new_job_of(printer: &str, before: &[u32], pdf: &str) -> Option<u32> {
+    let user = std::env::var("USERNAME").unwrap_or_default();
+    ffi::jobs(printer)
+        .ok()
+        .and_then(|after| pick_new_job(before, &after, pdf, &user))
+}
+
 /// Where the spooler job `os_job_id` stands on `printer`.
 #[cfg(windows)]
 pub fn job_state(printer: &str, os_job_id: &str) -> Result<OsJobState, super::TrackError> {
@@ -564,6 +597,22 @@ mod tests {
         );
         // Envelopes, photo sizes: not expressible → None, never "A4".
         assert_eq!(paper_size_for_dmpaper(20), None);
+    }
+
+    /// `paperkind=` takes the Win32 id, so every size Pluryprint names maps to
+    /// it and back, whatever the spelling.
+    #[test]
+    fn print_settings_paper_canonical_sizes_have_their_dmpaper_id() {
+        for id in [1u16, 3, 5, 6, 8, 9, 11, 66, 70] {
+            let size = paper_size_for_dmpaper(id).unwrap();
+            assert_eq!(dmpaper_for_size(&size), Some(id), "{size}");
+        }
+        assert_eq!(
+            dmpaper_for_size(&PaperSize::parse("letter").unwrap()),
+            Some(1)
+        );
+        assert_eq!(dmpaper_for_size(&PaperSize::AUTO), None);
+        assert_eq!(dmpaper_for_size(&PaperSize::parse("Carta").unwrap()), None);
     }
 
     #[test]

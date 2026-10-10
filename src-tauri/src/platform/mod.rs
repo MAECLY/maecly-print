@@ -160,8 +160,8 @@ pub use cups::{
 
 #[cfg(windows)]
 pub use windows::{
-    add_printer, default_printer, discover_printers, list_printers, open_printer_settings,
-    paper_size_for_driver_name, print_test_page, set_os_default,
+    add_printer, default_printer, discover_printers, driver_bin_id, driver_paper_id, list_printers,
+    open_printer_settings, paper_size_for_driver_name, print_test_page, set_os_default,
 };
 
 // Fallback for any other target so the crate always compiles.

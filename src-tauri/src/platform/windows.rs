@@ -272,13 +272,14 @@ pub fn set_os_default(name: &str) -> anyhow::Result<()> {
 /// SumatraPDF sidecar.
 ///
 /// The paper override is a *driver* paper name (from `DC_PAPERNAMES`), which is
-/// localized — Spanish Windows says "Carta" for Letter — so it is mapped
-/// through the driver's paper **id** (`DC_PAPERS`, a `DMPAPER_*` value) rather
-/// than by matching the string. A paper SumatraPDF cannot name is left out and
-/// logged instead of being silently replaced by A4. The tray goes out as
-/// SumatraPDF's `bin=<name>`.
+/// localized — Spanish Windows says "Carta" for Letter — so it reaches
+/// SumatraPDF as the driver's paper **id** (`paperkind=`, a `DMPAPER_*`
+/// value), and the tray as its bin id (`bin=`), exactly like a job
+/// ([`sumatra::resolve_for_printer`]). With no paper override nothing is sent
+/// and the driver's default paper is used; an override the driver no longer
+/// lists is logged, never replaced by A4.
 pub fn print_test_page(name: &str) -> anyhow::Result<()> {
-    use crate::engine::print::sumatra::{self, PaperToken};
+    use crate::engine::print::sumatra;
     use std::io::Write as _;
 
     let prefs = crate::settings::Config::load_or_default().printers;
@@ -298,44 +299,25 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
     tmp.write_all(&pdf)?;
     tmp.flush()?;
 
-    let paper = over
+    let paper_size = over
         .paper
         .as_deref()
-        .map(str::trim)
-        .filter(|p| !p.is_empty());
-    let paper_size = paper.and_then(|p| paper_size_for_driver_name(name, p));
-    if let (Some(p), None) = (paper, &paper_size) {
-        tracing::warn!(
-            event = "print_setting_not_applied",
-            setting = "paper",
-            backend = "sumatra",
-            printer = %name,
-            paper = %p,
-            message = "SumatraPDF cannot name this paper size; the driver default is used",
-        );
-    }
-
-    let paper_token = if paper_size.is_some() {
-        PaperToken::FromSettings
-    } else {
-        PaperToken::Omit
-    };
-    let defaults = crate::queue::job::JobSettings::default();
+        .and_then(|p| PaperSize::parse(p.trim()).ok())
+        .unwrap_or(PaperSize::AUTO);
     let settings = crate::queue::job::JobSettings {
-        // Only read when `paper_token` says so, i.e. when `paper_size` is Some.
-        paper_size: paper_size.unwrap_or(defaults.paper_size),
+        paper_size,
         tray: over.tray.clone(),
-        ..defaults
+        ..crate::queue::job::JobSettings::default()
     };
     // SumatraPDF blocks until the spooler accepts the job, so the temp file is
-    // still alive for the whole call and the status is meaningful.
-    match sumatra::spool_with(
+    // still alive for the whole call and the status is meaningful. `spool`
+    // resolves the paper and tray ids and logs what the driver does not list.
+    match sumatra::spool(
         tmp.path(),
         name,
         &settings,
         "Pluryprint Test Page",
         Some(Duration::from_secs(120)),
-        paper_token,
     ) {
         Ok(_) => Ok(()),
         Err(crate::engine::print::PrintError::Engine(
@@ -353,6 +335,23 @@ pub fn paper_size_for_driver_name(printer: &str, paper: &str) -> Option<PaperSiz
     let (names, ids) = driver_papers(printer);
     let id = id_for_name(&names, &ids, paper)?;
     paper_size_for_dmpaper(id)
+}
+
+/// The `DMPAPER_*` id `printer`'s driver gives the paper it calls `paper`
+/// (SumatraPDF's `paperkind=`), or `None` when it lists no such name.
+pub fn driver_paper_id(printer: &str, paper: &str) -> Option<u16> {
+    let (names, ids) = driver_papers(printer);
+    id_for_name(&names, &ids, paper)
+}
+
+/// The `DMBIN_*` id `printer`'s driver gives the bin it calls `tray`
+/// (SumatraPDF's `bin=`), or `None` when it lists no such bin.
+pub fn driver_bin_id(printer: &str, tray: &str) -> Option<u16> {
+    let device = wide(printer);
+    let device = PCWSTR(device.as_ptr());
+    let names = dc_names(device, PCWSTR::null(), DC_BINNAMES, 24);
+    let ids = dc_ids(device, PCWSTR::null(), DC_BINS);
+    id_for_name(&names, &ids, tray)
 }
 
 /// The driver's parallel paper name and `DMPAPER_*` id arrays for `printer`.
