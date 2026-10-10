@@ -50,11 +50,16 @@ pub fn run() {
 /// the work that would destroy the running instance's in-flight jobs
 /// (NFR-014).
 pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::PathBuf>) {
+    // Move what a MaeclyPrint install left behind into the Pluryprint folders
+    // (ADR-0009) before anything opens them — the log files included, so this
+    // runs first and is logged once logging is up.
+    let migration = util::legacy::migrate_current();
     // Initialize structured logging as early as possible so any startup error
     // is captured to disk.
     if let Err(e) = logging::init() {
         eprintln!("logging init failed: {e}");
     }
+    util::legacy::log_report(&migration);
     // Release builds abort on panic and the Windows GUI has no console: the
     // hook is the only way a crash leaves a trace (NFR-033). Installed right
     // after the log directory exists, before anything that can panic.

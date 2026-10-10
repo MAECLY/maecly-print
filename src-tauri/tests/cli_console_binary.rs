@@ -10,7 +10,10 @@
 use std::process::Command;
 
 fn cli() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_pluryprint-cli"))
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_pluryprint-cli"));
+    // Never move this machine's real MaeclyPrint data from a test run.
+    cmd.env("PLURYPRINT_SKIP_MIGRATION", "1");
+    cmd
 }
 
 #[test]

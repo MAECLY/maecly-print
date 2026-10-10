@@ -316,9 +316,13 @@ fn execute(cli: Cli) -> i32 {
     // Same log file as the GUI, never on stdout (`--json` parses stdout). A
     // run that cannot open its log still runs: the log explains failures, it
     // must never become one — so the problem goes to stderr and we carry on.
+    // A CLI run can be the first launch after the rename: move MaeclyPrint's
+    // files first, exactly as the GUI does (ADR-0009).
+    let migration = crate::util::legacy::migrate_current();
     if let Err(e) = crate::logging::init_cli() {
         eprintln!("pluryprint: logging disabled for this run: {e}");
     }
+    crate::util::legacy::log_report(&migration);
     tracing::info!(
         event = "cli_invoked",
         command = cli.command.as_ref().map(command_name).unwrap_or("none"),
