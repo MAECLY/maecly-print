@@ -1,0 +1,51 @@
+# cargo-about configuration for THIRD-PARTY-NOTICES.md
+# (scripts/licenses/generate-notices.sh runs it on src-tauri and on
+# shell-ext-win).
+#
+# `accepted` is a priority list: for a crate offered under a choice
+# ("MIT OR Apache-2.0") the first accepted licence is the one Pluryprint uses
+# and reproduces. Every licence here is compatible with the AGPL-3.0
+# (docs/09-legal/third-party-licenses.md); a crate whose licence is not on
+# the list fails the generator rather than being shipped silently.
+accepted = [
+    "Apache-2.0",
+    "MIT",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+    "BSL-1.0",
+    "0BSD",
+    "CC0-1.0",
+    "Unlicense",
+    # Pluryprint's own crates (the app and the Explorer extension). The
+    # renderer leaves them out: LICENSE is their notice.
+    "AGPL-3.0-only",
+]
+
+# The four release targets. A crate pulled in only for another platform
+# (Linux, iOS, Android) is not in any shipped binary.
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+]
+
+# Build scripts, procedural macros run by them, and test-only crates run on
+# the build machine and are not shipped.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# Built-in clarifications for crates whose licence files are not machine
+# readable as published.
+workarounds = ["ring", "rustls"]
+
+[ring]
+accepted = ["OpenSSL"]
+
