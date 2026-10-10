@@ -43,16 +43,17 @@ Vitest), and `pnpm test:e2e` is the sole WebdriverIO entry point.
 
 ## WebdriverIO on Windows
 
-`tauri-driver` supports **Windows and Linux only**. The CI `e2e` job
-(`.github/workflows/ci.yml`) runs on `windows-latest`. It installs
-`tauri-driver`, reads the installed WebView2 runtime version from its
-EdgeUpdate registry key and downloads the `msedgedriver` of exactly that
-version (exported as `NATIVE_DRIVER`), builds a debug binary with
-`tauri build --debug --no-bundle` (frontend embedded, no installers), runs the
-suite, and uploads `e2e/artifacts/` whatever the outcome. Two smoke specs
-(`about`, `queue`) gate it, so a suite that cannot open a session at all fails
-the job; the full suite is advisory (`continue-on-error`) because a real GUI
-driver is flake-prone.
+`tauri-driver` supports **Windows and Linux only**. CI does not run this
+suite (`ci.yml` is the lean pull-request gate); run it on a Windows machine or
+the VM. Install `tauri-driver` (`cargo install tauri-driver --locked`), read
+the installed WebView2 runtime version from its EdgeUpdate registry key
+(`HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`,
+value `pv`) and download the `msedgedriver` of exactly that version, exported
+as `NATIVE_DRIVER`. Build a debug binary with
+`pnpm tauri build --debug --no-bundle --config src-tauri/tauri.ci.conf.json`
+(frontend embedded, no installers), then `pnpm test:e2e`. Failure screenshots
+land in `e2e/artifacts/`. The `about` and `queue` specs are the quickest check
+that a session opens at all.
 
 Three things make WebDriver reach the app's WebView2 safely, verified on
 Windows 11 ARM64 with WebView2 154:
@@ -120,19 +121,15 @@ Things to know before running it on your own machine:
   version: a mismatched `msedgedriver` makes session creation retry three
   times over two minutes before failing.
 
-## Launch smokes (CI)
+## Launch smoke (by hand)
 
-Separate from the specs, two CI steps prove the packaged binary boots at all:
-they build it with `pnpm tauri build --debug --config src-tauri/tauri.ci.conf.json`
-(unsigned: CI has no updater key), launch it, and poll the real per-user log
-folder for the backend's startup records.
-
-- **Windows — blocking.** Waits up to 60 s for `app_started` and then
-  `main_window_resolved` in `pluryprint-*.jsonl`. It catches missing runtime
-  dependencies and startup panics that a compile-only build would miss.
-- **macOS — advisory** (`continue-on-error`). Waits for `app_started` in
-  `~/Library/Logs/Pluryprint/`. WKWebView has no WebDriver and a headless
-  runner has no guaranteed window server, so this is best effort.
+CI no longer launches the app. To check that a packaged binary boots at all,
+build it with `pnpm tauri build --debug --config src-tauri/tauri.ci.conf.json`
+(unsigned: no updater key), launch it, and look in the real per-user log
+folder (`%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\` on Windows,
+`~/Library/Logs/Pluryprint/` on macOS) for `app_started` and then
+`main_window_resolved` in `pluryprint-*.jsonl`. That catches missing runtime
+dependencies and startup panics a compile-only build would miss.
 
 ## Browser harness (macOS and anywhere else)
 

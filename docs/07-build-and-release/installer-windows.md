@@ -28,7 +28,7 @@ Three steps, in this order, on a Windows machine of the installer's architecture
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\fetch-sumatrapdf.ps1 -Arch arm64   # or x64
 powershell -ExecutionPolicy Bypass -File scripts\build-shell-ext.ps1 -Arch all      # both DLLs; CI requires both
-pnpm tauri build                      # PR/CI builds: --config src-tauri/tauri.ci.conf.json
+pnpm tauri build                      # without the updater key: --config src-tauri/tauri.ci.conf.json
 ```
 
 - `fetch-sumatrapdf.ps1` puts the SumatraPDF build for that architecture, with its licence files, in `src-tauri/resources/sumatrapdf/`.

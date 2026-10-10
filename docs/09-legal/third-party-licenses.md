@@ -276,7 +276,7 @@ On macOS `<resource-dir>` is `Pluryprint.app/Contents/Resources/`; on Windows it
 ```bash
 cargo install cargo-about --locked --features cli --version 0.9.2   # once
 scripts/licenses/generate-notices.sh          # after any dependency change
-scripts/licenses/generate-notices.sh --check  # CI's `notices` job
+scripts/licenses/generate-notices.sh --check  # release.yml's guard job
 ```
 
 A crate whose licence is not in `about.toml`'s accepted list fails the generator instead of shipping unnoticed; adding a licence there needs the compatibility analysis in this document first. `src-tauri/tests/third_party_notices.rs` checks that every direct dependency has an entry and every entry is still in a lockfile.

@@ -82,7 +82,7 @@ async fn test_router_dispatches_pdf_to_pdf_adapter() {
 
 ### Coverage target
 
-**70% line coverage** on Rust code, and it is **enforced**. The `rust-coverage` job in `ci.yml` runs on `macos-latest` (so the CUPS backend is compiled and exercised) and fails the run below the threshold:
+**70% line coverage** on Rust code. It is measured locally, not in CI (the pull-request gate is kept lean, see [ci-cd.md](../07-build-and-release/ci-cd.md)); measure on macOS so the CUPS backend is compiled and exercised:
 
 ```bash
 cargo llvm-cov --manifest-path src-tauri/Cargo.toml \
@@ -92,7 +92,7 @@ cargo llvm-cov --manifest-path src-tauri/Cargo.toml \
 
 Locally, `cargo install cargo-llvm-cov --locked && cargo llvm-cov --html` gives the same numbers with a browsable report.
 
-Measured on that lane at the time of writing: **80.4% lines** (82.4% regions, 67.8% functions). The threshold sits below the measurement on purpose — it is a regression gate, not a target — and is raised as the thinnest modules (`queue/mod.rs` ≈66%, `update/mod.rs` ≈78%) fill in.
+Last measured (macOS, when CI still ran it): **80.4% lines** (82.4% regions, 67.8% functions). The thinnest modules are `queue/mod.rs` (≈66%) and `update/mod.rs` (≈78%).
 
 Coverage is a sanity check, not a goal. We don't write tests purely to chase coverage; we write tests for behaviors that matter.
 
@@ -150,7 +150,7 @@ Test functions that pin a requirement are **named after it** — `fr_020_crud_ro
 
 **Nothing in the suite prints today.** The default suite spawns neither SumatraPDF nor `lp`; the print backends are covered as *pure argument construction* — `sumatra::print_settings_string`, `sumatra::sumatra_args`, `cups::lp_opts`, `cups::lp_args` are pure functions with co-located unit tests, and only `spool`/`cancel` touch a process, `cfg`-gated per platform.
 
-The one exception is opt-in: **`src-tauri/tests/real_printer.rs`** (Unix only, every test `#[ignore]`d *and* gated on `MAECLY_REAL_PRINTER=1`) spools through the engine's public `engine::print::spool` to a CUPS queue that **holds every job** (`MAECLY_HOLD_QUEUE`, default `Maecly_Hold`, created with `-o job-hold-until-default=indefinite`). It reads each job back with `ipptool … get-job-attributes.test`, asserts the IPP attributes the mapping should produce (`copies`, `sides`, `media`, `ColorModel`/`print-color-mode`, `page-ranges`, `landscape`/`orientation-requested`, `media-source`/`InputSlot`, `print-quality`/`cupsPrintQuality`, `fit-to-page`) and cancels the job, also on panic. It refuses to submit unless `lpoptions -p <queue>` shows `job-hold-until=indefinite`, and asserts every job is `pending-held` before reading it. Nothing reaches paper. Without the env var the tests return immediately, so the weekly `ignored-tests` lane passes them as no-ops. Each job is spooled with the queue's real capabilities (`platform::queue_of`), as the dispatcher does. Orientation goes out as `orientation-requested=3|4`; the check accepts that or an older `landscape` boolean. Observed on CUPS 2.x (macOS): when both quality spellings are sent, the queue keeps `cupsPrintQuality` and drops `print-quality`. `fr_032_spool_reports_the_cups_job_id` pins the request-id parse on a host whose `lp` prints its success line in Spanish.
+The one exception is opt-in: **`src-tauri/tests/real_printer.rs`** (Unix only, every test `#[ignore]`d *and* gated on `MAECLY_REAL_PRINTER=1`) spools through the engine's public `engine::print::spool` to a CUPS queue that **holds every job** (`MAECLY_HOLD_QUEUE`, default `Maecly_Hold`, created with `-o job-hold-until-default=indefinite`). It reads each job back with `ipptool … get-job-attributes.test`, asserts the IPP attributes the mapping should produce (`copies`, `sides`, `media`, `ColorModel`/`print-color-mode`, `page-ranges`, `landscape`/`orientation-requested`, `media-source`/`InputSlot`, `print-quality`/`cupsPrintQuality`, `fit-to-page`) and cancels the job, also on panic. It refuses to submit unless `lpoptions -p <queue>` shows `job-hold-until=indefinite`, and asserts every job is `pending-held` before reading it. Nothing reaches paper. Without the env var the tests return immediately, so a plain `cargo test -- --ignored` passes them as no-ops. Each job is spooled with the queue's real capabilities (`platform::queue_of`), as the dispatcher does. Orientation goes out as `orientation-requested=3|4`; the check accepts that or an older `landscape` boolean. Observed on CUPS 2.x (macOS): when both quality spellings are sent, the queue keeps `cupsPrintQuality` and drops `print-quality`. `fr_032_spool_reports_the_cups_job_id` pins the request-id parse on a host whose `lp` prints its success line in Spanish.
 
 The design when we do build it:
 
@@ -185,7 +185,7 @@ These tests are `#[ignore]`d because they reach outside the process:
 | `tests/real_printer.rs` (6 tests) | Submits held jobs to a real CUPS queue and reads their IPP attributes back (see *Virtual printer* above); a no-op unless `MAECLY_REAL_PRINTER=1` | `MAECLY_REAL_PRINTER=1 cargo test --test real_printer -- --ignored --test-threads=1` |
 | `tests/real_printer_windows.rs` (2 tests), `tests/print_quality_windows.rs` (10 tests) | Spool to **paused** Windows queues and read the jobs back; a no-op unless `MAECLY_REAL_PRINTER=1` | see [e2e/README.md](../../e2e/README.md#real-spooler-suites-opt-in-never-print); `scripts/vm/print-quality-e2e.ps1` sets up the queues |
 
-CI runs them in the **`ignored-tests`** job — `cargo test -- --ignored`, which runs *only* those, on `macos-latest`. That job is `continue-on-error: true` and fires on a weekly schedule (`cron: '0 5 * * 1'`) or `workflow_dispatch`; it never runs on a pull request and never gates a merge. Note the flag: CI uses `-- --ignored` (only the ignored ones — the rest already ran in the blocking lanes), **not** `--include-ignored`.
+CI does not run them: they need the network, real queues or a real printer, and must never fail a merge. Run them by hand with the commands above; `cargo test -- --ignored` runs *only* the ignored ones (the rest already ran in CI), **not** `--include-ignored`.
 
 ## Frontend unit tests
 
@@ -257,19 +257,7 @@ Event-driven stores need one extra step. The tauri-specta `events` object drives
 
 Measured by `pnpm test:coverage` (`vitest run --coverage`) with the `@vitest/coverage-v8` provider — reporters `text`/`html`/`lcov`, output under `coverage/`, non-product files (generated `bindings.ts`, `src/test/**`, `src/main.tsx`, configs) excluded from the denominator (`vite.config.ts`).
 
-**CI enforces a floor.** The `frontend` job passes explicit thresholds on the command line rather than in `vite.config.ts`, so the gate stays CI-owned and a local `pnpm test:coverage` never fails on a threshold:
-
-```
-pnpm test:coverage \
-  --coverage.thresholds.lines=55 \
-  --coverage.thresholds.statements=55 \
-  --coverage.thresholds.functions=65 \
-  --coverage.thresholds.branches=75
-```
-
-Those numbers sit just under the measured tree (lines/statements 61.4%, functions 71.4%, branches 79.8%) — a regression gate, not the target. The 60% target is what they are raised toward; the report is also uploaded as the `frontend-coverage` artifact (7-day retention) either way.
-
-> The comment in `vite.config.ts` still describes coverage as "informational, not gated". That comment is stale with respect to `ci.yml`; the CI flags above are authoritative.
+**Coverage is informational.** CI runs `pnpm test` without coverage; `pnpm test:coverage` measures it locally. Last measured: lines/statements 61.4%, functions 71.4%, branches 79.8%.
 
 ## End-to-end tests
 
@@ -281,7 +269,7 @@ Those numbers sit just under the measured tree (lines/statements 61.4%, function
 
 ### Platform support — Windows/Linux only
 
-`tauri-driver` supports **Windows and Linux only**; **macOS WKWebView exposes no WebDriver endpoint**, so the WebdriverIO suite cannot run on macOS. macOS is covered instead by the Rust unit/integration suite, the Vitest suite, a **launch smoke** ("does the built app start and stay up"), the browser harness below, and manual QA. A parallel **launch smoke** also runs on Windows.
+`tauri-driver` supports **Windows and Linux only**; **macOS WKWebView exposes no WebDriver endpoint**, so the WebdriverIO suite cannot run on macOS. macOS is covered instead by the Rust unit/integration suite, the Vitest suite, the browser harness below, and manual QA.
 
 ### Browser harness (macOS, or any host without a built binary)
 
@@ -305,7 +293,7 @@ There is one spec per screen — seven files plus a shared `helpers.ts` (dismiss
 | `settings.e2e.ts` | Theme switch applies the dark class; a changed setting survives a relaunch with the local cache cleared (FR-100); language switching re-renders and persists (FR-094) |
 | `about.e2e.ts` | Semver version string; license/release/docs/issue links (FR-110); the live log directory (FR-113); React/Tauri versions and host platform; the update check is enabled inside the real host and the IPC-unavailable fallback never shows |
 
-There is no `launch.e2e.ts` or `navigation.e2e.ts`: "the binary starts and paints" is what the **smoke launch** CI steps assert (cheaper, and they also run on macOS where WebDriver is unavailable), and navigation is exercised by `helpers.navigateTo` in every other spec.
+There is no `launch.e2e.ts` or `navigation.e2e.ts`: "the binary starts and paints" is what every other spec's first step proves, and navigation is exercised by `helpers.navigateTo` in every other spec.
 
 What E2E tests don't cover (we have lower-level tests for these): component-level UI behavior (Vitest), print correctness (Rust unit tests over the flag builders), and the IPC contract (`src-tauri/tests/ipc_surface.rs`).
 
@@ -330,33 +318,16 @@ describe('About', () => {
 
 ### CI integration
 
-GUI verification runs in three places, none of which gates a merge, because driving a real WebView2 GUI (or launching a GUI on a headless runner) is inherently flake-prone:
-
-- **Smoke launch (Windows)** — a step inside the `build` job. Launches the packaged debug binary against a sandboxed `APPDATA`/`LOCALAPPDATA`, then polls the JSONL log for `app_started` **and** `main_window_resolved`, 60 s deadline. The log is uploaded as `windows-smoke-log` on failure. This step *does* fail the `build` job — it is the one GUI assertion that is blocking.
-- **Smoke launch (macOS)** — the same idea in the `macos` job, but both the `pnpm tauri build --debug` and the launch step are `continue-on-error: true`: WKWebView has no WebDriver and a headless runner has no guaranteed window server.
-- **E2E (WebdriverIO + tauri-driver)** — the whole `e2e/specs/**` suite on `windows-latest`, `timeout-minutes: 35`, `continue-on-error: true`. It installs `tauri-driver`, reads the installed WebView2 version out of the EdgeUpdate registry key, downloads the matching `msedgedriver` and exports it as `NATIVE_DRIVER`, then builds the frontend and `cargo build`s the binary directly (cheaper than a full `tauri build`, which would also produce installers the run does not need). Failure screenshots are uploaded as `e2e-artifacts`.
-
-The blocking gates are `frontend` (lint, format, typecheck, coverage-gated Vitest), `backend` (`cargo fmt`/`clippy -D warnings`/`cargo test` + the bindings-drift check on Windows), `macos` (clippy + `cargo test` + `pnpm test`), `rust-coverage`, `shell-ext-win` and `shell-ext-portable`, and `build`.
-
-Flake handling: a spec that fails repeatedly on `main` is fixed within a week or removed — we don't carry flaky GUI tests forward.
+None. CI is the lean pull-request gate (lint, typecheck, format and unit tests for the frontend; fmt, clippy and the full Rust suite on Windows and macOS), because driving a real WebView2 GUI on a hosted runner is slow and flake-prone. Run the suite locally on Windows with `pnpm test:e2e` (see [e2e/README.md](../../e2e/README.md)); the Windows VM scripts under `scripts/vm/` cover the installed app.
 
 ### The full job list in `ci.yml`
 
-| Job | Runner | Blocking? | What it does |
-|---|---|---|---|
-| `frontend` | ubuntu | yes | `pnpm lint`, `format:check`, `typecheck`, `test:coverage` with threshold flags; uploads `frontend-coverage` |
-| `backend` | windows | yes | `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, then a `git diff` gate on `src/ipc/bindings.ts` |
-| `macos` | macOS | yes | clippy + `cargo test` (exercises the CUPS backend), bindings gate, `pnpm test`, then the advisory debug build + smoke launch |
-| `rust-coverage` | macOS | yes | `cargo llvm-cov --fail-under-lines 70`; uploads `lcov.info` |
-| `ignored-tests` | macOS | no (advisory) | `cargo test -- --ignored`; **schedule/workflow_dispatch only**, weekly Mondays 05:00 UTC |
-| `build` | windows | yes | `pnpm tauri build --debug` + the Windows smoke launch; `needs: [frontend, backend]` |
-| `e2e` | windows | no | the WebdriverIO suite; `needs: [frontend, backend]` |
-| `shell-ext-win` | windows | yes | matrix over `x86_64-` and `aarch64-pc-windows-msvc`: fmt, clippy, release build with `PLURYPRINT_REQUIRE_RESOURCES=1`, `cargo test` (x64 only — an x64 runner cannot execute an ARM64 test binary), and a `dumpbin /EXPORTS` check for `DllGetClassObject` + `DllCanUnloadNow` |
-| `shell-ext-portable` | ubuntu | yes | proves the non-COM half of the shell extension is developable off Windows: `cargo test` on the host plus `cargo check --target x86_64-pc-windows-msvc` (type-checks the COM layer with no linker) |
+| Job | Runner | What it does |
+|---|---|---|
+| `frontend` | ubuntu | `pnpm lint`, `typecheck`, `format:check`, `test` |
+| `backend` | matrix windows + macOS | `cargo fmt --check` (Windows only, both crates), `cargo clippy --all-targets -- -D warnings`, the full `cargo test` (which is also the `src/ipc/bindings.ts` drift gate), and on Windows clippy + `cargo test` for `shell-ext-win/` |
 
-Every job except `ignored-tests` carries `if: github.event_name != 'schedule'`; `ignored-tests` carries the inverse. The workflow triggers are `push` to `main`, `pull_request` to `main`, `workflow_dispatch` and the weekly `schedule` — the last two exist solely for `ignored-tests`.
-
-Note that `backend` and `shell-ext-win` are separate lanes on purpose: `shell-ext-win/` is deliberately **not** a Cargo workspace member (its release profile must keep `panic = "unwind"` so `catch_unwind` at the COM boundary works, which `src-tauri`'s `panic = "abort"` would destroy), so `--manifest-path src-tauri/Cargo.toml` never touches it.
+Both are blocking. Triggers: `pull_request`, `push` to `main`, `workflow_dispatch`. `shell-ext-win/` gets its own commands because it is deliberately **not** a Cargo workspace member (its release profile must keep `panic = "unwind"` so `catch_unwind` at the COM boundary works, which `src-tauri`'s `panic = "abort"` would destroy), so `--manifest-path src-tauri/Cargo.toml` never touches it. [ci-cd.md](../07-build-and-release/ci-cd.md) lists what moved to `release.yml` and what is local only.
 
 ## Print mock harness — planned
 
@@ -462,7 +433,7 @@ UPDATE_BINDINGS=1 cargo test --manifest-path src-tauri/Cargo.toml
 git add src/ipc/bindings.ts
 ```
 
-CI backs this up in both the `backend` and `macos` jobs with a plain `git diff --exit-code -- src/ipc/bindings.ts`, which catches the one case the test cannot see: a filtered `cargo test` run that never regenerated anything.
+CI's `backend` job runs the full, unfiltered `cargo test` on Windows and macOS, so this test always runs there. A filtered local run that never reaches `ipc_surface` regenerates nothing; run the full suite before committing a command change.
 
 If a future need for real string snapshots appears (log line format, manifest JSON), adding `insta` is a normal dependency decision — but it must be made before this section can describe it in the present tense.
 
@@ -479,7 +450,7 @@ If a future need for real string snapshots appears (log line format, manifest JS
 | Command | Runs |
 |---|---|
 | `cargo test --manifest-path src-tauri/Cargo.toml` | Unit + integration tests not marked `#[ignore]` (or `make test-rust`) |
-| `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored` | **Only** the ignored ones (network + real CUPS) — what the weekly CI lane runs |
+| `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored` | **Only** the ignored ones (network + real CUPS); CI never runs them |
 | `cargo test --manifest-path src-tauri/Cargo.toml -- --include-ignored` | Everything, ignored included |
 | `cargo test <name>` | Tests matching `<name>` substring |
 | `cargo test --manifest-path shell-ext-win/Cargo.toml` | The shell extension's portable half; works on any host OS |

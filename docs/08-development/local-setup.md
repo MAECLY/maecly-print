@@ -54,7 +54,7 @@ macOS is a fully supported development platform: the whole Rust suite, the whole
 
 - **VS Code** with extensions: `rust-lang.rust-analyzer`, `tamasfe.even-better-toml`, `dbaeumer.vscode-eslint`, `esbenp.prettier-vscode`, `bradlc.vscode-tailwindcss`.
 - **JetBrains RustRover** as an alternative IDE if you prefer.
-- **`cargo-llvm-cov`** (`cargo install cargo-llvm-cov --locked`) if you want to reproduce CI's Rust coverage gate locally.
+- **`cargo-llvm-cov`** (`cargo install cargo-llvm-cov --locked`) if you want to measure Rust coverage (CI does not).
 
 ## Initial setup
 

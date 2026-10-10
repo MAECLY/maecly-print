@@ -328,7 +328,7 @@ permissions it granted the previous version.
   ```bash
   cargo install cargo-about --locked --features cli --version 0.9.2   # once
   scripts/licenses/generate-notices.sh          # after any dependency change
-  scripts/licenses/generate-notices.sh --check  # what CI's `notices` job runs
+  scripts/licenses/generate-notices.sh --check  # what release.yml's guard runs
   ```
 
 - **Source.** Pluryprint is AGPL-3.0 and SumatraPDF is GPL-3.0: whoever
@@ -354,10 +354,10 @@ NFR-006 caps the Windows installer at 15 MB. Measured:
 | Installer | Size | How |
 |---|---|---|
 | `Pluryprint_0.0.1_arm64-setup.exe` | 14,139,340 bytes (13.48 MiB) | native build on the Windows 11 ARM VM, 2026-10-10 |
-| x64 | reported by CI's `installers` job and by every release build | job summary |
+| x64 | reported by every release build | job summary |
 
 About 8 MiB of it is SumatraPDF (18 MB uncompressed for ARM64). `release.yml`
-fails a Windows build over the budget; `ci.yml` warns.
+fails a Windows build over the budget; `ci.yml` builds no installer.
 
 ## 10. Troubleshooting
 

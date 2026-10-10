@@ -27,7 +27,10 @@ maecly-print/
 ├── .lintstagedrc.json / .prettierrc.json / .prettierignore / eslint.config.js
 ├── .github/
 │   ├── workflows/
-│   │   └── ci.yml               # The only workflow (see ci-cd.md)
+│   │   ├── ci.yml               # PR gate: lint, typecheck, tests (see ci-cd.md)
+│   │   ├── release.yml          # Signed draft release on a v* tag
+│   │   ├── release-channels.yml # Moves the beta manifest on publish
+│   │   └── pages.yml            # The landing page
 │   ├── ISSUE_TEMPLATE/          # bug_report.yml, feature_request.yml, config.yml
 │   ├── PULL_REQUEST_TEMPLATE.md
 │   ├── CODEOWNERS
@@ -93,7 +96,7 @@ Standard top-level metadata for any open source repo. GitHub renders `README.md`
 
 GitHub-specific configuration. Treated as code: changes go through PR review.
 
-- `workflows/`: one file today — `ci.yml` (every build, test and lint lane). There is no sign-off check; contributions come in under the [CLA](../../CLA.md), which `PULL_REQUEST_TEMPLATE.md` asks for. There is **no `release.yml` and no `nightly.yml`**; see [ci-cd.md](../07-build-and-release/ci-cd.md) for what that means for releases.
+- `workflows/`: `ci.yml` (the pull-request gate: frontend lint, typecheck, format and tests; Rust fmt, clippy and tests on Windows and macOS), `release.yml` (signed draft release on a `v*` tag), `release-channels.yml` (beta manifest) and `pages.yml` (landing page). There is no sign-off check; contributions come in under the [CLA](../../CLA.md), which `PULL_REQUEST_TEMPLATE.md` asks for. There is **no `nightly.yml`**; see [ci-cd.md](../07-build-and-release/ci-cd.md).
 - `ISSUE_TEMPLATE/`: structured templates for bug reports, feature requests, security issues.
 - `PULL_REQUEST_TEMPLATE.md`: required checklist when opening PRs.
 - `CODEOWNERS`: maps file paths to maintainers for auto-requested review.
@@ -320,7 +323,7 @@ shell-ext-win/
 Earlier drafts of this document specified a C++ COM DLL. The implementation is Rust, via the `windows` / `windows-core` crates:
 
 - `#[implement]` from the `windows` crate generates the vtable plumbing, so the COM boilerplate that made C++ attractive is no longer hand-written in either language.
-- The portable half — the handoff schema, the menu model, the "is this selection supported" predicate — is plain Rust with no Windows types, so it compiles and is tested on macOS and Linux. The `shell-ext-portable` CI lane exists to keep it that way. A C++ project would have made the extension undevelopable off Windows.
+- The portable half — the handoff schema, the menu model, the "is this selection supported" predicate — is plain Rust with no Windows types, so it compiles and is tested on macOS and Linux (`cargo test --manifest-path shell-ext-win/Cargo.toml` on the host; CI runs the crate's tests on Windows). A C++ project would have made the extension undevelopable off Windows.
 - Sharing the `directories` crate with the app is what *guarantees* producer and consumer agree on the handoff directory, rather than two independently-maintained path computations.
 - `catch_unwind` at every entry point gives the panic-containment guarantee explicitly, at the cost of the profile constraint described above.
 

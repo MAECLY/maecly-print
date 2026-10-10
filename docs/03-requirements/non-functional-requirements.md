@@ -17,7 +17,7 @@ Each NFR has a stable ID (`NFR-XXX`), a measurable target, and a verification me
 | NFR-003 | Idle RAM usage of the resident GUI MUST be <100 MB | RSS ≤ 100 MB after 60s idle | `ps`/Task Manager assertion in CI |
 | NFR-004 | Peak RAM usage with 50 jobs queued MUST be <250 MB | RSS ≤ 250 MB | Load test |
 | NFR-005 | The system MUST NOT add more than 50 ms of overhead to the total per-file printing time vs invoking the same backend (SumatraPDF/CUPS) directly | Δ ≤ 50 ms p50 | Microbenchmark in CI |
-| NFR-006 | The Windows installer (`setup.exe`) MUST be ≤ 15 MB | size ≤ 15 MB | Size assertion in release pipeline — **in place**: `release.yml` fails a Windows build over 15 MiB, `ci.yml`'s `installers` job reports the size and warns. Measured: the ARM64 installer is 13.48 MiB, about 8 MiB of it SumatraPDF ([releasing.md §9](../07-build-and-release/releasing.md)) |
+| NFR-006 | The Windows installer (`setup.exe`) MUST be ≤ 15 MB | size ≤ 15 MB | Size assertion in release pipeline — **in place**: `release.yml` fails a Windows build over 15 MiB and reports the size of every installer. Measured: the ARM64 installer is 13.48 MiB, about 8 MiB of it SumatraPDF ([releasing.md §9](../07-build-and-release/releasing.md)) |
 | NFR-007 | The macOS `.dmg` MUST be ≤ 25 MB (universal binary) | size ≤ 25 MB | Same — **not gated**: releases ship one `.dmg` per architecture (`apple_silicon`, `apple_intel`), not a universal binary, and no step measures them |
 | NFR-008 | The Sparse MSIX package MUST be ≤ 2 MB | size ≤ 2 MB | Same — **not applicable yet**: no sparse package is built (decision D3, [shell-extensions.md §2.5](../04-architecture/shell-extensions.md)) |
 
@@ -80,18 +80,18 @@ Each NFR has a stable ID (`NFR-XXX`), a measurable target, and a verification me
 
 | ID | Requirement | Target | Verification |
 |---|---|---|---|
-| NFR-060 | Test coverage MUST be ≥70% for Rust code, ≥60% for TS code | **Gated in CI**, but with `cargo llvm-cov --fail-under-lines 70` (not tarpaulin) and Vitest thresholds currently set at 55/55/65/75 — below the 60% target, as a regression gate. Measured: Rust 80.4% lines, TS 61.4% lines. | CI gate |
+| NFR-060 | Test coverage MUST be ≥70% for Rust code, ≥60% for TS code | **Measured locally, not gated**: `cargo llvm-cov` (not tarpaulin) and `pnpm test:coverage`; CI is kept to lint, typecheck and tests. Last measured: Rust 80.4% lines, TS 61.4% lines. | Local measurement |
 | NFR-061 | All public Rust functions MUST have rustdoc with at least a one-line summary | **Enforced.** `#![deny(missing_docs)]` is set in both `src-tauri/src/lib.rs` and `shell-ext-win/src/lib.rs`, so every reachable `pub` item — functions, types, fields, variants, constants, modules — needs a doc comment or the crate does not compile. Checked on macOS and on the Windows target (the `cfg(windows)` code). | Compiler (every CI build) |
 | NFR-062 | Documentation in this `docs/` folder MUST stay in sync with code; PRs that modify behavior MUST update affected docs | Reviewer checklist | Code review |
 | NFR-063 | The CI MUST be green for a PR to be merged (no override without maintainer approval and reason in commit) | Branch protection rule | GitHub settings |
 | NFR-064 | Build MUST be reproducible: same source + same toolchain version → byte-identical binary | `cargo build --locked --release` is reproducible | Quarterly verification |
-| NFR-065 | Deps MUST be audited weekly via `cargo audit` and `pnpm audit`; high/critical vulnerabilities MUST be fixed within 7 days. | **No audit workflow exists.** The only scheduled CI job is `ignored-tests`. Dependabot is the sole dependency automation. | — |
+| NFR-065 | Deps MUST be audited weekly via `cargo audit` and `pnpm audit`; high/critical vulnerabilities MUST be fixed within 7 days. | **No audit workflow exists.** No CI job runs on a schedule. Dependabot is the sole dependency automation. | — |
 
 ## 8. Portability
 
 | ID | Requirement | Target | Verification |
 |---|---|---|---|
-| NFR-070 | A single codebase MUST support Windows (x64, ARM64) and macOS (Apple Silicon, Intel) | **Built for all four on release.** `release.yml` builds `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc` and refuses a release missing any of them. `ci.yml` tests natively, adds `cargo check` for `aarch64-pc-windows-msvc`, and builds both Windows installers in its `installers` job. Tests run natively on Windows x64 and ARM64 (the VM) and on Apple silicon; no Intel Mac runs them. No universal binary. | CI + release |
+| NFR-070 | A single codebase MUST support Windows (x64, ARM64) and macOS (Apple Silicon, Intel) | **Built for all four on release.** `release.yml` builds `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc` and refuses a release missing any of them. `ci.yml` tests natively on Windows x64 and macOS; the ARM64 Windows build is cross-compiled by `release.yml`. Tests run natively on Windows x64 and ARM64 (the VM) and on Apple silicon; no Intel Mac runs them. No universal binary. | CI + release |
 | NFR-071 | Platform-specific code MUST be isolated to clearly named modules | **Met.** `src-tauri/src/platform/`: `windows.rs`, `cups.rs`, `macos/`. Windows is a single file rather than a directory; the isolation requirement is satisfied either way. | Code review |
 | NFR-072 | The system MUST NOT require Linux support in v1; Linux MAY be added in v2 if community demand exists | Documented in [milestones.md](../06-roadmap/milestones.md) | Roadmap |
 
@@ -118,7 +118,7 @@ See [privacy.md](../09-legal/privacy.md) for the full statement.
 
 | ID | Requirement | Target | Verification |
 |---|---|---|---|
-| NFR-100 | The project MUST comply with AGPL-3.0 obligations: source disclosure, license text in distribution, copyright notices preserved. | `LICENSE`, `THIRD-PARTY-NOTICES.md` and `LICENSES/` present in the bundle (`src-tauri/tests/licence_bundle.rs`); About links the source, the license, the CLA and the notices. `THIRD-PARTY-NOTICES.md` is generated (`scripts/licenses/generate-notices.sh`, checked current by CI), SumatraPDF ships with its GPL-3.0 written source offer (`SOURCE-OFFER.txt`), and every release attaches the Pluryprint and SumatraPDF sources | Release checklist |
+| NFR-100 | The project MUST comply with AGPL-3.0 obligations: source disclosure, license text in distribution, copyright notices preserved. | `LICENSE`, `THIRD-PARTY-NOTICES.md` and `LICENSES/` present in the bundle (`src-tauri/tests/licence_bundle.rs`); About links the source, the license, the CLA and the notices. `THIRD-PARTY-NOTICES.md` is generated (`scripts/licenses/generate-notices.sh`, checked current by `release.yml`'s guard before any release build), SumatraPDF ships with its GPL-3.0 written source offer (`SOURCE-OFFER.txt`), and every release attaches the Pluryprint and SumatraPDF sources | Release checklist |
 | NFR-101 | All bundled third-party components MUST be license-compatible with the AGPL-3.0. See [third-party-licenses.md](../09-legal/third-party-licenses.md). | License audit per release | Release checklist |
 | NFR-102 | The project MUST publish a SECURITY.md with a private vulnerability disclosure channel. | File exists, channel works | Release checklist |
 
@@ -141,7 +141,7 @@ Verified against the tree. Only NFRs whose status is non-obvious or has recently
 | **NFR-061** | **Newly met.** `#![deny(missing_docs)]` in `src-tauri/src/lib.rs` and `shell-ext-win/src/lib.rs`: an undocumented public item is a compile error, so the bar is held by every `cargo build`/`clippy`/`test` in CI rather than by review. Doc comments on `specta`-exported types also flow into `src/ipc/bindings.ts` as JSDoc. |
 | **NFR-071** | `src-tauri/src/platform/{windows.rs, cups.rs, macos/}`. |
 | **NFR-081** | `logging::Policy` — daily + size roll, swept at startup and on every roll by `retain_days` (14) and `retain_files` (7), whichever bites first. |
-| **NFR-006** | `release.yml` fails a Windows installer over 15 MiB; the ARM64 installer measured 13.48 MiB on 2026-10-10. The x64 size is reported by every CI and release build. |
+| **NFR-006** | `release.yml` fails a Windows installer over 15 MiB; the ARM64 installer measured 13.48 MiB on 2026-10-10. The x64 size is reported by every release build. |
 | **NFR-020** | The per-user NSIS installer (`installMode: "currentUser"`) installs to `%LOCALAPPDATA%\Pluryprint` and registers the Explorer command under `HKCU` only. Verified on Windows 11 24H2 ARM64 from a medium-integrity session with UAC on: no elevation prompt, nothing under `HKLM`. Installing LibreOffice from the dependency dialog is the one action that asks for administrator approval, and the dialog says so first. |
 
 ### Not met, or unverified
