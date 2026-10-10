@@ -247,8 +247,10 @@ fn raw_text_end(html: &[u8], from: usize, name: &str) -> usize {
 /// starts with one (after a byte-order mark, whitespace, comments and `<?...>`
 /// declarations), else at the very start (after a UTF-8 byte-order mark).
 /// Never inside a comment, and never after a script that could run before
-/// the policy exists.
-pub fn insertion_point(html: &[u8]) -> usize {
+/// the policy exists. `None` when there is no such place: a doctype that is
+/// never closed would put the policy after the whole page, so the caller
+/// refuses the page instead (fail closed).
+pub fn insertion_point(html: &[u8]) -> Option<usize> {
     let start = if html.starts_with(&[0xEF, 0xBB, 0xBF]) {
         3
     } else {
@@ -265,9 +267,9 @@ pub fn insertion_point(html: &[u8]) -> usize {
         } else if rest.starts_with(b"<?") {
             i = find(html, b">", i).map_or(html.len(), |e| e + 1);
         } else if starts_with_ci(rest, b"<!doctype") {
-            return find(html, b">", i).map_or(html.len(), |e| e + 1);
+            return find(html, b">", i).map(|e| e + 1);
         } else {
-            return start;
+            return Some(start);
         }
     }
 }
@@ -515,9 +517,185 @@ pub fn neutralize_share_refs(html: &[u8]) -> Neutralized {
     }
 }
 
+/// `css` with every `/* ... */` comment replaced by a space (an unclosed
+/// comment runs to the end), the way the CSS tokenizer drops them: so
+/// `@import/**/"x.css"` reads as `@import "x.css"`. Pure.
+pub fn strip_css_comments(css: &str) -> String {
+    let mut out = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(at) = rest.find("/*") {
+        out.push_str(&rest[..at]);
+        out.push(' ');
+        rest = match rest[at + 2..].find("*/") {
+            Some(end) => &rest[at + 2 + end + 2..],
+            None => "",
+        };
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The target of every `@import` in `css` (escapes already decoded), and
+/// whether one of them could not be read (neither a string nor `url(...)`).
+fn import_targets(css: &str) -> (Vec<String>, bool) {
+    let mut out = Vec::new();
+    let mut unreadable = false;
+    let lower = css.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(at) = lower[from..].find("@import").map(|i| from + i) {
+        from = at + "@import".len();
+        let rest = css[from..].trim_start();
+        let target = if let Some(inner) = rest
+            .get(..4)
+            .filter(|h| h.eq_ignore_ascii_case("url("))
+            .map(|_| rest[4..].trim_start())
+        {
+            match inner.chars().next() {
+                Some(q @ ('"' | '\'')) => inner[1..].split(q).next(),
+                _ => inner.split(')').next(),
+            }
+        } else {
+            match rest.chars().next() {
+                Some(q @ ('"' | '\'')) => rest[1..].split(q).next(),
+                _ => None,
+            }
+        };
+        match target {
+            Some(t) => out.push(t.trim().to_string()),
+            None => unreadable = true,
+        }
+    }
+    (out, unreadable)
+}
+
+/// Whether `css` holds an `@import` whose target cannot be read, after
+/// escapes and comments are taken out: the browser fallback refuses such a
+/// stylesheet rather than load a file it did not check. Pure.
+pub fn has_unreadable_import(css: &str) -> bool {
+    import_targets(&strip_css_comments(&decode_css_escapes(css))).1
+}
+
+/// The text of every `<style>` element of `html`, found the way
+/// [`neutralize_share_refs`] finds them (at every `<style`, a superset).
+pub fn style_blocks(html: &[u8]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while let Some(lt) = find(html, b"<", i) {
+        i = lt + 1;
+        if let Some(tag) = parse_tag(html, lt) {
+            if !tag.is_end && tag.name == "style" {
+                let end = raw_text_end(html, tag.span.end, "style");
+                out.push(String::from_utf8_lossy(&html[tag.span.end..end]).into_owned());
+            }
+        }
+    }
+    out
+}
+
+/// The encoding a page declares in a `<meta charset>` or
+/// `<meta http-equiv=content-type content="...; charset=...">` within its
+/// first 1024 bytes (the HTML prescan), as written. Pure.
+fn declared_charset(html: &[u8]) -> Option<String> {
+    let head = &html[..html.len().min(1024)];
+    tags(head).into_iter().find_map(|t| {
+        if t.is_end || t.name != "meta" {
+            return None;
+        }
+        if let Some(c) = t.attr("charset") {
+            return Some(c.to_string());
+        }
+        let is_content_type = t
+            .attr("http-equiv")
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("content-type"));
+        let content = t.attr("content").filter(|_| is_content_type)?;
+        let lower = content.to_ascii_lowercase();
+        let at = lower.find("charset")? + "charset".len();
+        let value = content[at..].trim_start().strip_prefix('=')?.trim_start();
+        let value = value.trim_start_matches(['"', '\'']);
+        let end = value
+            .find(|c: char| c == ';' || c == '"' || c == '\'' || c.is_whitespace())
+            .unwrap_or(value.len());
+        Some(value[..end].to_string())
+    })
+}
+
+/// `html` decoded the way a browser picks its encoding (a byte-order mark,
+/// else the page's `<meta>` declaration, else UTF-8 when the bytes are valid
+/// UTF-8, else Windows-1252) and returned as UTF-8 **with** a byte-order
+/// mark. The mark makes every browser read the staged page as UTF-8 whatever
+/// it declares, so the bytes Pluryprint checks are the bytes the renderer
+/// parses (a UTF-16 page used to reach the browser fallback unchecked).
+/// Idempotent. `None` when the page declares an encoding that cannot be
+/// decoded faithfully (an unknown label, or one the WHATWG standard maps to
+/// the replacement decoder): the caller refuses the page. Pure.
+pub fn decode_page(html: &[u8]) -> Option<Vec<u8>> {
+    let (encoding, body) = match encoding_rs::Encoding::for_bom(html) {
+        Some((enc, bom_len)) => (enc, &html[bom_len..]),
+        None => {
+            let enc = match declared_charset(html) {
+                Some(label) => {
+                    let enc = encoding_rs::Encoding::for_label(label.trim().as_bytes())?;
+                    if enc == encoding_rs::REPLACEMENT {
+                        return None;
+                    }
+                    // HTML reads a declared UTF-16 as UTF-8, and
+                    // x-user-defined as Windows-1252.
+                    if enc == encoding_rs::UTF_16LE || enc == encoding_rs::UTF_16BE {
+                        encoding_rs::UTF_8
+                    } else if enc == encoding_rs::X_USER_DEFINED {
+                        encoding_rs::WINDOWS_1252
+                    } else {
+                        enc
+                    }
+                }
+                None if std::str::from_utf8(html).is_ok() => encoding_rs::UTF_8,
+                None => encoding_rs::WINDOWS_1252,
+            };
+            (enc, html)
+        }
+    };
+    let (text, _) = encoding.decode_without_bom_handling(body);
+    let mut out = Vec::with_capacity(text.len() + 3);
+    out.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+    out.extend_from_slice(text.as_bytes());
+    Some(out)
+}
+
+/// The text of a local stylesheet as the browser decodes it when the page is
+/// UTF-8: a byte-order mark, else a leading `@charset "...";`, else UTF-8.
+/// `None` when that cannot be done faithfully: an unknown or replacement
+/// `@charset` label, or NUL bytes without a byte-order mark (a UTF-16
+/// stylesheet the browser might decode by another hint), so the browser
+/// fallback refuses rather than load a stylesheet it did not read. Pure.
+pub fn decode_stylesheet(css: &[u8]) -> Option<String> {
+    if let Some((enc, bom_len)) = encoding_rs::Encoding::for_bom(css) {
+        return Some(
+            enc.decode_without_bom_handling(&css[bom_len..])
+                .0
+                .into_owned(),
+        );
+    }
+    if css.contains(&0) {
+        return None;
+    }
+    let mut encoding = encoding_rs::UTF_8;
+    if let Some(rest) = css.strip_prefix(b"@charset \"") {
+        let end = find(rest, b"\";", 0)?;
+        let enc = encoding_rs::Encoding::for_label(&rest[..end])?;
+        if enc == encoding_rs::REPLACEMENT {
+            return None;
+        }
+        if enc != encoding_rs::UTF_16LE && enc != encoding_rs::UTF_16BE {
+            encoding = enc;
+        }
+    }
+    Some(encoding.decode_without_bom_handling(css).0.into_owned())
+}
+
 /// The local stylesheets a page (or a stylesheet) may load: the `href` of
-/// every `<link>` tag and every `@import` target, anywhere in the text (a
-/// superset, like [`neutralize_share_refs`]). Decoded, not yet resolved.
+/// every `<link>` tag and every `@import` target, anywhere in the text, with
+/// and without its CSS comments (a superset, like [`neutralize_share_refs`]).
+/// Decoded, not yet resolved.
 pub fn stylesheet_refs(text: &[u8]) -> Vec<String> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -539,26 +717,13 @@ pub fn stylesheet_refs(text: &[u8]) -> Vec<String> {
         }
     }
     let css = decode_css_escapes(&String::from_utf8_lossy(text));
-    let mut rest = css.as_str();
-    while let Some(at) = rest.to_ascii_lowercase().find("@import") {
-        rest = rest[at + "@import".len()..].trim_start();
-        let target = if let Some(inner) = rest
-            .get(..4)
-            .filter(|h| h.eq_ignore_ascii_case("url("))
-            .map(|_| rest[4..].trim_start())
-        {
-            match inner.chars().next() {
-                Some(q @ ('"' | '\'')) => inner[1..].split(q).next(),
-                _ => inner.split(')').next(),
-            }
-        } else {
-            match rest.chars().next() {
-                Some(q @ ('"' | '\'')) => rest[1..].split(q).next(),
-                _ => None,
-            }
-        };
-        if let Some(t) = target {
-            out.push(t.trim().to_string());
+    for target in import_targets(&css)
+        .0
+        .into_iter()
+        .chain(import_targets(&strip_css_comments(&css)).0)
+    {
+        if !out.contains(&target) {
+            out.push(target);
         }
     }
     out
@@ -589,12 +754,104 @@ mod tests {
 
     #[test]
     fn nfr_security_insertion_point_is_never_in_a_comment() {
-        assert_eq!(insertion_point(b"<!-- <head> --><html><head>"), 0);
+        assert_eq!(insertion_point(b"<!-- <head> --><html><head>"), Some(0));
         let doc = b"\xEF\xBB\xBF <!-- c --> <!DOCTYPE html><!-- <head> --><head>";
-        let at = insertion_point(doc);
+        let at = insertion_point(doc).unwrap();
         assert_eq!(&doc[..at], b"\xEF\xBB\xBF <!-- c --> <!DOCTYPE html>");
-        assert_eq!(insertion_point(b"\xEF\xBB\xBF<p>"), 3);
-        assert_eq!(insertion_point(b"<script>x</script><html>"), 0);
+        assert_eq!(insertion_point(b"\xEF\xBB\xBF<p>"), Some(3));
+        assert_eq!(insertion_point(b"<script>x</script><html>"), Some(0));
+        // A doctype that never closes leaves no safe place: fail closed.
+        assert_eq!(insertion_point(b"<!DOCTYPE html never closed"), None);
+    }
+
+    /// Security finding: a UTF-16 page reached the browser fallback's share
+    /// filter undecoded (every `<` followed by a NUL), so nothing was
+    /// neutralised. Pages are decoded by their real encoding first and staged
+    /// as UTF-8 with a byte-order mark, which the browser then has to obey.
+    #[test]
+    fn nfr_security_pages_are_decoded_by_their_real_encoding() {
+        let utf16 = |text: &str, le: bool| {
+            let mut out = if le {
+                vec![0xFF, 0xFE]
+            } else {
+                vec![0xFE, 0xFF]
+            };
+            for unit in text.encode_utf16() {
+                out.extend_from_slice(&if le {
+                    unit.to_le_bytes()
+                } else {
+                    unit.to_be_bytes()
+                });
+            }
+            out
+        };
+        for le in [true, false] {
+            let page = decode_page(&utf16("<img src=\"//host/x.png\">", le)).unwrap();
+            assert_eq!(&page[..3], b"\xEF\xBB\xBF");
+            assert_eq!(&page[3..], b"<img src=\"//host/x.png\">");
+            assert_eq!(neutralize_share_refs(&page).removed, 1);
+        }
+        // A declared single-byte encoding is honoured...
+        let page = b"<meta charset=windows-1252><p>caf\xE9";
+        let out = decode_page(page).unwrap();
+        assert!(String::from_utf8(out.clone()).unwrap().ends_with("café"));
+        // ... decoding is idempotent (the mark wins over the declaration) ...
+        assert_eq!(decode_page(&out).unwrap(), out);
+        // ... a page that declares nothing and is not UTF-8 is Windows-1252 ...
+        assert!(String::from_utf8(decode_page(b"<p>\xE9").unwrap())
+            .unwrap()
+            .ends_with("é"));
+        // ... and an encoding that cannot be decoded faithfully is refused.
+        assert_eq!(decode_page(b"<meta charset=x-made-up><p>x"), None);
+        assert_eq!(decode_page(b"<meta charset=iso-2022-kr><p>x"), None);
+        assert_eq!(
+            decode_page(b"<meta http-equiv=Content-Type content='text/html; charset=bogus'>"),
+            None
+        );
+        // A declared UTF-16 is read as UTF-8, as browsers do.
+        assert_eq!(
+            decode_page(b"<meta charset=utf-16><p>x").unwrap(),
+            b"\xEF\xBB\xBF<meta charset=utf-16><p>x".to_vec()
+        );
+    }
+
+    /// A stylesheet is decoded the way the browser decodes it; one that
+    /// cannot be read faithfully is refused (`None`).
+    #[test]
+    fn nfr_security_stylesheets_are_decoded_or_refused() {
+        let mut utf16 = vec![0xFF, 0xFE];
+        for unit in "p{background:url(//host/x.png)}".encode_utf16() {
+            utf16.extend_from_slice(&unit.to_le_bytes());
+        }
+        let css = decode_stylesheet(&utf16).unwrap();
+        assert!(css_has_share_ref(&css), "{css}");
+        assert_eq!(decode_stylesheet(&utf16[2..]), None, "UTF-16 without a BOM");
+        assert_eq!(decode_stylesheet(b"@charset \"nope\"; p{}"), None);
+        assert_eq!(
+            decode_stylesheet(b"@charset \"windows-1252\"; p:after{content:'\xE9'}").unwrap(),
+            "@charset \"windows-1252\"; p:after{content:'é'}"
+        );
+        assert_eq!(decode_stylesheet(b"p{}").unwrap(), "p{}");
+    }
+
+    /// Security finding: `@import/**/"x.css"` is a valid import the scanner
+    /// did not see. Comments are stripped before looking for targets, and an
+    /// `@import` whose target still cannot be read is reported.
+    #[test]
+    fn nfr_security_comment_obfuscated_imports_are_found() {
+        let refs = stylesheet_refs(b"@import/**/\"evil.css\"; @import /* x */ url(b.css);");
+        assert!(refs.contains(&"evil.css".to_string()), "{refs:?}");
+        assert!(refs.contains(&"b.css".to_string()), "{refs:?}");
+        assert!(!has_unreadable_import(
+            "@import/**/'a.css'; @import url(b.css);"
+        ));
+        assert!(has_unreadable_import("@import foo;"));
+        assert!(has_unreadable_import("@imp\\6frt bar;"));
+        assert_eq!(strip_css_comments("a/*x*/b/*y"), "a b ");
+        assert_eq!(
+            style_blocks(b"<p><style>@import x;</style><STYLE media=x>b</STYLE>"),
+            vec!["@import x;", "b"]
+        );
     }
 
     #[test]

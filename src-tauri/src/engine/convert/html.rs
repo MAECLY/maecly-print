@@ -52,8 +52,22 @@
 //!   by itself. The page is therefore rewritten first ([`guard_browser_page`]):
 //!   every reference the shared predicate ([`super::local_ref`]) calls a share
 //!   is removed, and a local stylesheet that names one refuses the page
-//!   (`share_reference_refused`). Still one more reason it is only a fallback:
-//!   an external SVG `<use>` document's own references are not inspected.
+//!   (`share_reference_refused`). The check **fails closed**: the page is
+//!   decoded by its real encoding first (a UTF-16 page used to pass unread)
+//!   and staged as UTF-8 with a byte-order mark, so the browser parses the
+//!   bytes that were checked; and a stylesheet that cannot be checked
+//!   completely (too large, too many, an unreadable encoding or `@import`)
+//!   refuses the page with `page_not_checkable` instead of loading unchecked.
+//!   Still one more reason it is only a fallback: an external SVG `<use>`
+//!   document's own references are not inspected.
+//!
+//! ## Both renderers
+//!
+//! The staged page is always UTF-8 with a byte-order mark
+//! ([`super::html_scan::decode_page`]), and the policy must land as its very
+//! first element: a page whose encoding cannot be read, or that leaves no
+//! safe place for the policy (a doctype that never closes), is refused with
+//! `page_not_checkable` ([`inject_head`]) rather than rendered without it.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -151,6 +165,11 @@ pub fn render_document(
     setup: &PageSetup,
     renderer: HtmlRenderer,
 ) -> Result<(), EngineError> {
+    // One decoding for every check and for the renderer (the staged page is
+    // UTF-8 with a byte-order mark, which the renderer has to obey).
+    let html = super::html_scan::decode_page(html)
+        .ok_or_else(|| not_checkable("the page declares a text encoding that cannot be read"))?;
+    let html = &html[..];
     match renderer {
         HtmlRenderer::System => render_system_with(
             &worker_exe()?,
@@ -387,77 +406,195 @@ const MAX_STYLESHEETS: usize = 64;
 /// Largest stylesheet [`guard_browser_page`] reads.
 const MAX_STYLESHEET_BYTES: u64 = 8 * 1024 * 1024;
 
-/// Make `html` safe for the browser fallback, which loads the page from
-/// `file:` and so cannot keep a share reference off SMB the way the system
-/// renderer does (module docs): every share reference in the page is
-/// neutralised ([`super::html_scan::neutralize_share_refs`]), and the local
-/// stylesheets it loads (`<link>` and `@import`, recursively) are read: one
-/// that names a share refuses the page with `share_reference_refused`, since
-/// it cannot be rewritten in place. `base_url` is the document folder's
-/// `file:` URL.
+/// The `page_not_checkable` refusal: the page, or something it loads, could
+/// not be checked completely, so it is not printed (fail closed).
+fn not_checkable(detail: impl Into<String>) -> EngineError {
+    tracing::warn!(event = "html_page_not_checkable");
+    EngineError::ConversionFailed(Failure::new("page_not_checkable", detail))
+}
+
+/// The `share_reference_refused` refusal for the stylesheet at `what`.
+fn share_refused(what: &str) -> EngineError {
+    tracing::warn!(event = "html_share_ref_in_stylesheet");
+    EngineError::ConversionFailed(Failure::new(
+        "share_reference_refused",
+        format!("a stylesheet of the page refers to a network share: {what}"),
+    ))
+}
+
+/// The bytes of a `data:` URL (`data:[<type>][;base64],<body>`), or `None`
+/// when it is not one or its base64 is malformed. Pure.
+fn data_url_bytes(url: &str) -> Option<Vec<u8>> {
+    let rest = url.trim().get(5..).filter(|_| {
+        url.trim()
+            .get(..5)
+            .is_some_and(|s| s.eq_ignore_ascii_case("data:"))
+    })?;
+    let (meta, body) = rest.split_once(',')?;
+    let body = percent_encoding::percent_decode_str(body).collect::<Vec<u8>>();
+    if !meta.to_ascii_lowercase().trim_end().ends_with(";base64") {
+        return Some(body);
+    }
+    let mut out = Vec::with_capacity(body.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for b in body {
+        let v = match b {
+            b'A'..=b'Z' => b - b'A',
+            b'a'..=b'z' => b - b'a' + 26,
+            b'0'..=b'9' => b - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            b'=' | b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' => continue,
+            _ => return None,
+        };
+        acc = (acc << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
+}
+
+/// Make `html` (as [`super::html_scan::decode_page`] returns it) safe for
+/// the browser fallback, which loads the page from `file:` and so cannot keep
+/// a share reference off SMB the way the system renderer does (module docs):
+/// every share reference in the page is neutralised
+/// ([`super::html_scan::neutralize_share_refs`]), and the local stylesheets
+/// it loads (`<link>` and `@import`, recursively, `data:` ones included) are
+/// decoded and read. One that names a share refuses the page with
+/// `share_reference_refused`, since it cannot be rewritten in place.
+///
+/// **Fails closed.** Whatever cannot be checked completely refuses the page
+/// with `page_not_checkable` instead of being loaded unchecked: a stylesheet
+/// over [`MAX_STYLESHEET_BYTES`], more than [`MAX_STYLESHEETS`] of them, one
+/// that cannot be read or decoded faithfully
+/// ([`super::html_scan::decode_stylesheet`]), and an `@import` whose target
+/// cannot be parsed. `base_url` is the document folder's `file:` URL.
 pub fn guard_browser_page(html: &[u8], base_url: &str) -> Result<Vec<u8>, EngineError> {
     use super::{html_scan, local_ref};
-    let neutralized = html_scan::neutralize_share_refs(html);
+    let html = html_scan::decode_page(html)
+        .ok_or_else(|| not_checkable("the page declares a text encoding that cannot be read"))?;
+    let neutralized = html_scan::neutralize_share_refs(&html);
     if neutralized.removed > 0 {
         tracing::info!(
             event = "html_share_refs_removed",
             count = neutralized.removed
         );
     }
-    let base = url::Url::parse(&effective_base(&neutralized.html, base_url)).ok();
+    if html_scan::style_blocks(&neutralized.html)
+        .iter()
+        .any(|css| html_scan::has_unreadable_import(css))
+    {
+        return Err(not_checkable(
+            "a style block imports a stylesheet whose name cannot be read",
+        ));
+    }
+    let base = url::Url::parse(&effective_base(&neutralized.html, base_url))
+        .map_err(|_| not_checkable("the page's folder has no usable address"))?;
     let base_dir = url::Url::parse(base_url)
         .ok()
         .and_then(|u| u.to_file_path().ok());
-    let mut pending: Vec<(url::Url, String)> = base
-        .iter()
-        .flat_map(|b| {
-            html_scan::stylesheet_refs(&neutralized.html)
-                .into_iter()
-                .map(move |r| (b.clone(), r))
-        })
+    let mut pending: Vec<(url::Url, String)> = html_scan::stylesheet_refs(&neutralized.html)
+        .into_iter()
+        .map(|r| (base.clone(), r))
         .collect();
     let mut seen = std::collections::HashSet::new();
+    let mut read = 0usize;
     while let Some((from, reference)) = pending.pop() {
-        if seen.len() >= MAX_STYLESHEETS {
-            break;
-        }
         if !local_ref::is_local_ref(&reference) {
+            // http(s) and other schemes: the browser's network is off. A
+            // share named in the page was neutralised above (what is left is
+            // text, such as an `@import` quoted in a code sample), and one
+            // named in a stylesheet refused the page already.
             continue;
         }
+        // A reference the browser cannot resolve is one it cannot load.
         let Ok(url) = from.join(reference.trim()) else {
             continue;
         };
-        let Ok(path) = url.to_file_path() else {
-            continue;
-        };
-        // A share is never opened, except the document's own folder when the
-        // user printed it from one.
-        let allowed = match base_dir.as_deref() {
-            Some(dir) => local_ref::may_open(&path, dir),
-            None => !local_ref::is_remote_path(&path),
-        };
-        if !allowed || !seen.insert(path.clone()) {
+        if !seen.insert(url.to_string()) {
             continue;
         }
-        let small =
-            std::fs::metadata(&path).is_ok_and(|m| m.is_file() && m.len() <= MAX_STYLESHEET_BYTES);
-        let Some(css) = small.then(|| std::fs::read(&path).ok()).flatten() else {
-            continue;
-        };
-        if html_scan::css_has_share_ref(&String::from_utf8_lossy(&css)) {
-            tracing::warn!(event = "html_share_ref_in_stylesheet");
-            return Err(EngineError::ConversionFailed(Failure::new(
-                "share_reference_refused",
-                format!(
-                    "a stylesheet of the page refers to a network share: {}",
-                    path.display()
-                ),
+        read += 1;
+        if read > MAX_STYLESHEETS {
+            return Err(not_checkable(format!(
+                "the page loads more than {MAX_STYLESHEETS} stylesheets"
             )));
         }
+        let (css, label) = if url.scheme() == "data" {
+            let bytes = data_url_bytes(url.as_str())
+                .ok_or_else(|| not_checkable("an inline stylesheet cannot be decoded"))?;
+            // Relative references in a `data:` stylesheet resolve against the
+            // page (a superset: the browser resolves none of them).
+            (bytes, "an inline stylesheet".to_string())
+        } else if url.scheme() == "file" {
+            // `file://host/...` is a share whatever the predicate said.
+            let path = url
+                .to_file_path()
+                .map_err(|()| share_refused(url.as_str()))?;
+            // A share is never opened, except the document's own folder when
+            // the user printed it from one.
+            let allowed = match base_dir.as_deref() {
+                Some(dir) => local_ref::may_open(&path, dir),
+                None => !local_ref::is_remote_path(&path),
+            };
+            if !allowed {
+                return Err(share_refused(&path.display().to_string()));
+            }
+            let meta = match std::fs::metadata(&path) {
+                Ok(meta) => meta,
+                // Nothing there: nothing the browser could load either.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => {
+                    return Err(not_checkable(format!(
+                        "cannot read the stylesheet {}: {e}",
+                        path.display()
+                    )))
+                }
+            };
+            if meta.is_dir() {
+                continue;
+            }
+            if meta.len() > MAX_STYLESHEET_BYTES {
+                return Err(not_checkable(format!(
+                    "the stylesheet {} is larger than {} MB",
+                    path.display(),
+                    MAX_STYLESHEET_BYTES / (1024 * 1024)
+                )));
+            }
+            let bytes = std::fs::read(&path).map_err(|e| {
+                not_checkable(format!(
+                    "cannot read the stylesheet {}: {e}",
+                    path.display()
+                ))
+            })?;
+            if bytes.len() as u64 > MAX_STYLESHEET_BYTES {
+                return Err(not_checkable(format!(
+                    "the stylesheet {} grew past the limit while it was read",
+                    path.display()
+                )));
+            }
+            (bytes, path.display().to_string())
+        } else {
+            continue;
+        };
+        let text = html_scan::decode_stylesheet(&css)
+            .ok_or_else(|| not_checkable(format!("the text encoding of {label} cannot be read")))?;
+        if html_scan::css_has_share_ref(&text) {
+            return Err(share_refused(&label));
+        }
+        if html_scan::has_unreadable_import(&text) {
+            return Err(not_checkable(format!(
+                "{label} imports a stylesheet whose name cannot be read"
+            )));
+        }
+        let from = if url.scheme() == "data" { from } else { url };
         pending.extend(
-            html_scan::stylesheet_refs(&css)
+            html_scan::stylesheet_refs(text.as_bytes())
                 .into_iter()
-                .map(|r| (url.clone(), r)),
+                .map(|r| (from.clone(), r)),
         );
     }
     Ok(neutralized.html)
@@ -486,7 +623,7 @@ fn stage_page(
     setup: &PageSetup,
     work: &WorkDir,
 ) -> Result<PathBuf, EngineError> {
-    let staged_html = inject_head(html, base_href, setup.css_size.as_deref());
+    let staged_html = inject_head(html, base_href, setup.css_size.as_deref())?;
     let dir = work.path().join("stage");
     let page = dir.join("page.html");
     std::fs::create_dir_all(&dir)
@@ -536,21 +673,23 @@ pub fn effective_base(html: &[u8], base_href: &str) -> String {
 /// mode), never inside a comment (a page that begins `<!-- <head> -->` used to
 /// get its policy spliced into the comment), and before any script or
 /// `<base>` of the page, so the policy covers the whole page and the injected
-/// base is the one that counts (the first `<base href>` wins). A UTF-16 page
-/// (a byte-order mark) is re-encoded as UTF-8 with a BOM first, so ASCII can
-/// be spliced into it.
-pub fn inject_head(html: &[u8], base_href: &str, css_size: Option<&str>) -> Vec<u8> {
-    let transcoded;
-    let html = match encoding_rs::Encoding::for_bom(html) {
-        Some((enc, bom_len)) if enc != encoding_rs::UTF_8 => {
-            let (text, _) = enc.decode_without_bom_handling(&html[bom_len..]);
-            let mut bytes = vec![0xEF, 0xBB, 0xBF];
-            bytes.extend_from_slice(text.as_bytes());
-            transcoded = bytes;
-            &transcoded[..]
-        }
-        _ => html,
-    };
+/// base is the one that counts (the first `<base href>` wins). The page is
+/// decoded by its real encoding first and re-encoded as UTF-8 with a BOM
+/// ([`super::html_scan::decode_page`]), so ASCII can be spliced into it and
+/// the renderer reads it the way it was checked.
+///
+/// **Fails closed** with `page_not_checkable`: when the encoding cannot be
+/// read, when there is no safe insertion point (a doctype that never
+/// closes), or when the result does not start, for the HTML tokenizer, with
+/// the policy as its very first element.
+pub fn inject_head(
+    html: &[u8],
+    base_href: &str,
+    css_size: Option<&str>,
+) -> Result<Vec<u8>, EngineError> {
+    let decoded = super::html_scan::decode_page(html)
+        .ok_or_else(|| not_checkable("the page declares a text encoding that cannot be read"))?;
+    let html = &decoded[..];
     let escape = |s: &str| {
         s.replace('&', "&amp;")
             .replace('"', "&quot;")
@@ -573,12 +712,30 @@ pub fn inject_head(html: &[u8], base_href: &str, css_size: Option<&str>) -> Vec<
         snippet.push_str(&format!("<style>@page {{ size: {css}; }}</style>"));
     }
 
-    let at = super::html_scan::insertion_point(html);
+    let at = super::html_scan::insertion_point(html)
+        .ok_or_else(|| not_checkable("the page's doctype is never closed"))?;
     let mut out = Vec::with_capacity(html.len() + snippet.len());
     out.extend_from_slice(&html[..at]);
     out.extend_from_slice(snippet.as_bytes());
     out.extend_from_slice(&html[at..]);
-    out
+    // The policy must be the first element the tokenizer meets.
+    let first = super::html_scan::tags(&out[..(at + snippet.len()).min(out.len())])
+        .into_iter()
+        .next();
+    let csp_first = first.is_some_and(|t| {
+        !t.is_end
+            && t.name == "meta"
+            && t.span.start == at
+            && t.attr("http-equiv")
+                .is_some_and(|v| v.eq_ignore_ascii_case("content-security-policy"))
+            && t.attr("content") == Some(page_csp().as_str())
+    });
+    if !csp_first {
+        return Err(not_checkable(
+            "the security policy could not be placed at the start of the page",
+        ));
+    }
+    Ok(out)
 }
 
 /// Whether the browser has finished writing `pdf`: the file ends with the
@@ -611,6 +768,183 @@ pub fn pdf_is_complete(pdf: &Path, last_size: &std::cell::Cell<Option<u64>>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// [`inject_head`]'s staged page without its UTF-8 byte-order mark.
+    fn inject(html: &[u8], base: &str, size: Option<&str>) -> Vec<u8> {
+        let out = inject_head(html, base, size).unwrap();
+        assert!(out.starts_with(b"\xEF\xBB\xBF"), "staged with a BOM");
+        out[3..].to_vec()
+    }
+
+    fn reason(err: &EngineError) -> Option<&'static str> {
+        match err {
+            EngineError::ConversionFailed(f) => f.reason,
+            _ => None,
+        }
+    }
+
+    /// A browser-fallback test folder and its `file:` base URL.
+    fn fallback_dir() -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let base = format!("{}/", file_url(&dir.path().canonicalize().unwrap()));
+        (dir, base)
+    }
+
+    fn utf16le(text: &str) -> Vec<u8> {
+        let mut out = vec![0xFF, 0xFE];
+        for unit in text.encode_utf16() {
+            out.extend_from_slice(&unit.to_le_bytes());
+        }
+        out
+    }
+
+    /// Round-5 finding: a UTF-16 page reached the share filter undecoded and
+    /// kept its `//host` reference. It is decoded first now, on every route.
+    #[test]
+    fn nfr_security_browser_fallback_decodes_a_utf16_page_before_the_filter() {
+        let (_dir, base) = fallback_dir();
+        let page =
+            utf16le("<p>x</p><img src=\"//attacker/x.png\"><img src=\"file://attacker/y.png\">");
+        let out = guard_browser_page(&page, &base).unwrap();
+        assert!(out.starts_with(b"\xEF\xBB\xBF"));
+        let text = String::from_utf8(out[3..].to_vec()).unwrap();
+        assert!(!text.contains("attacker"), "{text}");
+        assert!(text.contains("<p>x</p>"), "{text}");
+        // The staged page stays UTF-8 (no second decoding by its old label).
+        let staged = inject_head(&out, &base, None).unwrap();
+        assert!(!String::from_utf8_lossy(&staged).contains("attacker"));
+    }
+
+    /// Round-5 finding: every way a stylesheet used to escape the check
+    /// (too large, too many, UTF-16, an obfuscated `@import`, an unknown
+    /// encoding) now refuses the page instead of loading it unchecked.
+    #[test]
+    fn nfr_security_browser_fallback_fails_closed_on_unchecked_stylesheets() {
+        let page = br#"<link rel="stylesheet" href="a.css"><p>x"#;
+        let refused = |setup: &dyn Fn(&Path)| {
+            let (dir, base) = fallback_dir();
+            setup(dir.path());
+            reason(&guard_browser_page(page, &base).unwrap_err())
+        };
+
+        // (a) over the size cap.
+        assert_eq!(
+            refused(&|d| {
+                let f = std::fs::File::create(d.join("a.css")).unwrap();
+                f.set_len(MAX_STYLESHEET_BYTES + 1).unwrap();
+            }),
+            Some("page_not_checkable")
+        );
+        // (b) more stylesheets than the cap, the share in the last one.
+        assert_eq!(
+            refused(&|d| {
+                let mut chain = String::new();
+                for i in 0..=MAX_STYLESHEETS {
+                    chain.push_str(&format!("@import 's{i}.css';"));
+                    std::fs::write(d.join(format!("s{i}.css")), "p{}").unwrap();
+                }
+                std::fs::write(d.join("a.css"), chain).unwrap();
+            }),
+            Some("page_not_checkable")
+        );
+        // (c) a UTF-16 stylesheet that names a share is decoded and caught.
+        assert_eq!(
+            refused(&|d| {
+                std::fs::write(
+                    d.join("a.css"),
+                    utf16le("p{background:url(//attacker/x.png)}"),
+                )
+                .unwrap()
+            }),
+            Some("share_reference_refused")
+        );
+        // ... and one without a BOM cannot be read faithfully.
+        assert_eq!(
+            refused(&|d| {
+                std::fs::write(
+                    d.join("a.css"),
+                    &utf16le("p{background:url(//attacker/x.png)}")[2..],
+                )
+                .unwrap()
+            }),
+            Some("page_not_checkable")
+        );
+        // (d) `@import/**/` reaches the imported file.
+        assert_eq!(
+            refused(&|d| {
+                std::fs::write(d.join("a.css"), "@import/**/\"evil.css\";").unwrap();
+                std::fs::write(d.join("evil.css"), "p{background:url(//attacker/x.png)}").unwrap();
+            }),
+            Some("share_reference_refused")
+        );
+        // An `@import` whose target cannot be parsed.
+        assert_eq!(
+            refused(&|d| std::fs::write(d.join("a.css"), "@import foo;").unwrap()),
+            Some("page_not_checkable")
+        );
+        // An unknown `@charset`.
+        assert_eq!(
+            refused(&|d| std::fs::write(d.join("a.css"), "@charset \"x-nope\"; p{}").unwrap()),
+            Some("page_not_checkable")
+        );
+        // A `data:` stylesheet is read like a file (percent-encoded or base64).
+        for href in [
+            "data:text/css,p%7Bbackground:url(%22%2F%2Fattacker%2Fx.png%22)%7D",
+            "data:text/css;base64,cHtiYWNrZ3JvdW5kOnVybCgvL2F0dGFja2VyL3gucG5nKX0=",
+        ] {
+            let (_dir, base) = fallback_dir();
+            let page = format!("<link rel=stylesheet href=\"{href}\">");
+            let err = guard_browser_page(page.as_bytes(), &base).unwrap_err();
+            assert_eq!(reason(&err), Some("share_reference_refused"), "{href}");
+        }
+        // A style block with an unreadable import.
+        let (_dir, base) = fallback_dir();
+        let err = guard_browser_page(b"<style>@import/**/foo;</style>", &base).unwrap_err();
+        assert_eq!(reason(&err), Some("page_not_checkable"));
+        // A page whose declared encoding is unknown.
+        let err = guard_browser_page(b"<meta charset=x-nope><p>x", &base).unwrap_err();
+        assert_eq!(reason(&err), Some("page_not_checkable"));
+
+        // A clean page with clean stylesheets still prints, and an `@import`
+        // quoted in the page's text is not mistaken for one.
+        let (dir, base) = fallback_dir();
+        std::fs::write(dir.path().join("a.css"), "@import 'b.css'; p{}").unwrap();
+        std::fs::write(dir.path().join("b.css"), "p{color:red}").unwrap();
+        let ok =
+            br#"<link rel="stylesheet" href="a.css"><pre>@import url(//fonts.example/x);</pre>"#;
+        assert!(guard_browser_page(ok, &base).is_ok());
+        // A stylesheet that does not exist cannot be loaded either.
+        let (_dir, base) = fallback_dir();
+        assert!(guard_browser_page(page, &base).is_ok());
+    }
+
+    /// Security note 6: the default renderer's injection fails closed when
+    /// the policy cannot be placed first.
+    #[test]
+    fn nfr_security_injection_fails_closed() {
+        for page in [
+            &b"<!DOCTYPE html, no end to the doctype"[..],
+            b"<meta charset=x-nope><p>x",
+            b"<meta charset=iso-2022-kr><p>x",
+        ] {
+            let err = inject_head(page, "file:///d/", None).unwrap_err();
+            assert_eq!(reason(&err), Some("page_not_checkable"));
+        }
+        // ... and the system route refuses such a page before the worker runs.
+        let work = WorkDir::new("inject-closed").unwrap();
+        let err = render_system_with(
+            Path::new("/nonexistent/worker"),
+            b"<!DOCTYPE html",
+            Path::new("/tmp"),
+            Path::new("/tmp/never.pdf"),
+            &work,
+            &AtomicBool::new(false),
+            None,
+            &PageSetup::default(),
+        )
+        .unwrap_err();
+        assert_eq!(reason(&err), Some("page_not_checkable"));
+    }
 
     #[test]
     fn fr_055_browser_args_print_headless_with_a_private_profile() {
@@ -652,8 +986,7 @@ mod tests {
     #[test]
     fn fr_055_the_head_is_injected_right_after_the_doctype() {
         let html = b"<!DOCTYPE html><html lang=en><HEAD><title>x</title></head><body><header>h</header></body></html>";
-        let out =
-            String::from_utf8(inject_head(html, "file:///docs/", Some("210mm 297mm"))).unwrap();
+        let out = String::from_utf8(inject(html, "file:///docs/", Some("210mm 297mm"))).unwrap();
         assert!(
             out.starts_with("<!DOCTYPE html><meta http-equiv=\"Content-Security-Policy\""),
             "{out}"
@@ -670,7 +1003,7 @@ mod tests {
     #[test]
     fn fr_055_injection_keeps_the_doctype_first() {
         // No head or html tag: after the doctype, never before it.
-        let out = String::from_utf8(inject_head(
+        let out = String::from_utf8(inject(
             b"<!doctype html><p>hi",
             "file:///d/",
             Some("8.5in 11in"),
@@ -680,7 +1013,7 @@ mod tests {
         assert!(out.contains("size: 8.5in 11in"));
 
         // No paper: no @page rule at all.
-        let out = String::from_utf8(inject_head(b"<p>x", "file:///d/", None)).unwrap();
+        let out = String::from_utf8(inject(b"<p>x", "file:///d/", None)).unwrap();
         assert!(!out.contains("@page"), "{out}");
         assert!(out.ends_with("<p>x"));
     }
@@ -692,7 +1025,7 @@ mod tests {
     #[test]
     fn nfr_security_csp_is_never_spliced_into_a_comment() {
         let page = b"<!-- <head> <base href='//evil/'> --><script>x()</script><html><head><title>t</title>";
-        let out = String::from_utf8(inject_head(page, "file:///d/", None)).unwrap();
+        let out = String::from_utf8(inject(page, "file:///d/", None)).unwrap();
         assert!(
             out.starts_with("<meta http-equiv=\"Content-Security-Policy\""),
             "{out}"
@@ -703,7 +1036,7 @@ mod tests {
         );
 
         let page = b"<!DOCTYPE html><!-- <head> --><head><title>t</title>";
-        let out = String::from_utf8(inject_head(page, "file:///d/", None)).unwrap();
+        let out = String::from_utf8(inject(page, "file:///d/", None)).unwrap();
         assert!(
             out.starts_with("<!DOCTYPE html><meta http-equiv=\"Content-Security-Policy\""),
             "{out}"
@@ -747,8 +1080,7 @@ mod tests {
             );
         }
         // The injected base comes first, so it is the one the page uses.
-        let out =
-            String::from_utf8(inject_head(page, "https://doc.pluryprint.example/", None)).unwrap();
+        let out = String::from_utf8(inject(page, "https://doc.pluryprint.example/", None)).unwrap();
         let ours = out
             .find("<base href=\"https://doc.pluryprint.example/assets/\">")
             .unwrap();
@@ -781,7 +1113,10 @@ mod tests {
             "{err:?}"
         );
         std::fs::write(dir.path().join("b.css"), "p { color: red }").unwrap();
-        assert_eq!(guard_browser_page(page, &base).unwrap(), page.to_vec());
+        assert_eq!(
+            guard_browser_page(page, &base).unwrap(),
+            [&b"\xEF\xBB\xBF"[..], page].concat()
+        );
     }
 
     /// The worker's own watchdog is a timeout (terminal), never a render
@@ -840,7 +1175,7 @@ mod tests {
 
     #[test]
     fn fr_055_injection_paper_rule() {
-        let out = String::from_utf8(inject_head(
+        let out = String::from_utf8(inject(
             b"<html><head></head></html>",
             "file:///d/",
             Some("4in 6in"),
@@ -850,7 +1185,7 @@ mod tests {
         assert!(out.contains("size: 4in 6in"));
 
         // No paper: no @page rule at all.
-        let out = String::from_utf8(inject_head(b"<p>x", "file:///d/", None)).unwrap();
+        let out = String::from_utf8(inject(b"<p>x", "file:///d/", None)).unwrap();
         assert!(!out.contains("@page"), "{out}");
         assert!(out.ends_with("<p>x"));
     }
@@ -861,7 +1196,7 @@ mod tests {
         for unit in "<html><head></head><p>Ñandú</p>".encode_utf16() {
             page.extend_from_slice(&unit.to_le_bytes());
         }
-        let out = inject_head(&page, "file:///d/", None);
+        let out = inject_head(&page, "file:///d/", None).unwrap();
         assert!(out.starts_with(&[0xEF, 0xBB, 0xBF]));
         let text = String::from_utf8(out[3..].to_vec()).unwrap();
         assert!(text.starts_with("<meta http-equiv"), "{text}");
