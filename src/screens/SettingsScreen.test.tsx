@@ -264,6 +264,8 @@ describe('SettingsScreen', () => {
 
     const sent = await savedSettings(calls);
     expect(sent.app.locale).toBe('es-ES');
+    // A language picked here is final: first-run detection never overrides it.
+    expect(sent.app.locale_detected).toBe(true);
   });
 
   it('FR-094: integration — choosing Spanish re-renders the UI in Spanish', async () => {

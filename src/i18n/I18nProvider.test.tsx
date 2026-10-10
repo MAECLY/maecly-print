@@ -111,7 +111,9 @@ describe('I18nProvider', () => {
       </I18nProvider>,
     );
     await waitFor(() =>
-      expect(patch).toHaveBeenCalledWith({ app: { locale: 'es-ES' } }),
+      expect(patch).toHaveBeenCalledWith({
+        app: { locale: 'es-ES', locale_detected: true },
+      }),
     );
   });
 
@@ -220,6 +222,35 @@ describe('I18nProvider', () => {
     await waitFor(() =>
       expect(screen.getByTestId('locale')).toHaveTextContent('en-US'),
     );
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('ADR-0009: a config that records detection as settled is never re-detected', async () => {
+    // A packaged upgrade starts with an empty webview storage: the flag in
+    // config.toml is what keeps a deliberately chosen English.
+    const patch = vi.fn(async () => true);
+    setBrowserLanguage('es-ES');
+    useSettingsStore.setState({ patch });
+    useSettingsStore.setState({
+      status: 'ready',
+      settings: {
+        ...fixtureAppSettings,
+        app: {
+          ...fixtureAppSettings.app,
+          locale: 'en-US',
+          locale_detected: true,
+        },
+      },
+    });
+    render(
+      <I18nProvider>
+        <Probe />
+      </I18nProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('locale')).toHaveTextContent('en-US');
     expect(patch).not.toHaveBeenCalled();
   });
 

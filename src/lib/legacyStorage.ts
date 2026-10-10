@@ -10,7 +10,10 @@
  * The packaged app also changed its bundle identifier, which gives the webview
  * a new storage folder; there the old keys are simply not visible and this is
  * a no-op. It matters wherever the origin stayed the same (`pnpm dev`, the
- * browser preview, the e2e stub).
+ * browser preview, the e2e stub). For the packaged upgrade, what these keys
+ * cached lives in `config.toml` too: theme and density in `[app]`, and the
+ * first-run flags `locale_detected` / `onboarding_complete`, which the data
+ * migration sets for an upgrader (`src-tauri/src/util/legacy.rs`).
  */
 
 const LEGACY_PREFIX = 'maeclyprint:';

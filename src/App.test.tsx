@@ -146,6 +146,55 @@ describe('App', () => {
     expect(screen.getByText('Settings')).toBeInTheDocument();
   });
 
+  it('ADR-0009: the tour stays hidden when config.toml records it as seen', async () => {
+    // The packaged upgrade starts with an empty webview storage.
+    window.localStorage.removeItem('pluryprint:onboarding-complete');
+    mockShell({
+      get_app_settings: {
+        ...fixtureAppSettings,
+        app: { ...fixtureAppSettings.app, onboarding_complete: true },
+      },
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(useSettingsStore.getState().status).toBe('ready'),
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('ADR-0009: a first run shows the tour and saves its completion to config.toml', async () => {
+    window.localStorage.removeItem('pluryprint:onboarding-complete');
+    const writes: Array<{ app: { onboarding_complete?: boolean } }> = [];
+    mockIPC((cmd, args) => {
+      switch (cmd) {
+        case 'list_profiles':
+          return fixtureProfiles;
+        case 'get_app_settings':
+          return fixtureAppSettings;
+        case 'set_app_settings': {
+          const { settings } = args as {
+            settings: { app: { onboarding_complete?: boolean } };
+          };
+          writes.push(settings);
+          return settings;
+        }
+        case 'queue_status':
+          return { schema_version: 1, queue_paused: false, jobs: [] };
+        case 'take_pending_selections':
+          return [];
+        default:
+          return null;
+      }
+    });
+    render(<App />);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByText('Skip'));
+    await waitFor(() =>
+      expect(writes.some((w) => w.app.onboarding_complete === true)).toBe(true),
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('starts on the Home screen with the drop zone visible', () => {
     render(<App />);
     expect(screen.getByText(/Drop files to print/i)).toBeInTheDocument();

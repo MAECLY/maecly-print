@@ -487,7 +487,13 @@ export function SettingsScreen({
               back to it. */}
           <MPSelect
             value={matchLocale(app?.locale) ?? locale}
-            onChange={(e) => void patch({ app: { locale: e.target.value } })}
+            // A language picked here is final: first-run detection never
+            // overrides it (FR-093).
+            onChange={(e) =>
+              void patch({
+                app: { locale: e.target.value, locale_detected: true },
+              })
+            }
             aria-label={t('appearance.language.label')}
             options={SUPPORTED_LOCALES.map((l) => ({
               value: l,

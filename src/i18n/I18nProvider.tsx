@@ -7,6 +7,12 @@
  * still holds the backend's default (`en-US`), which says nothing about the
  * user's language, so we detect it from the OS and persist that instead.
  *
+ * Whether detection already happened is kept in `config.toml`
+ * (`settings.app.locale_detected`), with `localStorage` as a fast cache. The
+ * config is what counts: a packaged upgrade from MaeclyPrint changed the
+ * bundle identifier, so its webview storage starts empty, and a user who
+ * deliberately chose English on a Spanish OS must keep English (ADR-0009).
+ *
  * The OS language is read from `navigator.language`, not from the backend: the
  * webview inherits the user's system/UI language from the host OS, so it is
  * already the right answer, and reading it needs no IPC round-trip — the very
@@ -37,7 +43,7 @@ import {
   type TranslationKey,
 } from './index';
 
-/** Marks that the first-run OS detection already happened (FR-093, once ever). */
+/** Cache of `settings.app.locale_detected` (FR-093, once ever). */
 const DETECTED_KEY = 'pluryprint:locale-detected';
 
 interface I18nContextValue {
@@ -77,6 +83,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const settings = useSettingsStore((s) => s.settings);
   const patch = useSettingsStore((s) => s.patch);
   const configured = settings?.app.locale;
+  const detectedInConfig = settings?.app.locale_detected === true;
   const configUnreadable = settings?.meta?.config_unreadable ?? false;
   /** True while the first-run write is in flight: its optimistic value and a
    *  rollback both re-run the effect, and neither may settle the flag early. */
@@ -89,7 +96,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // config) leaves detection to run again on the next launch instead of pinning
   // the app to English for good.
   useEffect(() => {
-    if (!configured || detecting.current || readDetectedFlag()) return;
+    if (!configured || detecting.current) return;
+    if (detectedInConfig) {
+      writeDetectedFlag();
+      return;
+    }
+    if (readDetectedFlag()) return;
     // An unreadable config.toml refuses every write (FR-101), and the values on
     // show are defaults rather than the user's, so there is nothing to detect
     // against yet.
@@ -97,16 +109,20 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     const system = detectSystemLocale();
     if (configured !== DEFAULT_LOCALE || system === DEFAULT_LOCALE) {
       // Either the user already has a language, or the OS agrees with the
-      // default: nothing to write, so detection is settled.
+      // default: nothing to write, so detection is settled. (A language the
+      // user picks in Settings, or one an upgrade brings over, is recorded in
+      // the config by those paths.)
       writeDetectedFlag();
       return;
     }
     detecting.current = true;
-    void patch({ app: { locale: system } }).then((saved) => {
-      detecting.current = false;
-      if (saved) writeDetectedFlag();
-    });
-  }, [configured, configUnreadable, patch]);
+    void patch({ app: { locale: system, locale_detected: true } }).then(
+      (saved) => {
+        detecting.current = false;
+        if (saved) writeDetectedFlag();
+      },
+    );
+  }, [configured, detectedInConfig, configUnreadable, patch]);
 
   // Until the config is loaded (and outside the desktop app, where it never
   // loads) the OS language is the best guess — better than flashing English.

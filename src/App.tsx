@@ -48,6 +48,10 @@ import { SettingsScreen } from '@/screens/SettingsScreen';
 import { AboutScreen } from '@/screens/AboutScreen';
 import { OnboardingFlow } from '@/screens/auxiliary/OnboardingFlow';
 
+/**
+ * Cache of `settings.app.onboarding_complete`. The config is what counts: a
+ * packaged upgrade starts with an empty webview storage (ADR-0009).
+ */
 const ONBOARD_KEY = 'pluryprint:onboarding-complete';
 
 /**
@@ -121,7 +125,8 @@ function App() {
   const { mode, resolved, setMode } = useTheme();
   const { density, setDensity } = useDensity();
   const [active, setActive] = useState<ScreenId>('home');
-  const [onboardingDone, setOnboardingDone] = useState(readOnboardingDone);
+  const [onboardingSeenHere, setOnboardingSeenHere] =
+    useState(readOnboardingDone);
 
   // Print job state. `profileChoice` is the user's explicit selection; while
   // null the job follows the app's default profile, so changing the default in
@@ -179,6 +184,16 @@ function App() {
   // App settings (backend config.toml): loaded once; appearance reconciles below.
   const initSettings = useSettingsStore((s) => s.init);
   const settings = useSettingsStore((s) => s.settings);
+  const settingsStatus = useSettingsStore((s) => s.status);
+  const patchSettings = useSettingsStore((s) => s.patch);
+  // The tour waits for the config: an upgrade records it there as seen, and
+  // offering it while the config loads would flash it at every upgrader.
+  const onboardingDone =
+    onboardingSeenHere || settings?.app.onboarding_complete === true;
+  const showOnboarding =
+    !onboardingDone &&
+    settingsStatus !== 'idle' &&
+    settingsStatus !== 'loading';
 
   const [selectedProfileId, setSelectedProfileId] = useState(
     BUILT_IN_PROFILES[0]!.id,
@@ -327,7 +342,9 @@ function App() {
     } catch {
       /* noop */
     }
-    setOnboardingDone(true);
+    setOnboardingSeenHere(true);
+    // A no-op while no config is loaded (the browser preview).
+    void patchSettings({ app: { onboarding_complete: true } });
   };
 
   // Guards against a double-click on Print submitting the batch twice while
@@ -694,7 +711,7 @@ function App() {
       openQueue: () => setActive('queue'),
       cancel: cancelCurrentJob,
     },
-    onboardingDone && confirm === null,
+    !showOnboarding && confirm === null,
   );
 
   return (
@@ -766,7 +783,7 @@ function App() {
         )}
       </MPAppShell>
       <Toaster theme={resolved} />
-      {!onboardingDone && <OnboardingFlow onComplete={completeOnboarding} />}
+      {showOnboarding && <OnboardingFlow onComplete={completeOnboarding} />}
     </>
   );
 }
