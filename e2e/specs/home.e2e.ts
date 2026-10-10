@@ -56,8 +56,10 @@ describe('Home', () => {
   it('does not claim the shell right-click integration already exists', async () => {
     const body = await (await $('body')).getText();
     expect(body).not.toContain('adds itself to the right-click menu');
-    // The CLI, which this build really ships, is what the tip points at.
-    expect(body).toContain('pluryprint print --files');
+    // The CLI, which this build really ships, is what the tip points at. The
+    // command names the console program by its full (maybe quoted) path when
+    // it is not on PATH, e.g. `C:\...\pluryprint-cli.exe print --files`.
+    expect(body).toMatch(/pluryprint(-cli)?(\.exe)?'? print --files/);
   });
 
   it('NFR-034: Ctrl/Cmd+N opens a new print job from Home', async () => {
