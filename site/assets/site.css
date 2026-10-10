@@ -265,7 +265,7 @@ h1 {
   .press { aspect-ratio: 10 / 10.6; }
   .press-window { width: 96%; top: 25%; }
   .menu-card { width: 13rem; top: 0; font-size: .75rem; }
-  .menu-card .menu-row:nth-child(2), .menu-card .menu-row:nth-child(3), .menu-card .menu-sep { display: none; }
+  .menu-card > .menu-row:nth-child(2), .menu-card > .menu-row:nth-child(3), .menu-card > .menu-sep { display: none; }
   .printer { width: 70%; left: -4%; }
   .counter { min-width: 0; right: 0; bottom: 2%; }
   .caption-row { flex-wrap: wrap; }
