@@ -296,9 +296,21 @@ fn suppress_webview_logon_probe(identifier: &str) {
     let Some(base) = directories::BaseDirs::new() else {
         return;
     };
-    let dir = base.data_local_dir().join(identifier).join("EBWebView");
-    if let Err(e) = util::chromium::suppress_blank_password_probe(&dir) {
-        tracing::warn!(event = "webview_logon_probe_suppress_failed", error = %e);
+    let own = base
+        .data_local_dir()
+        .join(identifier)
+        .join(util::chromium::EBWEBVIEW);
+    // A WebView2 started with another profile (the Edge WebDriver passes
+    // `--user-data-dir` in WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS) probes from
+    // that one, so it is stamped too.
+    for dir in std::iter::once(own).chain(util::chromium::extra_profiles_from_env()) {
+        if let Err(e) = util::chromium::suppress_blank_password_probe(&dir) {
+            tracing::warn!(
+                event = "webview_logon_probe_suppress_failed",
+                dir = %dir.display(),
+                error = %e
+            );
+        }
     }
 }
 

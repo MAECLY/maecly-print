@@ -83,6 +83,107 @@ pub fn suppress_blank_password_probe(user_data_dir: &Path) -> std::io::Result<()
     std::fs::rename(&tmp, &path)
 }
 
+/// The environment variable that points WebView2 at another user-data
+/// folder than the one the app asks for.
+pub const WEBVIEW2_USER_DATA_FOLDER_ENV: &str = "WEBVIEW2_USER_DATA_FOLDER";
+
+/// The sub-folder of a WebView2 user-data folder its browser keeps the
+/// Chromium profile (and `Local State`) in.
+pub const EBWEBVIEW: &str = "EBWebView";
+
+/// `args` split the way Chromium reads a Windows command line: on
+/// whitespace outside double quotes, with the quotes removed. Pure.
+fn split_command_line(args: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut started = false;
+    for c in args.chars() {
+        match c {
+            '"' => {
+                in_quotes = !in_quotes;
+                started = true;
+            }
+            c if c.is_whitespace() && !in_quotes => {
+                if started {
+                    out.push(std::mem::take(&mut current));
+                    started = false;
+                }
+            }
+            c => {
+                current.push(c);
+                started = true;
+            }
+        }
+    }
+    if started {
+        out.push(current);
+    }
+    out
+}
+
+/// The user-data directories named by `--user-data-dir=` in `args` (a
+/// WebView2 browser-argument string), in order. Chromium takes `--`, `-` or
+/// `/` before a switch and its name in any case on Windows, and the value may
+/// be quoted. Pure.
+pub fn user_data_dirs_in_args(args: &str) -> Vec<std::path::PathBuf> {
+    split_command_line(args)
+        .into_iter()
+        .filter_map(|token| {
+            let name = token
+                .strip_prefix("--")
+                .or_else(|| token.strip_prefix('-'))
+                .or_else(|| token.strip_prefix('/'))?;
+            let (switch, value) = name.split_once('=')?;
+            let value = value.trim();
+            (switch.eq_ignore_ascii_case("user-data-dir") && !value.is_empty())
+                .then(|| std::path::PathBuf::from(value))
+        })
+        .collect()
+}
+
+/// Every Chromium user-data directory a WebView2 started with these
+/// settings may read its `Local State` from, besides the app's own
+/// `EBWebView`, so each can be stamped before the web view starts (round 7:
+/// the Edge WebDriver hands WebView2 its own `--user-data-dir` through
+/// [`WEBVIEW2_ARGS_ENV`], whose profile was never stamped and recorded a
+/// failed logon per test session).
+///
+/// - a `--user-data-dir=` in `browser_args`: that folder, and its
+///   [`EBWEBVIEW`] sub-folder in case WebView2 treats it as a user-data
+///   folder of its own;
+/// - `user_data_folder` ([`WEBVIEW2_USER_DATA_FOLDER_ENV`]): its
+///   [`EBWEBVIEW`] sub-folder, where WebView2 keeps the profile.
+///
+/// No duplicates. Pure.
+pub fn extra_profiles_to_stamp(
+    browser_args: Option<&str>,
+    user_data_folder: Option<&std::ffi::OsStr>,
+) -> Vec<std::path::PathBuf> {
+    let mut out: Vec<std::path::PathBuf> = Vec::new();
+    let mut push = |p: std::path::PathBuf| {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    };
+    for dir in browser_args.map(user_data_dirs_in_args).unwrap_or_default() {
+        push(dir.join(EBWEBVIEW));
+        push(dir);
+    }
+    if let Some(folder) = user_data_folder.filter(|f| !f.is_empty()) {
+        push(std::path::Path::new(folder).join(EBWEBVIEW));
+    }
+    out
+}
+
+/// [`extra_profiles_to_stamp`] for this process' environment
+/// ([`WEBVIEW2_ARGS_ENV`], [`WEBVIEW2_USER_DATA_FOLDER_ENV`]).
+pub fn extra_profiles_from_env() -> Vec<std::path::PathBuf> {
+    let args = std::env::var(WEBVIEW2_ARGS_ENV).ok();
+    let folder = std::env::var_os(WEBVIEW2_USER_DATA_FOLDER_ENV);
+    extra_profiles_to_stamp(args.as_deref(), folder.as_deref())
+}
+
 /// The browser arguments wry passes to WebView2 when a window sets none:
 /// no "mini menu" and no SmartScreen ping, plus Tauri's autoplay policy.
 pub const WRY_DEFAULT_ARGS: &str =
@@ -163,6 +264,57 @@ mod tests {
             merge_browser_args("--a", "--enable-features=X --a --enable-features=Y,X"),
             "--enable-features=X,Y --a"
         );
+    }
+
+    /// Round 7: the profile the Edge WebDriver names in the WebView2
+    /// arguments (and a `WEBVIEW2_USER_DATA_FOLDER`) is stamped too.
+    #[test]
+    fn nfr_security_webdriver_profiles_are_found_in_the_browser_args() {
+        use std::path::PathBuf;
+        let args = r#"--remote-debugging-port=0 --user-data-dir=C:\Users\me\AppData\Local\Temp\scoped_dir1_2 --disable-sync"#;
+        assert_eq!(
+            user_data_dirs_in_args(args),
+            [PathBuf::from(
+                r"C:\Users\me\AppData\Local\Temp\scoped_dir1_2"
+            )]
+        );
+        // Quoted values with spaces, other prefixes and any case.
+        assert_eq!(
+            user_data_dirs_in_args(
+                r#"--x "--user-data-dir=C:\My Temp\a" -USER-DATA-DIR=D:\b /user-data-dir="E:\c d""#
+            ),
+            [
+                PathBuf::from(r"C:\My Temp\a"),
+                PathBuf::from(r"D:\b"),
+                PathBuf::from(r"E:\c d")
+            ]
+        );
+        // Not the switch, or no value.
+        for none in [
+            "",
+            "--user-data-dir",
+            "--user-data-dir=",
+            "--user-data-dir-x=C:\\a",
+            "--profile-directory=C:\\a",
+            "user-data-dir=C:\\a",
+        ] {
+            assert!(user_data_dirs_in_args(none).is_empty(), "{none}");
+        }
+
+        let dirs = extra_profiles_to_stamp(
+            Some("--user-data-dir=C:\\t\\s --user-data-dir=C:\\t\\s"),
+            Some(std::ffi::OsStr::new("D:\\wv")),
+        );
+        assert_eq!(
+            dirs,
+            [
+                PathBuf::from("C:\\t\\s").join(EBWEBVIEW),
+                PathBuf::from("C:\\t\\s"),
+                PathBuf::from("D:\\wv").join(EBWEBVIEW),
+            ]
+        );
+        assert!(extra_profiles_to_stamp(None, None).is_empty());
+        assert!(extra_profiles_to_stamp(Some("--a"), Some(std::ffi::OsStr::new(""))).is_empty());
     }
 
     #[test]

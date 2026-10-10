@@ -270,6 +270,14 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
     let profile = request.data_dir.join("EBWebView");
     crate::util::chromium::suppress_blank_password_probe(&profile)
         .map_err(|e| format!("cannot prepare the web view folder: {e}"))?;
+    // A profile the environment points WebView2 at (a worker started by an
+    // app under the Edge WebDriver inherits its variables) is stamped too;
+    // only best effort, since the worker's own arguments normally win.
+    for extra in crate::util::chromium::extra_profiles_from_env() {
+        if let Err(e) = crate::util::chromium::suppress_blank_password_probe(&extra) {
+            eprintln!("pluryprint render: cannot stamp {}: {e}", extra.display());
+        }
+    }
 
     trace(format_args!("start, page {}", request.page.display()));
     let app = crate::render_worker_app().map_err(|e| format!("cannot start the web view: {e}"))?;
