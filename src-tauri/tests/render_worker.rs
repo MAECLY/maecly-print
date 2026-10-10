@@ -255,9 +255,7 @@ fn page_content(pdf: &Path) -> String {
     let doc = lopdf::Document::load(pdf).unwrap();
     doc.get_pages()
         .values()
-        .map(|id| {
-            String::from_utf8_lossy(&doc.get_page_content(*id).unwrap_or_default()).into_owned()
-        })
+        .map(|id| String::from_utf8_lossy(&doc.get_page_content(*id)).into_owned())
         .collect()
 }
 

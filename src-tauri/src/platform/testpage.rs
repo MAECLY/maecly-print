@@ -14,10 +14,12 @@
 //! are the `testPage` section of the UI catalogs (`src/i18n/locales/<lang>/
 //! common.json`), compiled in, with English as the fallback. The builtin PDF
 //! fonts are declared WinAnsi-encoded, which covers Spanish (`á`, `ñ`, `¿`,
-//! `«»`), so no font has to be embedded. printpdf 0.9 writes a builtin font's
+//! `«»`), so no font has to be embedded. printpdf 0.9 wrote a builtin font's
 //! text as raw UTF-8 bytes, though, which printed `PÃ¡gina`; so text is
 //! shown with a `Tj` of the Windows-1252 bytes ([`Canvas::text`]), and a
-//! character outside WinAnsi becomes `?` ([`win_ansi`]).
+//! character outside WinAnsi becomes `?` ([`win_ansi`]). printpdf 0.12
+//! encodes WinAnsi itself; our own `Tj` stays, so the bytes on the page do not
+//! depend on which printpdf wrote them.
 
 use printpdf::*;
 
@@ -137,7 +139,7 @@ const WHITE: Rgb8 = (255, 255, 255);
 const WIN_ANSI_EXTRA: &str = "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ";
 
 /// A `Tj` showing `s` in the builtin fonts' WinAnsi encoding (the bytes
-/// printpdf's own `ShowText` gets wrong for anything past ASCII). `s` should
+/// printpdf 0.9's own `ShowText` got wrong for anything past ASCII). `s` should
 /// already be [`win_ansi`]; anything unmappable would become `?` anyway.
 fn show_win_ansi(s: &str) -> Op {
     let text = win_ansi(s);
@@ -664,8 +666,7 @@ mod tests {
         // printed as "PÃ¡gina").
         let doc = lopdf::Document::load_mem(&pdf).unwrap();
         let page = *doc.get_pages().values().next().unwrap();
-        let content =
-            lopdf::content::Content::decode(&doc.get_page_content(page).unwrap()).unwrap();
+        let content = lopdf::content::Content::decode(&doc.get_page_content(page)).unwrap();
         let shown: Vec<Vec<u8>> = content
             .operations
             .iter()
