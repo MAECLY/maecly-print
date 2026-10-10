@@ -30,12 +30,7 @@ import { useAnyModalOpen } from '@/components/useModal';
  * than no key cap at all.
  */
 export type ShortcutId =
-  | 'newJob'
-  | 'printFolder'
-  | 'print'
-  | 'switchProfile'
-  | 'openQueue'
-  | 'cancel';
+  'newJob' | 'printFolder' | 'print' | 'switchProfile' | 'openQueue' | 'cancel';
 
 export interface Shortcut {
   id: ShortcutId;

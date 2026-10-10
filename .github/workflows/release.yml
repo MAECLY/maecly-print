@@ -412,9 +412,14 @@ jobs:
           set -euo pipefail
           mkdir -p signatures
           shopt -s nullglob
+          # --app-version binds each signature to the release (a `version:`
+          # field in the signed trusted comment): the app's updater
+          # (requireSignedVersion) refuses a manifest that pairs this
+          # version number with another release's files.
+          version="${GITHUB_REF_NAME#v}"
           n=0
           for f in unsigned/*.app.tar.gz unsigned/*.exe; do
-            pnpm --silent tauri signer sign "$f"
+            pnpm --silent tauri signer sign --app-version "$version" "$f"
             mv "$f.sig" signatures/
             n=$((n + 1))
           done
@@ -503,6 +508,7 @@ jobs:
             --require windows-x86_64 --require windows-aarch64
           python3 -I scripts/release/release_tools.py check-manifest \
             --manifest latest.json --version "${GITHUB_REF_NAME#v}" \
+            --signed-version "${GITHUB_REF_NAME#v}" \
             --require darwin-aarch64 --require darwin-x86_64 \
             --require windows-x86_64 --require windows-aarch64
           cat latest.json

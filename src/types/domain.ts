@@ -31,13 +31,7 @@ export type JobState =
  * from live IPC via the `toUi*` adapters in `src/lib/ipc.ts`.
  */
 export type UiPrinterType =
-  | 'laser'
-  | 'inkjet'
-  | 'mfp'
-  | 'wide'
-  | 'label'
-  | 'virtual'
-  | 'printer';
+  'laser' | 'inkjet' | 'mfp' | 'wide' | 'label' | 'virtual' | 'printer';
 
 /** Status the Printers screen renders (distinct from the IPC `PrinterStatus`). */
 export type UiPrinterStatus = 'ready' | 'offline' | 'error' | 'busy';

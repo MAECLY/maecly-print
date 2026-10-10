@@ -39,6 +39,16 @@ updates:
         patterns:
           - 'tauri*'
           - 'specta*'
+    ignore:
+      # lopdf must stay on the line printpdf is built on: printpdf 0.12.8
+      # (the newest) requires lopdf ^0.44, so a 0.45 bump alone puts two
+      # lopdf copies in the tree (#41). Patch releases of 0.44 still come
+      # through. Remove this when a printpdf release moves to a newer lopdf,
+      # and move both together.
+      - dependency-name: lopdf
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
 
   - package-ecosystem: npm
     directory: /

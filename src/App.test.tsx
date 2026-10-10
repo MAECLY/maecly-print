@@ -16,8 +16,7 @@ import { toast } from 'sonner';
  */
 const webview = vi.hoisted(() => ({
   handler: null as
-    | null
-    | ((e: { payload: { type: string; paths?: string[] } }) => void),
+    null | ((e: { payload: { type: string; paths?: string[] } }) => void),
   /** Every handler registered, in order (the shell's comes first). */
   handlers: [] as ((e: {
     payload: { type: string; paths?: string[] };

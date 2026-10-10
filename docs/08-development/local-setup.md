@@ -10,7 +10,7 @@ This document is the developer onboarding checklist. Follow it once on a clean m
 
 | Tool | Version | Install via |
 |---|---|---|
-| Rust | stable; `rust-version = "1.78"` is the crate's floor | [rustup.rs](https://rustup.rs/) — accepts default options |
+| Rust | stable; `rust-version = "1.90"` is the app crate's floor (Tauri 2.12's) | [rustup.rs](https://rustup.rs/) — accepts default options |
 | Node.js | 24 LTS, what CI uses; 22.22.2 is the floor (`engines.node: ">=22.22.2"`) | [nodejs.org](https://nodejs.org/) or `winget install OpenJS.NodeJS.LTS` |
 | pnpm | 9.x (`packageManager: pnpm@9.15.0`) | `npm install -g pnpm` or `corepack enable` |
 | Visual Studio Build Tools 2022 | latest | [VS Build Tools download](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) |

@@ -90,8 +90,7 @@ function renderScreen(withToaster = true) {
 function lastSaved(calls: Call[]): Record<string, unknown> | undefined {
   const saves = calls.filter((c) => c.cmd === 'set_printer_prefs');
   return saves[saves.length - 1]?.args.prefs as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
 }
 
 describe('PrintersScreen', () => {

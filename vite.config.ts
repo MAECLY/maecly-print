@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { configDefaults } from 'vitest/config';
 import path from 'node:path';
 
-import { pluryE2eStub } from './e2e/browser/vite-plugin';
+import { pluryE2eStub } from './e2e/browser/vite-plugin.ts';
 
 const host = process.env.TAURI_DEV_HOST;
 
@@ -13,7 +13,7 @@ export default defineConfig(async () => ({
   plugins: [react(), pluryE2eStub(process.env)],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src'),
+      '@': path.resolve(import.meta.dirname, 'src'),
     },
   },
   clearScreen: false,
@@ -36,7 +36,7 @@ export default defineConfig(async () => ({
   build: {
     target:
       process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
-    minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
+    minify: !process.env.TAURI_ENV_DEBUG ? 'oxc' : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
   },
   test: {

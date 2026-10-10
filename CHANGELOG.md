@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Dependencies: Tauri 2.12 (`tauri` 2.12, `@tauri-apps/api` and `@tauri-apps/cli` 2.12) with its dialog, opener, single-instance, notification and updater plugins. The HTML render worker on Windows moves with it to `webview2-com` 0.39 and `windows` 0.62, the WebView2 bindings Tauri itself uses. Tauri 2.12 drops Windows 7, which Pluryprint never supported.
+- Development: building from source now needs Rust 1.90 or newer, the minimum Tauri 2.12 sets.
+- Dependencies: the update check now uses `ureq` 3; its proxy (`HTTPS_PROXY` / `HTTP_PROXY` only), 10-second timeout and error handling are unchanged. Minor and patch updates of the Rust host (serde, clap, time, uuid, flate2 and others) and zustand 5.0.15 in the UI.
+- Development: the frontend builds with Vite 8 and `@vitejs/plugin-react` 6 (minified by Vite's own oxc minifier, still for the same Safari 13 floor), and is formatted with Prettier 3.9. The lint and test toolchain moves to `globals` 17 and `@testing-library/user-event` 14.6.7.
+- CI: Dependabot no longer proposes `lopdf` minor or major releases on their own; `lopdf` moves together with `printpdf`, which is still built on 0.44.
+
+### Security
+
+- Updates are now bound to their version. Every update artifact is signed for the release it belongs to (`tauri signer sign --app-version`), and the app refuses an update whose signature names another version, or none, than the update manifest announces (`requireSignedVersion`). A tampered manifest can no longer offer an older, genuinely signed release under a newer version number. The release workflow checks every signature before the draft is finished.
+
 ## [0.0.1] - 2026-10-10
 
 First public preview of Pluryprint: batch printing of PDFs, images, Office/OpenDocument, HTML, Markdown, text, SVG and HEIC files from the app, the CLI and the Windows Explorer / macOS Finder menus, on Windows 10/11 (x64, ARM64) and macOS (Apple silicon, Intel). Installers are not signed with an Apple or Microsoft certificate; update artifacts are signed and verified by the app.

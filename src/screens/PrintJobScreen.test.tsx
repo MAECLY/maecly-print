@@ -31,8 +31,7 @@ import { Toaster } from '@/components/AppShell/Toaster';
 const openMock = vi.hoisted(() => vi.fn());
 const dnd = vi.hoisted(() => ({
   handler: null as
-    | ((e: { payload: { type: string; paths?: string[] } }) => void)
-    | null,
+    ((e: { payload: { type: string; paths?: string[] } }) => void) | null,
 }));
 // Stub the tauri-specta `events` object (the queue store subscribes on App
 // init); real `commands` stay so mockIPC serves the print/inspect commands.

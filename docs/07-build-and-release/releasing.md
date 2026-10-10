@@ -183,9 +183,11 @@ default (`permissions: {}`); each job asks for what it needs:
    no `SumatraPDF.exe` slipped in, and that the Intel build starts under
    Rosetta.
 3. **sign**, only when all four builds passed: downloads the four
-   `unsigned-*` artifacts and runs `tauri signer sign` (the CLI version the
-   lockfile pins) on the four update artifacts, with the key and its password
-   in the environment of that step only. It fails unless it signed exactly
+   `unsigned-*` artifacts and runs `tauri signer sign --app-version <version>`
+   (the CLI version the lockfile pins) on the four update artifacts, with the
+   key and its password in the environment of that step only. The version
+   goes into each signature's trusted comment; the app's updater
+   (`requireSignedVersion`) refuses a signature without it. It fails unless it signed exactly
    four, and uploads the `.sig` files as `update-signatures`.
 4. **publish**, only when signing passed:
    - creates the draft (`gh release create --draft --verify-tag`, a
@@ -198,8 +200,9 @@ default (`permissions: {}`); each job asks for what it needs:
      `windows-aarch64`, the `.sig` contents and the API asset URL
      (`https://api.github.com/repos/<repo>/releases/assets/<id>`) of the file
      just uploaded. A platform without its file, its signature or its upload
-     fails the job. The release body becomes `notes` (the update dialog shows
-     it);
+     fails the job, and so does a signature not bound to the tag's version
+     (`check-manifest --signed-version`). The release body becomes `notes`
+     (the update dialog shows it);
    - verifies each platform's signature with `minisign` against the public
      key in `tauri.conf.json`, and that a one-byte change fails. This also
      catches a throwaway signature that slipped through;

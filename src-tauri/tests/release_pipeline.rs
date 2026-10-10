@@ -141,7 +141,7 @@ fn nfr_022_release_requires_signature_secret() {
         "TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
     ));
     assert!(
-        sign.contains("pnpm --silent tauri signer sign \"$f\""),
+        sign.contains("pnpm --silent tauri signer sign --app-version \"$version\" \"$f\""),
         "{sign}"
     );
     // The signatures are verified against the key the app carries, and a
@@ -466,6 +466,86 @@ fn fr_085_publish_requires_every_platform_and_writes_sha256sums() {
     assert!(publish.contains("release_tools.py make-manifest"));
     assert!(publish.contains("sha256sum -- * > ../SHA256SUMS"));
     assert!(publish.contains("gh release upload \"$GITHUB_REF_NAME\" SHA256SUMS latest.json"));
+}
+
+/// FR-082/NFR-022: the app's updater has `requireSignedVersion` on, so every
+/// update signature must carry the release's version. The sign job binds
+/// each one to the tag, and the draft is not written until every required
+/// platform's signature says so.
+#[test]
+fn fr_082_update_signatures_are_bound_to_the_release_version() {
+    let wf = release_yml();
+    let sign = job(&wf, "sign");
+    assert!(
+        sign.contains("tauri signer sign --app-version \"$version\" \"$f\""),
+        "{sign}"
+    );
+    assert!(sign.contains("version=\"${GITHUB_REF_NAME#v}\""), "{sign}");
+    let publish = job(&wf, "publish");
+    assert!(
+        publish.contains("--signed-version \"${GITHUB_REF_NAME#v}\""),
+        "{publish}"
+    );
+}
+
+/// FR-082: `check-manifest --signed-version` reads the version from each
+/// signature's trusted comment, in the form `tauri signer sign --app-version`
+/// writes it, and refuses a signature with none or with another version.
+#[test]
+fn fr_082_check_manifest_requires_signatures_bound_to_the_version() {
+    if python().is_none() {
+        eprintln!("no python on this machine; release_tools.py not exercised");
+        return;
+    }
+    use base64::Engine as _;
+    let sig = |trusted: &str| {
+        base64::engine::general_purpose::STANDARD.encode(format!(
+            "untrusted comment: signature from tauri secret key\nRUS6c2ln\n\
+             trusted comment: {trusted}\nZ2xvYmFs\n"
+        ))
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let check = |signature: String, wanted: &str| {
+        let manifest = dir.path().join("latest.json");
+        let entry = serde_json::json!({ "url": "https://x/1", "signature": signature });
+        std::fs::write(
+            &manifest,
+            serde_json::json!({ "version": "0.2.0", "platforms": { "windows-x86_64": entry } })
+                .to_string(),
+        )
+        .unwrap();
+        tools(&[
+            "check-manifest",
+            "--manifest",
+            &manifest.to_string_lossy(),
+            "--version",
+            "0.2.0",
+            "--signed-version",
+            wanted,
+            "--require",
+            "windows-x86_64",
+        ])
+        .unwrap()
+    };
+
+    let bound = sig("timestamp:1791667274\tfile:Pluryprint_0.2.0_windows_x64.exe\tversion:0.2.0");
+    let ok = check(bound.clone(), "0.2.0");
+    assert!(ok.status.success(), "{ok:?}");
+    // A leading `v` on the tag is the same version.
+    assert!(check(bound.clone(), "v0.2.0").status.success());
+
+    let other = check(bound, "0.3.0");
+    assert_eq!(other.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&other.stderr).contains("bound to '0.2.0'"));
+
+    // Signed by a CLI (or by hand) without --app-version.
+    let unbound = check(sig("timestamp:1791667275\tfile:x.exe"), "0.2.0");
+    assert_eq!(unbound.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&unbound.stderr).contains("not bound to a version"));
+
+    // Not a signature at all.
+    let garbage = check("%%%".into(), "0.2.0");
+    assert_eq!(garbage.status.code(), Some(1));
 }
 
 /// FR-085/086: publishing a release moves the beta manifest, forward only.

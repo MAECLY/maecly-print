@@ -36,8 +36,8 @@ Accept: application/json
 ```
 
 - The channel comes from `updater.channel` (`update::install::default_endpoint`). `PLURYPRINT_UPDATE_ENDPOINT` replaces it for local end-to-end testing (release builds still require `https`), and then drives the check, the launch-time check and the install alike (`fetch_configured_latest`).
-- The client is **`ureq`** (blocking, 10-second timeout). There is no `reqwest` and no async runtime in the check.
-- A system proxy is honoured from the standard environment variables — the first of `HTTPS_PROXY` / `https_proxy` / `HTTP_PROXY` / `http_proxy` that parses. `ureq` does not read these itself, so `build_agent()` wires them explicitly. Only HTTP `CONNECT` proxies are supported (the `socks-proxy` feature is off), so a `socks://` value fails to parse and is skipped — the connection is then direct.
+- The client is **`ureq`** 3 (blocking, rustls with the bundled webpki roots, a 10-second budget for the whole request: DNS, connect, TLS, redirects and body). There is no `reqwest` and no async runtime in the check. HTTP error statuses come back as responses (`http_status_as_error(false)`), so every status reaches `interpret_manifest_response`; only a failure to reach the server is `offline`.
+- A system proxy is honoured from the standard environment variables — the first of `HTTPS_PROXY` / `https_proxy` / `HTTP_PROXY` / `http_proxy` whose value parses as an HTTP `CONNECT` proxy (`update::proxy_from`). The agent's proxy is always set explicitly, so ureq's own environment lookup (which would also read `ALL_PROXY` and `NO_PROXY`) does not apply. Only HTTP `CONNECT` proxies are supported (the `socks-proxy` feature is off), so a SOCKS value is skipped like an empty or unparseable one; with no usable proxy the connection is direct.
 - **No request body, no identifiers, no telemetry.** GitHub sees a plain unauthenticated GET.
 
 ### 2.1 Status → outcome

@@ -2,12 +2,7 @@ import type { ReactNode } from 'react';
 import { Icon, type IconName } from '../Icon';
 
 export type BadgeTone =
-  | 'neutral'
-  | 'success'
-  | 'warn'
-  | 'error'
-  | 'info'
-  | 'accent';
+  'neutral' | 'success' | 'warn' | 'error' | 'info' | 'accent';
 
 // Optional props take explicit `| undefined` so callers can pass computed
 // values like `icon={maybe}` under `exactOptionalPropertyTypes`.

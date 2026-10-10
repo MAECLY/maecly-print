@@ -8,8 +8,8 @@ Everything in this table is declared in `src-tauri/Cargo.toml`, `shell-ext-win/C
 
 | Layer                  | Choice                                                  |
 | ---------------------- | ------------------------------------------------------- |
-| Application shell      | **Tauri 2.1** (Rust host + system webview)              |
-| Backend / core logic   | **Rust 1.78+** (stable, edition 2021)                   |
+| Application shell      | **Tauri 2.12** (Rust host + system webview)             |
+| Backend / core logic   | **Rust 1.90+** (stable, edition 2021)                   |
 | Frontend / UI          | **React 19 + TypeScript 5 + Vite 7 + Tailwind CSS 3** (layout utilities only; design tokens are CSS custom properties, Tailwind `preflight` disabled) |
 | Frontend state         | `zustand` 5; toasts via `sonner`                        |
 | Localization           | **In-house** (`src/i18n/`, JSON catalogues per screen) — no i18n library |
@@ -17,7 +17,7 @@ Everything in this table is declared in `src-tauri/Cargo.toml`, `shell-ext-win/C
 | Async runtime          | `tokio` 1.41 (queue dispatcher). The print/convert hops are **blocking** `std::process` / pure functions the dispatcher drives |
 | Serialization          | `serde`, `serde_json`, `toml`                           |
 | Logging / tracing      | `tracing`, `tracing-subscriber` (JSON), `tracing-appender` (non-blocking writer only — rotation/retention is our own `RollingJsonl`) |
-| HTTP (update check)    | `ureq` 2.12, blocking, 10 s timeout                     |
+| HTTP (update check)    | `ureq` 3.4, blocking, 10 s timeout                      |
 | Windows API bindings   | `windows` 0.58 (`Win32_Graphics_Printing`, `Win32_Storage_Xps`, …) |
 | macOS API bindings     | `objc2` 0.6 + `objc2-app-kit` / `objc2-foundation` 0.3, feature-narrowed |
 | Image → PDF            | `image` 0.25 (jpeg/png/tiff/bmp/webp) + `lopdf` 0.44, **in-process** |
@@ -102,7 +102,7 @@ The Rust core handles file enumeration, format detection, conversion orchestrati
 | `webview2-com`, `windows-core` *(Windows only)* | WebView2 `PrintToPdf` in the render worker |
 | `block2` *(macOS only)*                | WebKit completion handlers in the render worker |
 | `printpdf` 0.12.8                      | PDF primitives for the test page (`default-features = false`; writes only) |
-| `ureq` 2.12                            | Blocking HTTPS for the update check (the channel's `latest.json`) |
+| `ureq` 3.4                             | Blocking HTTPS for the update check (the channel's `latest.json`) |
 | `semver` 1                             | Version comparison by SemVer *precedence* |
 | `percent-encoding` 2.3                 | Prefilled "report issue" URL |
 | `uuid` 1 (`v7`)                        | Time-sortable job ids — queue ordering falls out of the id |
@@ -218,7 +218,7 @@ Packages named in earlier drafts and **not** used: `@radix-ui/*`, `react-hook-fo
 
 | Tool          | Required version    |
 | ------------- | ------------------- |
-| Rust          | 1.78 stable+        |
+| Rust          | 1.90 stable+        |
 | Node.js       | 24 LTS (CI); 22.22.2+ minimum |
 | pnpm          | 9.x (preferred over npm/yarn) |
 | Tauri CLI     | 2.x                 |
@@ -227,7 +227,7 @@ Packages named in earlier drafts and **not** used: `@radix-ui/*`, `react-hook-fo
 | WebView2 Runtime | Evergreen (auto-installed by Win 11; bootstrapper for Win 10) |
 | Xcode         | 15+ (Mac)           |
 
-`package.json` pins the package manager (`pnpm@9.15.0`) and declares `engines.node >= 22.22.2` (the floor jsdom 30 and Vitest 5 set for the test toolchain); both `Cargo.toml`s declare `rust-version = "1.78"`. There is **no `rust-toolchain.toml`** in the repo, so the Rust version CI uses is whatever `.github/workflows/ci.yml` installs — adding one is an open item (see [`security-model.md`](./security-model.md) §9). Inno Setup is not part of the toolchain; the Windows installer comes from Tauri's NSIS target.
+`package.json` pins the package manager (`pnpm@9.15.0`) and declares `engines.node >= 22.22.2` (the floor jsdom 30 and Vitest 5 set for the test toolchain); `src-tauri/Cargo.toml` declares `rust-version = "1.90"` (the floor Tauri 2.12 and its plugins set) and `shell-ext-win/Cargo.toml` `rust-version = "1.78"`. There is **no `rust-toolchain.toml`** in the repo, so the Rust version CI uses is whatever `.github/workflows/ci.yml` installs — adding one is an open item (see [`security-model.md`](./security-model.md) §9). Inno Setup is not part of the toolchain; the Windows installer comes from Tauri's NSIS target.
 
 ## 7. Where this decision is recorded
 
