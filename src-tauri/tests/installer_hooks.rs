@@ -139,6 +139,7 @@ fn nfr_070_installer_scripts_are_ascii() {
     for rel in [
         "src-tauri/windows/installer-hooks.nsh",
         "scripts/build-shell-ext.ps1",
+        "scripts/check-failed-logons.ps1",
     ] {
         let text = read(rel);
         let bad: Vec<char> = text.chars().filter(|c| !c.is_ascii()).collect();
