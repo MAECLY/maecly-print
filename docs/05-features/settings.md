@@ -1,10 +1,10 @@
 # Settings
 
-> **TL;DR** — The **Settings** screen: five grouped sections (Appearance, Printing, Engine, Updates, Privacy) over the persisted app configuration in `config.toml`. Appearance writes both an instant localStorage cache and the backend; the rest write straight to `config.toml` optimistically, rolling back on a validation failure. Engine limits are enforced for real — file-size at submission, concurrency and timeout at the next app start.
+> **TL;DR** — The **Settings** screen: five grouped sections (Appearance, Printing, Engine, Updates, Privacy) over the persisted app configuration in `config.toml`. Appearance writes both an instant localStorage cache and the backend; the rest write straight to `config.toml` optimistically, rolling back on a validation failure. Engine limits are enforced for real and reach the running queue on save, with no restart. A `config.toml` that cannot be parsed is announced with a banner and every save is refused until it is fixed (FR-101).
 
 This document is the source of truth for the **content and behavior** of the Settings screen (`src/screens/SettingsScreen.tsx`). The persisted schema lives in the [data model](../04-architecture/data-model.md#2-configtoml--global-settings) (`settings::Config`); the wire contract is the [IPC & CLI doc](../04-architecture/ipc-and-cli.md). Appearance (theme + density) has a separate instant-boot cache in `src/lib/theme.ts`.
 
-The screen is the GUI counterpart to the `get_app_settings` / `set_app_settings` IPC commands, plus `set_default_profile` for the default-profile control. It is the last primary navigation destination in the sidebar.
+The screen is the GUI counterpart to the `get_app_settings` / `set_app_settings` IPC commands, plus `set_default_profile` for the default-profile control. The **Language** row (FR-094) also lives here. It is the last primary navigation destination in the sidebar.
 
 ## Screen layout
 
@@ -15,8 +15,9 @@ A single scrolling column (max 760 px) of labelled sections, each a stack of lab
 │ APPEARANCE                                                                     │
 │   Theme        Follows your OS by default.        [ Light | Dark | System ]    │
 │   Density      Comfortable for reading…           [ Comfortable | Compact ]    │
-│   Language     Applies at once.                   [ English          ▾ ]    │
-│   Start minimized  Opens minimized from the next launch.     [ ———⬤  ]        │
+│   Language     Applies immediately, across the whole app. [ English  ▾ ]    │
+│   Start minimized  Opens minimized, from the next launch.    [ ———⬤  ]        │
+│   Native notifications  …while MaeclyPrint is in the background. [ ⬤——— ]   │
 │ PRINTING                                                                       │
 │   Default profile   Applied when no profile is chosen.   [ Quick        ▾ ]    │
 │   ⓘ macOS: Finder › Services › Print with MaeclyPrint. Windows: the Explorer   │
@@ -27,8 +28,10 @@ A single scrolling column (max 760 px) of labelled sections, each a stack of lab
 │   Print timeout            0 disables it. Counts from…   [ 300    ] seconds    │
 │   Max file size            Largest input accepted…       [ 200    ] MB         │
 │ UPDATES                                                                        │
-│   Channel      [ Stable | Beta | Nightly ]  ⓘ …takes effect when the …(M4).    │
-│   Check on startup   Delayed a few seconds…              [ ⬤———  ]             │
+│   Channel      [ Stable | Beta | Nightly ]                                     │
+│   ⓘ Every channel receives the stable releases for now…                        │
+│   Check on startup   Asks GitHub … 30 seconds after launch…  [ ⬤———  ]         │
+│   ⓘ The launch-time check only reads the number of the latest release…         │
 │ PRIVACY                                                                        │
 │   Crash reports            Off by default…               [ ———⬤  ]             │
 │   Anonymous usage metrics  …never without consent.       [ ———⬤  ]             │
@@ -36,9 +39,11 @@ A single scrolling column (max 760 px) of labelled sections, each a stack of lab
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
 
+When `config.toml` exists but cannot be parsed, a warning banner (`role="alert"`) sits above the first section, naming the file to repair or delete (see [Edge & empty states](#edge--empty-states)).
+
 ## Data model
 
-`get_app_settings` / `set_app_settings` expose **four** sections of `config.toml` bundled as one `AppSettings`. The `[printers]` section is intentionally excluded — it is owned by the [Printers screen](./printers-management.md) (`get_printer_prefs` / `set_printer_prefs`) — and `schema_version` is server-managed. Both are preserved untouched across a settings write.
+`get_app_settings` / `set_app_settings` expose **four** sections of `config.toml` bundled as one `AppSettings`, plus a read-only, server-computed `meta` (`SettingsMeta`): `config_unreadable` (the file exists but could not be parsed, so the values are defaults), `config_path` (the absolute file path, for the banner) and `limits` (the engine `Bounds` the write path enforces, which the Engine fields validate against instead of a client-side copy). `meta` is ignored on write. The `[printers]` section is intentionally excluded — it is owned by the [Printers screen](./printers-management.md) (`get_printer_prefs` / `set_printer_prefs`) — and `schema_version` is server-managed. Both are preserved untouched across a settings write.
 
 | Section       | Wire type      | Fields                                                                                   |
 | ------------- | -------------- | ---------------------------------------------------------------------------------------- |
@@ -62,13 +67,17 @@ On divergence the **backend wins**: once `get_app_settings` resolves, a reconcil
 
 The section also carries the **Native notifications** switch (`app.native_notifications`, on by default; FR-072). It is read by the backend before every OS notification (`notify_native`), so turning it off takes effect immediately. With it on, a finished batch, a failed batch and a job stopped for the user are announced through the OS notification centre while the MaeclyPrint window is unfocused, hidden or minimized; the in-app toasts are unaffected either way.
 
+### Appearance — language
+
+**Language** (FR-094) is a select over the supported locales (`en-US` English, `es-ES` Español), persisted as `[app].locale` through `patch({ app: { locale } })`. `I18nProvider` reads it back, so the whole UI re-renders in the new language as soon as the optimistic write lands. The select is bound to the *effective* locale: a stored regional tag such as `es-MX` shows (and renders) Spanish. Saving also rewrites the context-menu label cache so the Explorer menu follows the language ([context-menu-actions.md](./context-menu-actions.md#localization)). Disabled while the backend is unavailable or loading.
+
 ### Appearance — start minimized
 
 **Start minimized** persists `[app].launch_minimized`. It is honoured at startup: `lib.rs` reads the flag straight from `config.toml` in `setup` (before any IPC round-trip) and minimizes the main window to the taskbar / Dock. MaeclyPrint has no tray icon, so minimizing is the whole behaviour. A launch that carries a file selection (Explorer/Finder context menu) is never minimized, because it exists to show that selection (`settings::should_start_minimized`). A second launch un-minimizes and focuses the window through the single-instance callback. The change applies from the next launch.
 
 ### Printing — default profile
 
-A dropdown of every profile from the profiles store; selecting one calls `profilesStore.setDefault` → `set_default_profile`, which writes `config.toml`'s `[engine].default_profile` (the single source of the default — see [profiles-management.md](./profiles-management.md#default-profile-resolution)). Because that command writes the config behind the settings store's back, the store syncs its cached `engine.default_profile` afterward so a later whole-section engine write can't silently revert the default (`settingsStore.syncDefaultProfile` also rewrites the confirmed baseline and any queued write). The row is disabled until both the profile list and the settings backend are loaded; when the list fails to load, a note with a **Retry** re-runs the profiles store's `init`. A muted note says right-click printing uses this profile: through the Finder's Services menu on macOS, and through the Explorer entry on Windows once the installer registers it ([FR-001](../03-requirements/functional-requirements.md)).
+A dropdown of every profile from the profiles store; selecting one calls `profilesStore.setDefault` → `set_default_profile`, which writes `config.toml`'s `[engine].default_profile` (the single source of the default — see [profiles-management.md](./profiles-management.md#default-profile-resolution)). Because that command writes the config behind the settings store's back, the store syncs its cached `engine.default_profile` afterward so a later whole-section engine write can't silently revert the default (`settingsStore.syncDefaultProfile` also rewrites the confirmed baseline and any queued write). The row is disabled until both the profile list and the settings backend are loaded; when the list fails to load, a note with a **Retry** re-runs the profiles store's `init`. A muted, per-platform note follows: on macOS it says right-click printing works from **Finder › Services › Print with MaeclyPrint** (menu titles follow the system language); on Windows it says the Explorer entry is built but no installer registers it yet, so it does not appear ([FR-001](../03-requirements/functional-requirements.md)).
 
 ### Engine — real limits, applied without a restart
 
@@ -85,7 +94,7 @@ These are not cosmetic: `max_file_size_mb` gates the Print Job screen's file ins
 
 ### Updates
 
-**Channel** (Stable / Beta / Nightly) is persisted but does not yet change behavior — every update check hits the single `releases/latest` feed because separate beta/nightly feeds don't exist yet; a note says channel selection takes effect when the auto-updater ships (**M4**). **Check on startup** toggles the delayed launch-time check (the check itself lives on the [About screen](./about.md)).
+**Channel** (Stable / Beta / Nightly) is persisted but does not yet change behavior: every check reads the single GitHub `releases/latest` feed, and the note says every channel receives the stable releases until separate beta and nightly feeds are published. **Check on startup** (`[updater].check_on_startup`) toggles the launch-time check the backend runs **30 s after launch** (`STARTUP_CHECK_DELAY`), **at most once every 24 h** (`MIN_CHECK_INTERVAL_HOURS`; a manual check on the About screen also stamps the time). A newer release that is not the skipped version raises a toast (FR-080/FR-084). The note under it says the check only reads the latest release number, sends nothing about the user, and never installs anything on its own; installing is the About screen's **Install now** ([about.md](./about.md)). Turned off, no request is made at launch.
 
 ### Privacy — consent only
 
@@ -109,7 +118,8 @@ On the backend, `set_app_settings` takes the config lock, loads the full config,
 - **Standalone web preview** — status `unavailable`: only Appearance is adjustable (local cache only); a note explains the rest is read from the desktop app, and every backend-backed control is dimmed and non-interactive: the control cell is `inert` (out of the tab order and the accessibility tree, so the keyboard cannot change it either) and marked `aria-disabled`. The same applies to Theme and Density while the settings are loading.
 - **Loading** — a `Loading settings…` note while `get_app_settings` is in flight.
 - **Error** — a `Couldn't load settings.` note with a **Retry** that re-runs `init` (re-runnable so one transient failure doesn't kill the screen for the session).
-- **Config file missing/corrupt** — the backend degrades to `Config::default()` (FR-101); the screen shows those defaults and the first save materializes the file.
+- **Config file missing** — the backend uses `Config::default()` and the first save writes the file.
+- **Config file corrupt** (FR-101) — reads degrade to `Config::default()` but report it (`meta.config_unreadable`). The screen shows a warning banner — *Your settings file could not be read* — saying the values on show are defaults, not the saved settings, that changes cannot be saved until the file is fixed or removed, and naming the file. Every mutator refuses meanwhile: `set_app_settings` (and `set_default_profile`, the printer preferences) load the file with `Config::load_strict` and return the config-corrupt error instead of overwriting the user's printer preferences with defaults, so a change rolls back with an error toast.
 
 ## Per-platform notes
 
@@ -130,13 +140,12 @@ On the backend, `set_app_settings` takes the config lock, loads the full config,
 - **M1 (current)** — **settings are real and persisted.** Rust: `src-tauri/src/settings/mod.rs` (`Config`/`AppSettings` schema, atomic I/O, `CONFIG_LOCK`) + `src-tauri/src/ipc/settings.rs` (get/set + validation). Engine limits are consumed for real (`src-tauri/src/queue/{mod,dispatcher}.rs`, `src-tauri/src/ipc/jobs.rs`). Frontend: `settingsStore.ts`, `SettingsScreen.tsx`, `src/lib/theme.ts`. Integration coverage: `src-tauri/tests/settings_persist.rs` (FR-100…FR-103 — human-readable TOML, corrupt-file fallback, atomic write, embedded `schema_version`).
 - **Follow-ups**
   - The old **`[shell_extension]` switches were removed** for the MVP — shell-integration toggles land with **M2**, not here.
-  - **Beta/nightly channel feeds** and the **in-app auto-updater install** (M4); today the channel is persisted but the check always uses `releases/latest`.
+  - **Beta/nightly channel feeds**; today the channel is persisted but the check always uses `releases/latest`. Installing an update is the About screen's job ([about.md](./about.md)).
   - **Telemetry transport** — the consent switches are wired but nothing is sent; a future build can honour them.
   - **Hot-reload / env overrides** of `config.toml` (via `notify` / `MAECLYPRINT_*`) are deferred; the file is read on demand under `CONFIG_LOCK`.
 
 ## Open questions for v1+
 
-- Should `locale` become a visible control once i18n (M4) lands, or stay OS-derived?
 - Where should a future "reset to defaults" live — per section, or one global action?
 
 These are tracked as design discussions, not commitments.
