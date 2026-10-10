@@ -442,7 +442,7 @@ If a future need for real string snapshots appears (log line format, manifest JS
 - **Tauri itself.** We trust upstream's tests.
 - **Win32 / CUPS APIs.** We trust the OS.
 - **Bundled subprocess output.** SumatraPDF is GPL'd third-party; if its output changes between versions, we update expectations, not bug them.
-- **Network layer for the updater.** We trust `ureq`. The update client's own logic (semver comparison, release-payload parsing, the 404/no-release and error paths) *is* unit-tested against fixture payloads, and `src-tauri/tests/update_startup.rs` covers the startup check — but no test stands up an HTTP server, and the one that really calls `api.github.com` is `#[ignore]`d.
+- **Network layer for the updater.** We trust `ureq` for HTTP and TLS. The update client's own logic (semver comparison, release-payload parsing, the 404/no-release and error paths) *is* unit-tested against fixture payloads, and `src-tauri/tests/update_startup.rs` covers the startup check. The transport is covered against loopback servers only (status mapping, headers, the timeout and an unreachable server reading as `offline`, a `CONNECT` proxy, the proxy variable order); the one test that reads the published manifests over the network is `#[ignore]`d.
 - **Rendering output of WebView2 / WKWebView.** Browser rendering is tested by upstream.
 
 ## Running tests locally
