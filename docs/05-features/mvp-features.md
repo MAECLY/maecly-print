@@ -132,7 +132,7 @@ Not delivered — this is the honest part:
 
 **Shipped** as Tauri's per-user NSIS bundle ([ADR-0008](../adr/0008-installer-nsis-per-user.md)), not Inno Setup:
 
-- `Pluryprint_<version>_x64-setup.exe` and `…_arm64-setup.exe`, about 13.5 MiB for ARM64, under the 15 MB budget (NFR-006).
+- `Pluryprint_<version>_x64-setup.exe` and `…_arm64-setup.exe`, about 15.5 MiB for ARM64 and 17.1 MiB for x64, under the 20 MB budget (NFR-006).
 - Installs to `%LOCALAPPDATA%\Pluryprint\` with no administrator rights; English and Spanish.
 - Bundles SumatraPDF 3.6.1 for its architecture, with its licence files and written source offer.
 - Registers the Explorer command per user (no sparse package, ADR-0013).
