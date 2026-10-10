@@ -338,7 +338,7 @@ Body (optional):
 Footer (optional):
 
 - `BREAKING CHANGE: <description>` for breaking changes (also bumps to MAJOR per SemVer).
-- `Signed-off-by:` for DCO (added automatically by `git commit -s`).
+- `Signed-off-by:` (added by `git commit -s`) is welcome but optional; contributions come in under the [CLA](../../CLA.md), not a sign-off.
 
 Example:
 
@@ -376,7 +376,7 @@ Delete branches after merge.
 
 - One reviewer approval required (initially the maintainer; project will scale this).
 - All CI checks green.
-- DCO sign-off on every commit.
+- The [CLA](../../CLA.md) confirmed in the pull request template.
 - Linear history (squash merge).
 - PR description follows the template (`Description`, `Motivation`, `Testing`, `Screenshots`).
 

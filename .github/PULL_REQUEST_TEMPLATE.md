@@ -24,10 +24,13 @@ Closes #
 
 ## Checklist
 
-- [ ] My commits are signed off (`git commit -s`) per [DCO](https://developercertificate.org/).
 - [ ] My commit messages follow [Conventional Commits](https://www.conventionalcommits.org/).
 - [ ] I ran `pnpm check-all` and it passes locally.
 - [ ] I added or updated tests where appropriate.
 - [ ] I updated the relevant documentation in `docs/` (if behavior changed).
 - [ ] I updated `CHANGELOG.md` under `[Unreleased]` (if user-visible change).
 - [ ] No secrets, credentials, or personal data are committed.
+
+## Contributor License Agreement
+
+- [ ] I have read the [Contributor License Agreement](https://github.com/MAECLY/maecly-print/blob/main/CLA.md) and agree to it for the contributions in this pull request.
