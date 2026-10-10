@@ -49,6 +49,36 @@ Every screen was audited against its spec and completed end to end; the items be
 - **Brand**: the Abanico app icon, drawn from a generator, and the same mark inside the app.
 - **Tests**: a browser E2E harness with a fake Tauri host (macOS), seven WebdriverIO specs, launch smokes in CI, opt-in real-spooler suites for a CUPS hold queue and a paused Windows queue, and a gate that every Tauri command is registered.
 
+### Added — round 3
+
+- **SVG and SVGZ** print as vector pages (`usvg` + `svg2pdf`) in a hidden worker process, so a hostile drawing can crash only the worker; `<image>` loads only from the drawing's own folder, and SVGZ is inflated with a 64 MB cap (FR-052a).
+- **Encrypted PDFs**: a PDF that needs a password pauses its job with **Enter password**; the password decrypts the file in-process (`lopdf`), is never stored and never reaches a command line or a log. The CLI reads it from `--password-file` or `--password-stdin` (exit 13 when it is missing or wrong). A PDF whose permissions forbid printing is refused, never stripped (FR-059).
+- **Guided install of a missing dependency**: the Print Job screen's **Install…** shows the exact winget/Homebrew command, Store page or download page, whether Windows asks for administrator approval, the price and the size, and runs nothing until the user confirms (FR-058). The HEIF and HEVC Store extensions are dependencies of their own on Windows.
+- **Windows print quality**: Draft and High reach SumatraPDF jobs through a temporary per-user default that is restored byte for byte as soon as the job is in the spooler, journaled so a crash is recovered at the next start; the job is read back to log what it got.
+- **Queue**: a job paused because its printer cannot print two-sided or is missing offers **Print one-sided** and **Send to another printer**; a print nobody confirmed ends as **unconfirmed**, never as done.
+- **Windows installer**: registers the Explorer command per user (in the Windows 10 menu and, on Windows 11, under **Show more options**) with the DLL of the machine's native architecture, speaks English and Spanish, and with **Delete the application data** removes the real data folders.
+- **Release pipeline**: a `vX.Y.Z` or `vX.Y.Z-beta.N` tag builds a draft release for macOS (Apple silicon and Intel) and Windows (x64 and ARM64) with signed updater artifacts, verified signatures, `SHA256SUMS`, the Pluryprint and SumatraPDF sources, and bilingual notes on the Gatekeeper and SmartScreen warnings ([ADR-0011](docs/adr/0011-release-channel.md), [releasing.md](docs/07-build-and-release/releasing.md)).
+- **Update channels**: stable reads `releases/latest/download/latest.json` and beta the `channel-beta` release's manifest; the update notice reads the same manifest as the installer, not the GitHub API (FR-085/FR-086).
+- **Licences**: `THIRD-PARTY-NOTICES.md` is generated from the lockfiles with every crate's and package's licence text, and CI fails when it is stale; SumatraPDF ships with its GPL written source offer.
+
+### Changed — round 3
+
+- **HTML, Markdown and plain text** are printed by the operating system's own web view (WebView2 / WKWebView) in a hidden worker, with scripts off and no network or file-share access. Edge, Chrome and Pandoc are no longer needed; the browser stays only as a hidden fallback (`[engine] html_renderer = "browser"`) for one version. Markdown is converted in-process, text is decoded in-process, and RTF goes through `textutil` on macOS; LibreOffice is needed only for Office, OpenDocument and (on Windows) RTF.
+- **GIF** is refused by name, with a message to convert it to PNG or JPEG (decision D9).
+- **SumatraPDF 3.6.1** is bundled for x64 and ARM64 (was 3.5.2), and paper and tray are sent to it as driver ids, so a Spanish driver's "Carta" no longer drops the paper size.
+- Every converter, spooler, printer-management, submission and settings refusal is shown in the user's language, with the tool's own words kept as the technical detail; the printed test page follows the app's language.
+- A capability the OS could not read is shown as "not reported" instead of "no".
+
+### Fixed — round 3
+
+- Transparent PNG and WebP images printed as a black box; they are now flattened onto white.
+- LibreOffice conversions could fetch a document's linked pictures and objects from the network or a file share; the private profile now blocks it.
+- A Windows job id reused by the spooler after a restart could be followed or cancelled as ours; job references now carry the spooler's submission stamp.
+- A context-menu selection sent to the running app could stall until the next click (menu mode from a faked Alt key).
+- `queue cancel` from the CLI could race an app starting at the same moment; `update install` no longer proceeds when the app lock cannot be checked; `print` reports a file held by a printer in error as held, not done.
+- A `policy.json` saved as UTF-16 or with a byte-order mark was ignored.
+- Unticking a printer in **From system** skipped the questions **Remove** asks and could leave the default pointing at it.
+
 ### Changed
 
 - **Relicensed under AGPL-3.0-only; contributions now under the CLA.** Pluryprint moves from GPL-3.0-only to the GNU Affero General Public License v3.0, the model Versorium uses: contributions come in under [`CLA.md`](CLA.md) (the DCO sign-off check is gone), `TRADEMARKS.md` keeps the name and mark out of the licence under AGPL section 7(e), and [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) ships inside the app bundle with `LICENSE` and the licence texts in `LICENSES/`. About links the licence, the CLA and the notices. See [ADR-0010](docs/adr/0010-relicense-to-agpl-3.0.md).
@@ -71,7 +101,7 @@ Every screen was audited against its spec and completed end to end; the items be
 
 ### Notes
 
-- M1 "Print Core": the desktop GUI enumerates real printers, prints every supported format end to end through the queue, and persists profiles and app settings; the CLI, SumatraPDF bundling and the signed per-user update install have since landed. Still open: no installer registers the Windows Explorer handler yet, no release workflow publishes a signed `latest.json`, and per-channel (beta/nightly) update feeds do not exist.
+- M1 "Print Core": the desktop GUI enumerates real printers, prints every supported format end to end through the queue, and persists profiles and app settings; the CLI, SumatraPDF bundling, the signed per-user update install, the installer's Explorer registration and the release workflow have since landed. Still open: no release has been published (the repository stays private until the first stable one), there are no nightly builds (the nightly channel follows beta), the Windows 11 top-level menu needs a signed sparse package that waits for a certificate, and nothing is signed with an Apple or Microsoft certificate (ADR-0011).
 - Local prerequisites for running `pnpm tauri dev`: Rust stable 1.78+, Node 20 LTS, pnpm 9, Visual Studio Build Tools 2022 with C++ workload + Windows 11 SDK + ATL. See `docs/08-development/local-setup.md`.
 
 ## [0.0.1] - 2026-04-26
