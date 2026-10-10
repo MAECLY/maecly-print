@@ -386,22 +386,22 @@ fn declared_charset(html: &[u8]) -> Option<String> {
 /// `html` decoded the way a browser picks its encoding (a byte-order mark,
 /// else the page's `<meta>` declaration, else UTF-8 when the bytes are valid
 /// UTF-8, else Windows-1252) and returned as UTF-8 **with** a byte-order
-/// mark. The mark makes every browser read the staged page as UTF-8 whatever
-/// it declares, so the bytes Pluryprint checks are the bytes the renderer
-/// parses (a UTF-16 page used to reach the browser fallback unchecked).
-/// Idempotent. `None` when the page declares an encoding that cannot be
-/// decoded faithfully (an unknown label, or one the WHATWG standard maps to
-/// the replacement decoder): the caller refuses the page. Pure.
-pub fn decode_page(html: &[u8]) -> Option<Vec<u8>> {
+/// mark. The mark makes the web view read the staged page as UTF-8 whatever
+/// it declares, so the text it parses is the text the staging inspected.
+/// Idempotent and lenient: a declared label that names no usable encoding
+/// (unknown, empty, or one the WHATWG standard maps to the replacement
+/// decoder) is ignored, as a browser ignores it, and the page falls back to
+/// UTF-8 or Windows-1252 like an undeclared one. Never fails: what the page
+/// may fetch is the web view's network layer's business, not this
+/// decoder's ([`crate::render`]). Pure.
+pub fn decode_page(html: &[u8]) -> Vec<u8> {
     let (encoding, body) = match encoding_rs::Encoding::for_bom(html) {
         Some((enc, bom_len)) => (enc, &html[bom_len..]),
         None => {
-            let enc = match declared_charset(html) {
-                Some(label) => {
-                    let enc = encoding_rs::Encoding::for_label(label.trim().as_bytes())?;
-                    if enc == encoding_rs::REPLACEMENT {
-                        return None;
-                    }
+            let declared = declared_charset(html)
+                .and_then(|label| encoding_rs::Encoding::for_label(label.trim().as_bytes()))
+                .filter(|enc| *enc != encoding_rs::REPLACEMENT)
+                .map(|enc| {
                     // HTML reads a declared UTF-16 as UTF-8, and
                     // x-user-defined as Windows-1252.
                     if enc == encoding_rs::UTF_16LE || enc == encoding_rs::UTF_16BE {
@@ -411,7 +411,9 @@ pub fn decode_page(html: &[u8]) -> Option<Vec<u8>> {
                     } else {
                         enc
                     }
-                }
+                });
+            let enc = match declared {
+                Some(enc) => enc,
                 None if std::str::from_utf8(html).is_ok() => encoding_rs::UTF_8,
                 None => encoding_rs::WINDOWS_1252,
             };
@@ -422,7 +424,7 @@ pub fn decode_page(html: &[u8]) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(text.len() + 3);
     out.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
     out.extend_from_slice(text.as_bytes());
-    Some(out)
+    out
 }
 
 #[cfg(test)]
@@ -481,30 +483,46 @@ mod tests {
             out
         };
         for le in [true, false] {
-            let page = decode_page(&utf16("<img src=\"//host/x.png\">", le)).unwrap();
+            let page = decode_page(&utf16("<img src=\"//host/x.png\">", le));
             assert_eq!(&page[..3], b"\xEF\xBB\xBF");
             assert_eq!(&page[3..], b"<img src=\"//host/x.png\">");
         }
         // A declared single-byte encoding is honoured...
         let page = b"<meta charset=windows-1252><p>caf\xE9";
-        let out = decode_page(page).unwrap();
+        let out = decode_page(page);
         assert!(String::from_utf8(out.clone()).unwrap().ends_with("café"));
         // ... decoding is idempotent (the mark wins over the declaration) ...
-        assert_eq!(decode_page(&out).unwrap(), out);
+        assert_eq!(decode_page(&out), out);
         // ... a page that declares nothing and is not UTF-8 is Windows-1252 ...
-        assert!(String::from_utf8(decode_page(b"<p>\xE9").unwrap())
+        assert!(String::from_utf8(decode_page(b"<p>\xE9"))
             .unwrap()
             .ends_with("é"));
-        // ... and an encoding that cannot be decoded faithfully is refused.
-        assert_eq!(decode_page(b"<meta charset=x-made-up><p>x"), None);
-        assert_eq!(decode_page(b"<meta charset=iso-2022-kr><p>x"), None);
-        assert_eq!(
-            decode_page(b"<meta http-equiv=Content-Type content='text/html; charset=bogus'>"),
-            None
-        );
+        // ... and a label that names no usable encoding is ignored, as the
+        // web view itself ignores it: UTF-8 when the bytes are UTF-8, else
+        // Windows-1252 (round-6 finding: such pages used to be refused).
+        for page in [
+            &b"<meta charset=x-made-up><p>caf\xC3\xA9"[..],
+            b"<meta charset=\"\"><p>caf\xC3\xA9",
+            b"<meta charset=MacRoman><p>caf\xC3\xA9",
+            b"<meta charset=iso-2022-kr><p>caf\xC3\xA9",
+            b"<meta http-equiv=Content-Type content='text/html; charset='><p>caf\xC3\xA9",
+            b"<meta http-equiv=Content-Type content='text/html; charset=bogus'><p>caf\xC3\xA9",
+        ] {
+            let out = String::from_utf8(decode_page(page)).unwrap();
+            assert!(out.starts_with('\u{FEFF}'), "{out}");
+            assert!(out.ends_with("café"), "{out}");
+        }
+        for page in [
+            &b"<meta charset=x-made-up><p>caf\xE9"[..],
+            b"<meta charset=''><p>caf\xE9",
+            b"<meta charset=replacement><p>caf\xE9",
+        ] {
+            let out = String::from_utf8(decode_page(page)).unwrap();
+            assert!(out.ends_with("café"), "{out}");
+        }
         // A declared UTF-16 is read as UTF-8, as browsers do.
         assert_eq!(
-            decode_page(b"<meta charset=utf-16><p>x").unwrap(),
+            decode_page(b"<meta charset=utf-16><p>x"),
             b"\xEF\xBB\xBF<meta charset=utf-16><p>x".to_vec()
         );
     }

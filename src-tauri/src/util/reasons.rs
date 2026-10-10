@@ -276,10 +276,12 @@ pub const JOB_REASONS: &[ReasonSpec<&'static str>] = &[
     ("conversion_failed", "render_failed", &[]),
     // The console CLI without the app next to it (the app is the renderer).
     ("conversion_failed", "render_worker_missing", &[]),
-    // The browser fallback refuses a page whose stylesheets name a share.
+    // No longer emitted: only the headless-browser fallback, removed in
+    // round 6, refused a page whose stylesheets named a share. Kept so an
+    // older `queue.json` that carries it still explains itself.
     ("conversion_failed", "share_reference_refused", &[]),
-    // The browser fallback refuses a page (or a stylesheet of it) it cannot
-    // fully check: too large, too many stylesheets, an unknown encoding.
+    // A page whose security policy cannot be placed first (its start is
+    // malformed, e.g. a doctype that never closes) is not printed.
     ("conversion_failed", "page_not_checkable", &[]),
     ("conversion_failed", "text_unreadable", &[]),
     // --- Printing ---

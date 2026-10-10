@@ -104,8 +104,7 @@ pub fn render_document(
 ) -> Result<(), EngineError> {
     // One decoding for the staging and for the renderer (the staged page is
     // UTF-8 with a byte-order mark, which the renderer has to obey).
-    let html = super::html_scan::decode_page(html)
-        .ok_or_else(|| not_checkable("the page declares a text encoding that cannot be read"))?;
+    let html = super::html_scan::decode_page(html);
     render_system_with(
         &worker_exe()?,
         &html,
@@ -331,17 +330,17 @@ pub fn effective_base(html: &[u8], base_href: &str) -> String {
 /// ([`super::html_scan::decode_page`]), so ASCII can be spliced into it and
 /// the renderer reads it the way it was checked.
 ///
-/// **Fails closed** with `page_not_checkable`: when the encoding cannot be
-/// read, when there is no safe insertion point (a doctype that never
-/// closes), or when the result does not start, for the HTML tokenizer, with
-/// the policy as its very first element.
+/// **Fails closed** with `page_not_checkable`: when there is no safe
+/// insertion point (a doctype that never closes), or when the result does
+/// not start, for the HTML tokenizer, with the policy as its very first
+/// element. Any declared encoding is decoded leniently and never refuses
+/// the page (a round-6 finding).
 pub fn inject_head(
     html: &[u8],
     base_href: &str,
     css_size: Option<&str>,
 ) -> Result<Vec<u8>, EngineError> {
-    let decoded = super::html_scan::decode_page(html)
-        .ok_or_else(|| not_checkable("the page declares a text encoding that cannot be read"))?;
+    let decoded = super::html_scan::decode_page(html);
     let html = &decoded[..];
     let escape = |s: &str| {
         s.replace('&', "&amp;")
@@ -413,14 +412,9 @@ mod tests {
     /// the policy cannot be placed first.
     #[test]
     fn nfr_security_injection_fails_closed() {
-        for page in [
-            &b"<!DOCTYPE html, no end to the doctype"[..],
-            b"<meta charset=x-nope><p>x",
-            b"<meta charset=iso-2022-kr><p>x",
-        ] {
-            let err = inject_head(page, "file:///d/", None).unwrap_err();
-            assert_eq!(reason(&err), Some("page_not_checkable"));
-        }
+        let err =
+            inject_head(b"<!DOCTYPE html, no end to the doctype", "file:///d/", None).unwrap_err();
+        assert_eq!(reason(&err), Some("page_not_checkable"));
         // ... and the system route refuses such a page before the worker runs.
         let work = WorkDir::new("inject-closed").unwrap();
         let err = render_system_with(
@@ -435,6 +429,31 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(reason(&err), Some("page_not_checkable"));
+    }
+
+    /// Round-6 finding: a page with an unknown or empty declared charset
+    /// was refused as `page_not_checkable` on the default route, which the
+    /// web view would have printed. With the web view's network layer as
+    /// the boundary, it is decoded leniently (UTF-8, else Windows-1252) and
+    /// printed.
+    #[test]
+    fn fr_055_an_unknown_or_empty_charset_still_prints() {
+        for page in [
+            &b"<meta charset=\"\"><p>caf\xC3\xA9"[..],
+            b"<meta charset=MacRoman><p>caf\xE9",
+            b"<meta http-equiv=content-type content=\"text/html; charset=\"><p>x",
+            b"<meta charset=iso-2022-kr><p>x",
+        ] {
+            let out = String::from_utf8(inject(page, "file:///d/", None)).unwrap();
+            assert!(out.starts_with("<meta http-equiv=\"Content-Security-Policy\""));
+        }
+        let out = String::from_utf8(inject(
+            b"<meta charset=MacRoman><p>caf\xE9",
+            "file:///d/",
+            None,
+        ))
+        .unwrap();
+        assert!(out.ends_with("café"), "{out}");
     }
 
     #[test]
