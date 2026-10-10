@@ -1,4 +1,5 @@
 import {
+  cleanup,
   render,
   screen,
   fireEvent,
@@ -756,6 +757,29 @@ describe('PrintersScreen', () => {
     await waitFor(() =>
       expect(lastSaved(calls)?.disabled).not.toContain('HL_L2350'),
     );
+  });
+
+  it('FR-044: From system does not offer to remove a virtual printer, only to restore one', async () => {
+    mockPrinters({ printers: fixturePrintersWithVirtual });
+    renderScreen();
+    await screen.findByText(/3 configured/);
+    let modal = await openAddModal();
+    fireEvent.click(within(modal).getByRole('tab', { name: 'From system' }));
+    expect(within(modal).queryByText('Save as PDF')).toBeNull();
+    expect(within(modal).getByText('Brother HL-L2350DW')).toBeInTheDocument();
+    cleanup();
+    clearMocks();
+
+    // Removed before (e.g. by an older build): listed, so it can come back.
+    mockPrinters({
+      printers: fixturePrintersWithVirtual,
+      prefs: { disabled: ['SAVE_AS_PDF'] },
+    });
+    renderScreen();
+    await screen.findByText(/3 configured/);
+    modal = await openAddModal();
+    fireEvent.click(within(modal).getByRole('tab', { name: 'From system' }));
+    expect(within(modal).getByText('Save as PDF')).toBeInTheDocument();
   });
 
   it('FR-044: unticking the default in From system asks first and clears the default', async () => {

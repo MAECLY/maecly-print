@@ -2450,6 +2450,12 @@ function SystemTab({
 }) {
   const t = useT('printers');
   const disabled = new Set(prefs.disabled ?? []);
+  // A virtual printer (Save as PDF, Microsoft Print to PDF) cannot be removed
+  // from the detail view either; it is listed here only when it was removed
+  // before, so it can be brought back.
+  const listed = printers.filter(
+    (p) => p.type !== 'virtual' || disabled.has(p.id),
+  );
 
   const toggle = async (p: UiPrinter) => {
     if (disabled.has(p.id)) {
@@ -2498,7 +2504,7 @@ function SystemTab({
           : t('system.introUnknownOs')}
       </div>
       <MPCard padding={0}>
-        {printers.map((p, i) => (
+        {listed.map((p, i) => (
           <div
             key={p.id}
             style={{
@@ -2507,7 +2513,7 @@ function SystemTab({
               gap: 10,
               padding: '10px 12px',
               borderBottom:
-                i < printers.length - 1 ? '1px solid var(--mp-border)' : 'none',
+                i < listed.length - 1 ? '1px solid var(--mp-border)' : 'none',
             }}
           >
             <MPCheckbox
