@@ -29,7 +29,29 @@ pub fn lock_path_for(queue_json: &Path) -> PathBuf {
 /// lifetime; dropping it (or the process ending) releases the lock.
 #[derive(Debug)]
 pub struct InstanceLock {
-    _file: File,
+    file: File,
+}
+
+impl Drop for InstanceLock {
+    fn drop(&mut self) {
+        release(&self.file);
+    }
+}
+
+/// Release a lock this process took on `file`, explicitly, before the file
+/// is closed.
+///
+/// Closing the descriptor is not enough on Unix: the lock (`flock`) belongs
+/// to the open file, which every descriptor referring to it keeps alive. A
+/// process being spawned at that moment by any thread (`fork`, or macOS'
+/// `posix_spawn` while it loads the new image) holds a copy of every
+/// descriptor until its exec closes the close-on-exec ones, so for that
+/// instant the lock outlived its holder: a CLI probing right then saw the app
+/// as still running (the intermittent `fr_009_a_held_lock_is_seen_and_released_on_drop`
+/// failure). Unlocking acts on the open file itself, whoever else still
+/// refers to it.
+fn release(file: &File) {
+    let _ = file.unlock();
 }
 
 fn open(path: &Path) -> io::Result<File> {
@@ -62,7 +84,7 @@ pub fn claim(path: &Path) -> io::Result<Option<InstanceLock>> {
     let file = open(path)?;
     for attempt in 1..=CLAIM_ATTEMPTS {
         match file.try_lock() {
-            Ok(()) => return Ok(Some(InstanceLock { _file: file })),
+            Ok(()) => return Ok(Some(InstanceLock { file })),
             Err(TryLockError::WouldBlock) if attempt < CLAIM_ATTEMPTS => {
                 std::thread::sleep(CLAIM_RETRY);
             }
@@ -82,7 +104,7 @@ pub fn claim_within(path: &Path, timeout: std::time::Duration) -> io::Result<Opt
     let deadline = std::time::Instant::now() + timeout;
     loop {
         match file.try_lock() {
-            Ok(()) => return Ok(Some(InstanceLock { _file: file })),
+            Ok(()) => return Ok(Some(InstanceLock { file })),
             Err(TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
                 std::thread::sleep(CLAIM_RETRY);
             }
@@ -113,8 +135,11 @@ pub fn state(path: &Path) -> LockState {
         Err(e) => return LockState::Unknown(e.to_string()),
     };
     match file.try_lock() {
-        // We got it, so nobody else had it; dropping `file` releases it.
-        Ok(()) => LockState::Free,
+        // We got it, so nobody else had it; let go at once ([`release`]).
+        Ok(()) => {
+            release(&file);
+            LockState::Free
+        }
         Err(TryLockError::WouldBlock) => LockState::Held,
         Err(TryLockError::Error(e)) => LockState::Unknown(e.to_string()),
     }
@@ -135,7 +160,7 @@ pub fn state(path: &Path) -> LockState {
 pub fn hold_for_edit(path: &Path) -> Result<InstanceLock, LockState> {
     let file = open(path).map_err(|e| LockState::Unknown(e.to_string()))?;
     match file.try_lock() {
-        Ok(()) => Ok(InstanceLock { _file: file }),
+        Ok(()) => Ok(InstanceLock { file }),
         Err(TryLockError::WouldBlock) => Err(LockState::Held),
         Err(TryLockError::Error(e)) => Err(LockState::Unknown(e.to_string())),
     }
@@ -169,6 +194,28 @@ mod tests {
         assert!(!is_held(&path), "the lock dies with its holder");
     }
 
+    /// The intermittent failure above, made deterministic: a process being
+    /// spawned while the lock is dropped holds a copy of its descriptor (here
+    /// a `dup`, which is what `fork` makes). The lock must still be released
+    /// when its holder lets go, and a probe must not leave one behind either.
+    #[test]
+    fn fr_009_a_copied_descriptor_does_not_keep_the_lock_alive() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(LOCK_FILE);
+
+        let lock = claim(&path).unwrap().expect("claimed");
+        let spawned_child_copy = lock.file.try_clone().unwrap();
+        drop(lock);
+        assert_eq!(state(&path), LockState::Free, "released by its holder");
+        drop(spawned_child_copy);
+
+        let held = hold_for_edit(&path).expect("free");
+        let copy = held.file.try_clone().unwrap();
+        drop(held);
+        assert!(claim(&path).unwrap().is_some(), "an app can start now");
+        drop(copy);
+    }
+
     /// A probe that takes the lock for an instant must not make a starting
     /// app run without it: `claim` waits it out.
     #[test]
@@ -179,6 +226,7 @@ mod tests {
         probe.try_lock().unwrap();
         let releaser = std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(60));
+            release(&probe);
             drop(probe);
         });
 
