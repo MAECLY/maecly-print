@@ -175,24 +175,55 @@ pub fn failure(reason: &'static str, message: impl Into<String>) -> LocalizedErr
     LocalizedError::new(IpcErrorCode::UpdateCheckFailed, reason, message)
 }
 
-/// Build the blocking HTTP agent, honouring a system proxy from the standard
-/// environment variables. ureq does not read these itself, so we wire the first
-/// of `HTTPS_PROXY`/`HTTP_PROXY` (either case) that parses. Only HTTP CONNECT
-/// proxies are supported without the `socks-proxy` feature; a `socks://` value
-/// would fail to parse here and is simply skipped (direct connection).
+/// The whole-request budget of the check: DNS, connect, TLS, redirects and the
+/// body together. A hung request must not hold the off-thread command.
+const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The environment variables a system proxy is read from, in order.
+const PROXY_ENV: [&str; 4] = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"];
+
+/// The proxy for the check: the first of [`PROXY_ENV`] whose value parses as
+/// an HTTP `CONNECT` proxy (`http://` or `https://`, or a bare host). Empty
+/// values and values that do not parse are skipped. A SOCKS URL is skipped
+/// too: the `socks-proxy` feature is off, so ureq could not use it and every
+/// check would fail; without a usable proxy the connection is direct.
+/// `lookup` reads one variable, so the choice is tested without touching the
+/// process environment.
+fn proxy_from(lookup: impl Fn(&str) -> Option<String>) -> Option<ureq::Proxy> {
+    PROXY_ENV.iter().find_map(|name| {
+        let value = lookup(name)?;
+        let value = value.trim();
+        if value.is_empty() {
+            return None;
+        }
+        let proxy = ureq::Proxy::new(value).ok()?;
+        matches!(
+            proxy.protocol(),
+            ureq::ProxyProtocol::Http | ureq::ProxyProtocol::Https
+        )
+        .then_some(proxy)
+    })
+}
+
+/// A blocking agent with a whole-request `timeout` and `proxy`.
+///
+/// The proxy is always set explicitly: left at its default, ureq would read
+/// `ALL_PROXY` and `NO_PROXY` as well, and the documented behaviour is
+/// [`proxy_from`]'s. HTTP error statuses come back as responses, not errors,
+/// so [`interpret_manifest_response`] sees every status the server sends and
+/// only a failure to reach the server is "offline".
+fn agent_with(proxy: Option<ureq::Proxy>, timeout: std::time::Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .http_status_as_error(false)
+        .proxy(proxy)
+        .build()
+        .into()
+}
+
+/// The agent the check uses, with the system proxy from the environment.
 fn build_agent() -> ureq::Agent {
-    let mut builder = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(10));
-    if let Some(proxy) = std::env::var("HTTPS_PROXY")
-        .or_else(|_| std::env::var("https_proxy"))
-        .or_else(|_| std::env::var("HTTP_PROXY"))
-        .or_else(|_| std::env::var("http_proxy"))
-        .ok()
-        .filter(|p| !p.trim().is_empty())
-        .and_then(|p| ureq::Proxy::new(p).ok())
-    {
-        builder = builder.proxy(proxy);
-    }
-    builder.build()
+    agent_with(proxy_from(|name| std::env::var(name).ok()), FETCH_TIMEOUT)
 }
 
 /// The release an updater manifest (`latest.json`) describes: its `version`
@@ -278,16 +309,32 @@ pub fn fetch_manifest(
     url: &tauri::Url,
     overridden: bool,
 ) -> Result<Option<ReleaseInfo>, LocalizedError> {
+    fetch_manifest_with(&build_agent(), url, overridden)
+}
+
+/// [`fetch_manifest`] on a given agent, so a test can drive the transport
+/// against a loopback server without the process's proxy settings.
+fn fetch_manifest_with(
+    agent: &ureq::Agent,
+    url: &tauri::Url,
+    overridden: bool,
+) -> Result<Option<ReleaseInfo>, LocalizedError> {
     let user_agent = format!("Pluryprint/{}", env!("CARGO_PKG_VERSION"));
-    let (status, body) = match build_agent()
+    let (status, body) = match agent
         .get(url.as_str())
-        .set("User-Agent", &user_agent)
-        .set("Accept", "application/json")
+        .header("User-Agent", &user_agent)
+        .header("Accept", "application/json")
         .call()
     {
-        Ok(resp) => (resp.status(), resp.into_string().unwrap_or_default()),
-        Err(ureq::Error::Status(code, resp)) => (code, resp.into_string().unwrap_or_default()),
-        Err(ureq::Error::Transport(_)) => {
+        // Every status arrives here (`http_status_as_error(false)`); a body
+        // that cannot be read is empty, which a 200 reports as bad_response.
+        Ok(mut resp) => (
+            resp.status().as_u16(),
+            resp.body_mut().read_to_string().unwrap_or_default(),
+        ),
+        // DNS, connect, TLS, proxy, redirect or timeout: the server was not
+        // reached.
+        Err(_) => {
             return Err(failure(
                 "offline",
                 "could not reach the update server — check your connection",
@@ -1114,6 +1161,209 @@ mod tests {
         // eventually consumes them must not carry its own numbers.
         assert_eq!(STARTUP_CHECK_DELAY, std::time::Duration::from_secs(30));
         assert_eq!(MIN_CHECK_INTERVAL_HOURS, 24);
+    }
+
+    /// Read one HTTP request head (up to the blank line) off `stream`.
+    fn read_head(stream: &mut std::net::TcpStream) -> String {
+        use std::io::Read;
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            match stream.read(&mut byte) {
+                Ok(1) => head.push(byte[0]),
+                _ => break,
+            }
+        }
+        String::from_utf8_lossy(&head).into_owned()
+    }
+
+    fn respond(stream: &mut std::net::TcpStream, status: &str, body: &str) {
+        use std::io::Write;
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+    }
+
+    /// A one-shot loopback server answering `status` + `body`. The thread
+    /// returns the request head it received.
+    fn serve_once(
+        status: &'static str,
+        body: &'static str,
+    ) -> (tauri::Url, std::thread::JoinHandle<String>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = tauri::Url::parse(&format!(
+            "http://{}/latest.json",
+            listener.local_addr().unwrap()
+        ))
+        .unwrap();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let head = read_head(&mut stream);
+            respond(&mut stream, status, body);
+            head
+        });
+        (url, handle)
+    }
+
+    const MANIFEST: &str = r#"{"version":"0.0.2","notes":"Fixes","platforms":{}}"#;
+
+    /// The transport hands every status to [`interpret_manifest_response`]
+    /// (a 404 is CHANNEL_UNAVAILABLE, not "offline") and sends the
+    /// documented headers.
+    #[test]
+    fn fetch_maps_statuses_from_a_real_server() {
+        let agent = agent_with(None, FETCH_TIMEOUT);
+
+        let (url, server) = serve_once("200 OK", MANIFEST);
+        let release = fetch_manifest_with(&agent, &url, true).unwrap().unwrap();
+        assert_eq!(release.tag_name, "0.0.2");
+        assert_eq!(release.html_url, url.as_str());
+        let head = server.join().unwrap().to_ascii_lowercase();
+        assert!(head.starts_with("get /latest.json "), "{head}");
+        assert!(
+            head.contains(&format!(
+                "user-agent: pluryprint/{}\r\n",
+                env!("CARGO_PKG_VERSION")
+            )),
+            "{head}"
+        );
+        assert!(head.contains("accept: application/json\r\n"), "{head}");
+
+        // Not overridden: the link is the release's own page.
+        let (url, server) = serve_once("200 OK", MANIFEST);
+        let release = fetch_manifest_with(&agent, &url, false).unwrap().unwrap();
+        assert_eq!(release.html_url, release_page("0.0.2"));
+        server.join().unwrap();
+
+        let (url, server) = serve_once("404 Not Found", "Not Found");
+        let err = fetch_manifest_with(&agent, &url, true).unwrap_err();
+        assert_eq!(err.reason, CHANNEL_UNAVAILABLE);
+        server.join().unwrap();
+
+        let (url, server) = serve_once("429 Too Many Requests", "");
+        let err = fetch_manifest_with(&agent, &url, true).unwrap_err();
+        assert_eq!(err.reason, "rate_limited");
+        server.join().unwrap();
+
+        let (url, server) = serve_once("503 Service Unavailable", "");
+        let err = fetch_manifest_with(&agent, &url, true).unwrap_err();
+        assert_eq!(err.reason, "bad_status");
+        assert_eq!(err.params.get("status").map(String::as_str), Some("503"));
+        server.join().unwrap();
+    }
+
+    /// A server that cannot be reached, or that never answers within the
+    /// timeout, is "offline".
+    #[test]
+    fn fetch_is_offline_when_the_server_is_unreachable_or_silent() {
+        let closed = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap()
+        };
+        let url = tauri::Url::parse(&format!("http://{closed}/latest.json")).unwrap();
+        let err = fetch_manifest_with(&agent_with(None, FETCH_TIMEOUT), &url, true).unwrap_err();
+        assert_eq!(err.reason, "offline");
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = tauri::Url::parse(&format!(
+            "http://{}/latest.json",
+            listener.local_addr().unwrap()
+        ))
+        .unwrap();
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let server = std::thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            // Hold the connection open without answering until the client
+            // has given up.
+            let _ = held.recv();
+        });
+        let started = std::time::Instant::now();
+        let agent = agent_with(None, std::time::Duration::from_millis(300));
+        let err = fetch_manifest_with(&agent, &url, true).unwrap_err();
+        assert_eq!(err.reason, "offline");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        drop(release);
+        server.join().unwrap();
+    }
+
+    /// A configured HTTP proxy carries the request: the agent opens a
+    /// `CONNECT` tunnel to the update server through it.
+    #[test]
+    fn fetch_goes_through_the_configured_proxy() {
+        let proxy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let proxy_url = format!("http://{}", proxy.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = proxy.accept().unwrap();
+            let connect = read_head(&mut stream);
+            use std::io::Write;
+            stream
+                .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                .unwrap();
+            let request = read_head(&mut stream);
+            respond(&mut stream, "200 OK", MANIFEST);
+            (connect, request)
+        });
+        let url = tauri::Url::parse("http://updates.example.invalid/latest.json").unwrap();
+        let agent = agent_with(Some(ureq::Proxy::new(&proxy_url).unwrap()), FETCH_TIMEOUT);
+        let release = fetch_manifest_with(&agent, &url, true).unwrap().unwrap();
+        assert_eq!(release.tag_name, "0.0.2");
+        let (connect, request) = server.join().unwrap();
+        assert!(
+            connect.starts_with("CONNECT updates.example.invalid:80 "),
+            "{connect}"
+        );
+        assert!(request.starts_with("GET /latest.json "), "{request}");
+    }
+
+    /// The proxy is the first of HTTPS_PROXY / https_proxy / HTTP_PROXY /
+    /// http_proxy that holds a usable HTTP(S) proxy; empty, unparseable and
+    /// SOCKS values are skipped, and none at all means a direct connection.
+    #[test]
+    fn proxy_comes_from_the_first_usable_variable() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| v.to_string())
+            }
+        };
+        let host = |pairs| proxy_from(env(pairs)).map(|p| (p.host().to_string(), p.port()));
+
+        assert_eq!(host(&[]), None);
+        assert_eq!(
+            host(&[
+                ("HTTP_PROXY", "http://plain:3128"),
+                ("HTTPS_PROXY", "http://secure:8080"),
+            ]),
+            Some(("secure".into(), 8080))
+        );
+        assert_eq!(
+            host(&[("http_proxy", "corp-proxy")]),
+            Some(("corp-proxy".into(), 80)),
+            "a bare host is an HTTP proxy on port 80"
+        );
+        assert_eq!(
+            host(&[
+                ("HTTPS_PROXY", "  "),
+                ("https_proxy", "https://tls-proxy:443")
+            ]),
+            Some(("tls-proxy".into(), 443))
+        );
+        assert_eq!(
+            host(&[
+                ("HTTPS_PROXY", "socks5://socks:1080"),
+                ("HTTP_PROXY", "http://fallback:8080"),
+            ]),
+            Some(("fallback".into(), 8080)),
+            "SOCKS needs a feature that is off, so it is skipped"
+        );
+        assert_eq!(host(&[("HTTPS_PROXY", "socks://socks:1080")]), None);
+        assert_eq!(host(&[("HTTPS_PROXY", "ftp://nope:21")]), None);
+        // ALL_PROXY is not one of ours (ureq's default would read it).
+        assert_eq!(host(&[("ALL_PROXY", "http://all:8080")]), None);
     }
 
     /// Reads the real published manifests. Ignored by default (network);

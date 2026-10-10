@@ -33,7 +33,7 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `clap` | 4 (`derive`) | MIT / Apache-2.0 | Headless CLI surface | Yes |
 | `wait-timeout` | 0.2 | MIT / Apache-2.0 | Bounded wait on the print child process | Yes |
 | `semver` | 1 | MIT / Apache-2.0 | Update-check version comparison | Yes |
-| `ureq` | 2.12 (`json`) | MIT / Apache-2.0 | Blocking HTTPS for the GitHub release check | Yes |
+| `ureq` | 3.4 | MIT / Apache-2.0 | Blocking HTTPS for the GitHub release check | Yes |
 | `percent-encoding` | 2.3 | MIT / Apache-2.0 | Prefilled "report issue" URL | Yes |
 | `url` | 2.5 | MIT / Apache-2.0 | WHATWG URL parsing for the external-link allow-list | Yes |
 | `specta` | `=2.0.0-rc.22` | MIT / Apache-2.0 | Type reflection for the IPC bindings | Yes |

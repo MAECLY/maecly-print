@@ -352,7 +352,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 
 ## Rust crates
 
-492 crates are compiled into the shipped binaries. The table names each one, the licence it is offered under, the licence Pluryprint uses it under, and where it ships; the licence texts follow, each with the crates that ship it.
+493 crates are compiled into the shipped binaries. The table names each one, the licence it is offered under, the licence Pluryprint uses it under, and where it ships; the licence texts follow, each with the crates that ship it.
 
 | Crate                               | Version          | Offered under                                       | Used under               | Ships in                          |
 | ----------------------------------- | ---------------- | --------------------------------------------------- | ------------------------ | --------------------------------- |
@@ -763,11 +763,13 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `unicode-segmentation`              | 1.13.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `unicode-vo`                        | 0.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `untrusted`                         | 0.9.0            | ISC                                                 | ISC                      | app                               |
-| `ureq`                              | 2.12.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `ureq`                              | 3.4.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `ureq-proto`                        | 0.6.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `url`                               | 2.5.8            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `urlpattern`                        | 0.6.0            | MIT                                                 | MIT                      | app                               |
 | `usvg`                              | 0.45.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `utf-8`                             | 0.7.6            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `utf8-zero`                         | 0.8.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `utf8_iter`                         | 1.0.4            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `utf8parse`                         | 0.2.2            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `uuid`                              | 1.24.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | Explorer extension (Windows)      |
@@ -777,7 +779,6 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `want`                              | 0.3.1            | MIT                                                 | MIT                      | app                               |
 | `web-time`                          | 1.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `web_atoms`                         | 0.2.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `webpki-roots`                      | 0.26.11          | CDLA-Permissive-2.0                                 | CDLA-Permissive-2.0      | app                               |
 | `webpki-roots`                      | 1.0.8            | CDLA-Permissive-2.0                                 | CDLA-Permissive-2.0      | app                               |
 | `webview2-com`                      | 0.38.2           | MIT                                                 | MIT                      | app                               |
 | `webview2-com-macros`               | 0.8.1            | MIT                                                 | MIT                      | app                               |
@@ -1617,6 +1618,7 @@ Used by:
 - `unicode-ident` 1.0.24 (https://github.com/dtolnay/unicode-ident), by David Tolnay
 - `usvg` 0.45.1 (https://github.com/linebender/resvg)
 - `utf-8` 0.7.6 (https://github.com/SimonSapin/rust-utf8), by Simon Sapin
+- `utf8-zero` 0.8.1 (https://github.com/algesten/utf8-zero), by Simon Sapin, Martin Algesten
 - `utf8parse` 0.2.2 (https://github.com/alacritty/vte), by Joe Wilm, Christian Duerr
 - `zune-core` 0.4.12 (https://crates.io/crates/zune-core)
 - `zune-jpeg` 0.4.21 (https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg), by caleb
@@ -1790,7 +1792,6 @@ Used by:
 - `unicode-properties` 0.1.4 (https://github.com/unicode-rs/unicode-properties), by Charles Lew, Manish Goregaokar
 - `unicode-segmentation` 1.13.2 (https://github.com/unicode-rs/unicode-segmentation), by kwantam, Manish Goregaokar
 - `unicode-vo` 0.1.0 (https://github.com/RazrFalcon/unicode-vo), by Evgeniy Reizner
-- `ureq` 2.12.1 (https://github.com/algesten/ureq), by Martin Algesten, Jacob Hoffman-Andrews
 - `url` 2.5.8 (https://github.com/servo/rust-url), by The rust-url developers
 - `uuid` 1.24.0 (https://github.com/uuid-rs/uuid), by Ashley Mannix<ashleymannix@live.com.au>, Dylan DPC<dylan.dpc@gmail.com>, Hunar Roop Kahlon<hunar.roop@gmail.com>
 - `uuid` 1.27.0 (https://github.com/uuid-rs/uuid), by Ashley Mannix<ashleymannix@live.com.au>, Dylan DPC<dylan.dpc@gmail.com>, Hunar Roop Kahlon<hunar.roop@gmail.com>
@@ -2024,7 +2025,8 @@ Used by:
 - `serialize-to-javascript-impl` 0.1.2 (https://github.com/chippers/serialize-to-javascript), by Chip Reed
 - `static_assertions` 1.1.0 (https://github.com/nvzqz/static-assertions-rs), by Nikolai Vazquez
 - `tinyvec` 1.11.0 (https://github.com/Lokathor/tinyvec), by Lokathor
-- `ureq` 2.12.1 (https://github.com/algesten/ureq), by Martin Algesten, Jacob Hoffman-Andrews
+- `ureq` 3.4.2 (https://github.com/algesten/ureq), by Martin Algesten, Jacob Hoffman-Andrews
+- `ureq-proto` 0.6.4 (https://github.com/algesten/ureq-proto), by Martin Algesten
 - `utf8_iter` 1.0.4 (https://github.com/hsivonen/utf8_iter), by Henri Sivonen
 - `zeroize` 1.9.0 (https://github.com/RustCrypto/utils), by The RustCrypto Project Developers
 - `zune-core` 0.5.1 (https://github.com/etemesi254/zune-image)
@@ -9105,7 +9107,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Used by:
 
-- `webpki-roots` 0.26.11 (https://github.com/rustls/webpki-roots)
 - `webpki-roots` 1.0.8 (https://github.com/rustls/webpki-roots)
 
 ```text
