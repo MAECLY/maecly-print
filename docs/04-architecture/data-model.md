@@ -11,11 +11,13 @@
 | Queue (live state)                  | `%LOCALAPPDATA%\Maecly\Pluryprint\data\queue.json`                          | `~/Library/Application Support/com.Maecly.Pluryprint/queue.json`         |
 | Update bookkeeping                  | `%LOCALAPPDATA%\Maecly\Pluryprint\data\update-state.json`                   | `~/Library/Application Support/com.Maecly.Pluryprint/update-state.json`  |
 | Shell-extension handoff             | `%LOCALAPPDATA%\Maecly\Pluryprint\data\handoff\`                            | `~/Library/Application Support/com.Maecly.Pluryprint/handoff/`           |
+| Explorer menu labels and profiles   | `%LOCALAPPDATA%\Maecly\Pluryprint\data\shell-menu.json` (written by the app, read by the DLL) | — |
+| Print-quality swap journal (D16)    | `%LOCALAPPDATA%\Maecly\Pluryprint\data\devmode-swap\devmode-swap-<printer hash>.json` and `.lock`; present only while a swap is in flight or after a crash | — |
 | Logs (see §5.2 for rotation)        | `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\pluryprint-YYYY-MM-DD.jsonl`   | `~/Library/Logs/Pluryprint/pluryprint-YYYY-MM-DD.jsonl`      |
 | Cache (converted PDFs)              | `%LOCALAPPDATA%\Maecly\Pluryprint\cache\conversions\<job-id>.pdf`            | `~/Library/Caches/com.Maecly.Pluryprint/conversions/<job-id>.pdf`        |
 | Enterprise policy (**read-only**)   | `%ProgramData%\Pluryprint\policy.json`                          | `/Library/Application Support/Pluryprint/policy.json`         |
 
-Note the **`conversions/` subdirectory** — converted PDFs are not written directly into the cache root. There is no updater staging directory, because nothing is ever downloaded (see [auto-updater.md](./auto-updater.md)).
+Note the **`conversions/` subdirectory** — converted PDFs are not written directly into the cache root; a protected PDF's decrypted copy is the job's cache PDF too, deleted with the job. Pluryprint keeps no updater staging directory of its own: `tauri-plugin-updater` downloads an update only when the user asks and hands it to the installer (see [auto-updater.md](./auto-updater.md)). Each conversion's scratch folder (`pluryprint-convert-<job>-*`) lives in the OS temp directory and is removed when the conversion ends.
 
 `update-state.json` and `handoff/` live under the **data** directory, alongside `queue.json`, because all three are live machine-managed state rather than user configuration. On Windows the data and cache directories are the `data\` and `cache\` subfolders of `%LOCALAPPDATA%\Maecly\Pluryprint\`, and config is the `config\` subfolder of the roaming `%APPDATA%\Maecly\Pluryprint\`; on macOS config and data share `com.Maecly.Pluryprint` under Application Support and the cache is a separate tree. The layout is `directories::ProjectDirs::from("com", "Maecly", "Pluryprint")`, which the shell extension uses too.
 
@@ -81,6 +83,8 @@ conversion_timeout_seconds = 60  # 0 disables the timeout, else 10..=3600
 print_timeout_seconds = 300      # spool + wait for the OS job; 0 disables, else 10..=3600
 max_file_size_mb           = 200 # 1..=4096; enforced at inspect/submit time
 default_profile = "builtin-quick"  # profile *id*; omitted → builtin-quick
+# html_renderer = "browser"     # hidden (D15, ADR-0012): only a hand edit sets it; not on the wire,
+                                # never written while it is the default ("system", the web view)
 
 [updater]
 channel = "stable"           # "stable" | "beta" | "nightly"
