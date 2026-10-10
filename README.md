@@ -37,9 +37,22 @@ Right-click on any number of files → Pluryprint ▸
 
 The entry sits under **Show more options** on Windows 11 because a top-level entry needs a signed package, and Pluryprint ships without code-signing certificates for now ([ADR-0013](./docs/adr/0013-explorer-command-per-user-verb.md)).
 
+## Download
+
+**[Pluryprint 0.0.1 preview](https://github.com/MAECLY/maecly-print/releases/tag/v0.0.1)** (pre-alpha, published 2026-10-10). Get the [latest release](https://github.com/MAECLY/maecly-print/releases/latest), or the right file from the [landing page](https://pluryprint.maecly.com/en/) ([en español](https://pluryprint.maecly.com/)):
+
+| Computer                                                  | File                                                                                                                                       |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Windows, Intel or AMD (x64)                               | [`Pluryprint_0.0.1_windows_x64.exe`](https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_windows_x64.exe)     |
+| Windows on ARM (ARM64; the x64 file also works, emulated) | [`Pluryprint_0.0.1_windows_arm64.exe`](https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_windows_arm64.exe) |
+| Mac with Apple silicon                                    | [`Pluryprint_0.0.1_apple_silicon.dmg`](https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_apple_silicon.dmg) |
+| Mac with an Intel processor (tested only under Rosetta 2) | [`Pluryprint_0.0.1_apple_intel.dmg`](https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_apple_intel.dmg)     |
+
+Check the file against [`SHA256SUMS`](https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/SHA256SUMS) before opening it. Nothing is signed with an Apple or Microsoft certificate, so Windows SmartScreen (**More info → Run anyway**) and macOS Gatekeeper (**System Settings → Privacy & Security → Open Anyway**) warn the first time; the [release notes](https://github.com/MAECLY/maecly-print/releases/tag/v0.0.1) explain both, and what to do if Smart App Control blocks the installer.
+
 ## Status
 
-**Pre-alpha, not yet released.** The repository stays private until the first stable release. What works today:
+**Pre-alpha.** Version 0.0.1 preview is published (see [Download](#download)) and the repository is public. What works today:
 
 - **Printing**, end to end, of every format above: PDFs pass through untouched; images, SVG, Markdown and text are converted inside the app; HTML, Markdown and text are paginated by the system's own web view (WebView2 / WebKit) in a sandboxed worker; Office and OpenDocument go through LibreOffice. Everything is spooled through the bundled SumatraPDF on Windows or `lp` (CUPS) on macOS. A missing LibreOffice (or, on Windows, the HEIC codecs) pauses the job, and the app offers to install it after asking.
 - **A persistent print queue** (`queue.json`): bounded concurrency, automatic retries with backoff, per-job and whole-queue pause/resume/cancel, crash recovery, and jobs followed in the OS queue until they really print (or end as _unconfirmed_).
@@ -51,7 +64,7 @@ The entry sits under **Show more options** on Windows 11 because a top-level ent
 
 **What is NOT here yet:**
 
-- **No published release.** The release workflow builds signed drafts on a tag ([releasing.md](./docs/07-build-and-release/releasing.md)); none has been published.
+- **No stable release.** 0.0.1 is a pre-alpha preview, built and signed by the release workflow ([releasing.md](./docs/07-build-and-release/releasing.md)).
 - **No code-signing certificates**, by decision ([ADR-0011](./docs/adr/0011-release-channel.md)): expect SmartScreen and Gatekeeper warnings; the release notes say how to get past them. Updates are signed with Pluryprint's own key.
 - **No top-level Windows 11 menu entry** (see above), and no nightly builds.
 
@@ -68,7 +81,7 @@ See the [roadmap](./docs/06-roadmap/milestones.md) for the milestone path, and t
 #   4. WebView2 Runtime (preinstalled on Windows 11)
 # Detailed checklist in docs/08-development/local-setup.md.
 
-git clone https://github.com/<org>/maecly-print.git
+git clone https://github.com/MAECLY/maecly-print.git
 cd maecly-print
 pnpm install
 
