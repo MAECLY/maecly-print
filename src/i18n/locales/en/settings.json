@@ -76,6 +76,11 @@
       "nightly": "Nightly"
     },
     "channelNote": "Stable receives final releases only. Beta also receives every pre-release, and moves on to the stable release of the same version. No nightly builds are published, so Nightly follows the beta feed.",
+    "lowerChannel": {
+      "title": "Switch to {{channel}}?",
+      "message": "Pluryprint stays on the version you have now: switching never installs an older one. You will be offered an update again only when the {{channel}} channel publishes a version newer than this one, which can take a while if {{current}} is ahead of it.",
+      "confirm": "Switch to {{channel}}"
+    },
     "checkOnStartup": {
       "label": "Check on startup",
       "hint": "Asks GitHub for the latest release 30 seconds after launch, at most once every 24 hours."

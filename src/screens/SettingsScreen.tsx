@@ -10,8 +10,14 @@ import {
 import type { Density, ResolvedTheme, ThemeMode } from '@/lib/theme';
 import type { UpdateChannel } from '@/lib/ipc';
 import type { Bounds } from '@/ipc/bindings';
-import { SUPPORTED_LOCALES, matchLocale, type Locale } from '@/i18n';
+import {
+  SUPPORTED_LOCALES,
+  matchLocale,
+  type Locale,
+  type TranslationKey,
+} from '@/i18n';
 import { isMacPlatform } from '@/components/AppShell/MPAppShell';
+import { ConfirmDialog, type ConfirmState } from '@/components/ConfirmDialog';
 import { useLocale, useT, type TFunction } from '@/i18n/I18nProvider';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useProfilesStore } from '@/stores/profilesStore';
@@ -30,6 +36,25 @@ interface SettingsScreenProps {
   mode?: ThemeMode;
   setMode?: (m: ThemeMode) => void;
 }
+
+/**
+ * FR-086: how far each channel is from final releases. Moving to a lower
+ * rank (towards stable) asks first, because it does not take the installed
+ * version back down: the app stays on what it has until the new channel
+ * reaches it.
+ */
+const CHANNEL_RANK: Record<UpdateChannel, number> = {
+  stable: 0,
+  beta: 1,
+  nightly: 2,
+};
+
+/** A channel's translated name, as a table so a new channel must be named. */
+const CHANNEL_LABEL = {
+  stable: 'updates.channel.stable',
+  beta: 'updates.channel.beta',
+  nightly: 'updates.channel.nightly',
+} as const satisfies Record<UpdateChannel, TranslationKey<'settings'>>;
 
 /** Language names are endonyms, so the list reads the same in every locale. */
 const LOCALE_LABELS: Record<Locale, string> = {
@@ -351,6 +376,7 @@ export function SettingsScreen({
 
   const backendReady = status === 'ready' && settings !== null;
   const backendDisabled = !backendReady;
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
 
   // While the backend config is still loading, an appearance change would apply
   // locally and then be silently reverted by the arriving snapshot — so disable
@@ -388,6 +414,30 @@ export function SettingsScreen({
   const onThemeResolved = (tm: ResolvedTheme) => {
     setTheme(tm);
     if (backendReady) void patch({ app: { theme: tm } });
+  };
+  /**
+   * FR-086: switching to a more stable channel needs an explicit yes, since
+   * nothing is downgraded and the next update only comes once that channel
+   * catches up with the installed version. A move up applies at once.
+   */
+  const onChannel = (next: UpdateChannel) => {
+    const current = updater?.channel ?? 'stable';
+    if (next === current) return;
+    const save = () => void patch({ updater: { channel: next } });
+    if (CHANNEL_RANK[next] >= CHANNEL_RANK[current]) {
+      save();
+      return;
+    }
+    const name = t(CHANNEL_LABEL[next]);
+    setConfirm({
+      title: t('updates.lowerChannel.title', { channel: name }),
+      message: t('updates.lowerChannel.message', {
+        channel: name,
+        current: t(CHANNEL_LABEL[current]),
+      }),
+      confirmLabel: t('updates.lowerChannel.confirm', { channel: name }),
+      run: save,
+    });
   };
   const onDensity = (d: Density) => {
     setDensity(d);
@@ -639,7 +689,7 @@ export function SettingsScreen({
         <Row label={t('updates.channel.label')} disabled={backendDisabled}>
           <MPSegmented<UpdateChannel>
             value={updater?.channel ?? 'stable'}
-            onChange={(c) => void patch({ updater: { channel: c } })}
+            onChange={onChannel}
             aria-label={t('updates.channel.label')}
             options={[
               { value: 'stable', label: t('updates.channel.stable') },
@@ -712,6 +762,9 @@ export function SettingsScreen({
         </Row>
         <Note>{t('privacy.note')}</Note>
       </div>
+      {confirm && (
+        <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} />
+      )}
     </>
   );
 }

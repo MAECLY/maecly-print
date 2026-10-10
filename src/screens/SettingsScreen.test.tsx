@@ -361,6 +361,86 @@ describe('SettingsScreen', () => {
     expect(sent.updater.channel).toBe('beta');
   });
 
+  it('FR-086: switching to a lower channel asks first, and Cancel keeps the channel', async () => {
+    const calls = mockSettings({
+      initial: settingsWith({
+        updater: { ...fixtureAppSettings.updater, channel: 'beta' },
+      }),
+    });
+    renderSettings();
+    await waitReady();
+
+    fireEvent.click(screen.getByText('Stable'));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Switch to Stable?');
+    // It says nothing is downgraded and when the next update comes.
+    expect(dialog).toHaveTextContent(/never installs an older one/);
+    expect(dialog).toHaveTextContent(
+      /only when the Stable channel publishes a version newer than this one/,
+    );
+    expect(calls.some((c) => c.cmd === 'set_app_settings')).toBe(false);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(calls.some((c) => c.cmd === 'set_app_settings')).toBe(false);
+    expect(useSettingsStore.getState().settings?.updater.channel).toBe('beta');
+  });
+
+  it('FR-086: confirming the switch to a lower channel saves it', async () => {
+    const calls = mockSettings({
+      initial: settingsWith({
+        updater: { ...fixtureAppSettings.updater, channel: 'nightly' },
+      }),
+    });
+    renderSettings();
+    await waitReady();
+
+    fireEvent.click(screen.getByText('Beta'));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Switch to Beta' }),
+    );
+
+    const sent = await savedSettings(calls);
+    expect(sent.updater.channel).toBe('beta');
+  });
+
+  it('FR-086: a move to a less stable channel applies without a question', async () => {
+    const calls = mockSettings({
+      initial: settingsWith({
+        updater: { ...fixtureAppSettings.updater, channel: 'stable' },
+      }),
+    });
+    renderSettings();
+    await waitReady();
+
+    fireEvent.click(screen.getByText('Nightly'));
+
+    const sent = await savedSettings(calls);
+    expect(sent.updater.channel).toBe('nightly');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('FR-086: the lower-channel question is translated', async () => {
+    mockSettings({
+      initial: settingsWith({
+        app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+        updater: { ...fixtureAppSettings.updater, channel: 'beta' },
+      }),
+    });
+    renderSettings();
+    await waitReady();
+
+    fireEvent.click(screen.getByText('Estable'));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('¿Cambiar a Estable?');
+    expect(dialog).toHaveTextContent(/nunca instala una más antigua/);
+    expect(
+      within(dialog).getByRole('button', { name: 'Cambiar a Estable' }),
+    ).toBeInTheDocument();
+  });
+
   it('persists the check-on-startup toggle', async () => {
     const calls = mockSettings();
     renderSettings();

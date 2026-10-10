@@ -76,6 +76,11 @@
       "nightly": "Nocturno"
     },
     "channelNote": "Estable recibe solo las versiones definitivas. Beta recibe además cada versión preliminar y pasa a la estable de esa misma versión. No se publican versiones nocturnas, así que Nocturno sigue el canal beta.",
+    "lowerChannel": {
+      "title": "¿Cambiar a {{channel}}?",
+      "message": "Pluryprint se queda en la versión que tienes ahora: cambiar de canal nunca instala una más antigua. Solo se te volverá a ofrecer una actualización cuando el canal {{channel}} publique una versión más nueva que esta, lo que puede tardar si {{current}} va por delante.",
+      "confirm": "Cambiar a {{channel}}"
+    },
     "checkOnStartup": {
       "label": "Comprobar al iniciar",
       "hint": "Pregunta a GitHub por la última versión 30 segundos después de iniciar, como mucho una vez cada 24 horas."
