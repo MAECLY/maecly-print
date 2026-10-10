@@ -376,9 +376,10 @@ export async function expandFolderIntoJob(
   setExpanding(expanding + 1);
   const progress = toast.loading(t('folders.expanding', { name: folder.name }));
   // The progress toast is *replaced* (same id) or dismissed on a later task,
-  // never dismissed straight away: sonner applies a dismiss synchronously but
-  // adds a toast on a `setTimeout`, so a walk that settles within the same
-  // macrotask would dismiss nothing and leave an infinite spinner behind.
+  // never dismissed straight away. sonner adds a toast on a `setTimeout` but
+  // delivers a dismissal on a `requestAnimationFrame`, and a browser may run
+  // that frame before the pending timer: a walk that settles within the same
+  // macrotask would then dismiss nothing and leave an infinite spinner.
   let settled = false;
   try {
     const walked = await walkFolder(folder, scan);
@@ -404,8 +405,10 @@ export async function expandFolderIntoJob(
 }
 
 /**
- * Dismiss a toast after sonner has had the chance to add it (its subscriber
- * adds on a zero-delay timer; ours is queued behind it, so it always wins).
+ * Dismiss a toast after sonner has had the chance to add it. Its subscriber
+ * adds on a zero-delay timer, and ours is queued behind it, so the add always
+ * lands first. The dismissal then reaches the screen two animation frames
+ * later.
  */
 function dismissLater(id: string | number): void {
   setTimeout(() => toast.dismiss(id), 0);
