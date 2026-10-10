@@ -102,16 +102,37 @@ fn fr_001_the_hooks_register_the_context_menu_dll_per_user() {
     ] {
         assert!(nsh.contains(needle), "missing {needle}");
     }
-    // HKCU only: nothing that needs elevation (NFR-020).
-    for line in nsh.lines().filter(|l| !l.trim_start().starts_with(';')) {
+    // HKCU only: nothing that needs elevation (NFR-020). Only writes count:
+    // the MaeclyPrint takeover (ADR-0009) reads HKLM to find a per-machine
+    // MSI, which msiexec then removes with its own elevation prompt, and
+    // deletes a legacy `ContextMenuHandlers` key an old README told
+    // developers to create.
+    let writes = nsh
+        .lines()
+        .map(str::trim_start)
+        .filter(|l| l.starts_with("WriteReg"));
+    for line in writes {
         assert!(
-            !line.contains("HKLM") && !line.contains("HKCR") && !line.contains("SHCTX"),
+            line.starts_with("WriteRegStr HKCU ") || line.starts_with("WriteRegDWORD HKCU "),
             "per-user installs write HKCU only: {line}"
         );
         assert!(
             !line.contains("ContextMenuHandlers"),
             "the DLL implements IExplorerCommand, not IContextMenu: {line}"
         );
+    }
+    for line in nsh.lines().filter(|l| !l.trim_start().starts_with(';')) {
+        assert!(
+            !line.contains("HKCR") && !line.contains("SHCTX"),
+            "per-user installs write HKCU only: {line}"
+        );
+        if line.contains("HKLM") {
+            let op = line.trim_start();
+            assert!(
+                op.starts_with("EnumRegKey ") || op.starts_with("ReadRegStr "),
+                "HKLM is only read: {line}"
+            );
+        }
     }
 }
 
