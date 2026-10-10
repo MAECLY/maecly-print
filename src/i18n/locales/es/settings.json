@@ -75,7 +75,7 @@
       "beta": "Beta",
       "nightly": "Nocturno"
     },
-    "channelNote": "Por ahora todos los canales reciben las versiones estables; todavía no se publican canales beta ni nocturno separados.",
+    "channelNote": "Estable recibe solo las versiones definitivas. Beta recibe además cada versión preliminar y pasa a la estable de esa misma versión. No se publican versiones nocturnas, así que Nocturno sigue el canal beta.",
     "checkOnStartup": {
       "label": "Comprobar al iniciar",
       "hint": "Pregunta a GitHub por la última versión 30 segundos después de iniciar, como mucho una vez cada 24 horas."

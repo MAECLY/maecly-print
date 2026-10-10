@@ -12,8 +12,9 @@
 //! tests, so the GUI command ([`crate::ipc::update::install_update`]) and the
 //! CLI (`pluryprint update install`) apply exactly the same rules:
 //!
-//! - [`resolve_endpoint`] — the manifest URL, overridable through
-//!   [`ENDPOINT_ENV`] for local end-to-end testing.
+//! - [`resolve_endpoint`] — the manifest URL of the user's channel
+//!   ([`default_endpoint`], FR-085), overridable through [`ENDPOINT_ENV`] for
+//!   local end-to-end testing.
 //! - [`is_major_bump`] — FR-087: a major version jump is never installed
 //!   without an explicit, separate opt-in.
 //! - [`check_installable_location`] — refuse to "update" a binary that is not
@@ -31,26 +32,57 @@ use specta::Type;
 use tauri::Url;
 use tauri_plugin_updater::UpdaterExt;
 
+use crate::settings::UpdateChannel;
 use crate::util::error::{IpcError, IpcErrorCode};
 
-/// Where releases publish their updater manifest. `releases/latest/download`
-/// always redirects to the newest non-prerelease, so the URL never changes.
-pub const DEFAULT_ENDPOINT: &str =
+/// The stable channel's manifest. `releases/latest/download` always
+/// redirects to the newest published release that is neither a draft nor a
+/// prerelease, so the URL never changes (FR-085).
+pub const STABLE_ENDPOINT: &str =
     "https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json";
 
-/// Environment variable that replaces [`DEFAULT_ENDPOINT`], for testing an
+/// The tag of the fixed prerelease that carries the beta channel's manifest.
+/// `.github/workflows/release.yml` overwrites its `latest.json` on **every**
+/// release, stable ones included, so a beta user is also offered a stable
+/// release that is newer than their beta (FR-086).
+pub const BETA_CHANNEL_TAG: &str = "channel-beta";
+
+/// The beta channel's manifest (FR-085).
+pub const BETA_ENDPOINT: &str =
+    "https://github.com/MAECLY/maecly-print/releases/download/channel-beta/latest.json";
+
+/// The endpoint `tauri.conf.json` names, which is the stable channel's. The
+/// app always passes its own endpoint list to the updater
+/// ([`find_update_with`]), so this only matters to a tool that reads the
+/// config.
+pub const DEFAULT_ENDPOINT: &str = STABLE_ENDPOINT;
+
+/// The manifest of `channel` (FR-085). No nightly builds are published, so
+/// the nightly channel follows the beta manifest: it gets every prerelease
+/// and every stable release, never less than beta. Pure.
+pub fn default_endpoint(channel: UpdateChannel) -> &'static str {
+    match channel {
+        UpdateChannel::Stable => STABLE_ENDPOINT,
+        UpdateChannel::Beta | UpdateChannel::Nightly => BETA_ENDPOINT,
+    }
+}
+
+/// Environment variable that replaces the channel's endpoint, for testing an
 /// update end to end against a local server. Release builds still require
 /// `https` (the plugin refuses plain `http` outside debug builds). The
 /// deprecated `MAECLYPRINT_UPDATE_ENDPOINT` is still read, with a warning.
 pub const ENDPOINT_ENV: &str = "PLURYPRINT_UPDATE_ENDPOINT";
 
 /// The manifest URL: `override_value` when it is set and non-blank, the
-/// default otherwise. Pure.
-pub fn resolve_endpoint(override_value: Option<&str>) -> Result<Url, String> {
+/// `channel`'s manifest otherwise. Pure.
+pub fn resolve_endpoint(
+    override_value: Option<&str>,
+    channel: UpdateChannel,
+) -> Result<Url, String> {
     let raw = override_value
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .unwrap_or(DEFAULT_ENDPOINT);
+        .unwrap_or(default_endpoint(channel));
     let url = Url::parse(raw).map_err(|e| format!("invalid update endpoint '{raw}': {e}"))?;
     match url.scheme() {
         "https" | "http" => Ok(url),
@@ -60,9 +92,15 @@ pub fn resolve_endpoint(override_value: Option<&str>) -> Result<Url, String> {
     }
 }
 
+/// The value of [`ENDPOINT_ENV`] (or its deprecated name), when it is set and
+/// non-blank.
+pub fn endpoint_override() -> Option<String> {
+    crate::util::legacy::env_var(ENDPOINT_ENV).filter(|v| !v.trim().is_empty())
+}
+
 /// [`resolve_endpoint`] against the real environment.
-pub fn endpoint() -> Result<Url, String> {
-    resolve_endpoint(crate::util::legacy::env_var(ENDPOINT_ENV).as_deref())
+pub fn endpoint(channel: UpdateChannel) -> Result<Url, String> {
+    resolve_endpoint(endpoint_override().as_deref(), channel)
 }
 
 /// FR-087: whether going from `current` to `candidate` crosses a **major**
@@ -247,8 +285,9 @@ impl Drop for InstallGuard {
 /// on Windows the installer relaunches the app when it is done.
 pub async fn find_update<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
+    channel: UpdateChannel,
 ) -> Result<Option<tauri_plugin_updater::Update>, IpcError> {
-    find_update_with(app, Relaunch::App, || {}).await
+    find_update_with(app, channel, Relaunch::App, || {}).await
 }
 
 /// What the Windows installer starts once it has installed an update.
@@ -262,7 +301,7 @@ pub enum Relaunch {
     Nothing,
 }
 
-/// [`find_update`] for a given [`Relaunch`] choice, with `before_exit` run
+/// [`find_update`] for a given [`Relaunch`] choice, against `channel`'s manifest, with `before_exit` run
 /// right before the process hands over to the installer and exits.
 ///
 /// On Windows `tauri-plugin-updater` ends `Update::install` with
@@ -272,10 +311,11 @@ pub enum Relaunch {
 /// lines describing the install are not lost with the process.
 pub async fn find_update_with<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
+    channel: UpdateChannel,
     relaunch: Relaunch,
     before_exit: impl Fn() + Send + Sync + 'static,
 ) -> Result<Option<tauri_plugin_updater::Update>, IpcError> {
-    let url = endpoint().map_err(IpcError::UpdateInstallFailed)?;
+    let url = endpoint(channel).map_err(IpcError::UpdateInstallFailed)?;
     let updater = app
         .updater_builder()
         .endpoints(vec![url])
@@ -373,20 +413,64 @@ mod tests {
 
     #[test]
     fn fr_082_endpoint_defaults_to_the_github_latest_manifest() {
-        assert_eq!(resolve_endpoint(None).unwrap().as_str(), DEFAULT_ENDPOINT);
+        let stable = UpdateChannel::Stable;
         assert_eq!(
-            resolve_endpoint(Some("   ")).unwrap().as_str(),
+            resolve_endpoint(None, stable).unwrap().as_str(),
+            DEFAULT_ENDPOINT
+        );
+        assert_eq!(
+            resolve_endpoint(Some("   "), stable).unwrap().as_str(),
             DEFAULT_ENDPOINT
         );
         assert!(DEFAULT_ENDPOINT.starts_with(env!("CARGO_PKG_REPOSITORY")));
     }
 
+    /// FR-085: each channel reads its own manifest, both on this project's
+    /// GitHub Releases. Stable is the newest non-prerelease; beta is the
+    /// manifest the release workflow keeps on the fixed `channel-beta`
+    /// prerelease. No nightly feed exists, so nightly reads beta.
+    #[test]
+    fn fr_085_endpoint_per_channel() {
+        let repo = env!("CARGO_PKG_REPOSITORY");
+        assert_eq!(
+            default_endpoint(UpdateChannel::Stable),
+            format!("{repo}/releases/latest/download/latest.json")
+        );
+        assert_eq!(
+            default_endpoint(UpdateChannel::Beta),
+            format!("{repo}/releases/download/{BETA_CHANNEL_TAG}/latest.json")
+        );
+        assert_eq!(
+            default_endpoint(UpdateChannel::Nightly),
+            default_endpoint(UpdateChannel::Beta)
+        );
+        assert_eq!(
+            resolve_endpoint(None, UpdateChannel::Beta)
+                .unwrap()
+                .as_str(),
+            BETA_ENDPOINT
+        );
+        // A test server replaces whichever channel is configured.
+        for channel in [UpdateChannel::Stable, UpdateChannel::Beta] {
+            assert_eq!(
+                resolve_endpoint(Some("http://127.0.0.1:1/latest.json"), channel)
+                    .unwrap()
+                    .as_str(),
+                "http://127.0.0.1:1/latest.json"
+            );
+        }
+        // The workflow publishes the beta manifest under this very tag.
+        let workflow = include_str!("../../../.github/workflows/release-channels.yml");
+        assert!(workflow.contains(&format!("BETA_TAG: {BETA_CHANNEL_TAG}")));
+    }
+
     #[test]
     fn fr_082_endpoint_can_be_overridden_for_local_testing() {
-        let url = resolve_endpoint(Some(" http://127.0.0.1:8765/latest.json ")).unwrap();
+        let stable = UpdateChannel::Stable;
+        let url = resolve_endpoint(Some(" http://127.0.0.1:8765/latest.json "), stable).unwrap();
         assert_eq!(url.as_str(), "http://127.0.0.1:8765/latest.json");
-        assert!(resolve_endpoint(Some("not a url")).is_err());
-        assert!(resolve_endpoint(Some("file:///etc/passwd")).is_err());
+        assert!(resolve_endpoint(Some("not a url"), stable).is_err());
+        assert!(resolve_endpoint(Some("file:///etc/passwd"), stable).is_err());
     }
 
     #[test]

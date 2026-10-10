@@ -4,8 +4,9 @@
 //! injected core of the check that `lib.rs`'s `setup` schedules. That injection
 //! is what makes these tests hermetic: the state file is a tempdir, "now" is a
 //! literal, and the fetcher is a closure that records whether it was called —
-//! so no test touches api.github.com or the real per-user state. (The one test
-//! that does hit the network lives in `src/update/mod.rs` and stays `#[ignore]`.)
+//! so no test touches the network or the real per-user state. (The one test that
+//! reads the published manifests lives in `src/update/mod.rs` and stays
+//! `#[ignore]`.)
 //!
 //! The assertions cover the two halves of FR-080 — "on startup" and "at most
 //! once per 24 hours" — plus FR-084's skip: whether the check runs at all, and

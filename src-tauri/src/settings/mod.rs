@@ -328,12 +328,11 @@ impl EngineCfg {
     }
 }
 
-/// Update-check preferences. Only the check itself is wired in this version;
-/// `channel` is recorded but every check currently hits the `latest` release
-/// feed (there are no separate beta/nightly feeds yet).
+/// Update-check preferences. `channel` picks the release manifest the check
+/// and the install read (FR-085, `update::install::default_endpoint`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct UpdaterCfg {
-    /// Release stream to follow (recorded only; see the type docs).
+    /// Release stream to follow.
     pub channel: UpdateChannel,
     /// Check for an update once at startup.
     pub check_on_startup: bool,
@@ -357,7 +356,8 @@ pub enum UpdateChannel {
     Stable,
     /// Beta pre-releases.
     Beta,
-    /// Nightly builds.
+    /// Nightly builds. None are published: this channel reads the beta
+    /// manifest.
     Nightly,
 }
 

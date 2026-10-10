@@ -1,7 +1,7 @@
 //! Update IPC commands.
 //!
-//! [`check_for_updates`] resolves the project's GitHub slug, fetches the latest
-//! release, and folds it against the running version into an [`UpdateCheck`].
+//! [`check_for_updates`] reads the release manifest of the configured channel
+//! (FR-085) and folds it against the running version into an [`UpdateCheck`].
 //! [`install_update`] is FR-084's "install now": it downloads the signed
 //! artifact named by the release manifest, verifies it (FR-082), installs it
 //! per-user (FR-083) and refuses a major jump without explicit opt-in
@@ -38,7 +38,8 @@ use crate::util::error::IpcError;
 #[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
 pub struct UpdateAvailable(pub UpdateCheck);
 
-/// Check GitHub for a newer release than the running build.
+/// Check the configured channel's release manifest for a newer release than
+/// the running build.
 ///
 /// Runs off the IPC thread (a network round-trip). A misconfigured repository or
 /// any network/rate-limit failure surfaces as [`IpcError::UpdateCheckFailed`]
@@ -52,12 +53,11 @@ pub struct UpdateAvailable(pub UpdateCheck);
 #[specta::specta]
 pub async fn check_for_updates() -> Result<UpdateCheck, IpcError> {
     super::run_blocking(|| {
-        // The configured channel is read but does not change the endpoint yet:
-        // every check hits the single `releases/latest` feed because separate
-        // beta/nightly feeds don't exist in this version.
-        let _channel = crate::settings::Config::load_or_default().updater.channel;
+        // FR-085: the channel picks the manifest; the install below reads
+        // the same one, so the version announced is the version installed.
+        let channel = crate::settings::Config::load_or_default().updater.channel;
 
-        let release = update::fetch_configured_latest().map_err(IpcError::from)?;
+        let release = update::fetch_configured_latest(channel).map_err(IpcError::from)?;
         let check = update::evaluate(
             env!("CARGO_PKG_VERSION"),
             release,
@@ -136,7 +136,8 @@ pub async fn install_update(
 ) -> Result<UpdateInstallResult, IpcError> {
     use tauri_specta::Event;
 
-    let Some(found) = update::install::find_update(&app).await? else {
+    let channel = crate::settings::Config::load_or_default().updater.channel;
+    let Some(found) = update::install::find_update(&app, channel).await? else {
         return Ok(UpdateInstallResult {
             installed: None,
             restart_required: false,

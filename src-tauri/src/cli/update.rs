@@ -1,8 +1,8 @@
 //! `pluryprint update …`
 //!
 //! `check` is the CLI face of [`crate::ipc::update::check_for_updates`]: the
-//! same pure [`crate::update::evaluate`] over the same GitHub `releases/latest`
-//! feed. `channel` reads/writes `updater.channel` through the settings core.
+//! same pure [`crate::update::evaluate`] over the same release manifest of the
+//! configured channel (FR-085). `channel` reads/writes `updater.channel` through the settings core.
 //!
 //! `install` is the CLI face of [`crate::ipc::update::install_update`]: the
 //! same [`crate::update::install`] core (manifest, signature verification,
@@ -31,7 +31,10 @@ use crate::util::error::IpcError;
 pub fn run(paths: &Paths, emitter: Emitter, cmd: UpdateCmd) -> Result<(), CliError> {
     match cmd {
         UpdateCmd::Check => {
-            let release = crate::update::fetch_configured_latest()
+            let channel = crate::settings::Config::load_from(&paths.config)
+                .updater
+                .channel;
+            let release = crate::update::fetch_configured_latest(channel)
                 .map_err(|e| CliError::from(IpcError::from(e)))?;
             let check = crate::update::evaluate(
                 env!("CARGO_PKG_VERSION"),
@@ -214,8 +217,12 @@ fn install(paths: &Paths, emitter: Emitter, yes: bool) -> Result<(), CliError> {
 
     let handoff = Arc::new(Handoff::default());
     let hook = Arc::clone(&handoff);
+    let channel = crate::settings::Config::load_from(&paths.config)
+        .updater
+        .channel;
     let Some(update) = tauri::async_runtime::block_on(core::find_update_with(
         &handle,
+        channel,
         core::Relaunch::Nothing,
         move || hook.report(|result| print_result(emitter, result)),
     ))?

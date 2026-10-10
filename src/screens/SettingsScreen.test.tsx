@@ -574,7 +574,7 @@ describe('SettingsScreen', () => {
     await waitReady();
 
     expect(
-      screen.getByText(/separate beta and nightly feeds are not published/),
+      screen.getByText(/No nightly builds are published/),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/these switches record consent only/),

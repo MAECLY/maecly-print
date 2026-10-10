@@ -1,15 +1,23 @@
-//! Update check against the project's GitHub "latest release".
+//! Update check against the release manifest of the user's channel.
 //!
-//! This is the *check*: it asks the GitHub Releases API for the latest
-//! published release, compares its tag to the running version with semver, and
-//! reports whether something newer exists plus a link to it. Downloading,
-//! verifying and installing a release is [`install`]'s job, and only ever
-//! happens on an explicit user action.
+//! This is the *check*: it reads the updater manifest (`latest.json`) the
+//! release workflow publishes for the configured channel (FR-085), compares
+//! its version to the running one with semver, and reports whether something
+//! newer exists plus a link to its release page. Downloading, verifying and
+//! installing a release is [`install`]'s job, and only ever happens on an
+//! explicit user action.
+//!
+//! The notice and the installer read the **same** manifest
+//! ([`install::endpoint`]), so the version the About screen announces is the
+//! version `update install` installs, the beta channel works for both, and
+//! nothing calls the GitHub REST API (no 60-requests-an-hour limit, no
+//! anonymous `api.github.com` lookup that a private repository answers
+//! with 404).
 //!
 //! Everything except the one network call is a pure function
-//! ([`repo_slug`]/[`parse_release`]/[`is_newer`]/[`evaluate`]) with co-located
-//! tests; [`fetch_latest`] is the only part that touches the network and is kept
-//! tiny so it is easy to reason about offline.
+//! ([`interpret_manifest_response`]/[`is_newer`]/[`evaluate`]) with co-located
+//! tests; [`fetch_manifest`] is the only part that touches the network and is
+//! kept tiny so it is easy to reason about offline.
 //!
 //! Beyond the check itself this module owns the small amount of state the
 //! update flow has to remember between runs ([`UpdateState`]): when the last
@@ -86,32 +94,6 @@ fn parse_repo_slug(url: &str) -> Option<(String, String)> {
     Some((owner, repo))
 }
 
-/// Parse the JSON body of GitHub's `releases/latest` into a [`ReleaseInfo`].
-/// Requires `tag_name`; tolerates a missing/empty `html_url` or `body`. Returns
-/// `None` on any structural problem so the caller degrades gracefully.
-pub fn parse_release(json: &str) -> Option<ReleaseInfo> {
-    let v: serde_json::Value = serde_json::from_str(json).ok()?;
-    let tag_name = v.get("tag_name")?.as_str()?.to_string();
-    if tag_name.is_empty() {
-        return None;
-    }
-    let html_url = v
-        .get("html_url")
-        .and_then(|u| u.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let body = v
-        .get("body")
-        .and_then(|b| b.as_str())
-        .map(str::to_string)
-        .filter(|s| !s.is_empty());
-    Some(ReleaseInfo {
-        tag_name,
-        html_url,
-        body,
-    })
-}
-
 /// Whether release `tag` is strictly newer than the running `current` version.
 /// Both may carry a leading `v`/`V`, which is stripped before a semver compare.
 /// An unparseable version on either side yields `false` (and logs), so a weird
@@ -179,66 +161,10 @@ pub fn evaluate(current: &str, release: Option<ReleaseInfo>, checked_at: String)
     }
 }
 
-/// Map a GitHub `releases/latest` response (`status` + `body`) to a result,
-/// independent of the HTTP transport so the whole decision table is unit-tested
-/// offline. [`fetch_latest`] is the thin wrapper that performs the request and
-/// feeds its outcome here.
-///
-/// - `200` with a parseable release → `Ok(Some(_))`. A `200` whose body does
-///   **not** parse is an error (`Err`), not `Ok(None)`: reporting "you're up to
-///   date" off an unreadable payload would be a lie.
-/// - `404` → `Ok(None)`: the repo has no releases yet — or does not exist at
-///   all, which GitHub reports identically. [`fetch_latest`] disambiguates the
-///   two with [`interpret_repo_probe`].
-/// - `403` / `429` → rate-limit error.
-/// - anything else → an "unexpected status" error.
-pub fn interpret_response(status: u16, body: &str) -> Result<Option<ReleaseInfo>, LocalizedError> {
-    match status {
-        200 => match parse_release(body) {
-            Some(r) => Ok(Some(r)),
-            None => Err(failure(
-                "bad_response",
-                "unexpected response from GitHub — try again later",
-            )),
-        },
-        // No releases published yet — a normal, non-error state.
-        404 => Ok(None),
-        403 | 429 => Err(failure(
-            "rate_limited",
-            "GitHub rate limit reached — try again later",
-        )),
-        other => Err(failure(
-            "bad_status",
-            format!("github.com returned an unexpected status ({other})"),
-        )
-        .param("status", other)),
-    }
-}
-
 /// An [`IpcErrorCode::UpdateCheckFailed`] with a stable `reason` the UI
 /// translates (FR-092); the English text stays the log/CLI detail.
 pub fn failure(reason: &'static str, message: impl Into<String>) -> LocalizedError {
     LocalizedError::new(IpcErrorCode::UpdateCheckFailed, reason, message)
-}
-
-/// Map the status of the `GET /repos/{owner}/{repo}` probe that disambiguates a
-/// `404` from `releases/latest`.
-///
-/// - `404` → the configured repository does not exist: the build's
-///   `repository` slug is wrong, and reporting "you're up to date" off that
-///   would hide a broken configuration behind reassuring copy.
-/// - anything else (including a rate-limited `403`) → inconclusive, treated as
-///   "the repo exists, it just has no releases yet", so a transient hiccup
-///   never turns a normal state into an error.
-pub fn interpret_repo_probe(status: u16) -> Result<(), LocalizedError> {
-    if status == 404 {
-        return Err(failure(
-            "repo_missing",
-            "the releases could not be reached on github.com: the repository is \
-             private or no longer exists",
-        ));
-    }
-    Ok(())
 }
 
 /// Build the blocking HTTP agent, honouring a system proxy from the standard
@@ -261,73 +187,10 @@ fn build_agent() -> ureq::Agent {
     builder.build()
 }
 
-/// GET a GitHub API URL and return `(status, body)`.
-///
-/// A non-2xx status is delivered by ureq as an error carrying the response, so
-/// it is unwrapped here and callers see a single shape; only a transport-level
-/// failure (DNS, connection) is an `Err`.
-fn get_api(agent: &ureq::Agent, url: &str) -> Result<(u16, String), LocalizedError> {
-    let user_agent = format!("Pluryprint/{}", env!("CARGO_PKG_VERSION"));
-    let response = agent
-        .get(url)
-        .set("User-Agent", &user_agent)
-        .set("Accept", "application/vnd.github+json")
-        .set("X-GitHub-Api-Version", "2022-11-28")
-        .call();
-
-    match response {
-        Ok(resp) => {
-            let status = resp.status();
-            let body = resp.into_string().map_err(|_| {
-                failure(
-                    "bad_response",
-                    "could not read the response from github.com",
-                )
-            })?;
-            Ok((status, body))
-        }
-        Err(ureq::Error::Status(code, resp)) => Ok((code, resp.into_string().unwrap_or_default())),
-        Err(ureq::Error::Transport(_)) => Err(failure(
-            "offline",
-            "could not reach github.com — check your connection",
-        )),
-    }
-}
-
-/// Fetch the latest published release for `owner/repo` from the GitHub API.
-///
-/// A thin transport wrapper: it performs the request (a 10-second timeout keeps
-/// a hung request from blocking the off-thread command) and hands the status +
-/// body to [`interpret_response`], which owns the status→result mapping.
-///
-/// When that yields "no release" — a `404` — a second request probes the
-/// repository itself, because GitHub answers `404` both for "no releases yet"
-/// and for "no such repository". Without it a wrong `repository` slug would
-/// render as a reassuring "You're up to date" forever. The probe only runs on
-/// that one branch, so the happy path is still a single request.
-pub fn fetch_latest(owner: &str, repo: &str) -> Result<Option<ReleaseInfo>, LocalizedError> {
-    let agent = build_agent();
-    let (status, body) = get_api(
-        &agent,
-        &format!("https://api.github.com/repos/{owner}/{repo}/releases/latest"),
-    )?;
-    let release = interpret_response(status, &body)?;
-
-    if release.is_none() {
-        let (probe_status, _) = get_api(
-            &agent,
-            &format!("https://api.github.com/repos/{owner}/{repo}"),
-        )?;
-        interpret_repo_probe(probe_status)?;
-    }
-
-    Ok(release)
-}
-
 /// The release an updater manifest (`latest.json`) describes: its `version`
-/// as the tag and its `notes` as the body; the manifest URL stands in for the
-/// release page. `None` when the document has no version. Pure.
-pub fn parse_manifest(json: &str, manifest_url: &str) -> Option<ReleaseInfo> {
+/// as the tag and its `notes` as the body; `page` is the link the UI offers.
+/// `None` when the document has no version. Pure.
+pub fn parse_manifest(json: &str, page: &str) -> Option<ReleaseInfo> {
     let v: serde_json::Value = serde_json::from_str(json).ok()?;
     let version = v.get("version")?.as_str()?.trim().to_string();
     if version.is_empty() {
@@ -335,7 +198,7 @@ pub fn parse_manifest(json: &str, manifest_url: &str) -> Option<ReleaseInfo> {
     }
     Some(ReleaseInfo {
         tag_name: version,
-        html_url: manifest_url.to_string(),
+        html_url: page.to_string(),
         body: v
             .get("notes")
             .and_then(|n| n.as_str())
@@ -344,22 +207,34 @@ pub fn parse_manifest(json: &str, manifest_url: &str) -> Option<ReleaseInfo> {
     })
 }
 
-/// Map an updater manifest response, like [`interpret_response`] does for the
-/// GitHub API: `404` is "nothing published", anything else unexpected is an
-/// error naming the status. Pure.
+/// Map an updater manifest response (`status` + `body`) to a result,
+/// independent of the HTTP transport so the whole decision table is
+/// unit-tested offline. Pure.
+///
+/// - `200` with a version → `Ok(Some(_))`. A `200` that does **not** parse is
+///   an error, not `Ok(None)`: "you're up to date" off an unreadable payload
+///   would be a lie.
+/// - `404` → `Ok(None)`: nothing is published on this channel yet. While the
+///   repository is private every anonymous request lands here too.
+/// - `403` / `429` → rate-limit error.
+/// - anything else → an "unexpected status" error naming the code.
 pub fn interpret_manifest_response(
     status: u16,
     body: &str,
-    manifest_url: &str,
+    page: &str,
 ) -> Result<Option<ReleaseInfo>, LocalizedError> {
     match status {
-        200 => parse_manifest(body, manifest_url).map(Some).ok_or_else(|| {
+        200 => parse_manifest(body, page).map(Some).ok_or_else(|| {
             failure(
                 "bad_response",
                 "the update server's manifest has no version",
             )
         }),
         404 => Ok(None),
+        403 | 429 => Err(failure(
+            "rate_limited",
+            "the update server is limiting requests — try again later",
+        )),
         other => Err(failure(
             "bad_status",
             format!("the update server returned an unexpected status ({other})"),
@@ -368,37 +243,64 @@ pub fn interpret_manifest_response(
     }
 }
 
-/// The newest release from the source this build checks: the updater
-/// manifest named by [`install::ENDPOINT_ENV`] when it is set (so a test
-/// server drives the check, the launch-time check and `update install` alike),
-/// the GitHub releases API otherwise.
-pub fn fetch_configured_latest() -> Result<Option<ReleaseInfo>, LocalizedError> {
-    let override_value = std::env::var(install::ENDPOINT_ENV)
-        .ok()
-        .filter(|v| !v.trim().is_empty());
-    if let Some(raw) = override_value {
-        let url =
-            install::resolve_endpoint(Some(&raw)).map_err(|m| failure("not_configured", m))?;
-        let user_agent = format!("Pluryprint/{}", env!("CARGO_PKG_VERSION"));
-        let (status, body) = match build_agent()
-            .get(url.as_str())
-            .set("User-Agent", &user_agent)
-            .call()
-        {
-            Ok(resp) => (resp.status(), resp.into_string().unwrap_or_default()),
-            Err(ureq::Error::Status(code, resp)) => (code, resp.into_string().unwrap_or_default()),
-            Err(ureq::Error::Transport(_)) => {
-                return Err(failure(
-                    "offline",
-                    "could not reach the update server — check your connection",
-                ))
-            }
-        };
-        return interpret_manifest_response(status, &body, url.as_str());
+/// The GitHub release page of `version` (`…/releases/tag/vX.Y.Z`), the link
+/// the notice offers. Releases are tagged `v<version>` by
+/// `.github/workflows/release.yml`. Pure.
+pub fn release_page(version: &str) -> String {
+    format!(
+        "{}/releases/tag/v{}",
+        env!("CARGO_PKG_REPOSITORY"),
+        strip_v(version)
+    )
+}
+
+/// GET the manifest at `url` and interpret it.
+///
+/// A thin transport wrapper: a 10-second timeout keeps a hung request from
+/// blocking the off-thread command, and the status + body go to
+/// [`interpret_manifest_response`]. `page` is the release link to report when
+/// the manifest is a local test server's ([`install::ENDPOINT_ENV`]); for the
+/// published channels the link is the release's own page ([`release_page`]).
+pub fn fetch_manifest(
+    url: &tauri::Url,
+    overridden: bool,
+) -> Result<Option<ReleaseInfo>, LocalizedError> {
+    let user_agent = format!("Pluryprint/{}", env!("CARGO_PKG_VERSION"));
+    let (status, body) = match build_agent()
+        .get(url.as_str())
+        .set("User-Agent", &user_agent)
+        .set("Accept", "application/json")
+        .call()
+    {
+        Ok(resp) => (resp.status(), resp.into_string().unwrap_or_default()),
+        Err(ureq::Error::Status(code, resp)) => (code, resp.into_string().unwrap_or_default()),
+        Err(ureq::Error::Transport(_)) => {
+            return Err(failure(
+                "offline",
+                "could not reach the update server — check your connection",
+            ))
+        }
+    };
+    let mut release = interpret_manifest_response(status, &body, url.as_str())?;
+    if !overridden {
+        if let Some(r) = release.as_mut() {
+            r.html_url = release_page(&r.tag_name);
+        }
     }
-    let (owner, repo) =
-        repo_slug().ok_or_else(|| failure("not_configured", "repository not configured"))?;
-    fetch_latest(&owner, &repo)
+    Ok(release)
+}
+
+/// The newest release on `channel` (FR-085): the manifest of that channel
+/// ([`install::default_endpoint`]), or the one named by
+/// [`install::ENDPOINT_ENV`] when it is set, so a test server drives the
+/// check, the launch-time check and `update install` alike.
+pub fn fetch_configured_latest(
+    channel: crate::settings::UpdateChannel,
+) -> Result<Option<ReleaseInfo>, LocalizedError> {
+    let override_value = install::endpoint_override();
+    let url = install::resolve_endpoint(override_value.as_deref(), channel)
+        .map_err(|m| failure("not_configured", m))?;
+    fetch_manifest(&url, override_value.is_some())
 }
 
 // ---------------------------------------------------------------------------
@@ -693,12 +595,13 @@ where
 /// webview as [`crate::ipc::update::UpdateAvailable`].
 pub fn run_startup_check() -> Option<UpdateCheck> {
     let config = crate::settings::Config::load_or_default();
+    let channel = config.updater.channel;
     run_startup_check_with(
         config.updater.check_on_startup,
         &state_path(),
         OffsetDateTime::now_utc(),
         env!("CARGO_PKG_VERSION"),
-        || fetch_configured_latest().map_err(|e| e.message),
+        || fetch_configured_latest(channel).map_err(|e| e.message),
     )
 }
 
@@ -706,8 +609,8 @@ pub fn run_startup_check() -> Option<UpdateCheck> {
 mod tests {
     use super::*;
 
-    /// FR-080: with PLURYPRINT_UPDATE_ENDPOINT set, the check reads the same
-    /// updater manifest `update install` does.
+    /// FR-080: the check reads the updater manifest, the same document
+    /// `update install` reads, and maps its statuses to stable reasons.
     #[test]
     fn fr_080_an_updater_manifest_reads_as_a_release() {
         let url = "http://127.0.0.1:8787/latest.json";
@@ -723,21 +626,85 @@ mod tests {
         assert_eq!(r.html_url, url);
         assert!(is_newer("0.0.1", &r.tag_name));
 
+        // Nothing published on this channel (or the repository is private).
         assert_eq!(interpret_manifest_response(404, "", url).unwrap(), None);
         let bad = interpret_manifest_response(200, r#"{"notes":"x"}"#, url).unwrap_err();
         assert_eq!(bad.reason, "bad_response");
+        assert_eq!(
+            interpret_manifest_response(200, "not json", url)
+                .unwrap_err()
+                .reason,
+            "bad_response"
+        );
         let status = interpret_manifest_response(500, "", url).unwrap_err();
         assert_eq!(status.reason, "bad_status");
     }
 
-    /// FR-080: a private or deleted repository is reported as unreachable
-    /// releases, not as a broken build.
+    /// FR-092: every manifest failure carries a stable reason the UI
+    /// translates, with its parameters declared.
     #[test]
-    fn fr_080_a_missing_repository_does_not_blame_the_build() {
-        let e = interpret_repo_probe(404).unwrap_err();
-        assert_eq!(e.reason, "repo_missing");
-        assert!(!e.message.contains("wrong"), "{}", e.message);
-        assert!(e.message.contains("private"), "{}", e.message);
+    fn fr_092_update_failures_carry_stable_reasons() {
+        let url = "https://example.invalid/latest.json";
+        let reason = |status: u16, body: &str| {
+            interpret_manifest_response(status, body, url)
+                .unwrap_err()
+                .reason
+        };
+        assert_eq!(reason(403, ""), "rate_limited");
+        assert_eq!(reason(429, ""), "rate_limited");
+        assert_eq!(reason(200, "nope"), "bad_response");
+        let bad = interpret_manifest_response(502, "", url).unwrap_err();
+        assert_eq!(bad.reason, "bad_status");
+        assert_eq!(bad.params.get("status").map(String::as_str), Some("502"));
+        assert_eq!(bad.code, IpcErrorCode::UpdateCheckFailed);
+    }
+
+    /// FR-080: the notice uses the release manifest, never the GitHub REST
+    /// API. The API answers an anonymous request for a private repository
+    /// with 404, rate-limits at 60 requests an hour, and knows nothing about
+    /// the beta channel's manifest.
+    #[test]
+    fn fr_080_notice_uses_manifest_not_api() {
+        let api = ["api", ".github", ".com/repos"].concat();
+        for (name, source) in [
+            ("update/mod.rs", include_str!("mod.rs")),
+            ("update/install.rs", include_str!("install.rs")),
+            ("ipc/update.rs", include_str!("../ipc/update.rs")),
+            ("cli/update.rs", include_str!("../cli/update.rs")),
+        ] {
+            assert!(!source.contains(&api), "{name} still calls the REST API");
+        }
+        // The link the notice offers is the release's own page.
+        assert_eq!(
+            release_page("0.2.0"),
+            "https://github.com/MAECLY/maecly-print/releases/tag/v0.2.0"
+        );
+        assert_eq!(release_page("v0.2.0-beta.1"), release_page("0.2.0-beta.1"));
+    }
+
+    /// FR-086: the beta manifest is rewritten by every release, stable ones
+    /// included, so a beta user moves on to the stable release of the same
+    /// version; and switching back to stable never offers an older version
+    /// (the updater installs only strictly newer ones).
+    #[test]
+    fn fr_086_beta_to_stable_no_downgrade() {
+        let release = |v: &str| {
+            Some(ReleaseInfo {
+                tag_name: v.to_string(),
+                html_url: release_page(v),
+                body: None,
+            })
+        };
+        let now = || "2026-10-10T00:00:00Z".to_string();
+
+        // On a beta, the stable release of the same version is an update.
+        assert!(evaluate("0.2.0-beta.2", release("0.2.0"), now()).available);
+        // A later beta is an update for a beta user.
+        assert!(evaluate("0.2.0-beta.1", release("0.2.0-beta.2"), now()).available);
+        // Back on stable while running a newer beta: no downgrade.
+        assert!(!evaluate("0.3.0-beta.1", release("0.2.0"), now()).available);
+        // The same version is never offered again.
+        assert!(!evaluate("0.2.0", release("v0.2.0"), now()).available);
     }
 
     #[test]
@@ -789,40 +756,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_release_full_payload() {
-        let json = r#"{
-            "tag_name": "v0.2.0",
-            "html_url": "https://github.com/MAECLY/maecly-print/releases/tag/v0.2.0",
-            "body": "What is new - Faster printing"
-        }"#;
-        let r = parse_release(json).unwrap();
-        assert_eq!(r.tag_name, "v0.2.0");
-        assert_eq!(
-            r.html_url,
-            "https://github.com/MAECLY/maecly-print/releases/tag/v0.2.0"
-        );
-        assert!(r.body.unwrap().contains("Faster printing"));
-    }
-
-    #[test]
-    fn parse_release_minimal_payload_tolerates_missing_body() {
-        let json = r#"{"tag_name": "v0.2.0", "html_url": "https://x/y", "body": null}"#;
-        let r = parse_release(json).unwrap();
-        assert_eq!(r.tag_name, "v0.2.0");
-        assert!(r.body.is_none());
-
-        // Missing body key entirely, and empty body, both → None.
-        let r2 = parse_release(r#"{"tag_name":"1.0.0","html_url":"https://x/y"}"#).unwrap();
-        assert!(r2.body.is_none());
-        let r3 = parse_release(r#"{"tag_name":"1.0.0","html_url":"","body":""}"#).unwrap();
-        assert!(r3.body.is_none());
-
-        // Missing the required tag → None.
-        assert!(parse_release(r#"{"html_url":"https://x/y"}"#).is_none());
-        assert!(parse_release("not json").is_none());
-    }
-
-    #[test]
     fn is_newer_matrix() {
         assert!(is_newer("0.0.1", "v0.1.0"));
         assert!(is_newer("0.0.1", "0.1.0"));
@@ -848,68 +781,6 @@ mod tests {
         assert!(!is_newer("1.0.0", "1.0.0-beta"));
         // And the reverse direction IS newer (beta machine, stable release out).
         assert!(is_newer("1.0.0-beta", "1.0.0"));
-    }
-
-    #[test]
-    fn interpret_response_maps_status_and_parse_outcomes() {
-        let ok_body = r#"{"tag_name":"v0.2.0","html_url":"https://x/y"}"#;
-
-        // 200 + parseable → Some.
-        let r = interpret_response(200, ok_body).unwrap().unwrap();
-        assert_eq!(r.tag_name, "v0.2.0");
-
-        // 200 + unparseable body is an ERROR, not Ok(None) ("up to date").
-        assert!(interpret_response(200, "not json at all").is_err());
-        assert!(interpret_response(200, r#"{"no_tag":true}"#).is_err());
-
-        // 404 → no releases yet (Ok(None)).
-        assert_eq!(interpret_response(404, "").unwrap(), None);
-
-        // Rate limiting.
-        assert!(interpret_response(403, "").is_err());
-        assert!(interpret_response(429, "").is_err());
-
-        // Any other status is an unexpected-status error naming the code.
-        let err = interpret_response(500, "").unwrap_err();
-        assert!(
-            err.message.contains("500"),
-            "message names the status: {err}"
-        );
-    }
-
-    /// FR-092: every update failure carries a stable reason the UI translates,
-    /// so a Spanish UI never shows GitHub's English prose.
-    #[test]
-    fn fr_092_update_failures_carry_stable_reasons() {
-        let reason = |r: Result<Option<ReleaseInfo>, LocalizedError>| r.unwrap_err().reason;
-        assert_eq!(reason(interpret_response(403, "")), "rate_limited");
-        assert_eq!(reason(interpret_response(429, "")), "rate_limited");
-        assert_eq!(reason(interpret_response(200, "nope")), "bad_response");
-        let bad = interpret_response(502, "").unwrap_err();
-        assert_eq!(bad.reason, "bad_status");
-        assert_eq!(bad.params.get("status").map(String::as_str), Some("502"));
-        assert_eq!(bad.code, IpcErrorCode::UpdateCheckFailed);
-        assert_eq!(
-            interpret_repo_probe(404).unwrap_err().reason,
-            "repo_missing"
-        );
-    }
-
-    #[test]
-    fn interpret_repo_probe_only_fails_on_a_missing_repository() {
-        // A 404 on the repository itself means the configured slug is wrong;
-        // without this the same 404 would render as "You're up to date".
-        let err = interpret_repo_probe(404).unwrap_err();
-        assert!(
-            err.message.contains("repository"),
-            "message names the cause: {err}"
-        );
-
-        // Everything else is inconclusive and must not manufacture an error out
-        // of a repository that simply has no releases yet.
-        assert!(interpret_repo_probe(200).is_ok());
-        assert!(interpret_repo_probe(403).is_ok()); // rate limited
-        assert!(interpret_repo_probe(500).is_ok()); // GitHub hiccup
     }
 
     #[test]
@@ -1170,16 +1041,19 @@ mod tests {
         assert_eq!(MIN_CHECK_INTERVAL_HOURS, 24);
     }
 
-    /// Hits the real GitHub API. Ignored by default (network + rate limits);
-    /// run explicitly with `cargo test -- --ignored live_github_release_check`.
+    /// Reads the real published manifests. Ignored by default (network);
+    /// run explicitly with `cargo test -- --ignored live_manifest_check`.
+    /// While the repository is private both answer 404, which reads as
+    /// "nothing published" (`Ok(None)`), never as an error.
     #[test]
-    #[ignore = "network: hits api.github.com"]
-    fn live_github_release_check() {
-        let (owner, repo) = repo_slug().expect("repo configured");
-        let result = fetch_latest(&owner, &repo);
-        // Either a release, no releases (404 → None), or a friendly error — but
-        // never a panic.
-        assert!(result.is_ok() || result.is_err());
+    #[ignore = "network: reads the published update manifests"]
+    fn live_manifest_check() {
+        use crate::settings::UpdateChannel;
+        for channel in [UpdateChannel::Stable, UpdateChannel::Beta] {
+            let url = install::resolve_endpoint(None, channel).unwrap();
+            let result = fetch_manifest(&url, false);
+            assert!(result.is_ok(), "{channel:?}: {result:?}");
+        }
     }
 
     #[test]
