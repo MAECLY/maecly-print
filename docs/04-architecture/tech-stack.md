@@ -20,12 +20,12 @@ Everything in this table is declared in `src-tauri/Cargo.toml`, `shell-ext-win/C
 | HTTP (update check)    | `ureq` 2.12, blocking, 10 s timeout                     |
 | Windows API bindings   | `windows` 0.58 (`Win32_Graphics_Printing`, `Win32_Storage_Xps`, …) |
 | macOS API bindings     | `objc2` 0.6 + `objc2-app-kit` / `objc2-foundation` 0.3, feature-narrowed |
-| Image → PDF            | `image` 0.25 (jpeg/png/tiff/bmp/webp) + `lopdf` 0.39, **in-process** |
+| Image → PDF            | `image` 0.25 (jpeg/png/tiff/bmp/webp) + `lopdf` 0.44, **in-process** |
 | SVG → PDF              | `usvg` + `svg2pdf` (vector), `flate2` for SVGZ, in the `--worker svg` process |
 | Markdown / text → HTML | `pulldown-cmark` 0.13 (`html` only); text decoded in-process |
 | HTML → PDF             | The system web view in the `--worker render-pdf` process: WebView2 through `webview2-com` / `windows-core` (Windows), `WKWebView` through `objc2` + `block2` (macOS) |
 | Encrypted PDFs         | `lopdf` decryption in-process; the password held in a `zeroize`d buffer |
-| PDF inspection         | `lopdf`; `printpdf` 0.9 with `default-features = false` (the test page) |
+| PDF inspection         | `lopdf`; `printpdf` 0.12 with `default-features = false` (the test page) |
 | CLI                    | `clap` 4 (`derive`), plus `wait-timeout` for bounded child waits and `walkdir` for folder expansion |
 | Shell extension (Win)  | **Rust** `cdylib` implementing `IExplorerCommand` (`shell-ext-win/`), built with `windows` + `embed-resource` |
 | Shell extension (Mac)  | NSServices provider declared in `Info.plist`, backed by `objc2` |
@@ -95,13 +95,13 @@ The Rust core handles file enumeration, format detection, conversion orchestrati
 | `wait-timeout` 0.2                     | Bounded wait on the print child, so a hung process cannot wedge the queue |
 | `walkdir` 2                            | Folder expansion with bounded depth and symlink-loop handling (FR-004) |
 | `image` 0.25                           | Pure-Rust image decoding (jpeg/png/tiff/bmp/webp) |
-| `lopdf` 0.39                           | PDF page counts, hand-built single-page image PDFs, and decrypting a protected PDF with the user's password |
+| `lopdf` 0.44                           | PDF page counts, hand-built single-page image PDFs, and decrypting a protected PDF with the user's password |
 | `usvg`, `svg2pdf`, `flate2`            | SVG/SVGZ → vector PDF in the SVG worker |
 | `pulldown-cmark` 0.13                  | Markdown → HTML in-process |
 | `zeroize` 1                            | Zeroes a PDF password when it is dropped |
 | `webview2-com`, `windows-core` *(Windows only)* | WebView2 `PrintToPdf` in the render worker |
 | `block2` *(macOS only)*                | WebKit completion handlers in the render worker |
-| `printpdf` 0.9.1                       | PDF primitives (`default-features = false`; its image path is a stub) |
+| `printpdf` 0.12.8                      | PDF primitives for the test page (`default-features = false`; writes only) |
 | `ureq` 2.12                            | Blocking HTTPS for the update check (the channel's `latest.json`) |
 | `semver` 1                             | Version comparison by SemVer *precedence* |
 | `percent-encoding` 2.3                 | Prefilled "report issue" URL |
