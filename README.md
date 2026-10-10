@@ -17,48 +17,45 @@ So most people end up printing in tedious batches of 15-20 files, manually, agai
 
 ## What Pluryprint does
 
-Pluryprint adds a native entry to the **modern Windows 11 right-click menu**:
+Pluryprint adds an entry to the Explorer right-click menu (on Windows 11, under **Show more options**) and to the macOS Finder's **Services** menu:
 
 ```
 Right-click on any number of files → Pluryprint ▸
                                        ├─ Print 12 files          (default profile)
                                        ├─ ──────────
-                                       ├─ Print with “Duplex BW”  (one row per profile †)
+                                       ├─ Print with “Duplex BW”  (one row per profile, up to 8)
                                        ├─ Print with “Photo Color”
                                        ├─ ──────────
                                        ├─ Configure print job…
                                        └─ Add to print queue
 ```
 
-† The per-profile rows and the translated labels come from a `shell-menu.json` cache that the app is supposed to write. It does not write it yet, so today the handler falls back to built-in English with no profile rows.
-
 - Select **5, 50, or 500** files. They print.
 - Use **profiles** (built-in or custom) to lock in your favorite settings: duplex BW, photo color, A3 simplex, whatever.
-- All **local**: no cloud, no telemetry, no account.
+- **PDF** (encrypted ones too: it asks for the password and never stores it), **images** (JPG, PNG, TIFF, BMP, WebP, HEIC), **SVG**, **Word, Excel, PowerPoint and OpenDocument** (through LibreOffice), **RTF, TXT, HTML and Markdown**. GIF is not supported and is refused with a clear message.
+- All **local**: no cloud, no telemetry, no account. A printed page never reaches the network.
 
-Two of the headline promises are still on the roadmap and are called out as such below: routing **Word, Excel, HTML and Markdown** to the right converter is M3 (today PDFs and raster images print, everything else is reported as unsupported), and **updating in place** is M4 (today the app tells you a new version exists and links to it).
+The entry sits under **Show more options** on Windows 11 because a top-level entry needs a signed package, and Pluryprint ships without code-signing certificates for now ([ADR-0013](./docs/adr/0013-explorer-command-per-user-verb.md)).
 
 ## Status
 
-**Pre-alpha · M1 (Print Core) largely delivered.** It prints. What works today:
+**Pre-alpha, not yet released.** The repository stays private until the first stable release. What works today:
 
-- **Printing**, end to end: PDFs pass through untouched, raster images (JPG/JPEG, PNG, TIFF, BMP, WebP) are wrapped into a one-page PDF by a pure-Rust converter, and both are spooled through SumatraPDF on Windows or `lp` (CUPS) on macOS.
-- **A persistent print queue** (`queue.json`): a single-writer dispatcher with bounded concurrency, automatic retries with backoff, per-job and whole-queue pause/resume/cancel, and crash recovery.
-- **Profiles and settings on disk**: `profiles.toml` and `config.toml`, written atomically with a `schema_version`, plus profile import/export.
-- **Seven GUI screens** (Home, Print Job, Queue, Printers, Profiles, Settings, About) wired to the real backend over 40 typed IPC commands — no mock data in the desktop app — with keyboard shortcuts and an English/Spanish UI.
-- **A headless CLI**: `pluryprint print|printers|profiles|queue|update`, `--help` everywhere, `--json` output, and documented exit codes.
-- **Context-menu handlers**: an `IExplorerCommand` COM DLL for Windows Explorer (`shell-ext-win/`, written in Rust) and an `NSServices` provider for the macOS Finder.
-- **An update check** on startup and from About, with defer / skip-this-version.
+- **Printing**, end to end, of every format above: PDFs pass through untouched; images, SVG, Markdown and text are converted inside the app; HTML, Markdown and text are paginated by the system's own web view (WebView2 / WebKit) in a sandboxed worker; Office and OpenDocument go through LibreOffice. Everything is spooled through the bundled SumatraPDF on Windows or `lp` (CUPS) on macOS. A missing LibreOffice (or, on Windows, the HEIC codecs) pauses the job, and the app offers to install it after asking.
+- **A persistent print queue** (`queue.json`): bounded concurrency, automatic retries with backoff, per-job and whole-queue pause/resume/cancel, crash recovery, and jobs followed in the OS queue until they really print (or end as _unconfirmed_).
+- **Profiles and settings on disk**: `profiles.toml` and `config.toml`, written atomically, plus profile import/export.
+- **Seven GUI screens** (Home, Print Job, Queue, Printers, Profiles, Settings, About) wired to the real backend, with keyboard shortcuts and the whole UI in English and Spanish.
+- **A headless CLI**: `pluryprint print|printers|profiles|queue|update`, `--help` everywhere, `--json` output, and documented exit codes (on Windows, `pluryprint-cli.exe`).
+- **A per-user Windows installer** (x64 and ARM64, English and Spanish, no administrator rights) that registers the Explorer entry, and an ad-hoc-signed `.dmg` per Mac architecture.
+- **Updates**: a check at start and from About, install in place with signature verification, stable and beta channels, defer / skip-this-version.
 
 **What is NOT here yet:**
 
-- **No installer.** `installers/` is still empty, so nothing registers the Sparse MSIX, the shell extension, or a Start-menu shortcut. The Explorer DLL builds and is tested in CI, but you have to place and register it yourself.
-- **No download-and-install updater.** The app detects a newer release and links to it; verifying the signature and applying the update is M4. Channel selection is persisted but every channel reads the same feed.
-- **No multi-format adapters.** Office, ODF, HTML, Markdown, TXT/RTF and HEIC are rejected with an explicit reason, not converted. That is M3.
-- **No bundled SumatraPDF.** The app locates an existing `SumatraPDF.exe`; a missing one pauses the job with a dependency error.
-- **No code signing**, so expect SmartScreen and Gatekeeper warnings on anything you build.
+- **No published release.** The release workflow builds signed drafts on a tag ([releasing.md](./docs/07-build-and-release/releasing.md)); none has been published.
+- **No code-signing certificates**, by decision ([ADR-0011](./docs/adr/0011-release-channel.md)): expect SmartScreen and Gatekeeper warnings; the release notes say how to get past them. Updates are signed with Pluryprint's own key.
+- **No top-level Windows 11 menu entry** (see above), and no nightly builds.
 
-See the [roadmap](./docs/06-roadmap/milestones.md) for the full milestone path from `M0 — Foundation` through `M5 — macOS Port`, and the [functional requirements](./docs/03-requirements/functional-requirements.md) for per-requirement status.
+See the [roadmap](./docs/06-roadmap/milestones.md) for the milestone path, and the [functional requirements](./docs/03-requirements/functional-requirements.md) for per-requirement status.
 
 ## Quick start (developers)
 
@@ -84,7 +81,7 @@ pnpm tauri dev
 
 The web preview renders every screen without the Rust toolchain, but it has no Tauri host: IPC calls fail, so the screens show their empty and error states rather than real printers, jobs or profiles. Use it for layout and styling work only. `pnpm tauri dev` boots the real app against the real backend.
 
-The Explorer context-menu DLL is a separate crate with its own target directory — build and test it with `cargo build --manifest-path shell-ext-win/Cargo.toml` (Windows only; see [`shell-ext-win/README.md`](./shell-ext-win/README.md) for registering it by hand until the installer lands).
+The Explorer context-menu DLL is a separate crate with its own target directory — build and test it with `cargo build --manifest-path shell-ext-win/Cargo.toml` (Windows only; see [`shell-ext-win/README.md`](./shell-ext-win/README.md)). An installer build registers it; [installer-windows.md](./docs/07-build-and-release/installer-windows.md) has the three packaging steps.
 
 ## Documentation
 
@@ -99,25 +96,22 @@ All documentation lives under [`docs/`](./docs/README.md). Recommended starting 
 
 ## Stack
 
-| Layer                  | Technology                                                  | State                    |
-| ---------------------- | ----------------------------------------------------------- | ------------------------ |
-| Application framework  | [Tauri 2](https://tauri.app)                                | In use                   |
-| Backend                | Rust                                                        | In use                   |
-| Frontend               | React + TypeScript + Vite + Tailwind CSS                    | In use                   |
-| Print engine (Win)     | [SumatraPDF](https://www.sumatrapdfreader.org/) (CLI)       | In use                   |
-| Print engine (macOS)   | CUPS (`lp`)                                                 | In use                   |
-| Image → PDF            | Rust `image` + `lopdf` (no external binary)                 | In use                   |
-| Shell extension (Win)  | Rust COM DLL implementing `IExplorerCommand` + Sparse MSIX  | DLL in use; MSIX planned |
-| Finder integration     | `NSServices` provider inside the app (no separate `.appex`) | In use                   |
-| Update check           | `ureq` against the GitHub releases API                      | In use                   |
-| Office / ODF / RTF     | [LibreOffice](https://www.libreoffice.org/) (headless)      | M3                       |
-| HTML conversion        | Chromium (headless)                                         | M3                       |
-| Markdown conversion    | [Pandoc](https://pandoc.org/)                               | M3                       |
-| Image resampling       | [ImageMagick](https://imagemagick.org/)                     | M3                       |
-| Installer (Win)        | [Inno Setup](https://jrsoftware.org/isinfo.php)             | Planned                  |
-| Auto-updater (install) | Tauri Updater plugin                                        | M4                       |
+| Layer                            | Technology                                                                                                  | State                          |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| Application framework            | [Tauri 2](https://tauri.app)                                                                                | In use                         |
+| Backend                          | Rust                                                                                                        | In use                         |
+| Frontend                         | React + TypeScript + Vite + Tailwind CSS                                                                    | In use                         |
+| Print engine (Win)               | [SumatraPDF](https://www.sumatrapdfreader.org/) 3.6.1 (CLI), bundled                                        | In use                         |
+| Print engine (macOS)             | CUPS (`lp`)                                                                                                 | In use                         |
+| Image, SVG, Markdown, text → PDF | Rust `image` + `lopdf`, `usvg` + `svg2pdf`, `pulldown-cmark` (no external binary)                           | In use                         |
+| HTML, Markdown, text pagination  | The system web view: WebView2 (Windows), WebKit (macOS), in a worker process                                | In use                         |
+| Office / ODF / RTF               | [LibreOffice](https://www.libreoffice.org/) (headless), installed by the user; RTF on macOS uses `textutil` | In use                         |
+| Shell extension (Win)            | Rust COM DLL implementing `IExplorerCommand`, registered per user                                           | In use; sparse package planned |
+| Finder integration               | `NSServices` provider inside the app (no separate `.appex`)                                                 | In use                         |
+| Installer (Win)                  | Tauri's per-user NSIS bundle                                                                                | In use                         |
+| Updates                          | Tauri Updater plugin, minisign-signed `latest.json` per channel on GitHub Releases                          | In use                         |
 
-Rows marked M3/M4/Planned are decided but not yet wired; the app already detects LibreOffice, Chromium and Pandoc on the machine and reports them, but no adapter calls them yet. Justification in [tech-stack.md](./docs/04-architecture/tech-stack.md) and the [ADRs](./docs/adr/README.md).
+Justification in [tech-stack.md](./docs/04-architecture/tech-stack.md) and the [ADRs](./docs/adr/README.md).
 
 ## License
 
@@ -152,6 +146,6 @@ Pluryprint stands on the shoulders of these excellent open-source projects:
 - [Tauri](https://tauri.app), [Rust](https://www.rust-lang.org/), [React](https://react.dev/)
 - [SumatraPDF](https://www.sumatrapdfreader.org/) for fast, reliable PDF printing on Windows
 - [LibreOffice](https://www.libreoffice.org/) for Office and ODF conversion
-- [Chromium](https://www.chromium.org/), [Pandoc](https://pandoc.org/), [ImageMagick](https://imagemagick.org/), [qpdf](https://github.com/qpdf/qpdf)
+- [resvg/usvg](https://github.com/linebender/resvg), [svg2pdf](https://github.com/typst/svg2pdf), [pulldown-cmark](https://github.com/pulldown-cmark/pulldown-cmark), [lopdf](https://github.com/J-F-Liu/lopdf) and the [image](https://github.com/image-rs/image) crate
 
 Full list and licenses in [third-party-licenses.md](./docs/09-legal/third-party-licenses.md).
