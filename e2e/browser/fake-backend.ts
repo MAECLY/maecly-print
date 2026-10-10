@@ -422,11 +422,19 @@ export class FakeBackend {
           (d) => d.id === a.id,
         );
         if (!report) throw err('InvalidRequest', `unknown dependency ${a.id}`);
-        return { status: 'opened', exit_code: null, report: clone(report) };
+        return {
+          status: 'opened',
+          exit_code: null,
+          elevated: false,
+          report: clone(report),
+        };
       }
-      // Nothing runs in the browser, so there is never an install to stop.
+      // Nothing runs in the browser, so there is never an install to stop,
+      // nor one holding the install slot.
       case 'cancel_dependency_install':
         return false;
+      case 'dependency_install_status':
+        return { running: null, last: null };
       // FR-059: the password is taken and the job goes back to the queue,
       // where the timer converts it (any password "opens" the fake PDF).
       case 'job_supply_password':

@@ -117,6 +117,19 @@ async cancelDependencyInstall() : Promise<Result<boolean, IpcError>> {
 }
 },
 /**
+ * Which install holds the one-install slot, and how the last one ended
+ * (FR-058). The UI asks on startup, so a reloaded window shows a running
+ * install — with its Stop — instead of an Install the backend would refuse.
+ */
+async dependencyInstallStatus() : Promise<Result<DependencyInstallState, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("dependency_install_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * List every printer the OS spooler knows about, with capabilities.
  */
 async listPrinters() : Promise<Result<Printer[], IpcError>> {
@@ -961,6 +974,18 @@ id: Dependency;
  */
 line: string }
 /**
+ * The answer of [`dependency_install_status`].
+ */
+export type DependencyInstallState = { 
+/**
+ * The install holding the slot, if any.
+ */
+running: RunningInstall | null; 
+/**
+ * The last install that ended since Pluryprint started.
+ */
+last: FinishedInstall | null }
+/**
  * One dependency's status, as shipped to the UI.
  */
 export type DependencyReport = { 
@@ -1178,6 +1203,23 @@ is_dir: boolean;
  */
 has_subfolders: boolean }
 /**
+ * How an install ended, for a window that did not see it end.
+ */
+export type FinishedInstall = { 
+/**
+ * The [`RunningInstall::seq`] it ran under.
+ */
+seq: number; 
+/**
+ * The dependency it installed.
+ */
+id: Dependency; 
+/**
+ * How it ended; `None` when it failed before an outcome existed (the
+ * tool could not be started).
+ */
+outcome: InstallOutcome | null }
+/**
  * The result of walking one folder: what will print, what will not and why,
  * plus whether a safety ceiling cut the walk short.
  */
@@ -1333,6 +1375,12 @@ status: InstallStatus;
  */
 exit_code: number | null; 
 /**
+ * Whether the installer ran with administrator rights (an elevated
+ * Windows installer), so the UI gives that as the reason a stop may not
+ * have reached it only when it is the reason.
+ */
+elevated: boolean; 
+/**
  * The dependency probed again after the install.
  */
 report: DependencyReport }
@@ -1358,9 +1406,16 @@ export type InstallStatus =
  */
 "opened" | 
 /**
- * The command ran past [`INSTALL_TIMEOUT`] and was stopped.
+ * The command ran past [`INSTALL_TIMEOUT`] and was stopped, with
+ * everything it started.
  */
 "timed-out" | 
+/**
+ * The command ran past [`INSTALL_TIMEOUT`]; Pluryprint stopped what it
+ * could, but the installer could not be confirmed stopped (see
+ * [`InstallStatus::CancelRequestedInstallerMayContinue`]).
+ */
+"timed-out-installer-may-continue" | 
 /**
  * The user stopped the command, and everything it started is gone.
  */
@@ -2171,6 +2226,41 @@ export type RejectReason =
  * Any other extension the engine cannot print.
  */
 "unsupported_type"
+/**
+ * The install holding the one-install slot ([`dependency_install_status`]).
+ */
+export type RunningInstall = { 
+/**
+ * Grows with every install this run of Pluryprint starts; matches
+ * [`FinishedInstall::seq`] once it ends.
+ */
+seq: number; 
+/**
+ * The dependency being installed.
+ */
+id: Dependency; 
+/**
+ * Its display name.
+ */
+name: string; 
+/**
+ * How it is being installed.
+ */
+method: InstallMethod; 
+/**
+ * When it started (RFC 3339, UTC).
+ */
+started_at: string; 
+/**
+ * Whether the installer runs with administrator rights.
+ */
+elevated: boolean; 
+/**
+ * The install has ended ([`DependencyInstallState::last`] says how) but
+ * the installer may still be running, so the slot stays taken until it
+ * is seen gone or a grace period ends. Nothing is left to stop.
+ */
+may_continue: boolean }
 /**
  * How source pages are fitted to the target paper.
  */

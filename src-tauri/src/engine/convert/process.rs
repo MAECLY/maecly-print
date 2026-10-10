@@ -295,20 +295,10 @@ pub(crate) fn kill_tree_confirmed(child: &mut Child) -> bool {
         // moment ago may still be zombies waiting to be reaped).
         let deadline = Instant::now() + Duration::from_secs(1);
         loop {
-            let probe = Command::new("kill")
-                .args(["-0", &format!("-{pid}")])
-                .env("LC_ALL", "C")
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::piped())
-                .output();
-            match probe {
-                Ok(out) if !out.status.success() => {
-                    let err = String::from_utf8_lossy(&out.stderr).to_ascii_lowercase();
-                    return !err.contains("not permitted");
-                }
-                Ok(_) => {}
-                Err(_) => return false,
+            match group_alive(pid) {
+                Some(false) => return true,
+                None => return false,
+                Some(true) => {}
             }
             if Instant::now() >= deadline {
                 return false;
@@ -336,6 +326,56 @@ pub(crate) fn kill_tree_confirmed(child: &mut Child) -> bool {
         let _ = child.kill();
         let _ = child.wait();
         false
+    }
+}
+
+/// Whether anything is left of the process group `pgid` leads (the tree
+/// [`isolate_process_tree`] gave its own group): `Some(true)` while a member
+/// lives — including one that refuses our signals (`Operation not
+/// permitted`, a helper running as root) — `Some(false)` once none is left,
+/// `None` when it cannot be told (`kill` would not run).
+#[cfg(unix)]
+pub(crate) fn group_alive(pgid: u32) -> Option<bool> {
+    let probe = Command::new("kill")
+        .args(["-0", &format!("-{pgid}")])
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .ok()?;
+    if probe.status.success() {
+        return Some(true);
+    }
+    let err = String::from_utf8_lossy(&probe.stderr).to_ascii_lowercase();
+    Some(err.contains("not permitted"))
+}
+
+/// Whether the Windows Installer is executing an installation right now: it
+/// holds the `Global\_MSIExecute` mutex for as long as it does, whoever
+/// started it. An elevated MSI runs in the Windows Installer service, out of
+/// reach of the process tree, so this is how its end can be seen. A mutex we
+/// may not open (access denied) still exists.
+#[cfg(windows)]
+pub(crate) fn msi_install_running() -> bool {
+    use windows::core::w;
+    use windows::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED};
+    use windows::Win32::System::Threading::{OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE};
+    // SAFETY: OpenMutexW takes a static, NUL-terminated wide string and
+    // returns an owned handle, closed right away.
+    match unsafe {
+        OpenMutexW(
+            SYNCHRONIZATION_SYNCHRONIZE,
+            false,
+            w!("Global\\_MSIExecute"),
+        )
+    } {
+        Ok(handle) => {
+            // SAFETY: the handle was just opened and is closed once.
+            let _ = unsafe { CloseHandle(handle) };
+            true
+        }
+        Err(e) => e.code() == ERROR_ACCESS_DENIED.to_hresult(),
     }
 }
 

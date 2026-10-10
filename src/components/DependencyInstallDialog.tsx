@@ -150,6 +150,7 @@ export function DependencyInstallDialog({
         return t('install.result.timedOut');
       case 'cancelled':
         return t('install.result.cancelled');
+      case 'timed-out-installer-may-continue':
       case 'cancel-requested-installer-may-continue':
         return t('install.result.cancelRequestedInstallerMayContinue', {
           name: report.name,

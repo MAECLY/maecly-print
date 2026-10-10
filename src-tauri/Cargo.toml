@@ -256,6 +256,8 @@ windows = { version = "0.58", features = [
   # (engine::convert::process::run_capped; IO_COUNTERS lives in Threading).
   "Win32_System_IO",
   "Win32_System_JobObjects",
+  # OpenMutexW: is the Windows Installer still running a stopped install
+  # (ipc::deps_install, the `Global\_MSIExecute` mutex).
   "Win32_System_Threading",
   # HKLM\SOFTWARE\Policies\Maecly\Pluryprint (settings::policy).
   "Win32_System_Registry",

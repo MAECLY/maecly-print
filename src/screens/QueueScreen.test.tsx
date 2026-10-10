@@ -733,7 +733,12 @@ describe('QueueScreen — alternate views', () => {
         if (cmd === 'app_info')
           return { ...fixtureAppInfo, dependencies: [office(false)] };
         if (cmd === 'install_dependency')
-          return { status: 'installed', exit_code: 0, report: office(true) };
+          return {
+            status: 'installed',
+            exit_code: 0,
+            elevated: false,
+            report: office(true),
+          };
         return null;
       });
       await useQueueStore.getState().init();
@@ -793,7 +798,12 @@ describe('QueueScreen — alternate views', () => {
       if (cmd === 'app_info')
         return { ...fixtureAppInfo, dependencies: [office(installed)] };
       if (cmd === 'install_dependency')
-        return { status: 'opened', exit_code: null, report: office(false) };
+        return {
+          status: 'opened',
+          exit_code: null,
+          elevated: false,
+          report: office(false),
+        };
       return null;
     });
     await useQueueStore.getState().init();

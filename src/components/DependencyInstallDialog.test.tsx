@@ -145,7 +145,12 @@ describe('DependencyInstallDialog', () => {
     await screen.findByText(/Successfully installed/);
 
     const fresh = { ...office([]), found: true, blocks: [] };
-    finish({ status: 'installed', exit_code: 0, report: fresh });
+    finish({
+      status: 'installed',
+      exit_code: 0,
+      elevated: false,
+      report: fresh,
+    });
     expect(
       await screen.findByText(/LibreOffice is installed/),
     ).toBeInTheDocument();
@@ -158,6 +163,7 @@ describe('DependencyInstallDialog', () => {
       Promise.resolve<InstallOutcome>({
         status: 'opened',
         exit_code: null,
+        elevated: false,
         report: office([{ ...WINGET, available: false }, WEB]),
       }),
     );
@@ -243,7 +249,12 @@ describe('DependencyInstallDialog', () => {
     const user = userEvent.setup();
     const { run, finish } = pendingRun();
     const cancel = vi.fn(() => {
-      finish({ status: 'cancelled', exit_code: null, report: office([]) });
+      finish({
+        status: 'cancelled',
+        exit_code: null,
+        elevated: false,
+        report: office([]),
+      });
       return Promise.resolve(true);
     });
     render(
@@ -274,6 +285,7 @@ describe('DependencyInstallDialog', () => {
       finish({
         status: 'cancel-requested-installer-may-continue',
         exit_code: null,
+        elevated: false,
         report: office([]),
       });
       return Promise.resolve(true);
@@ -324,7 +336,12 @@ describe('DependencyInstallDialog', () => {
     unmount();
 
     const fresh = { ...office([]), found: true, blocks: [] };
-    finish({ status: 'installed', exit_code: 0, report: fresh });
+    finish({
+      status: 'installed',
+      exit_code: 0,
+      elevated: false,
+      report: fresh,
+    });
     await waitFor(() => expect(onResolved).toHaveBeenCalledWith(fresh));
     expect(success).toHaveBeenCalledWith('Install LibreOffice', {
       description:
@@ -341,7 +358,11 @@ describe('DependencyInstallDialog', () => {
     async (end, text) => {
       const user = userEvent.setup();
       const run = vi.fn(() =>
-        Promise.resolve<InstallOutcome>({ ...end, report: office([]) }),
+        Promise.resolve<InstallOutcome>({
+          ...end,
+          elevated: false,
+          report: office([]),
+        }),
       );
       render(
         <DependencyInstallDialog
@@ -407,7 +428,12 @@ describe('DependencyInstallDialog', () => {
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Stopping the installation…')).toBeVisible();
 
-    finish({ status: 'cancelled', exit_code: null, report: office([]) });
+    finish({
+      status: 'cancelled',
+      exit_code: null,
+      elevated: false,
+      report: office([]),
+    });
     expect(
       await screen.findByText(/You stopped the installation/),
     ).toBeInTheDocument();
@@ -468,6 +494,7 @@ describe('DependencyInstallDialog', () => {
         finish({
           ...end,
           exit_code: null,
+          elevated: false,
           report: office([]),
         } as unknown as InstallOutcome);
         return Promise.resolve(true);
@@ -506,6 +533,7 @@ describe('DependencyInstallDialog', () => {
         status: 'cancelled',
         reason: 'cancel_requested_installer_may_continue',
         exit_code: null,
+        elevated: false,
         report: office([]),
       } as unknown as InstallOutcome),
     );
@@ -532,6 +560,7 @@ describe('DependencyInstallDialog', () => {
       Promise.resolve<InstallOutcome>({
         status: 'opened',
         exit_code: null,
+        elevated: false,
         report: office([WEB]),
       }),
     );

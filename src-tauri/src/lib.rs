@@ -351,6 +351,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::notify::notify_native,
             ipc::deps_install::install_dependency,
             ipc::deps_install::cancel_dependency_install,
+            ipc::deps_install::dependency_install_status,
             ipc::printers::list_printers,
             ipc::printers::default_printer,
             ipc::printers::discover_printers,
