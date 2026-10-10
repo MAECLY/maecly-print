@@ -307,6 +307,27 @@ pub const JOB_REASONS: &[ReasonSpec<&'static str>] = &[
     ("dependency_missing", "no-print-backend", &[]),
 ];
 
+/// Every note the Windows honesty preview can add below the SumatraPDF
+/// command ([`crate::engine::print::sumatra::PreviewNote`]), with the
+/// parameters its sentence may use. Translated from
+/// `printJob:preview.notes.<reason>`; a `quality` value is a keyword from
+/// `printJob:preview.qualityWords`.
+pub const PREVIEW_NOTES: &[(&str, &[&str])] = &[
+    ("quality_offered", &["quality"]),
+    ("quality_unknown", &["quality"]),
+    ("quality_not_offered", &["quality"]),
+    ("quality_pending_restore", &["quality"]),
+    ("collated_not_applied", &["copies"]),
+    ("uncollated_not_applied", &["copies"]),
+    ("paper_not_listed", &["paper"]),
+    ("tray_not_listed", &["tray"]),
+];
+
+/// Whether `reason` is a registered preview note.
+pub fn is_preview_note(reason: &str) -> bool {
+    PREVIEW_NOTES.iter().any(|(r, _)| *r == reason)
+}
+
 /// The job error `code` an engine failure of this variant is recorded under.
 pub fn job_code_of(err: &crate::engine::EngineError) -> &'static str {
     use crate::engine::EngineError as E;
@@ -481,6 +502,49 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// FR-092 / D16: every honesty-preview note has a sentence in both
+    /// languages that uses only its declared parameters, and every quality
+    /// keyword it may carry is translated too.
+    #[test]
+    fn fr_092_every_preview_note_has_es_en_phrase_and_declared_params() {
+        let catalogs = [
+            (
+                "en",
+                include_str!("../../../src/i18n/locales/en/printJob.json"),
+            ),
+            (
+                "es",
+                include_str!("../../../src/i18n/locales/es/printJob.json"),
+            ),
+        ];
+        let mut errors = Vec::new();
+        for (lang, raw) in catalogs {
+            let doc: Value = serde_json::from_str(raw).unwrap();
+            let notes = lookup(&doc, &["preview", "notes"]);
+            for (reason, params) in PREVIEW_NOTES {
+                let key = format!("printJob:preview.notes.{reason}");
+                check(lang, &key, sentences(notes, reason), params, &mut errors);
+            }
+            for word in ["draft", "high"] {
+                if lookup(&doc, &["preview", "qualityWords", word]).is_none() {
+                    errors.push(format!("{lang}: no printJob:preview.qualityWords.{word}"));
+                }
+            }
+            if lookup(&doc, &["preview", "notePrefix"]).is_none() {
+                errors.push(format!("{lang}: no printJob:preview.notePrefix"));
+            }
+            // Nothing in the catalog the registry does not know about.
+            if let Some(Value::Object(map)) = notes {
+                for k in map.keys() {
+                    if !is_preview_note(k) {
+                        errors.push(format!("{lang}: unregistered preview note {k}"));
+                    }
+                }
+            }
+        }
+        assert!(errors.is_empty(), "{}", errors.join("\n"));
     }
 
     #[test]

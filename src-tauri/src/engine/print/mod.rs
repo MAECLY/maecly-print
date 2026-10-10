@@ -427,11 +427,26 @@ pub fn effective_settings<'a>(settings: &'a JobSettings, input_ext: &str) -> Cow
 /// the preview titles the job with it, and spools the input itself only when
 /// it is a PDF; anything else is converted first, so the spooled argument is
 /// labelled as that converted PDF rather than shown as the source image.
+///
+/// The notes are in English; [`preview_command_in`] writes them in the UI's
+/// language.
 pub fn preview_command(
     file_name: &str,
     printer: &str,
     settings: &JobSettings,
     caps: &PrinterCaps,
+) -> String {
+    preview_command_in(file_name, printer, settings, caps, "en-US")
+}
+
+/// [`preview_command`] with its `#` notes in `locale` (`es-ES`, `en-US`; any
+/// other language falls back to English), as the honesty panel shows them.
+pub fn preview_command_in(
+    file_name: &str,
+    printer: &str,
+    settings: &JobSettings,
+    caps: &PrinterCaps,
+    locale: &str,
 ) -> String {
     let is_pdf = crate::engine::extension_of(std::path::Path::new(file_name)) == "pdf";
     let pdf_display = if is_pdf {
@@ -460,16 +475,18 @@ pub fn preview_command(
             .join(" ");
         let quality = sumatra::quality_support_for(printer, settings);
         std::iter::once(cmd)
-            .chain(sumatra::unsupported_notes(
-                settings,
-                &resolved.ids,
-                Some(quality),
-            ))
+            .chain(
+                sumatra::preview_notes(settings, &resolved.ids, Some(quality))
+                    .iter()
+                    .map(|note| note.render(locale)),
+            )
             .collect::<Vec<_>>()
             .join("\n")
     }
     #[cfg(not(windows))]
     {
+        // CUPS takes every setting as an option: there are no notes.
+        let _ = locale;
         // The very builder `spool` uses, so the two cannot drift: same
         // printer, same `-t` title, same options, same order.
         let args = cups::lp_args_for(

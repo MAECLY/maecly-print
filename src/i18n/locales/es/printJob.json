@@ -146,7 +146,22 @@
     "hint": "Se aplica a los PDF y documentos: las imágenes ignoran el intervalo."
   },
   "preview": {
-    "title": "Comando resuelto"
+    "title": "Comando resuelto",
+    "notePrefix": "nota",
+    "qualityWords": {
+      "draft": "borrador",
+      "high": "alta"
+    },
+    "notes": {
+      "quality_offered": "SumatraPDF no tiene opción de calidad de impresión, así que «{{quality}}» se aplica convirtiéndola en la configuración predeterminada de esta impresora para tu cuenta de Windows solo mientras el trabajo pasa a la cola de impresión; después se comprueba la configuración del propio trabajo y se anota en el registro.",
+      "quality_unknown": "SumatraPDF no tiene opción de calidad de impresión, así que se intenta aplicar «{{quality}}» convirtiéndola en la configuración predeterminada de esta impresora para tu cuenta de Windows mientras el trabajo pasa a la cola de impresión; después se comprueba si el driver la mantuvo y se anota en el registro.",
+      "quality_not_offered": "el driver de esta impresora no ofrece la calidad «{{quality}}», así que NO se aplica: se usa la calidad predeterminada de la impresora.",
+      "quality_pending_restore": "un cambio de calidad anterior en esta impresora todavía no se ha podido deshacer, así que «{{quality}}» NO se aplica: se usa la configuración predeterminada actual de la impresora hasta que Pluryprint restaure la tuya (consulta el registro).",
+      "collated_not_applied": "SumatraPDF no tiene opción de intercalado, así que «intercaladas» NO se aplica: se usa el intercalado del propio driver para las {{copies}} copias.",
+      "uncollated_not_applied": "SumatraPDF no tiene opción de intercalado, así que «sin intercalar» NO se aplica: se usa el intercalado del propio driver para las {{copies}} copias.",
+      "paper_not_listed": "el driver de esta impresora no incluye el tamaño de papel «{{paper}}», así que NO se aplica: se usa el papel configurado en la impresora.",
+      "tray_not_listed": "el driver de esta impresora no tiene ninguna bandeja llamada «{{tray}}», así que NO se aplica: se usa la bandeja predeterminada de la impresora."
+    }
   },
   "rejectReason": {
     "not_found": "No se encontró el archivo",

@@ -146,7 +146,22 @@
     "hint": "Applies to PDFs and documents — images ignore the range."
   },
   "preview": {
-    "title": "Resolved command"
+    "title": "Resolved command",
+    "notePrefix": "note",
+    "qualityWords": {
+      "draft": "draft",
+      "high": "high"
+    },
+    "notes": {
+      "quality_offered": "SumatraPDF has no print-quality switch, so \"{{quality}}\" is applied by making it this printer's default for your Windows account only while the job is handed to the spooler; the job's own settings are checked afterwards and logged.",
+      "quality_unknown": "SumatraPDF has no print-quality switch, so \"{{quality}}\" is tried by making it this printer's default for your Windows account while the job is handed to the spooler; whether the driver kept it is checked afterwards and logged.",
+      "quality_not_offered": "the driver for this printer offers no \"{{quality}}\" quality, so it is NOT applied — the printer's own default quality is used.",
+      "quality_pending_restore": "an earlier quality change on this printer could not be undone yet, so \"{{quality}}\" is NOT applied — the printer's current default is used until Pluryprint puts your own back (see the log).",
+      "collated_not_applied": "SumatraPDF has no collate switch, so \"collated\" is NOT applied — the driver's own collation is used for the {{copies}} copies.",
+      "uncollated_not_applied": "SumatraPDF has no collate switch, so \"uncollated\" is NOT applied — the driver's own collation is used for the {{copies}} copies.",
+      "paper_not_listed": "the driver for this printer does not list the paper size \"{{paper}}\", so it is NOT applied — the printer's own paper setting is used.",
+      "tray_not_listed": "the driver for this printer lists no tray named \"{{tray}}\", so it is NOT applied — the printer's default tray is used."
+    }
   },
   "rejectReason": {
     "not_found": "File not found",

@@ -233,70 +233,166 @@ pub fn resolve_for_printer<'a>(settings: &'a JobSettings, printer: &str) -> Reso
     Resolved { settings, ids }
 }
 
-/// The sentence the honesty preview shows about the job's quality, or `None`
-/// for Normal (the driver's own default, never forced).
+/// The `printJob` catalogs the preview notes are written from, compiled in so
+/// the backend renders them in the UI's language with no frontend round trip
+/// (`printJob:preview.notes.<reason>`).
+const EN_PRINT_JOB: &str = include_str!("../../../../src/i18n/locales/en/printJob.json");
+const ES_PRINT_JOB: &str = include_str!("../../../../src/i18n/locales/es/printJob.json");
+
+/// One thing the honesty preview says about a setting that will not reach the
+/// printer as asked (or about how it is reached): a stable `reason`, its
+/// parameters, and a sentence per language from the shared catalog
+/// (`printJob:preview.notes.<reason>`, registered in
+/// [`crate::util::reasons::PREVIEW_NOTES`]).
 ///
-/// Written as a `#` comment so the preview (a PowerShell line) stays
-/// copy-pasteable.
-pub fn quality_note(settings: &JobSettings, support: QualitySupport) -> Option<String> {
+/// Rendered as a `#` comment so the preview (a PowerShell line) stays
+/// copy-pasteable; the parameters (a driver's paper or tray name) cannot end
+/// the comment ([`super::comment_text`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewNote {
+    /// Stable sub-code, e.g. `quality_not_offered`.
+    pub reason: &'static str,
+    /// Interpolation values, by placeholder name. A `quality` value is a
+    /// quality keyword (`draft`, `high`) translated at render time.
+    pub params: Vec<(&'static str, String)>,
+}
+
+impl PreviewNote {
+    fn new(reason: &'static str) -> Self {
+        debug_assert!(
+            crate::util::reasons::is_preview_note(reason),
+            "unregistered preview note {reason}: add it to util::reasons and the catalogs"
+        );
+        Self {
+            reason,
+            params: Vec::new(),
+        }
+    }
+
+    fn param(mut self, name: &'static str, value: impl ToString) -> Self {
+        self.params.push((name, value.to_string()));
+        self
+    }
+
+    /// The note as a `#` comment line in `locale` (`es-ES` → Spanish; any
+    /// language without a catalog is English, as in the UI).
+    pub fn render(&self, locale: &str) -> String {
+        let catalog = preview_catalog(locale);
+        let english = preview_catalog("en");
+        let lookup = |path: &[&str]| -> Option<String> {
+            [catalog, english].iter().find_map(|doc| {
+                path.iter()
+                    .try_fold(*doc, |v, k| v.get(*k))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+        };
+        let mut sentence =
+            lookup(&["preview", "notes", self.reason]).unwrap_or_else(|| self.reason.to_string());
+        for (name, value) in &self.params {
+            let value = if *name == "quality" {
+                lookup(&["preview", "qualityWords", value]).unwrap_or_else(|| value.clone())
+            } else {
+                value.clone()
+            };
+            sentence = sentence.replace(&format!("{{{{{name}}}}}"), &value);
+        }
+        let prefix = lookup(&["preview", "notePrefix"]).unwrap_or_else(|| "note".into());
+        super::comment_text(&format!("# {prefix}: {sentence}"))
+    }
+
+    /// The note in English, for the job log and the CLI.
+    pub fn english(&self) -> String {
+        self.render("en")
+    }
+}
+
+/// The parsed `printJob` catalog for `locale`.
+fn preview_catalog(locale: &str) -> &'static serde_json::Value {
+    use std::sync::OnceLock;
+    static EN: OnceLock<serde_json::Value> = OnceLock::new();
+    static ES: OnceLock<serde_json::Value> = OnceLock::new();
+    let parse = |raw: &str| serde_json::from_str(raw).unwrap_or(serde_json::Value::Null);
+    let lang = locale
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match lang.as_str() {
+        "es" => ES.get_or_init(|| parse(ES_PRINT_JOB)),
+        _ => EN.get_or_init(|| parse(EN_PRINT_JOB)),
+    }
+}
+
+/// What the honesty preview says about the job's quality, or `None` for
+/// Normal (the driver's own default, never forced).
+pub fn quality_preview_note(
+    settings: &JobSettings,
+    support: QualitySupport,
+) -> Option<PreviewNote> {
     let word = match settings.quality {
         Quality::Normal => return None,
         Quality::Draft => "draft",
         Quality::High => "high",
     };
-    Some(match support {
-        QualitySupport::Offered => format!(
-            "# note: SumatraPDF has no print-quality switch, so \"{word}\" is applied by making it this printer's default for your Windows account only while the job is handed to the spooler; the job's own settings are checked afterwards and logged."
-        ),
-        QualitySupport::Unknown => format!(
-            "# note: SumatraPDF has no print-quality switch, so \"{word}\" is tried by making it this printer's default for your Windows account while the job is handed to the spooler; whether the driver kept it is checked afterwards and logged."
-        ),
-        QualitySupport::NotOffered => format!(
-            "# note: the driver for this printer offers no \"{word}\" quality, so it is NOT applied — the printer's own default quality is used."
-        ),
-        QualitySupport::PendingRestore => format!(
-            "# note: an earlier quality change on this printer could not be undone yet, so \"{word}\" is NOT applied — the printer's current default is used until Pluryprint puts your own back (see the log)."
-        ),
-    })
+    let reason = match support {
+        QualitySupport::Offered => "quality_offered",
+        QualitySupport::Unknown => "quality_unknown",
+        QualitySupport::NotOffered => "quality_not_offered",
+        QualitySupport::PendingRestore => "quality_pending_restore",
+    };
+    Some(PreviewNote::new(reason).param("quality", word))
 }
 
-/// Every setting that will not reach the printer as asked, as `#` comment
-/// lines for the honesty preview (and the job log): a quality the driver does
-/// not offer (or how it is applied), collation, and a paper or tray the
-/// driver has no id for.
+/// [`quality_preview_note`] in English: the sentence the job log carries.
+pub fn quality_note(settings: &JobSettings, support: QualitySupport) -> Option<String> {
+    quality_preview_note(settings, support).map(|n| n.english())
+}
+
+/// Every setting that will not reach the printer as asked, as notes for the
+/// honesty preview ([`PreviewNote`]): a quality the driver does not offer (or
+/// how it is applied), collation, and a paper or tray the driver has no id
+/// for.
 ///
 /// `quality` is what the driver said about the job's quality; `None` leaves
 /// quality out (the spool path logs what really happened instead).
+pub fn preview_notes(
+    settings: &JobSettings,
+    ids: &DriverIds,
+    quality: Option<QualitySupport>,
+) -> Vec<PreviewNote> {
+    let mut notes: Vec<PreviewNote> = quality
+        .and_then(|support| quality_preview_note(settings, support))
+        .into_iter()
+        .collect();
+    if settings.copies > 1 {
+        let reason = if settings.collate {
+            "collated_not_applied"
+        } else {
+            "uncollated_not_applied"
+        };
+        notes.push(PreviewNote::new(reason).param("copies", settings.copies));
+    }
+    if !settings.paper_size.is_auto() && ids.paper.is_none() {
+        notes.push(PreviewNote::new("paper_not_listed").param("paper", &settings.paper_size));
+    }
+    if let (Some(tray), None) = (settings.selected_tray(), ids.bin) {
+        notes.push(PreviewNote::new("tray_not_listed").param("tray", tray));
+    }
+    notes
+}
+
+/// [`preview_notes`] in English, as `#` comment lines for the job log.
 pub fn unsupported_notes(
     settings: &JobSettings,
     ids: &DriverIds,
     quality: Option<QualitySupport>,
 ) -> Vec<String> {
-    let mut notes: Vec<String> = quality
-        .and_then(|support| quality_note(settings, support))
-        .into_iter()
-        .collect();
-    if settings.copies > 1 {
-        notes.push(format!(
-            "# note: SumatraPDF has no collate switch, so \"{}\" is NOT applied — the driver's own collation is used for the {} copies.",
-            if settings.collate { "collated" } else { "uncollated" },
-            settings.copies
-        ));
-    }
-    if !settings.paper_size.is_auto() && ids.paper.is_none() {
-        notes.push(format!(
-            "# note: the driver for this printer does not list the paper size \"{}\", so it is NOT applied — the printer's own paper setting is used.",
-            settings.paper_size
-        ));
-    }
-    if let (Some(tray), None) = (settings.selected_tray(), ids.bin) {
-        notes.push(format!(
-            "# note: the driver for this printer lists no tray named \"{tray}\", so it is NOT applied — the printer's default tray is used."
-        ));
-    }
-    notes
+    preview_notes(settings, ids, quality)
+        .iter()
+        .map(PreviewNote::english)
+        .collect()
 }
-
 /// What the driver of `printer` says about `settings`' quality, for the
 /// preview. Normal needs no answer; off Windows nobody can be asked.
 pub fn quality_support_for(printer: &str, settings: &JobSettings) -> QualitySupport {
@@ -917,6 +1013,58 @@ mod tests {
             quality_support_for("P", &with(Quality::Normal)),
             QualitySupport::Offered
         );
+    }
+
+    /// FR-092 / D16: a Spanish UI gets the preview notes in Spanish, the job
+    /// log keeps them in English, and a driver's tray name cannot end the
+    /// comment line in either.
+    #[test]
+    fn fr_092_preview_notes_follow_the_ui_language() {
+        let s = JobSettings {
+            quality: Quality::High,
+            copies: 2,
+            collate: true,
+            tray: Some("Bandeja\n2".into()),
+            ..JobSettings::default()
+        };
+        let ids = DriverIds::without_driver(&s);
+        let notes = preview_notes(&s, &ids, Some(QualitySupport::NotOffered));
+        let reasons: Vec<&str> = notes.iter().map(|n| n.reason).collect();
+        assert_eq!(
+            reasons,
+            [
+                "quality_not_offered",
+                "collated_not_applied",
+                "tray_not_listed"
+            ]
+        );
+
+        let es: Vec<String> = notes.iter().map(|n| n.render("es-ES")).collect();
+        assert!(
+            es[0].starts_with("# nota: ") && es[0].contains("«alta»"),
+            "{}",
+            es[0]
+        );
+        assert!(es[0].contains("NO se aplica"), "{}", es[0]);
+        assert!(es[1].contains("2 copias"), "{}", es[1]);
+        assert!(
+            es[2].contains("«Bandeja?2»") && !es[2].contains('\n'),
+            "{}",
+            es[2]
+        );
+        assert!(es.iter().all(|n| !n.contains("{{")), "{es:?}");
+
+        let en = unsupported_notes(&s, &ids, Some(QualitySupport::NotOffered));
+        assert!(
+            en[0].starts_with("# note: ") && en[0].contains("\"high\""),
+            "{}",
+            en[0]
+        );
+        assert_eq!(
+            en,
+            notes.iter().map(|n| n.render("fr-FR")).collect::<Vec<_>>()
+        );
+        assert_eq!(en[0], notes[0].english());
     }
 
     #[test]

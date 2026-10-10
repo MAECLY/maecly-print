@@ -370,8 +370,9 @@ pub async fn inspect_files(paths: Vec<String>) -> Result<Vec<FileInfo>, IpcError
 pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
     run_blocking(move || {
         // The same default chain the queue resolves: org policy, else app.
+        let config = crate::settings::Config::load_or_default();
         let prefs = crate::ipc::printers::with_policy(
-            crate::settings::Config::load_or_default().printers,
+            config.printers,
             &crate::settings::PrinterPolicy::load(),
         );
         let os_default = crate::platform::default_printer().ok().flatten();
@@ -380,6 +381,8 @@ pub async fn preview_command(req: PrintRequest) -> Result<String, IpcError> {
             &req.settings,
             &prefs,
             os_default.as_deref(),
+            // The notes under the command speak the UI's language.
+            &config.app.locale,
             crate::platform::queue_of,
         ))
     })
@@ -395,6 +398,7 @@ fn preview_for_files(
     settings: &crate::queue::job::JobSettings,
     prefs: &crate::settings::PrinterPrefs,
     os_default: Option<&str>,
+    locale: &str,
     queue_of: impl Fn(&str) -> (String, crate::engine::print::PrinterCaps),
 ) -> String {
     use crate::queue::job::JobSettings;
@@ -449,7 +453,8 @@ fn preview_for_files(
             .find(|(_, id, _)| id == printer)
             .map(|(_, _, c)| c.clone())
             .unwrap_or_default();
-        let command = crate::engine::print::preview_command(&names[0], printer, effective, &caps);
+        let command =
+            crate::engine::print::preview_command_in(&names[0], printer, effective, &caps, locale);
         if groups.len() == 1 {
             blocks.push(command);
         } else {
@@ -693,7 +698,7 @@ mod tests {
             "/d/report.pdf".to_string(),
             "/d/photo.png".to_string(),
         ];
-        let out = preview_for_files(&files, &settings, &prefs, Some("Office"), |n| {
+        let out = preview_for_files(&files, &settings, &prefs, Some("Office"), "en-US", |n| {
             (n.to_string(), PrinterCaps::unknown())
         });
         let blocks: Vec<&str> = out.split("\n\n").collect();
@@ -718,6 +723,7 @@ mod tests {
             &JobSettings::default(),
             &crate::settings::PrinterPrefs::default(),
             Some("Office"),
+            "en-US",
             |n| (n.to_string(), PrinterCaps::unknown()),
         );
         assert!(!same.contains("\n\n") && !same.starts_with('#'), "{same}");
@@ -741,6 +747,7 @@ mod tests {
             &settings,
             &crate::settings::PrinterPrefs::default(),
             None,
+            "en-US",
             |n| {
                 assert_eq!(n, "HP LaserJet Pro M404");
                 ("HP_LaserJet_Pro_M404".to_string(), PrinterCaps::unknown())
