@@ -39,16 +39,16 @@ The entry sits under **Show more options** on Windows 11 because a top-level ent
 
 ## Download
 
-**[Pluryprint 0.0.1 preview](https://github.com/MAECLY/maecly-print/releases/tag/v0.0.1)** (pre-alpha, published 2026-10-10). Get the [latest release](https://github.com/MAECLY/maecly-print/releases/latest), or the right file from the [landing page](https://pluryprint.maecly.com/en/) ([en español](https://pluryprint.maecly.com/)):
+**[Pluryprint 0.0.1 preview](https://github.com/MAECLY/pluryprint/releases/tag/v0.0.1)** (pre-alpha, published 2026-10-10). Get the [latest release](https://github.com/MAECLY/pluryprint/releases/latest), or the right file from the [landing page](https://pluryprint.maecly.com/en/) ([en español](https://pluryprint.maecly.com/)):
 
-| Computer                                                  | File                                                                                                                                       |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Windows, Intel or AMD (x64)                               | [`Pluryprint_0.0.1_windows_x64.exe`](https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_windows_x64.exe)     |
-| Windows on ARM (ARM64; the x64 file also works, emulated) | [`Pluryprint_0.0.1_windows_arm64.exe`](https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_windows_arm64.exe) |
-| Mac with Apple silicon                                    | [`Pluryprint_0.0.1_apple_silicon.dmg`](https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_apple_silicon.dmg) |
-| Mac with an Intel processor (tested only under Rosetta 2) | [`Pluryprint_0.0.1_apple_intel.dmg`](https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_apple_intel.dmg)     |
+| Computer                                                  | File                                                                                                                                     |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows, Intel or AMD (x64)                               | [`Pluryprint_0.0.1_windows_x64.exe`](https://github.com/MAECLY/pluryprint/releases/download/v0.0.1/Pluryprint_0.0.1_windows_x64.exe)     |
+| Windows on ARM (ARM64; the x64 file also works, emulated) | [`Pluryprint_0.0.1_windows_arm64.exe`](https://github.com/MAECLY/pluryprint/releases/download/v0.0.1/Pluryprint_0.0.1_windows_arm64.exe) |
+| Mac with Apple silicon                                    | [`Pluryprint_0.0.1_apple_silicon.dmg`](https://github.com/MAECLY/pluryprint/releases/download/v0.0.1/Pluryprint_0.0.1_apple_silicon.dmg) |
+| Mac with an Intel processor (tested only under Rosetta 2) | [`Pluryprint_0.0.1_apple_intel.dmg`](https://github.com/MAECLY/pluryprint/releases/download/v0.0.1/Pluryprint_0.0.1_apple_intel.dmg)     |
 
-Check the file against [`SHA256SUMS`](https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/SHA256SUMS) before opening it. Nothing is signed with an Apple or Microsoft certificate, so Windows SmartScreen (**More info → Run anyway**) and macOS Gatekeeper (**System Settings → Privacy & Security → Open Anyway**) warn the first time; the [release notes](https://github.com/MAECLY/maecly-print/releases/tag/v0.0.1) explain both, and what to do if Smart App Control blocks the installer.
+Check the file against [`SHA256SUMS`](https://github.com/MAECLY/pluryprint/releases/download/v0.0.1/SHA256SUMS) before opening it. Nothing is signed with an Apple or Microsoft certificate, so Windows SmartScreen (**More info → Run anyway**) and macOS Gatekeeper (**System Settings → Privacy & Security → Open Anyway**) warn the first time; the [release notes](https://github.com/MAECLY/pluryprint/releases/tag/v0.0.1) explain both, and what to do if Smart App Control blocks the installer.
 
 ## Status
 
@@ -81,8 +81,8 @@ See the [roadmap](./docs/06-roadmap/milestones.md) for the milestone path, and t
 #   4. WebView2 Runtime (preinstalled on Windows 11)
 # Detailed checklist in docs/08-development/local-setup.md.
 
-git clone https://github.com/MAECLY/maecly-print.git
-cd maecly-print
+git clone https://github.com/MAECLY/pluryprint.git
+cd pluryprint
 pnpm install
 
 # Web preview only (no Tauri host, no IPC):

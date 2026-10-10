@@ -33,4 +33,4 @@ Closes #
 
 ## Contributor License Agreement
 
-- [ ] I have read the [Contributor License Agreement](https://github.com/MAECLY/maecly-print/blob/main/CLA.md) and agree to it for the contributions in this pull request.
+- [ ] I have read the [Contributor License Agreement](https://github.com/MAECLY/pluryprint/blob/main/CLA.md) and agree to it for the contributions in this pull request.

@@ -15,7 +15,7 @@ Pluryprint is in pre-alpha. Once the first stable release ships, this section wi
 Use one of these private channels:
 
 1. **GitHub Security Advisories** — preferred. Open a private advisory at:
-   `https://github.com/<org>/maecly-print/security/advisories/new`
+   `https://github.com/MAECLY/pluryprint/security/advisories/new`
 2. **Email** — `security@maecly.com` (PGP key fingerprint will be published once available).
 
 Please include:
