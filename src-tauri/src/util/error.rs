@@ -434,7 +434,9 @@ impl From<crate::engine::EngineError> for IpcError {
             E::DependencyMissing(f) => localized(IpcErrorCode::DependencyMissing, f),
             E::UnsupportedFormat(f) => localized(IpcErrorCode::UnsupportedFormat, f),
             E::PdfProtected(p) => {
-                let message = format!("protected PDF: {p}");
+                // The family label ("Protected PDF") is the Display prefix;
+                // the engine's own "protected PDF: " would repeat it.
+                let message = p.to_string();
                 let reason = p.reason();
                 let l = LocalizedError::new(IpcErrorCode::PdfProtected, reason, message);
                 match p {
@@ -502,6 +504,27 @@ mod tests {
             let v = serde_json::to_value(ipc).unwrap();
             assert_eq!(v["code"], expected_code);
         }
+    }
+
+    /// FR-059: the CLI's per-file line names the family once ("Protected
+    /// PDF: the PDF is password-protected"), not "Protected PDF: protected
+    /// PDF: …".
+    #[test]
+    fn fr_059_protected_pdf_message_has_one_prefix() {
+        use crate::engine::PdfProtection as P;
+        let ipc = IpcError::from(EngineError::PdfProtected(P::PasswordRequired));
+        assert_eq!(
+            ipc.to_string(),
+            "Protected PDF: the PDF is password-protected"
+        );
+        let v = serde_json::to_value(&ipc).unwrap();
+        assert_eq!(v["message"], "the PDF is password-protected");
+        assert_eq!(v["reason"], "password_required");
+        let ipc = IpcError::from(EngineError::PdfProtected(P::Unsupported("V9".into())));
+        assert_eq!(
+            ipc.to_string(),
+            "Protected PDF: the PDF uses unsupported encryption (V9)"
+        );
     }
 
     #[test]
