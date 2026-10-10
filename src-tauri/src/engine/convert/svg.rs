@@ -574,7 +574,10 @@ mod tests {
         write(root.path(), "secret.png", &png());
         write(&inside, "ok.png", &png());
         assert!(local_only("ok.png", &dir).is_some());
-        assert!(local_only(&dir.join("ok.png").to_string_lossy(), &dir).is_some());
+        // An absolute path as an author writes it (not the `\\?\` form a
+        // canonical Windows path takes, which reads like a share and is
+        // refused).
+        assert!(local_only(&inside.join("ok.png").to_string_lossy(), &dir).is_some());
         assert!(local_only("../secret.png", &dir).is_none(), "../ escapes");
         let outside_abs = root.path().join("secret.png");
         assert!(local_only(&outside_abs.to_string_lossy(), &dir).is_none());
