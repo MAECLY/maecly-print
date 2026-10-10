@@ -2,6 +2,8 @@
 
 > **TL;DR.** Pre-release: bump version, update CHANGELOG, run all tests, complete QA matrix. Release: tag, let CI build + sign + notarize, manually approve publish, verify the live download. Post-release: announce, watch for issues, prepare for next cycle.
 
+> **Status (2026-10-10).** The release process that exists is the runbook [releasing.md](../07-build-and-release/releasing.md): a tag builds a **draft** with `release.yml`, and §6 there is the checklist for verifying it before publishing. Releases carry no Authenticode, Developer ID or notarization ([ADR-0011](../adr/0011-release-channel.md)), and there is no `installers/windows/build.ps1`, so the items below that name `signtool`, `codesign --deep`, `spctl`, `stapler` or that script do not apply; the QA matrix and the post-release steps still do.
+
 This is the operational runbook a maintainer follows to ship a release. Print it, work through it top-to-bottom, do not skip steps. Each item has a checkbox; do not consider the release complete until every box is checked.
 
 ## Pre-release (T-7 to T-1 days)
@@ -32,7 +34,7 @@ This is the operational runbook a maintainer follows to ship a release. Print it
 ### Build verification
 
 - [ ] Local production build succeeds: `pnpm tauri build`.
-- [ ] Local installer build succeeds: `./installers/windows/build.ps1 -Version <version> -Channel release` (or macOS equivalent).
+- [ ] Local installer build succeeds: `scripts\fetch-sumatrapdf.ps1`, `scripts\build-shell-ext.ps1 -Arch all`, then `pnpm tauri build` (see [installer-windows.md](../07-build-and-release/installer-windows.md)); on macOS `pnpm tauri build --bundles app,dmg`.
 - [ ] Reproducibility check (Windows): build the installer twice from the same commit; unsigned `setup.exe` files are byte-identical.
 
 ### Manual QA matrix
@@ -102,7 +104,9 @@ For a stable release, run the manual QA suite on **every** combination below. Fo
 
 ### Signing verification
 
-- [ ] Each Windows binary in the release artifact set passes `signtool verify /pa /v <file>`.
+- [ ] `release.yml`'s signature check passed: every updater artifact verifies against the public key compiled into the app, and the tampered copy fails (job log, `sigcheck/`).
+- [ ] `SHA256SUMS` lists every asset and matches a downloaded copy.
+- [ ] *(Only once certificates exist, ADR-0011.)* Each Windows binary in the release artifact set passes `signtool verify /pa /v <file>`.
 - [ ] Each macOS artifact passes `codesign --verify --deep --strict --verbose=2 <artifact>`.
 - [ ] Each macOS `.pkg` and `.dmg` passes `spctl --assess --verbose <artifact>`.
 - [ ] Each macOS artifact passes `stapler validate <artifact>`.

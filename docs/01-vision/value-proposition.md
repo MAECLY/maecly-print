@@ -68,11 +68,13 @@ The only ceiling is what your printer can absorb. We will warn you if you queue 
 
 MVP format coverage targets the formats users *actually batch-print*:
 
-- **PDF** (via `pdfium` or `mupdf` — never Adobe Reader).
-- **Microsoft Office**: DOCX, XLSX, PPTX (and legacy DOC/XLS/PPT) via headless LibreOffice or Microsoft.Office.Interop where available.
-- **Images**: JPG, PNG, TIFF, BMP, GIF, WebP.
-- **Plain text and Markdown** (rendered server-side).
-- **HTML and XHTML** via the embedded WebView2.
+- **PDF** (printed by SumatraPDF on Windows and CUPS on macOS — never Adobe Reader), encrypted ones included after the user types the password.
+- **Microsoft Office and OpenDocument**: DOCX, XLSX, PPTX (and legacy DOC/XLS/PPT), ODT, ODS, ODP via headless LibreOffice.
+- **Images**: JPG, PNG, TIFF, BMP, WebP, HEIC, and SVG as vector pages. GIF is deliberately not supported.
+- **Plain text, RTF and Markdown**, converted inside the app.
+- **HTML**, printed by the system web view (WebView2 / WebKit) with no network access.
+
+That is what ships today; see [supported-formats.md](../03-requirements/supported-formats.md).
 
 A v1+ plugin interface will let third parties add CAD (DWG/DXF), e-mail (EML/MSG/PST), AutoCAD/SolidWorks, e-books, and the long tail that Print Conductor covers via its 90+ formats. We do not need to match that list on day one to be useful.
 
