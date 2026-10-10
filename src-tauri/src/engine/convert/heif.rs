@@ -348,9 +348,9 @@ mod wic {
                 .GetSize(&mut width, &mut height)
                 .map_err(&decode)?;
             if width == 0 || height == 0 || width > MAX_SIDE || height > MAX_SIDE {
-                return Err(EngineError::ConversionFailed(format!(
-                    "unsupported HEIF image size {width}×{height}"
-                )));
+                return Err(EngineError::ConversionFailed(
+                    format!("unsupported HEIF image size {width}×{height}").into(),
+                ));
             }
             let stride = width * 3;
             let mut pixels = vec![0u8; stride as usize * height as usize];

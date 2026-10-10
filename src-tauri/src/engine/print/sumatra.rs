@@ -496,12 +496,14 @@ pub fn spool_with(
 
     let exe = locate()?;
     let (stage, staged) = stage_for_spool(pdf, title).map_err(|e| {
-        EngineError::PrintFailed(format!("cannot prepare the file for the print queue: {e}"))
+        EngineError::PrintFailed(format!("cannot prepare the file for the print queue: {e}").into())
     })?;
     let log_path = stage.path().join("sumatrapdf.log");
     let (log_out, log_err) = std::fs::File::create(&log_path)
         .and_then(|f| Ok((f.try_clone()?, f)))
-        .map_err(|e| EngineError::PrintFailed(format!("cannot create the print log: {e}")))?;
+        .map_err(|e| {
+            EngineError::PrintFailed(format!("cannot create the print log: {e}").into())
+        })?;
     let args = sumatra_args_with(printer, settings, &staged, paper_choice);
     // SumatraPDF reports no job id, so take the spooler's job list before and
     // after: the new job carrying this file's path is the one to track. If the
@@ -526,7 +528,7 @@ pub fn spool_with(
         .stderr(std::process::Stdio::from(log_err))
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
-        .map_err(|e| EngineError::PrintFailed(format!("failed to run SumatraPDF: {e}")))?;
+        .map_err(|e| EngineError::PrintFailed(format!("failed to run SumatraPDF: {e}").into()))?;
 
     let status = super::wait_with_timeout(&mut child, timeout)?;
 
@@ -545,7 +547,10 @@ pub fn spool_with(
         } else {
             format!(": {tail}")
         };
-        Err(EngineError::PrintFailed(format!("SumatraPDF exited with {status}{detail}")).into())
+        Err(
+            EngineError::PrintFailed(format!("SumatraPDF exited with {status}{detail}").into())
+                .into(),
+        )
     }
 }
 
