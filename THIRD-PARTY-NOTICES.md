@@ -352,7 +352,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 
 ## Rust crates
 
-509 crates are compiled into the shipped binaries. The table names each one, the licence it is offered under, the licence Pluryprint uses it under, and where it ships; the licence texts follow, each with the crates that ship it.
+506 crates are compiled into the shipped binaries. The table names each one, the licence it is offered under, the licence Pluryprint uses it under, and where it ships; the licence texts follow, each with the crates that ship it.
 
 | Crate                               | Version          | Offered under                                       | Used under               | Ships in                          |
 | ----------------------------------- | ---------------- | --------------------------------------------------- | ------------------------ | --------------------------------- |
@@ -362,7 +362,9 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `aho-corasick`                      | 1.1.4            | Unlicense OR MIT                                    | MIT                      | app                               |
 | `aliasable`                         | 0.1.3            | MIT                                                 | MIT                      | app                               |
 | `alloc-no-stdlib`                   | 2.0.4            | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
+| `alloc-no-stdlib`                   | 3.0.0            | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
 | `alloc-stdlib`                      | 0.2.2            | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
+| `alloc-stdlib`                      | 0.3.0            | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
 | `allsorts`                          | 0.16.1           | Apache-2.0                                          | Apache-2.0               | app                               |
 | `anstream`                          | 1.0.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `anstyle`                           | 1.0.14           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
@@ -384,7 +386,9 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `block-padding`                     | 0.3.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `block2`                            | 0.6.2            | MIT                                                 | MIT                      | app                               |
 | `brotli`                            | 8.0.2            | BSD-3-Clause AND MIT                                | BSD-3-Clause, MIT        | app                               |
+| `brotli`                            | 9.0.0            | BSD-3-Clause AND MIT                                | BSD-3-Clause, MIT        | app                               |
 | `brotli-decompressor`               | 5.0.0            | BSD-3-Clause OR MIT                                 | MIT                      | app                               |
+| `brotli-decompressor`               | 6.0.1            | BSD-3-Clause OR MIT                                 | MIT                      | app                               |
 | `bytecount`                         | 0.6.9            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `bytemuck`                          | 1.25.0           | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
 | `bytemuck_derive`                   | 1.12.1           | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
@@ -395,6 +399,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `cargo-platform`                    | 0.1.9            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `cargo_metadata`                    | 0.19.2           | MIT                                                 | MIT                      | app                               |
 | `cbc`                               | 0.1.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `cfb`                               | 0.14.0           | MIT                                                 | MIT                      | app                               |
 | `cfb`                               | 0.7.3            | MIT                                                 | MIT                      | app                               |
 | `cfg-if`                            | 1.0.4            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `chrono`                            | 0.4.44           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
@@ -419,10 +424,9 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `crossbeam-epoch`                   | 0.9.20           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `crossbeam-utils`                   | 0.8.21           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `crypto-common`                     | 0.1.7            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `cssparser`                         | 0.36.0           | MPL-2.0                                             | MPL-2.0                  | app                               |
-| `cssparser-macros`                  | 0.6.1            | MPL-2.0                                             | MPL-2.0                  | app                               |
-| `ctor`                              | 0.8.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `ctor-proc-macro`                   | 0.0.7            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `cssparser`                         | 0.37.0           | MPL-2.0                                             | MPL-2.0                  | app                               |
+| `cssparser-macros`                  | 0.7.1            | MPL-2.0                                             | MPL-2.0                  | app                               |
+| `ctor`                              | 1.0.13           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `darling`                           | 0.23.0           | MIT                                                 | MIT                      | app                               |
 | `darling_core`                      | 0.23.0           | MIT                                                 | MIT                      | app                               |
 | `darling_macro`                     | 0.23.0           | MIT                                                 | MIT                      | app                               |
@@ -437,7 +441,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `dirs-sys`                          | 0.5.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `dispatch2`                         | 0.3.1            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
 | `displaydoc`                        | 0.2.5            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `dom_query`                         | 0.27.0           | MIT                                                 | MIT                      | app                               |
+| `dom_query`                         | 0.28.0           | MIT                                                 | MIT                      | app                               |
 | `dpi`                               | 0.1.2            | Apache-2.0 AND MIT                                  | Apache-2.0, MIT          | app                               |
 | `dtoa`                              | 1.0.11           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `dtoa-short`                        | 0.3.5            | MPL-2.0                                             | MPL-2.0                  | app                               |
@@ -483,7 +487,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `hashbrown`                         | 0.17.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `heck`                              | 0.4.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `heck`                              | 0.5.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `html5ever`                         | 0.38.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `html5ever`                         | 0.39.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `http`                              | 1.4.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `http-body`                         | 1.0.1            | MIT                                                 | MIT                      | app                               |
 | `http-body-util`                    | 0.1.3            | MIT                                                 | MIT                      | app                               |
@@ -508,6 +512,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `imagesize`                         | 0.13.0           | MIT                                                 | MIT                      | app                               |
 | `indexmap`                          | 2.14.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `infer`                             | 0.19.0           | MIT                                                 | MIT                      | app                               |
+| `infer`                             | 0.22.0           | MIT                                                 | MIT                      | app                               |
 | `inout`                             | 0.1.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `ipnet`                             | 2.12.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `iri-string`                        | 0.7.12           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
@@ -519,7 +524,9 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `jiff-tzdb`                         | 0.1.9            | Unlicense OR MIT                                    | MIT                      | app                               |
 | `jiff-tzdb-platform`                | 0.1.3            | Unlicense OR MIT                                    | MIT                      | app                               |
 | `json-patch`                        | 3.0.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `json-patch`                        | 4.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `jsonptr`                           | 0.6.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `jsonptr`                           | 0.7.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `keyboard-types`                    | 0.7.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `kurbo`                             | 0.11.3           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `kurbo`                             | 0.13.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
@@ -532,7 +539,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `log`                               | 0.4.29           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `lopdf`                             | 0.39.0           | MIT                                                 | MIT                      | app                               |
 | `mac-notification-sys`              | 0.6.15           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `markup5ever`                       | 0.38.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `markup5ever`                       | 0.39.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `matchers`                          | 0.2.0            | MIT                                                 | MIT                      | app                               |
 | `md-5`                              | 0.10.6           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `memchr`                            | 2.8.0            | Unlicense OR MIT                                    | MIT                      | app                               |
@@ -576,13 +583,9 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `pathfinder_simd`                   | 0.5.6            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `pdf-writer`                        | 0.12.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `percent-encoding`                  | 2.3.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `phf`                               | 0.11.3           | MIT                                                 | MIT                      | app                               |
 | `phf`                               | 0.13.1           | MIT                                                 | MIT                      | app                               |
-| `phf_generator`                     | 0.11.3           | MIT                                                 | MIT                      | app                               |
 | `phf_generator`                     | 0.13.1           | MIT                                                 | MIT                      | app                               |
-| `phf_macros`                        | 0.11.3           | MIT                                                 | MIT                      | app                               |
 | `phf_macros`                        | 0.13.1           | MIT                                                 | MIT                      | app                               |
-| `phf_shared`                        | 0.11.3           | MIT                                                 | MIT                      | app                               |
 | `phf_shared`                        | 0.13.1           | MIT                                                 | MIT                      | app                               |
 | `pico-args`                         | 0.5.0            | MIT                                                 | MIT                      | app                               |
 | `pin-project-lite`                  | 0.2.17           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
@@ -606,10 +609,8 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `quick-xml`                         | 0.39.2           | MIT                                                 | MIT                      | app                               |
 | `quote`                             | 1.0.45           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `quote`                             | 1.0.47           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `rand`                              | 0.8.6            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `rand`                              | 0.9.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `rand_chacha`                       | 0.9.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `rand_core`                         | 0.6.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `rand_core`                         | 0.9.5            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `rangemap`                          | 1.7.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `raw-window-handle`                 | 0.6.2            | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
@@ -640,7 +641,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `scopeguard`                        | 1.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `security-framework`                | 3.7.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `security-framework-sys`            | 2.17.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `selectors`                         | 0.36.1           | MPL-2.0                                             | MPL-2.0                  | app                               |
+| `selectors`                         | 0.38.0           | MPL-2.0                                             | MPL-2.0                  | app                               |
 | `semver`                            | 1.0.28           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `serde`                             | 1.0.228          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `serde`                             | 1.0.229          | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
@@ -686,7 +687,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `subtle`                            | 2.6.1            | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
 | `svg2pdf`                           | 0.13.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `svgtypes`                          | 0.15.3           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `swift-rs`                          | 1.0.7            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `swift-rs`                          | 1.0.9            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `symlink`                           | 0.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `syn`                               | 1.0.109          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `syn`                               | 2.0.117          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
@@ -702,17 +703,17 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `tauri`                             | 2.11.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `tauri-codegen`                     | 2.6.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `tauri-macros`                      | 2.6.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-dialog`               | 2.7.1            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-fs`                   | 2.5.1            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-dialog`               | 2.7.3            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-fs`                   | 2.5.2            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `tauri-plugin-notification`         | 2.4.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-opener`               | 2.5.4            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-opener`               | 2.5.5            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `tauri-plugin-single-instance`      | 2.4.3            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `tauri-plugin-updater`              | 2.12.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `tauri-runtime`                     | 2.11.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `tauri-runtime-wry`                 | 2.11.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `tauri-specta`                      | 2.0.0-rc.21      | MIT                                                 | MIT                      | app                               |
 | `tauri-specta-macros`               | 2.0.0-rc.16      | MIT                                                 | MIT                      | app                               |
-| `tauri-utils`                       | 2.9.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-utils`                       | 2.10.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `tauri-winrt-notification`          | 0.8.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `tempfile`                          | 3.27.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `tendril`                           | 0.5.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
@@ -759,11 +760,6 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `typeid`                            | 1.0.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `typenum`                           | 1.20.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `ucd-trie`                          | 0.1.7            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unic-char-property`                | 0.9.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unic-char-range`                   | 0.9.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unic-common`                       | 0.9.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unic-ucd-ident`                    | 0.9.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unic-ucd-version`                  | 0.9.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `unicase`                           | 2.10.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `unicode-bidi`                      | 0.3.18           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `unicode-bidi-mirroring`            | 0.4.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
@@ -780,7 +776,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `untrusted`                         | 0.9.0            | ISC                                                 | ISC                      | app                               |
 | `ureq`                              | 2.12.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `url`                               | 2.5.8            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `urlpattern`                        | 0.3.0            | MIT                                                 | MIT                      | app                               |
+| `urlpattern`                        | 0.6.0            | MIT                                                 | MIT                      | app                               |
 | `usvg`                              | 0.45.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `utf-8`                             | 0.7.6            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `utf8_iter`                         | 1.0.4            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
@@ -790,6 +786,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `wait-timeout`                      | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `walkdir`                           | 2.5.0            | Unlicense OR MIT                                    | MIT                      | app                               |
 | `want`                              | 0.3.1            | MIT                                                 | MIT                      | app                               |
+| `web-time`                          | 1.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `web_atoms`                         | 0.2.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `webpki-roots`                      | 0.26.11          | CDLA-Permissive-2.0                                 | CDLA-Permissive-2.0      | app                               |
 | `webpki-roots`                      | 1.0.8            | CDLA-Permissive-2.0                                 | CDLA-Permissive-2.0      | app                               |
@@ -1321,6 +1318,7 @@ Used by:
 - `foreign-types-shared` 0.3.1 (https://github.com/sfackler/foreign-types), by Steven Fackler
 - `is_terminal_polyfill` 1.70.2 (https://github.com/polyfill-rs/is_terminal_polyfill)
 - `json-patch` 3.0.1 (https://github.com/idubrov/json-patch), by Ivan Dubrov
+- `json-patch` 4.2.0 (https://github.com/idubrov/json-patch), by Ivan Dubrov
 - `notify-rust` 4.18.2 (https://github.com/hoodie/notify-rust), by Hendrik Sollich
 - `once_cell_polyfill` 1.70.2 (https://github.com/polyfill-rs/once_cell_polyfill)
 - `quick-error` 2.0.1 (http://github.com/tailhook/quick-error), by Paul Colomiets, Colin Kiegel
@@ -1586,7 +1584,6 @@ Used by:
 - `proc-macro2` 1.0.107 (https://github.com/dtolnay/proc-macro2), by David Tolnay, Alex Crichton
 - `quote` 1.0.45 (https://github.com/dtolnay/quote), by David Tolnay
 - `quote` 1.0.47 (https://github.com/dtolnay/quote), by David Tolnay
-- `rand` 0.8.6 (https://github.com/rust-random/rand), by The Rand Project Developers, The Rust Project Developers
 - `rand` 0.9.4 (https://github.com/rust-random/rand), by The Rand Project Developers, The Rust Project Developers
 - `rand_chacha` 0.9.0 (https://github.com/rust-random/rand), by The Rand Project Developers, The Rust Project Developers, The CryptoCorrosion Contributors
 - `raw-window-handle` 0.6.2 (https://github.com/rust-windowing/raw-window-handle), by Osspial
@@ -1616,15 +1613,15 @@ Used by:
 - `tauri` 2.11.0 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
 - `tauri-codegen` 2.6.0 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
 - `tauri-macros` 2.6.0 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
-- `tauri-plugin-dialog` 2.7.1 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
-- `tauri-plugin-fs` 2.5.1 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
+- `tauri-plugin-dialog` 2.7.3 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
+- `tauri-plugin-fs` 2.5.2 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
 - `tauri-plugin-notification` 2.4.0 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
-- `tauri-plugin-opener` 2.5.4 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
+- `tauri-plugin-opener` 2.5.5 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
 - `tauri-plugin-single-instance` 2.4.3 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
 - `tauri-plugin-updater` 2.12.0 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
 - `tauri-runtime` 2.11.0 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
 - `tauri-runtime-wry` 2.11.0 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
-- `tauri-utils` 2.9.0 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
+- `tauri-utils` 2.10.1 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
 - `tauri-winrt-notification` 0.8.1 (https://github.com/tauri-apps/winrt-notification), by allenbenz, Tauri Programme within The Commons Conservancy
 - `thiserror` 1.0.69 (https://github.com/dtolnay/thiserror), by David Tolnay
 - `thiserror` 2.0.18 (https://github.com/dtolnay/thiserror), by David Tolnay
@@ -1636,11 +1633,6 @@ Used by:
 - `time-core` 0.1.9 (https://github.com/time-rs/time), by Jacob Pratt, Time contributors
 - `time-macros` 0.2.27 (https://github.com/time-rs/time), by Jacob Pratt, Time contributors
 - `typeid` 1.0.3 (https://github.com/dtolnay/typeid), by David Tolnay
-- `unic-char-property` 0.9.0 (https://github.com/open-i18n/rust-unic/), by The UNIC Project Developers
-- `unic-char-range` 0.9.0 (https://github.com/open-i18n/rust-unic/), by The UNIC Project Developers
-- `unic-common` 0.9.0 (https://github.com/open-i18n/rust-unic/), by The UNIC Project Developers
-- `unic-ucd-ident` 0.9.0 (https://github.com/open-i18n/rust-unic/), by The UNIC Project Developers
-- `unic-ucd-version` 0.9.0 (https://github.com/open-i18n/rust-unic/), by The UNIC Project Developers
 - `unicode-ident` 1.0.24 (https://github.com/dtolnay/unicode-ident), by David Tolnay
 - `usvg` 0.45.1 (https://github.com/linebender/resvg)
 - `utf-8` 0.7.6 (https://github.com/SimonSapin/rust-utf8), by Simon Sapin
@@ -1761,7 +1753,7 @@ Used by:
 - `hashbrown` 0.17.0 (https://github.com/rust-lang/hashbrown), by Amanieu d'Antras
 - `heck` 0.4.1 (https://github.com/withoutboats/heck), by Without Boats
 - `heck` 0.5.0 (https://github.com/withoutboats/heck)
-- `html5ever` 0.38.0 (https://github.com/servo/html5ever), by The html5ever Project Developers
+- `html5ever` 0.39.0 (https://github.com/servo/html5ever), by The html5ever Project Developers
 - `httparse` 1.10.1 (https://github.com/seanmonstar/httparse), by Sean McArthur
 - `hyper-rustls` 0.27.10 (https://github.com/rustls/hyper-rustls)
 - `idna` 1.1.0 (https://github.com/servo/rust-url/), by The rust-url developers
@@ -1772,7 +1764,7 @@ Used by:
 - `lazy_static` 1.5.0 (https://github.com/rust-lang-nursery/lazy-static.rs), by Marvin Löbel
 - `lock_api` 0.4.14 (https://github.com/Amanieu/parking_lot), by Amanieu d'Antras
 - `log` 0.4.29 (https://github.com/rust-lang/log), by The Rust Project Developers
-- `markup5ever` 0.38.0 (https://github.com/servo/html5ever), by The html5ever Project Developers
+- `markup5ever` 0.39.0 (https://github.com/servo/html5ever), by The html5ever Project Developers
 - `mime` 0.3.17 (https://github.com/hyperium/mime), by Sean McArthur
 - `muda` 0.19.1 (https://github.com/tauri-apps/muda)
 - `num-traits` 0.2.19 (https://github.com/rust-num/num-traits), by The Rust Project Developers
@@ -2801,8 +2793,7 @@ limitations under the License.
 
 Used by:
 
-- `ctor` 0.8.0 (https://github.com/mmastrac/rust-ctor), by Matt Mastracci
-- `ctor-proc-macro` 0.0.7 (https://github.com/mmastrac/rust-ctor), by Matt Mastracci
+- `ctor` 1.0.13 (https://github.com/mmastrac/linktime), by Matt Mastracci
 - `dpi` 0.1.2 (https://github.com/rust-windowing/winit)
 - `tao` 0.35.0 (https://github.com/tauri-apps/tao), by Tauri Programme within The Commons Conservancy, The winit contributors
 
@@ -4363,6 +4354,7 @@ limitations under the License.
 Used by:
 
 - `jsonptr` 0.6.3 (https://github.com/chanced/jsonptr), by chance dinkins, André Sá de Mello
+- `jsonptr` 0.7.1 (https://github.com/chanced/jsonptr), by chance dinkins, André Sá de Mello, Oliver Wangler
 
 ```text
                                  Apache License
@@ -5624,7 +5616,6 @@ limitations under the License.
 
 Used by:
 
-- `rand_core` 0.6.4 (https://github.com/rust-random/rand), by The Rand Project Developers, The Rust Project Developers
 - `rand_core` 0.9.5 (https://github.com/rust-random/rand), by The Rand Project Developers, The Rust Project Developers
 
 ```text
@@ -7157,7 +7148,7 @@ Apache License
 
 Used by:
 
-- `swift-rs` 1.0.7 (https://github.com/Brendonovich/swift-rs), by The swift-rs contributors
+- `swift-rs` 1.0.9 (https://github.com/Brendonovich/swift-rs), by The swift-rs contributors
 
 ```text
                               Apache License
@@ -8207,6 +8198,216 @@ limitations under the License.
 
 Used by:
 
+- `web-time` 1.1.0 (https://github.com/daxpedda/web-time)
+
+```text
+                              Apache License
+                        Version 2.0, January 2004
+                     http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+   "License" shall mean the terms and conditions for use, reproduction,
+   and distribution as defined by Sections 1 through 9 of this document.
+
+   "Licensor" shall mean the copyright owner or entity authorized by
+   the copyright owner that is granting the License.
+
+   "Legal Entity" shall mean the union of the acting entity and all
+   other entities that control, are controlled by, or are under common
+   control with that entity. For the purposes of this definition,
+   "control" means (i) the power, direct or indirect, to cause the
+   direction or management of such entity, whether by contract or
+   otherwise, or (ii) ownership of fifty percent (50%) or more of the
+   outstanding shares, or (iii) beneficial ownership of such entity.
+
+   "You" (or "Your") shall mean an individual or Legal Entity
+   exercising permissions granted by this License.
+
+   "Source" form shall mean the preferred form for making modifications,
+   including but not limited to software source code, documentation
+   source, and configuration files.
+
+   "Object" form shall mean any form resulting from mechanical
+   transformation or translation of a Source form, including but
+   not limited to compiled object code, generated documentation,
+   and conversions to other media types.
+
+   "Work" shall mean the work of authorship, whether in Source or
+   Object form, made available under the License, as indicated by a
+   copyright notice that is included in or attached to the work
+   (an example is provided in the Appendix below).
+
+   "Derivative Works" shall mean any work, whether in Source or Object
+   form, that is based on (or derived from) the Work and for which the
+   editorial revisions, annotations, elaborations, or other modifications
+   represent, as a whole, an original work of authorship. For the purposes
+   of this License, Derivative Works shall not include works that remain
+   separable from, or merely link (or bind by name) to the interfaces of,
+   the Work and Derivative Works thereof.
+
+   "Contribution" shall mean any work of authorship, including
+   the original version of the Work and any modifications or additions
+   to that Work or Derivative Works thereof, that is intentionally
+   submitted to Licensor for inclusion in the Work by the copyright owner
+   or by an individual or Legal Entity authorized to submit on behalf of
+   the copyright owner. For the purposes of this definition, "submitted"
+   means any form of electronic, verbal, or written communication sent
+   to the Licensor or its representatives, including but not limited to
+   communication on electronic mailing lists, source code control systems,
+   and issue tracking systems that are managed by, or on behalf of, the
+   Licensor for the purpose of discussing and improving the Work, but
+   excluding communication that is conspicuously marked or otherwise
+   designated in writing by the copyright owner as "Not a Contribution."
+
+   "Contributor" shall mean Licensor and any individual or Legal Entity
+   on behalf of whom a Contribution has been received by Licensor and
+   subsequently incorporated within the Work.
+
+2. Grant of Copyright License. Subject to the terms and conditions of
+   this License, each Contributor hereby grants to You a perpetual,
+   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+   copyright license to reproduce, prepare Derivative Works of,
+   publicly display, publicly perform, sublicense, and distribute the
+   Work and such Derivative Works in Source or Object form.
+
+3. Grant of Patent License. Subject to the terms and conditions of
+   this License, each Contributor hereby grants to You a perpetual,
+   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+   (except as stated in this section) patent license to make, have made,
+   use, offer to sell, sell, import, and otherwise transfer the Work,
+   where such license applies only to those patent claims licensable
+   by such Contributor that are necessarily infringed by their
+   Contribution(s) alone or by combination of their Contribution(s)
+   with the Work to which such Contribution(s) was submitted. If You
+   institute patent litigation against any entity (including a
+   cross-claim or counterclaim in a lawsuit) alleging that the Work
+   or a Contribution incorporated within the Work constitutes direct
+   or contributory patent infringement, then any patent licenses
+   granted to You under this License for that Work shall terminate
+   as of the date such litigation is filed.
+
+4. Redistribution. You may reproduce and distribute copies of the
+   Work or Derivative Works thereof in any medium, with or without
+   modifications, and in Source or Object form, provided that You
+   meet the following conditions:
+
+   (a) You must give any other recipients of the Work or
+       Derivative Works a copy of this License; and
+
+   (b) You must cause any modified files to carry prominent notices
+       stating that You changed the files; and
+
+   (c) You must retain, in the Source form of any Derivative Works
+       that You distribute, all copyright, patent, trademark, and
+       attribution notices from the Source form of the Work,
+       excluding those notices that do not pertain to any part of
+       the Derivative Works; and
+
+   (d) If the Work includes a "NOTICE" text file as part of its
+       distribution, then any Derivative Works that You distribute must
+       include a readable copy of the attribution notices contained
+       within such NOTICE file, excluding those notices that do not
+       pertain to any part of the Derivative Works, in at least one
+       of the following places: within a NOTICE text file distributed
+       as part of the Derivative Works; within the Source form or
+       documentation, if provided along with the Derivative Works; or,
+       within a display generated by the Derivative Works, if and
+       wherever such third-party notices normally appear. The contents
+       of the NOTICE file are for informational purposes only and
+       do not modify the License. You may add Your own attribution
+       notices within Derivative Works that You distribute, alongside
+       or as an addendum to the NOTICE text from the Work, provided
+       that such additional attribution notices cannot be construed
+       as modifying the License.
+
+   You may add Your own copyright statement to Your modifications and
+   may provide additional or different license terms and conditions
+   for use, reproduction, or distribution of Your modifications, or
+   for any such Derivative Works as a whole, provided Your use,
+   reproduction, and distribution of the Work otherwise complies with
+   the conditions stated in this License.
+
+5. Submission of Contributions. Unless You explicitly state otherwise,
+   any Contribution intentionally submitted for inclusion in the Work
+   by You to the Licensor shall be under the terms and conditions of
+   this License, without any additional terms or conditions.
+   Notwithstanding the above, nothing herein shall supersede or modify
+   the terms of any separate license agreement you may have executed
+   with Licensor regarding such Contributions.
+
+6. Trademarks. This License does not grant permission to use the trade
+   names, trademarks, service marks, or product names of the Licensor,
+   except as required for reasonable and customary use in describing the
+   origin of the Work and reproducing the content of the NOTICE file.
+
+7. Disclaimer of Warranty. Unless required by applicable law or
+   agreed to in writing, Licensor provides the Work (and each
+   Contributor provides its Contributions) on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+   implied, including, without limitation, any warranties or conditions
+   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+   PARTICULAR PURPOSE. You are solely responsible for determining the
+   appropriateness of using or redistributing the Work and assume any
+   risks associated with Your exercise of permissions under this License.
+
+8. Limitation of Liability. In no event and under no legal theory,
+   whether in tort (including negligence), contract, or otherwise,
+   unless required by applicable law (such as deliberate and grossly
+   negligent acts) or agreed to in writing, shall any Contributor be
+   liable to You for damages, including any direct, indirect, special,
+   incidental, or consequential damages of any character arising as a
+   result of this License or out of the use or inability to use the
+   Work (including but not limited to damages for loss of goodwill,
+   work stoppage, computer failure or malfunction, or any and all
+   other commercial damages or losses), even if such Contributor
+   has been advised of the possibility of such damages.
+
+9. Accepting Warranty or Additional Liability. While redistributing
+   the Work or Derivative Works thereof, You may choose to offer,
+   and charge a fee for, acceptance of support, warranty, indemnity,
+   or other liability obligations and/or rights consistent with this
+   License. However, in accepting such obligations, You may act only
+   on Your own behalf and on Your sole responsibility, not on behalf
+   of any other Contributor, and only if You agree to indemnify,
+   defend, and hold each Contributor harmless for any liability
+   incurred by, or claims asserted against, such Contributor by reason
+   of your accepting any such warranty or additional liability.
+
+END OF TERMS AND CONDITIONS
+
+APPENDIX: How to apply the Apache License to your work.
+
+   To apply the Apache License to your work, attach the following
+   boilerplate notice, with the fields enclosed by brackets "[]"
+   replaced with your own identifying information. (Don't include
+   the brackets!)  The text should be enclosed in the appropriate
+   comment syntax for the file format. We also recommend that a
+   file or class name and description of purpose be included on the
+   same "printed page" as the copyright notice for easier
+   identification within third-party archives.
+
+Copyright 2023 dAxpeDDa
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+#### 37. Apache License 2.0 (Apache-2.0)
+
+Used by:
+
 - `windows` 0.58.0 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows` 0.61.3 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows` 0.62.2 (https://github.com/microsoft/windows-rs)
@@ -8454,7 +8655,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-#### 37. Apache License 2.0 (Apache-2.0)
+#### 38. Apache License 2.0 (Apache-2.0)
 
 Used by:
 
@@ -8665,7 +8866,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-#### 38. BSD 2-Clause "Simplified" License (BSD-2-Clause)
+#### 39. BSD 2-Clause "Simplified" License (BSD-2-Clause)
 
 Used by:
 
@@ -8683,7 +8884,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 39. BSD 2-Clause "Simplified" License (BSD-2-Clause)
+#### 40. BSD 2-Clause "Simplified" License (BSD-2-Clause)
 
 Used by:
 
@@ -8718,11 +8919,13 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 40. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 41. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
 - `alloc-no-stdlib` 2.0.4 (https://github.com/dropbox/rust-alloc-no-stdlib), by Daniel Reiter Horn
+- `alloc-no-stdlib` 3.0.0 (https://github.com/dropbox/rust-alloc-no-stdlib), by Daniel Reiter Horn
+- `brotli` 9.0.0 (https://github.com/dropbox/rust-brotli), by Daniel Reiter Horn, The Brotli Authors
 
 ```text
 Copyright (c) 2016 Dropbox, Inc.
@@ -8739,11 +8942,12 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 41. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 42. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
 - `alloc-stdlib` 0.2.2 (https://github.com/dropbox/rust-alloc-no-stdlib), by Daniel Reiter Horn
+- `alloc-stdlib` 0.3.0 (https://github.com/dropbox/rust-alloc-no-stdlib), by Daniel Reiter Horn
 - `brotli` 8.0.2 (https://github.com/dropbox/rust-brotli), by Daniel Reiter Horn, The Brotli Authors
 
 ```text
@@ -8760,7 +8964,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 42. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 43. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -8823,7 +9027,7 @@ pub(crate) static GB18030_2022_OVERRIDE_BYTES: [[u8; 2]; 18] = [
 ];
 ```
 
-#### 43. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 44. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -8858,7 +9062,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 44. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 45. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -8900,7 +9104,7 @@ OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 45. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 46. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -8935,7 +9139,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 46. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 47. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -8973,7 +9177,7 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 47. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 48. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -9013,7 +9217,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 48. Community Data License Agreement Permissive 2.0 (CDLA-Permissive-2.0)
+#### 49. Community Data License Agreement Permissive 2.0 (CDLA-Permissive-2.0)
 
 Used by:
 
@@ -9084,7 +9288,7 @@ of Data, including for example machine learning models and models'
 insights.
 ```
 
-#### 49. ISC License (ISC)
+#### 50. ISC License (ISC)
 
 Used by:
 
@@ -9127,7 +9331,7 @@ typedef struct {
 #endif // OPENSSL_HEADER_EC_ECP_NISTZ384_H
 ```
 
-#### 50. ISC License (ISC)
+#### 51. ISC License (ISC)
 
 Used by:
 
@@ -9168,7 +9372,7 @@ pub fn eddsa_digest(signature_r: &[u8], public_key: &[u8], msg: &[u8]) -> digest
 }
 ```
 
-#### 51. ISC License (ISC)
+#### 52. ISC License (ISC)
 
 Used by:
 
@@ -9214,7 +9418,7 @@ impl N0 {
 }
 ```
 
-#### 52. ISC License (ISC)
+#### 53. ISC License (ISC)
 
 Used by:
 
@@ -9245,7 +9449,7 @@ pub fn verify_slices_are_equal(a: &[u8], b: &[u8]) -> Result<(), error::Unspecif
 }
 ```
 
-#### 53. ISC License (ISC)
+#### 54. ISC License (ISC)
 
 Used by:
 
@@ -9276,7 +9480,7 @@ mod ops;
 mod scalar;
 ```
 
-#### 54. ISC License (ISC)
+#### 55. ISC License (ISC)
 
 Used by:
 
@@ -9318,7 +9522,7 @@ impl From<KeyRejected> for Unspecified {
 }
 ```
 
-#### 55. ISC License (ISC)
+#### 56. ISC License (ISC)
 
 Used by:
 
@@ -9358,7 +9562,7 @@ pub use self::positive::Positive;
 pub(crate) use self::writer::TooLongError;
 ```
 
-#### 56. ISC License (ISC)
+#### 57. ISC License (ISC)
 
 Used by:
 
@@ -9401,7 +9605,7 @@ mod sha2_32;
 mod sha2_64;
 ```
 
-#### 57. ISC License (ISC)
+#### 58. ISC License (ISC)
 
 Used by:
 
@@ -9437,7 +9641,7 @@ pub const fn from_ref<T: ?Sized>(r: &T) -> *const T {
 }
 ```
 
-#### 58. ISC License (ISC)
+#### 59. ISC License (ISC)
 
 Used by:
 
@@ -9463,7 +9667,7 @@ Used by:
 mod bits_tests;
 ```
 
-#### 59. ISC License (ISC)
+#### 60. ISC License (ISC)
 
 Used by:
 
@@ -9495,7 +9699,7 @@ mod base;
 mod partial_block;
 ```
 
-#### 60. ISC License (ISC)
+#### 61. ISC License (ISC)
 
 Used by:
 
@@ -9521,7 +9725,7 @@ Used by:
 pub(in super::super) mod mont;
 ```
 
-#### 61. ISC License (ISC)
+#### 62. ISC License (ISC)
 
 Used by:
 
@@ -9547,7 +9751,7 @@ Used by:
 pub(in super::super::super) mod mont;
 ```
 
-#### 62. ISC License (ISC)
+#### 63. ISC License (ISC)
 
 Used by:
 
@@ -9573,7 +9777,7 @@ mod storage;
 pub(super) use self::storage::{AlignedStorage, LIMBS_PER_CHUNK};
 ```
 
-#### 63. ISC License (ISC)
+#### 64. ISC License (ISC)
 
 Used by:
 
@@ -9598,7 +9802,7 @@ pub(super) mod aarch64;
 pub(super) mod x86_64;
 ```
 
-#### 64. ISC License (ISC)
+#### 65. ISC License (ISC)
 
 Used by:
 
@@ -9620,7 +9824,7 @@ OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-#### 65. ISC License (ISC)
+#### 66. ISC License (ISC)
 
 Used by:
 
@@ -9648,7 +9852,7 @@ The files under third-party/chromium are licensed as described in
 third-party/chromium/LICENSE.
 ```
 
-#### 66. ISC License (ISC)
+#### 67. ISC License (ISC)
 
 Used by:
 
@@ -9670,7 +9874,7 @@ Used by:
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-#### 67. MIT License (MIT)
+#### 68. MIT License (MIT)
 
 Used by:
 
@@ -9709,7 +9913,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 68. MIT License (MIT)
+#### 69. MIT License (MIT)
 
 Used by:
 
@@ -9739,12 +9943,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 69. MIT License (MIT)
+#### 70. MIT License (MIT)
 
 Used by:
 
 - `block2` 0.6.2 (https://github.com/madsmtm/objc2), by Mads Marquart
 - `brotli-decompressor` 5.0.0 (https://github.com/dropbox/rust-brotli-decompressor), by Daniel Reiter Horn, The Brotli Authors
+- `brotli-decompressor` 6.0.1 (https://github.com/dropbox/rust-brotli-decompressor), by Daniel Reiter Horn, The Brotli Authors
 - `dpi` 0.1.2 (https://github.com/rust-windowing/winit)
 - `libm` 0.2.16 (https://github.com/rust-lang/compiler-builtins), by Alex Crichton, Amanieu d'Antras, Jorge Aparicio, Trevor Gross
 - `minisign-verify` 0.2.5 (https://github.com/jedisct1/rust-minisign-verify), by Frank Denis
@@ -9782,11 +9987,12 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTI
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 70. MIT License (MIT)
+#### 71. MIT License (MIT)
 
 Used by:
 
 - `brotli` 8.0.2 (https://github.com/dropbox/rust-brotli), by Daniel Reiter Horn, The Brotli Authors
+- `brotli` 9.0.0 (https://github.com/dropbox/rust-brotli), by Daniel Reiter Horn, The Brotli Authors
 
 ```text
 Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors.
@@ -9810,7 +10016,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 71. MIT License (MIT)
+#### 72. MIT License (MIT)
 
 Used by:
 
@@ -9844,7 +10050,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 72. MIT License (MIT)
+#### 73. MIT License (MIT)
 
 Used by:
 
@@ -9878,10 +10084,11 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 73. MIT License (MIT)
+#### 74. MIT License (MIT)
 
 Used by:
 
+- `cfb` 0.14.0 (https://github.com/mdsteele/rust-cfb), by Matthew D. Steele
 - `cfb` 0.7.3 (https://github.com/mdsteele/rust-cfb), by Matthew D. Steele
 
 ```text
@@ -9908,7 +10115,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 74. MIT License (MIT)
+#### 75. MIT License (MIT)
 
 Used by:
 
@@ -9938,7 +10145,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 75. MIT License (MIT)
+#### 76. MIT License (MIT)
 
 Used by:
 
@@ -9968,7 +10175,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 76. MIT License (MIT)
+#### 77. MIT License (MIT)
 
 Used by:
 
@@ -10000,7 +10207,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 77. MIT License (MIT)
+#### 78. MIT License (MIT)
 
 Used by:
 
@@ -10031,11 +10238,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 78. MIT License (MIT)
+#### 79. MIT License (MIT)
 
 Used by:
 
-- `dom_query` 0.27.0 (https://github.com/niklak/dom_query), by niklak, importcjj
+- `dom_query` 0.28.0 (https://github.com/niklak/dom_query), by niklak, importcjj
 
 ```text
 MIT License
@@ -10067,7 +10274,7 @@ derived from the "nipper" project (https://github.com/importcjj/nipper),
 developed by Chen Jiaju, licensed under the MIT License and the Apache License 2.0 (dual licensed).
 ```
 
-#### 79. MIT License (MIT)
+#### 80. MIT License (MIT)
 
 Used by:
 
@@ -10097,7 +10304,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 80. MIT License (MIT)
+#### 81. MIT License (MIT)
 
 Used by:
 
@@ -10113,7 +10320,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 81. MIT License (MIT)
+#### 82. MIT License (MIT)
 
 Used by:
 
@@ -10141,7 +10348,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 ```
 
-#### 82. MIT License (MIT)
+#### 83. MIT License (MIT)
 
 Used by:
 
@@ -10171,7 +10378,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 83. MIT License (MIT)
+#### 84. MIT License (MIT)
 
 Used by:
 
@@ -10201,7 +10408,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 84. MIT License (MIT)
+#### 85. MIT License (MIT)
 
 Used by:
 
@@ -10235,7 +10442,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 85. MIT License (MIT)
+#### 86. MIT License (MIT)
 
 Used by:
 
@@ -10269,7 +10476,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 86. MIT License (MIT)
+#### 87. MIT License (MIT)
 
 Used by:
 
@@ -10297,7 +10504,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 87. MIT License (MIT)
+#### 88. MIT License (MIT)
 
 Used by:
 
@@ -10325,7 +10532,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 88. MIT License (MIT)
+#### 89. MIT License (MIT)
 
 Used by:
 
@@ -10355,7 +10562,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 89. MIT License (MIT)
+#### 90. MIT License (MIT)
 
 Used by:
 
@@ -10385,11 +10592,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 90. MIT License (MIT)
+#### 91. MIT License (MIT)
 
 Used by:
 
 - `infer` 0.19.0 (https://github.com/bojand/infer), by Bojan
+- `infer` 0.22.0 (https://github.com/bojand/infer), by Bojan
 
 ```text
 MIT License
@@ -10415,7 +10623,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 91. MIT License (MIT)
+#### 92. MIT License (MIT)
 
 Used by:
 
@@ -10445,7 +10653,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 92. MIT License (MIT)
+#### 93. MIT License (MIT)
 
 Used by:
 
@@ -10473,7 +10681,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 93. MIT License (MIT)
+#### 94. MIT License (MIT)
 
 Used by:
 
@@ -10501,7 +10709,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 94. MIT License (MIT)
+#### 95. MIT License (MIT)
 
 Used by:
 
@@ -10535,7 +10743,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 95. MIT License (MIT)
+#### 96. MIT License (MIT)
 
 Used by:
 
@@ -10564,7 +10772,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 96. MIT License (MIT)
+#### 97. MIT License (MIT)
 
 Used by:
 
@@ -10592,7 +10800,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 97. MIT License (MIT)
+#### 98. MIT License (MIT)
 
 Used by:
 
@@ -10623,7 +10831,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 98. MIT License (MIT)
+#### 99. MIT License (MIT)
 
 Used by:
 
@@ -10657,17 +10865,13 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 99. MIT License (MIT)
+#### 100. MIT License (MIT)
 
 Used by:
 
-- `phf` 0.11.3 (https://github.com/rust-phf/rust-phf), by Steven Fackler
 - `phf` 0.13.1 (https://github.com/rust-phf/rust-phf), by Steven Fackler
-- `phf_generator` 0.11.3 (https://github.com/rust-phf/rust-phf), by Steven Fackler
 - `phf_generator` 0.13.1 (https://github.com/rust-phf/rust-phf), by Steven Fackler
-- `phf_macros` 0.11.3 (https://github.com/rust-phf/rust-phf), by Steven Fackler
 - `phf_macros` 0.13.1 (https://github.com/rust-phf/rust-phf), by Steven Fackler
-- `phf_shared` 0.11.3 (https://github.com/rust-phf/rust-phf), by Steven Fackler
 - `phf_shared` 0.13.1 (https://github.com/rust-phf/rust-phf), by Steven Fackler
 
 ```text
@@ -10693,7 +10897,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 100. MIT License (MIT)
+#### 101. MIT License (MIT)
 
 Used by:
 
@@ -10721,7 +10925,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 101. MIT License (MIT)
+#### 102. MIT License (MIT)
 
 Used by:
 
@@ -10749,7 +10953,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 102. MIT License (MIT)
+#### 103. MIT License (MIT)
 
 Used by:
 
@@ -10779,7 +10983,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 103. MIT License (MIT)
+#### 104. MIT License (MIT)
 
 Used by:
 
@@ -10809,7 +11013,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 104. MIT License (MIT)
+#### 105. MIT License (MIT)
 
 Used by:
 
@@ -10840,7 +11044,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 105. MIT License (MIT)
+#### 106. MIT License (MIT)
 
 Used by:
 
@@ -10872,7 +11076,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 106. MIT License (MIT)
+#### 107. MIT License (MIT)
 
 Used by:
 
@@ -10902,7 +11106,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 107. MIT License (MIT)
+#### 108. MIT License (MIT)
 
 Used by:
 
@@ -10932,7 +11136,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 108. MIT License (MIT)
+#### 109. MIT License (MIT)
 
 Used by:
 
@@ -10962,7 +11166,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE
 ```
 
-#### 109. MIT License (MIT)
+#### 110. MIT License (MIT)
 
 Used by:
 
@@ -10993,7 +11197,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 110. MIT License (MIT)
+#### 111. MIT License (MIT)
 
 Used by:
 
@@ -11024,7 +11228,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 111. MIT License (MIT)
+#### 112. MIT License (MIT)
 
 Used by:
 
@@ -11055,7 +11259,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 112. MIT License (MIT)
+#### 113. MIT License (MIT)
 
 Used by:
 
@@ -11117,7 +11321,7 @@ fn is_meta_character(c: char) -> bool {
 }
 ```
 
-#### 113. MIT License (MIT)
+#### 114. MIT License (MIT)
 
 Used by:
 
@@ -11145,7 +11349,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 114. MIT License (MIT)
+#### 115. MIT License (MIT)
 
 Used by:
 
@@ -11175,7 +11379,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 115. MIT License (MIT)
+#### 116. MIT License (MIT)
 
 Used by:
 
@@ -11209,7 +11413,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 116. MIT License (MIT)
+#### 117. MIT License (MIT)
 
 Used by:
 
@@ -11237,7 +11441,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 117. MIT License (MIT)
+#### 118. MIT License (MIT)
 
 Used by:
 
@@ -11269,7 +11473,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 118. MIT License (MIT)
+#### 119. MIT License (MIT)
 
 Used by:
 
@@ -11285,7 +11489,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 119. MIT License (MIT)
+#### 120. MIT License (MIT)
 
 Used by:
 
@@ -11315,7 +11519,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 120. MIT License (MIT)
+#### 121. MIT License (MIT)
 
 Used by:
 
@@ -11346,7 +11550,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 121. MIT License (MIT)
+#### 122. MIT License (MIT)
 
 Used by:
 
@@ -11377,7 +11581,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 122. MIT License (MIT)
+#### 123. MIT License (MIT)
 
 Used by:
 
@@ -11413,7 +11617,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 123. MIT License (MIT)
+#### 124. MIT License (MIT)
 
 Used by:
 
@@ -11447,7 +11651,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 124. MIT License (MIT)
+#### 125. MIT License (MIT)
 
 Used by:
 
@@ -11487,7 +11691,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 125. MIT License (MIT)
+#### 126. MIT License (MIT)
 
 Used by:
 
@@ -11517,7 +11721,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 126. MIT License (MIT)
+#### 127. MIT License (MIT)
 
 Used by:
 
@@ -11546,11 +11750,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 127. MIT License (MIT)
+#### 128. MIT License (MIT)
 
 Used by:
 
-- `urlpattern` 0.3.0 (https://github.com/denoland/rust-urlpattern), by the Deno authors, crowlKats
+- `urlpattern` 0.6.0 (https://github.com/denoland/rust-urlpattern), by the Deno authors, crowlKats
 
 ```text
 MIT License
@@ -11576,7 +11780,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 128. MIT License (MIT)
+#### 129. MIT License (MIT)
 
 Used by:
 
@@ -11604,7 +11808,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 129. MIT License (MIT)
+#### 130. MIT License (MIT)
 
 Used by:
 
@@ -11632,7 +11836,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 130. MIT License (MIT)
+#### 131. MIT License (MIT)
 
 Used by:
 
@@ -11662,7 +11866,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 131. MIT License (MIT)
+#### 132. MIT License (MIT)
 
 Used by:
 
@@ -11695,12 +11899,12 @@ Some files in the "tests/data" subdirectory of this repository are under other
 licences; see files named LICENSE.*.txt for details.
 ```
 
-#### 132. Mozilla Public License 2.0 (MPL-2.0)
+#### 133. Mozilla Public License 2.0 (MPL-2.0)
 
 Used by:
 
-- `cssparser` 0.36.0 (https://github.com/servo/rust-cssparser), by Simon Sapin
-- `cssparser-macros` 0.6.1 (https://github.com/servo/rust-cssparser), by Simon Sapin
+- `cssparser` 0.37.0 (https://github.com/servo/rust-cssparser), by Simon Sapin
+- `cssparser-macros` 0.7.1 (https://github.com/servo/rust-cssparser), by Simon Sapin
 - `dtoa-short` 0.3.5 (https://github.com/upsuper/dtoa-short), by Xidorn Quan
 
 ```text
@@ -12079,12 +12283,12 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
   defined by the Mozilla Public License, v. 2.0.
 ```
 
-#### 133. Mozilla Public License 2.0 (MPL-2.0)
+#### 134. Mozilla Public License 2.0 (MPL-2.0)
 
 Used by:
 
 - `option-ext` 0.2.0 (https://github.com/soc/option-ext.git), by Simon Ochsenreither
-- `selectors` 0.36.1 (https://github.com/servo/stylo), by The Servo Project Developers
+- `selectors` 0.38.0 (https://github.com/servo/stylo), by The Servo Project Developers
 
 ```text
 Mozilla Public License Version 2.0
@@ -12462,7 +12666,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
   defined by the Mozilla Public License, v. 2.0.
 ```
 
-#### 134. Unicode License v3 (Unicode-3.0)
+#### 135. Unicode License v3 (Unicode-3.0)
 
 Used by:
 
@@ -12534,7 +12738,7 @@ Portions of ICU4X may have been adapted from ICU4C and/or ICU4J.
 ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation and others.
 ```
 
-#### 135. Unicode License v3 (Unicode-3.0)
+#### 136. Unicode License v3 (Unicode-3.0)
 
 Used by:
 
@@ -12582,7 +12786,7 @@ dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 ```
 
-#### 136. zlib License (Zlib)
+#### 137. zlib License (Zlib)
 
 Used by:
 
@@ -12610,7 +12814,7 @@ the following restrictions:
 3. This notice may not be removed or altered from any source distribution.
 ```
 
-#### 137. zlib License (Zlib)
+#### 138. zlib License (Zlib)
 
 Used by:
 
