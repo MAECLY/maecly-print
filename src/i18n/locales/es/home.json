@@ -45,7 +45,8 @@
     "pagesUnknown": "desconocidas",
     "finished": "Terminado",
     "error": "Error",
-    "openQueue": "Abrir la cola"
+    "openQueue": "Abrir la cola",
+    "unconfirmed": "Sin confirmar"
   },
   "shortcuts": {
     "label": "Atajos de teclado",

@@ -104,8 +104,8 @@
   "notify": {
     "batchDone_one": "{{done}} of {{total}} file printed successfully",
     "batchDone_other": "{{done}} of {{total}} files printed successfully",
-    "batchUnconfirmed_one": "{{unconfirmed}} of {{total}} file was sent to the printer without confirmation that it printed",
-    "batchUnconfirmed_other": "{{unconfirmed}} of {{total}} files were sent to the printer without confirmation that they printed",
+    "batchUnconfirmed_one": "{{unconfirmed}} file (of {{total}}) was sent to the printer without confirmation that it printed",
+    "batchUnconfirmed_other": "{{unconfirmed}} files (of {{total}}) were sent to the printer without confirmation that they printed",
     "batchFailed_one": "{{failed}} of {{total}} file failed to print",
     "batchFailed_other": "{{failed}} of {{total}} files failed to print",
     "batchFailedHint": "{{file}}: {{error}} — open the logs folder for the full job log entry.",
@@ -115,7 +115,9 @@
     "jobNeedsActionHint": "{{error}} — fix it, then resume the job from the queue.",
     "openQueue": "Open queue",
     "alreadyFinished": "“{{file}}” had already finished — there was nothing to cancel.",
-    "liveUnavailable": "Live queue updates are unavailable — reopen the app to retry."
+    "liveUnavailable": "Live queue updates are unavailable — reopen the app to retry.",
+    "jobNeedsPasswordHint": "{{error}} — use “Enter password” to unlock it.",
+    "enterPassword": "Enter password"
   },
   "rowActions": {
     "pause": "Pause {{file}}",
@@ -127,7 +129,13 @@
     "oneSided": "Print one-sided",
     "oneSidedLabel": "Print {{file}} one-sided",
     "sendTo": "Send to another printer…",
-    "sendToLabel": "Send {{file}} to another printer"
+    "sendToLabel": "Send {{file}} to another printer",
+    "install": "Install what is missing…",
+    "installLabel": "Install what is missing for {{file}}",
+    "alreadyInstalled": "{{name}} is installed now — resuming the job.",
+    "resumed_one": "{{name}} is installed. The job that needed it is resuming.",
+    "resumed_other": "{{name}} is installed. The {{count}} jobs that needed it are resuming.",
+    "printersFailed": "The printers to send it to could not be loaded."
   },
   "jobErrors": {
     "codes": {
@@ -223,6 +231,9 @@
     "incorrect": "That password does not open this PDF. Check it and try again.",
     "empty": "Enter the password first.",
     "later": "Not now",
-    "cancelJob": "Cancel this job"
+    "cancelJob": "Cancel this job",
+    "enter": "Enter the password",
+    "waiting": "Password received. The job is waiting its turn in the queue; the password is checked when the file is converted.",
+    "waitingPaused": "Password received, but the queue is paused: the password is checked once you resume the queue."
   }
 }

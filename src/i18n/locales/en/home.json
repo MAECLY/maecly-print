@@ -45,7 +45,8 @@
     "pagesUnknown": "unknown",
     "finished": "Finished",
     "error": "Error",
-    "openQueue": "Open the queue"
+    "openQueue": "Open the queue",
+    "unconfirmed": "Not confirmed"
   },
   "shortcuts": {
     "label": "Keyboard shortcuts",

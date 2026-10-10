@@ -38,7 +38,9 @@
     "title": "Falta una dependencia",
     "affected_one": "{{count}} archivo de este trabajo la necesita.",
     "affected_other": "{{count}} archivos de este trabajo la necesitan.",
-    "installButton": "Instalar…"
+    "installButton": "Instalar…",
+    "checkAgain": "Comprobar de nuevo",
+    "checking": "Comprobando…"
   },
   "install": {
     "title": "Instalar {{name}}",
@@ -64,9 +66,16 @@
     "result": {
       "installed": "{{name}} está instalado. Los archivos que lo necesitaban ya se pueden imprimir.",
       "notDetected": "El instalador terminó, pero Pluryprint aún no detecta {{name}}. Reinicia Pluryprint y vuelve a intentarlo.",
-      "opened": "Termina la instalación en la ventana que se ha abierto y vuelve a añadir los archivos.",
-      "failed": "La instalación no terminó (código {{code}}). Prueba con la página de descarga."
-    }
+      "opened": "Termina la instalación en la ventana que se ha abierto. Pluryprint lo vuelve a comprobar cuando regreses.",
+      "failed": "La instalación no terminó (código {{code}}). Prueba con la página de descarga.",
+      "failedNoCode": "El instalador se detuvo sin indicar el motivo. Prueba con la página de descarga.",
+      "timedOut": "El instalador tardaba demasiado y se detuvo. Vuelve a intentarlo o usa la página de descarga.",
+      "cancelled": "Detuviste la instalación. No se ejecutará nada más salvo que la vuelvas a iniciar."
+    },
+    "background": "Seguir en segundo plano",
+    "backgroundHint": "Puedes seguir usando Pluryprint: cerrar esta ventana no detiene la instalación y te avisaremos cuando termine.",
+    "stop": "Detener la instalación",
+    "stopping": "Deteniendo la instalación…"
   },
   "folders": {
     "title_one": "{{count}} carpeta añadida",

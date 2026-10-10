@@ -104,8 +104,8 @@
   "notify": {
     "batchDone_one": "Se imprimió correctamente {{done}} de {{total}} archivo",
     "batchDone_other": "Se imprimieron correctamente {{done}} de {{total}} archivos",
-    "batchUnconfirmed_one": "{{unconfirmed}} de {{total}} archivo se envió a la impresora sin confirmación de que se imprimiera",
-    "batchUnconfirmed_other": "{{unconfirmed}} de {{total}} archivos se enviaron a la impresora sin confirmación de que se imprimieran",
+    "batchUnconfirmed_one": "{{unconfirmed}} archivo (de {{total}}) se envió a la impresora sin confirmación de que se imprimiera",
+    "batchUnconfirmed_other": "{{unconfirmed}} archivos (de {{total}}) se enviaron a la impresora sin confirmación de que se imprimieran",
     "batchFailed_one": "No se pudo imprimir {{failed}} de {{total}} archivo",
     "batchFailed_other": "No se pudieron imprimir {{failed}} de {{total}} archivos",
     "batchFailedHint": "{{file}}: {{error}} — abre la carpeta de registros para ver la entrada completa del trabajo.",
@@ -115,7 +115,9 @@
     "jobNeedsActionHint": "{{error}} — corrígelo y reanuda el trabajo desde la cola.",
     "openQueue": "Abrir la cola",
     "alreadyFinished": "«{{file}}» ya había terminado: no había nada que cancelar.",
-    "liveUnavailable": "Las actualizaciones de la cola en tiempo real no están disponibles; vuelve a abrir la aplicación para reintentarlo."
+    "liveUnavailable": "Las actualizaciones de la cola en tiempo real no están disponibles; vuelve a abrir la aplicación para reintentarlo.",
+    "jobNeedsPasswordHint": "{{error}} — usa «Escribir contraseña» para desbloquearlo.",
+    "enterPassword": "Escribir contraseña"
   },
   "rowActions": {
     "pause": "Pausar {{file}}",
@@ -127,7 +129,13 @@
     "oneSided": "Imprimir a una cara",
     "oneSidedLabel": "Imprimir {{file}} a una cara",
     "sendTo": "Enviar a otra impresora…",
-    "sendToLabel": "Enviar {{file}} a otra impresora"
+    "sendToLabel": "Enviar {{file}} a otra impresora",
+    "install": "Instalar lo que falta…",
+    "installLabel": "Instalar lo que falta para {{file}}",
+    "alreadyInstalled": "{{name}} ya está instalado: se reanuda el trabajo.",
+    "resumed_one": "{{name}} está instalado. El trabajo que lo necesitaba se reanuda.",
+    "resumed_other": "{{name}} está instalado. Los {{count}} trabajos que lo necesitaban se reanudan.",
+    "printersFailed": "No se pudieron cargar las impresoras a las que enviarlo."
   },
   "jobErrors": {
     "codes": {
@@ -223,6 +231,9 @@
     "incorrect": "Esa contraseña no abre este PDF. Revísala y vuelve a intentarlo.",
     "empty": "Escribe antes la contraseña.",
     "later": "Ahora no",
-    "cancelJob": "Cancelar este trabajo"
+    "cancelJob": "Cancelar este trabajo",
+    "enter": "Escribe la contraseña",
+    "waiting": "Contraseña recibida. El trabajo espera su turno en la cola; la contraseña se comprueba al convertir el archivo.",
+    "waitingPaused": "Contraseña recibida, pero la cola está en pausa: la contraseña se comprobará cuando reanudes la cola."
   }
 }

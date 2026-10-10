@@ -206,7 +206,8 @@
       "remediation": "SumatraPDF is missing, so no file can be printed on Windows. Install SumatraPDF, or place SumatraPDF.exe next to Pluryprint.exe."
     },
     "libre-office": {
-      "remediation": "LibreOffice is missing, so Office, OpenDocument and RTF files cannot be printed. Download it free from https://www.libreoffice.org/download"
+      "remediation": "LibreOffice is missing, so Office, OpenDocument and RTF files cannot be printed. Download it free from https://www.libreoffice.org/download",
+      "remediationMac": "LibreOffice is missing, so Office and OpenDocument files cannot be printed. Download it free from https://www.libreoffice.org/download"
     },
     "chromium": {
       "remediation": "Microsoft Edge or Google Chrome is missing, so HTML and Markdown files cannot be printed. Install Microsoft Edge (https://www.microsoft.com/edge) or Google Chrome (https://www.google.com/chrome)."
@@ -215,10 +216,10 @@
       "remediation": "Pandoc is missing, so Markdown files cannot be printed. Download it from https://pandoc.org/installing.html"
     },
     "heif-codec": {
-      "remediation": "The HEIF image decoder is missing, so HEIC/HEIF photos cannot be printed. Install “HEIF Image Extensions” (and “HEVC Video Extensions” for .heic) from the Microsoft Store, then retry the job."
+      "remediation": "The HEIF image decoder is missing, so HEIC/HEIF photos cannot be printed. Install “HEIF Image Extensions” (and “HEVC Video Extensions” for .heic) from the Microsoft Store. A job paused for it can then be resumed from the queue."
     },
     "hevc-codec": {
-      "remediation": "The HEVC video decoder this HEIC photo needs is missing. Install “HEVC Video Extensions” from the Microsoft Store, then retry the job."
+      "remediation": "The HEVC video decoder this HEIC photo needs is missing. Install “HEVC Video Extensions” from the Microsoft Store. A job paused for it can then be resumed from the queue."
     },
     "no-heif-decoder": {
       "remediation": "No HEIF image decoder is available on this system. Convert the photo to JPEG or PNG first."

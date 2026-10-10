@@ -206,7 +206,8 @@
       "remediation": "Falta SumatraPDF, así que no se puede imprimir ningún archivo en Windows. Instala SumatraPDF o coloca SumatraPDF.exe junto a Pluryprint.exe."
     },
     "libre-office": {
-      "remediation": "Falta LibreOffice, así que no se pueden imprimir archivos de Office, OpenDocument ni RTF. Descárgalo gratis desde https://www.libreoffice.org/download"
+      "remediation": "Falta LibreOffice, así que no se pueden imprimir archivos de Office, OpenDocument ni RTF. Descárgalo gratis desde https://www.libreoffice.org/download",
+      "remediationMac": "Falta LibreOffice, así que no se pueden imprimir archivos de Office ni OpenDocument. Descárgalo gratis desde https://www.libreoffice.org/download"
     },
     "chromium": {
       "remediation": "Falta Microsoft Edge o Google Chrome, así que no se pueden imprimir archivos HTML ni Markdown. Instala Microsoft Edge (https://www.microsoft.com/edge) o Google Chrome (https://www.google.com/chrome)."
@@ -215,10 +216,10 @@
       "remediation": "Falta Pandoc, así que no se pueden imprimir archivos Markdown. Descárgalo desde https://pandoc.org/installing.html"
     },
     "heif-codec": {
-      "remediation": "Falta el descodificador de imágenes HEIF, así que no se pueden imprimir fotos HEIC/HEIF. Instala «Extensiones de imagen HEIF» (y «Extensiones de vídeo HEVC» para .heic) desde Microsoft Store y vuelve a intentar el trabajo."
+      "remediation": "Falta el descodificador de imágenes HEIF, así que no se pueden imprimir fotos HEIC/HEIF. Instala «Extensiones de imagen HEIF» (y «Extensiones de vídeo HEVC» para .heic) desde Microsoft Store. Después, un trabajo en pausa por esto se puede reanudar desde la cola."
     },
     "hevc-codec": {
-      "remediation": "Falta el descodificador de vídeo HEVC que necesita esta foto HEIC. Instala «Extensiones de vídeo HEVC» desde Microsoft Store y vuelve a intentar el trabajo."
+      "remediation": "Falta el descodificador de vídeo HEVC que necesita esta foto HEIC. Instala «Extensiones de vídeo HEVC» desde Microsoft Store. Después, un trabajo en pausa por esto se puede reanudar desde la cola."
     },
     "no-heif-decoder": {
       "remediation": "No hay ningún descodificador de imágenes HEIF en este sistema. Convierte antes la foto a JPEG o PNG."

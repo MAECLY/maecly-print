@@ -38,7 +38,9 @@
     "title": "Missing dependency",
     "affected_one": "{{count}} file in this job needs it.",
     "affected_other": "{{count}} files in this job need it.",
-    "installButton": "Install…"
+    "installButton": "Install…",
+    "checkAgain": "Check again",
+    "checking": "Checking…"
   },
   "install": {
     "title": "Install {{name}}",
@@ -64,9 +66,16 @@
     "result": {
       "installed": "{{name}} is installed. The files that needed it can print now.",
       "notDetected": "The installer finished, but Pluryprint does not see {{name}} yet. Restart Pluryprint and try again.",
-      "opened": "Finish the installation in the window that opened, then add the files again.",
-      "failed": "The installation did not finish (code {{code}}). Try the download page instead."
-    }
+      "opened": "Finish the installation in the window that opened. Pluryprint checks again when you come back to it.",
+      "failed": "The installation did not finish (code {{code}}). Try the download page instead.",
+      "failedNoCode": "The installer stopped without saying why. Try the download page instead.",
+      "timedOut": "The installer took too long and was stopped. Try again, or use the download page instead.",
+      "cancelled": "You stopped the installation. Nothing else will run unless you start it again."
+    },
+    "background": "Run in background",
+    "backgroundHint": "You can keep using Pluryprint: closing this window does not stop the installation, and you will be told when it ends.",
+    "stop": "Stop installation",
+    "stopping": "Stopping the installation…"
   },
   "folders": {
     "title_one": "{{count}} folder added",
