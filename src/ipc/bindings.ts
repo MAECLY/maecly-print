@@ -561,7 +561,8 @@ async setAppSettings(settings: AppSettings) : Promise<Result<AppSettings, IpcErr
 }
 },
 /**
- * Check GitHub for a newer release than the running build.
+ * Check the configured channel's release manifest for a newer release than
+ * the running build.
  * 
  * Runs off the IPC thread (a network round-trip). A misconfigured repository or
  * any network/rate-limit failure surfaces as [`IpcError::UpdateCheckFailed`]
@@ -2328,7 +2329,8 @@ export type UpdateChannel =
  */
 "beta" | 
 /**
- * Nightly builds.
+ * Nightly builds. None are published: this channel reads the beta
+ * manifest.
  */
 "nightly"
 /**
@@ -2405,13 +2407,12 @@ last_check_at?: string | null;
  */
 skipped_version?: string | null }
 /**
- * Update-check preferences. Only the check itself is wired in this version;
- * `channel` is recorded but every check currently hits the `latest` release
- * feed (there are no separate beta/nightly feeds yet).
+ * Update-check preferences. `channel` picks the release manifest the check
+ * and the install read (FR-085, `update::install::default_endpoint`).
  */
 export type UpdaterCfg = { 
 /**
- * Release stream to follow (recorded only; see the type docs).
+ * Release stream to follow.
  */
 channel: UpdateChannel; 
 /**
