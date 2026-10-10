@@ -29,12 +29,17 @@ use crate::util::paths::canonical_input;
 /// and a human `reason` rather than failing the call.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct FileInfo {
+    /// The path as the caller sent it (canonicalized when it resolved).
     pub path: String,
+    /// File name shown in the list.
     pub name: String,
     /// Lowercased extension without the dot (e.g. `"pdf"`), empty when none.
     pub ext: String,
+    /// File size in bytes (0 when the file could not be read).
     pub bytes: u64,
+    /// Page count when cheap to learn (PDFs under the probe limit), else `None`.
     pub pages: Option<u32>,
+    /// Whether the engine can print this file.
     pub supported: bool,
     /// Why the file is not printable, when `supported` is false (English
     /// detail for logs; the UI translates [`FileInfo::reason_code`]).

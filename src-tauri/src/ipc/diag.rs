@@ -19,12 +19,20 @@ use crate::util::{
     paths,
 };
 
+/// What this build is and what it sees on this host: version, the resolved
+/// app directories and the external-dependency probe. Backs the About page
+/// and the diagnostics copy.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct AppInfo {
+    /// The app version from `Cargo.toml`.
     pub version: String,
+    /// Date the binary was built (set by `build.rs`).
     pub build_date: String,
+    /// Resolved config directory (`config.toml`, `profiles.toml`).
     pub config_dir: String,
+    /// Resolved log directory (the JSONL logs).
     pub log_dir: String,
+    /// Resolved data directory (the persisted queue and its spool).
     pub data_dir: String,
     /// Target OS, e.g. `"macos"`, `"windows"`, `"linux"` (`std::env::consts::OS`).
     pub os: String,
@@ -56,6 +64,8 @@ pub struct AppInfo {
     pub executable: Option<String>,
 }
 
+/// FR-058 canary: report the version, resolved paths and dependency probe.
+/// Never fails in practice; the `Result` keeps the command shape uniform.
 #[tauri::command]
 #[specta::specta]
 pub fn app_info() -> Result<AppInfo, IpcError> {

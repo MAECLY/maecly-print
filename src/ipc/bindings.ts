@@ -8,6 +8,10 @@
 
 
 export const commands = {
+/**
+ * FR-058 canary: report the version, resolved paths and dependency probe.
+ * Never fails in practice; the `Result` keeps the command shape uniform.
+ */
 async appInfo() : Promise<Result<AppInfo, IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("app_info") };
@@ -648,7 +652,32 @@ density?: Density;
  * existed keeps notifications on.
  */
 native_notifications?: boolean }
-export type AppInfo = { version: string; build_date: string; config_dir: string; log_dir: string; data_dir: string; 
+/**
+ * What this build is and what it sees on this host: version, the resolved
+ * app directories and the external-dependency probe. Backs the About page
+ * and the diagnostics copy.
+ */
+export type AppInfo = { 
+/**
+ * The app version from `Cargo.toml`.
+ */
+version: string; 
+/**
+ * Date the binary was built (set by `build.rs`).
+ */
+build_date: string; 
+/**
+ * Resolved config directory (`config.toml`, `profiles.toml`).
+ */
+config_dir: string; 
+/**
+ * Resolved log directory (the JSONL logs).
+ */
+log_dir: string; 
+/**
+ * Resolved data directory (the persisted queue and its spool).
+ */
+data_dir: string; 
 /**
  * Target OS, e.g. `"macos"`, `"windows"`, `"linux"` (`std::env::consts::OS`).
  */
@@ -812,7 +841,24 @@ remediation: string | null }
 /**
  * A printer found on the network that is not (necessarily) installed yet.
  */
-export type DiscoveredPrinter = { id: string; name: string; connection: string; kind: PrinterKind; 
+export type DiscoveredPrinter = { 
+/**
+ * Stable key for the found device (normally its IPP URI), used as the
+ * React list key.
+ */
+id: string; 
+/**
+ * Name the device advertises.
+ */
+name: string; 
+/**
+ * Readable address, e.g. `EPSON … (IPP)`.
+ */
+connection: string; 
+/**
+ * Family inferred from the advertised make and model.
+ */
+kind: PrinterKind; 
 /**
  * Discovery transport, e.g. `mDNS · IPP`.
  */
@@ -904,11 +950,31 @@ max_depth: number }
  * whole batch: a missing or unsupported file comes back with `supported=false`
  * and a human `reason` rather than failing the call.
  */
-export type FileInfo = { path: string; name: string; 
+export type FileInfo = { 
+/**
+ * The path as the caller sent it (canonicalized when it resolved).
+ */
+path: string; 
+/**
+ * File name shown in the list.
+ */
+name: string; 
 /**
  * Lowercased extension without the dot (e.g. `"pdf"`), empty when none.
  */
-ext: string; bytes: number; pages: number | null; supported: boolean; 
+ext: string; 
+/**
+ * File size in bytes (0 when the file could not be read).
+ */
+bytes: number; 
+/**
+ * Page count when cheap to learn (PDFs under the probe limit), else `None`.
+ */
+pages: number | null; 
+/**
+ * Whether the engine can print this file.
+ */
+supported: boolean; 
 /**
  * Why the file is not printable, when `supported` is false (English
  * detail for logs; the UI translates [`FileInfo::reason_code`]).
@@ -1215,7 +1281,19 @@ export type JobProgress = { phase: string; percent: number | null }
  * top of the authoritative [`QueueUpdated`] snapshots. `percent` is in
  * `0.0..=1.0`; `phase` is a short label such as `"converting"`.
  */
-export type JobProgressEvent = { id: string; phase: string; percent: number }
+export type JobProgressEvent = { 
+/**
+ * Id of the job this progress belongs to.
+ */
+id: string; 
+/**
+ * Short label of the step in progress, e.g. `"converting"`.
+ */
+phase: string; 
+/**
+ * Fraction done, in `0.0..=1.0`.
+ */
+percent: number }
 /**
  * Per-job print settings. A resolved bundle: a profile plus any
  * per-invocation overrides collapse into one of these before a [`Job`] is
@@ -1354,15 +1432,99 @@ id: string;
 /**
  * Human-friendly name (falls back to the queue id).
  */
-name: string; kind: PrinterKind; color: boolean; duplex: boolean; status: PrinterStatus; is_default: boolean; location: string; 
+name: string; 
+/**
+ * Family, used to pick the icon.
+ */
+kind: PrinterKind; 
+/**
+ * Whether the device prints in colour.
+ */
+color: boolean; 
+/**
+ * Whether the device can print two-sided.
+ */
+duplex: boolean; 
+/**
+ * Current state as the spooler reports it.
+ */
+status: PrinterStatus; 
+/**
+ * Whether this is the OS default printer.
+ */
+is_default: boolean; 
+/**
+ * Free-form location the admin set on the queue (empty when none).
+ */
+location: string; 
 /**
  * Readable connection/port string, e.g. `USB`, `EPSON … (IPP)`.
  */
-connection: string; driver: string; shared: boolean; queued_jobs: number; max_dpi: number | null; papers: string[]; trays: Tray[]; supplies: Supplies; default_tray: string | null; default_paper: string | null }
+connection: string; 
+/**
+ * Driver or make-and-model string.
+ */
+driver: string; 
+/**
+ * Whether the queue is shared on the network.
+ */
+shared: boolean; 
+/**
+ * Jobs waiting in the OS spooler for this printer.
+ */
+queued_jobs: number; 
+/**
+ * Highest resolution the driver advertises, when known.
+ */
+max_dpi: number | null; 
+/**
+ * Paper sizes the driver advertises, by name.
+ */
+papers: string[]; 
+/**
+ * Input trays the driver advertises.
+ */
+trays: Tray[]; 
+/**
+ * Ink/toner levels the device reports.
+ */
+supplies: Supplies; 
+/**
+ * The queue's default tray, when the OS exposes one.
+ */
+default_tray: string | null; 
+/**
+ * The queue's default paper size, when the OS exposes one.
+ */
+default_paper: string | null }
 /**
  * Coarse printer family, used by the UI only to pick an icon.
  */
-export type PrinterKind = "laser" | "inkjet" | "mfp" | "wide" | "label" | "virtual" | 
+export type PrinterKind = 
+/**
+ * Monochrome or colour laser printer.
+ */
+"laser" | 
+/**
+ * Inkjet printer.
+ */
+"inkjet" | 
+/**
+ * Multifunction device (print, scan, copy).
+ */
+"mfp" | 
+/**
+ * Wide-format / plotter.
+ */
+"wide" | 
+/**
+ * Label or receipt printer.
+ */
+"label" | 
+/**
+ * Software printer that writes a file (PDF, XPS, OneNote, …).
+ */
+"virtual" | 
 /**
  * A physical printer whose technology the names do not reveal. Shown
  * as a plain "Printer" rather than guessed as laser.
@@ -1402,7 +1564,23 @@ overrides?: Partial<{ [key in string]: PrinterOverride }> }
 /**
  * Normalized printer state (a small superset-free view of the OS state).
  */
-export type PrinterStatus = "ready" | "offline" | "error" | "busy"
+export type PrinterStatus = 
+/**
+ * Idle and accepting jobs.
+ */
+"ready" | 
+/**
+ * Unreachable, or the OS reports it offline.
+ */
+"offline" | 
+/**
+ * Stopped on an error the user must clear (paper jam, out of paper, …).
+ */
+"error" | 
+/**
+ * Currently printing or processing a job.
+ */
+"busy"
 /**
  * A print profile as seen by the frontend. `builtin` and `default` are
  * **server-computed**: whatever a client sends for them is ignored, and the
@@ -1596,7 +1774,23 @@ detail: string }
  * Toner/ink supply levels in `0.0..=1.0`. Any channel the device does not
  * report stays `None`; an all-`None` value renders no supply section.
  */
-export type Supplies = { cyan: number | null; magenta: number | null; yellow: number | null; black: number | null }
+export type Supplies = { 
+/**
+ * Cyan ink/toner level.
+ */
+cyan: number | null; 
+/**
+ * Magenta ink/toner level.
+ */
+magenta: number | null; 
+/**
+ * Yellow ink/toner level.
+ */
+yellow: number | null; 
+/**
+ * Black ink/toner level.
+ */
+black: number | null }
 /**
  * Telemetry consent flags. These record the user's *consent*; this version
  * transmits nothing regardless of their value — no crash reports and no usage
@@ -1609,7 +1803,15 @@ export type Theme = "light" | "dark" | "system"
  * One input tray/bin. `paper` and `level` are optional because most OS APIs
  * expose the tray *name* but not the loaded media or fill level.
  */
-export type Tray = { name: string; paper: string | null; 
+export type Tray = { 
+/**
+ * Tray name as the OS reports it.
+ */
+name: string; 
+/**
+ * Media loaded in the tray, if the device reports it.
+ */
+paper: string | null; 
 /**
  * Fill level in `0.0..=1.0`, if the device reports it.
  */

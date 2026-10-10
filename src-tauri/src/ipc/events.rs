@@ -26,7 +26,10 @@ pub struct QueueUpdated(pub QueueSnapshot);
 /// `0.0..=1.0`; `phase` is a short label such as `"converting"`.
 #[derive(Debug, Clone, Serialize, specta::Type, tauri_specta::Event)]
 pub struct JobProgressEvent {
+    /// Id of the job this progress belongs to.
     pub id: String,
+    /// Short label of the step in progress, e.g. `"converting"`.
     pub phase: String,
+    /// Fraction done, in `0.0..=1.0`.
     pub percent: f32,
 }

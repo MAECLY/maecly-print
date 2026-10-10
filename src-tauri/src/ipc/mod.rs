@@ -1,3 +1,9 @@
+//! The Tauri command surface the webview calls over typed IPC.
+//!
+//! One submodule per feature area; each `#[tauri::command]` here is listed in
+//! the `tauri-specta` builder in `lib.rs`, which also generates
+//! `src/ipc/bindings.ts` from these signatures.
+
 pub mod diag;
 pub mod events;
 pub mod jobs;

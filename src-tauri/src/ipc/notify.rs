@@ -20,8 +20,11 @@ use crate::util::error::IpcError;
 /// What we know about the main window when a notification is requested.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowPresence {
+    /// The window has keyboard focus.
     pub focused: bool,
+    /// The window is shown (not hidden).
     pub visible: bool,
+    /// The window is minimized to the taskbar/dock.
     pub minimized: bool,
 }
 

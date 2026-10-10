@@ -22,11 +22,17 @@ use crate::util::error::IpcError;
 #[derive(Debug, Clone, Copy, Serialize, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum PrinterKind {
+    /// Monochrome or colour laser printer.
     Laser,
+    /// Inkjet printer.
     Inkjet,
+    /// Multifunction device (print, scan, copy).
     Mfp,
+    /// Wide-format / plotter.
     Wide,
+    /// Label or receipt printer.
     Label,
+    /// Software printer that writes a file (PDF, XPS, OneNote, …).
     Virtual,
     /// A physical printer whose technology the names do not reveal. Shown
     /// as a plain "Printer" rather than guessed as laser.
@@ -37,9 +43,13 @@ pub enum PrinterKind {
 #[derive(Debug, Clone, Copy, Serialize, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum PrinterStatus {
+    /// Idle and accepting jobs.
     Ready,
+    /// Unreachable, or the OS reports it offline.
     Offline,
+    /// Stopped on an error the user must clear (paper jam, out of paper, …).
     Error,
+    /// Currently printing or processing a job.
     Busy,
 }
 
@@ -47,7 +57,9 @@ pub enum PrinterStatus {
 /// expose the tray *name* but not the loaded media or fill level.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct Tray {
+    /// Tray name as the OS reports it.
     pub name: String,
+    /// Media loaded in the tray, if the device reports it.
     pub paper: Option<String>,
     /// Fill level in `0.0..=1.0`, if the device reports it.
     pub level: Option<f64>,
@@ -57,9 +69,13 @@ pub struct Tray {
 /// report stays `None`; an all-`None` value renders no supply section.
 #[derive(Debug, Clone, Default, Serialize, Type)]
 pub struct Supplies {
+    /// Cyan ink/toner level.
     pub cyan: Option<f64>,
+    /// Magenta ink/toner level.
     pub magenta: Option<f64>,
+    /// Yellow ink/toner level.
     pub yellow: Option<f64>,
+    /// Black ink/toner level.
     pub black: Option<f64>,
 }
 
@@ -71,31 +87,51 @@ pub struct Printer {
     pub id: String,
     /// Human-friendly name (falls back to the queue id).
     pub name: String,
+    /// Family, used to pick the icon.
     pub kind: PrinterKind,
+    /// Whether the device prints in colour.
     pub color: bool,
+    /// Whether the device can print two-sided.
     pub duplex: bool,
+    /// Current state as the spooler reports it.
     pub status: PrinterStatus,
+    /// Whether this is the OS default printer.
     pub is_default: bool,
+    /// Free-form location the admin set on the queue (empty when none).
     pub location: String,
     /// Readable connection/port string, e.g. `USB`, `EPSON … (IPP)`.
     pub connection: String,
+    /// Driver or make-and-model string.
     pub driver: String,
+    /// Whether the queue is shared on the network.
     pub shared: bool,
+    /// Jobs waiting in the OS spooler for this printer.
     pub queued_jobs: u32,
+    /// Highest resolution the driver advertises, when known.
     pub max_dpi: Option<u32>,
+    /// Paper sizes the driver advertises, by name.
     pub papers: Vec<String>,
+    /// Input trays the driver advertises.
     pub trays: Vec<Tray>,
+    /// Ink/toner levels the device reports.
     pub supplies: Supplies,
+    /// The queue's default tray, when the OS exposes one.
     pub default_tray: Option<String>,
+    /// The queue's default paper size, when the OS exposes one.
     pub default_paper: Option<String>,
 }
 
 /// A printer found on the network that is not (necessarily) installed yet.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct DiscoveredPrinter {
+    /// Stable key for the found device (normally its IPP URI), used as the
+    /// React list key.
     pub id: String,
+    /// Name the device advertises.
     pub name: String,
+    /// Readable address, e.g. `EPSON … (IPP)`.
     pub connection: String,
+    /// Family inferred from the advertised make and model.
     pub kind: PrinterKind,
     /// Discovery transport, e.g. `mDNS · IPP`.
     pub via: String,
