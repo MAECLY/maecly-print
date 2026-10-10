@@ -53,11 +53,15 @@ function t(key: TranslationKey<'printJob'>, params?: TranslateParams): string {
 /**
  * The translated reason a file cannot be printed (FR-005, FR-092), from the
  * backend's stable `reason_code`; the English `reason` is the fallback for a
- * payload without one.
+ * payload without one. A GIF says why it is refused (decision D9) instead of
+ * the generic "unsupported file type".
  */
 export function rejectReason(
-  fi: Pick<FileInfo, 'reason' | 'reason_code'>,
+  fi: Pick<FileInfo, 'reason' | 'reason_code'> & { ext?: string },
 ): string {
+  if (fi.reason_code === 'unsupported_type' && isGif(fi.ext ?? '')) {
+    return t('rejectReason.gif_unsupported');
+  }
   switch (fi.reason_code) {
     case null:
     case undefined:
@@ -74,13 +78,18 @@ export function rejectReason(
   }
 }
 
+/** Whether `ext` (with or without its dot, any case) is GIF. */
+function isGif(ext: string): boolean {
+  return ext.replace(/^\./, '').toLowerCase() === 'gif';
+}
+
 /** The translated reason a folder walk discarded a file (FR-005, FR-092). */
 function skipReason(s: Pick<SkippedFile, 'name' | 'reason'>): string {
   if (s.reason !== 'unsupported_format') return t(`skipReason.${s.reason}`);
   const dot = s.name.lastIndexOf('.');
   const ext = dot > 0 ? s.name.slice(dot + 1).toLowerCase() : '';
   // D9: GIF is refused on purpose, and says what to do instead.
-  if (ext === 'gif') return t('rejectReason.gif_unsupported');
+  if (isGif(ext)) return t('rejectReason.gif_unsupported');
   return ext
     ? t('skipReason.unsupported_format', { ext })
     : t('rejectReason.unsupported_type');

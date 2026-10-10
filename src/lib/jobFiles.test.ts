@@ -355,6 +355,53 @@ describe('jobFiles', () => {
     expect(getPendingFolders()).toEqual([]);
   });
 
+  it('FR-092 (D9): a refused GIF says GIF is not supported, dropped or found in a folder', async () => {
+    ipc.inspectFiles.mockResolvedValue([
+      fileInfo('/docs/anim.GIF', {
+        supported: false,
+        reason: 'Unsupported file type',
+        reason_code: 'unsupported_type',
+      }),
+    ]);
+    const out = await inspectPaths(['/docs/anim.GIF']);
+    expect(out.rejected).toEqual([
+      {
+        name: 'anim.GIF',
+        reason:
+          'GIF images are not supported — convert them to PNG or JPEG first',
+      },
+    ]);
+
+    ipc.inspectFiles.mockResolvedValue([fileInfo('/docs/r/a.pdf')]);
+    ipc.expandFolders.mockResolvedValue([
+      expansion({
+        root: '/docs/r',
+        files: ['/docs/r/a.pdf'],
+        skipped: [
+          {
+            path: '/docs/r/loop.gif',
+            name: 'loop.gif',
+            reason: 'unsupported_format',
+            detail: 'Unsupported file type (.gif)',
+          },
+        ],
+      }),
+    ]);
+    const files = collector();
+    await expandFolderIntoJob(
+      { path: '/docs/r', name: 'r', hasSubfolders: false },
+      'top_level',
+      files.setFiles,
+    );
+    const [, opts] = toasts.warning.mock.calls.at(-1) as [
+      string,
+      { description: string },
+    ];
+    expect(opts.description).toContain(
+      'loop.gif — GIF images are not supported',
+    );
+  });
+
   it('FR-005: shows the files a folder walk discarded, with their reason', async () => {
     ipc.inspectFiles.mockResolvedValue([fileInfo('/docs/r/a.pdf')]);
     ipc.expandFolders.mockResolvedValue([
