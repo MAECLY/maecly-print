@@ -94,7 +94,7 @@ pub fn load(path: &Path) -> QueueSnapshot {
                 event = "queue_schema_too_new",
                 found = snap.schema_version,
                 supported = SCHEMA_VERSION,
-                "queue.json was written by a newer MaeclyPrint; backing up and ignoring"
+                "queue.json was written by a newer Pluryprint; backing up and ignoring"
             );
             backup_corrupt(path);
             QueueSnapshot::default()
@@ -150,7 +150,7 @@ pub fn recover(snap: QueueSnapshot) -> QueueSnapshot {
                 job.state = crate::queue::job::JobState::Paused;
                 job.error = Some(JobError::new(
                     "interrupted_by_shutdown",
-                    "MaeclyPrint was closed while this job was in progress.",
+                    "Pluryprint was closed while this job was in progress.",
                 ));
                 job.progress = None;
             }

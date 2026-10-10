@@ -1,4 +1,4 @@
-//! Branded MaeclyPrint test page — generated as a PDF so it carries the real
+//! Branded Pluryprint test page — generated as a PDF so it carries the real
 //! logo, brand colors, and typography, and prints with the user's configured
 //! default paper for the printer — plus its tray where the platform's spool path
 //! can actually select one ([`TRAY_IS_APPLIED`]).
@@ -39,7 +39,7 @@ pub struct TestPageInfo {
 ///
 /// The sheet is a physical artifact: once it is out of the printer, a wrong line
 /// on it can never be corrected. So it states only what the code on this
-/// platform genuinely does — the "PRINTED WITH YOUR MAECLYPRINT DEFAULTS" header
+/// platform genuinely does — the "PRINTED WITH YOUR PLURYPRINT DEFAULTS" header
 /// is a claim about this print, not a listing of preferences.
 pub const TRAY_IS_APPLIED: bool = cfg!(unix);
 
@@ -241,7 +241,7 @@ impl Canvas {
         });
     }
 
-    /// The MaeclyPrint glyph (twin pages + accent chevron), ported from
+    /// The Pluryprint glyph (twin pages + accent chevron), ported from
     /// `src/components/Brand.tsx` (24×24 viewBox), scaled to `size` mm of the
     /// design grid with its top at `oy_top`.
     fn logo(&mut self, ox: f32, oy_top: f32, size: f32) {
@@ -275,7 +275,7 @@ fn footer_line() -> String {
         .trim_end_matches('/')
         .trim_end_matches(".git")
         .trim_end_matches('/');
-    format!("MaeclyPrint   |   {repo}   |   GPLv3")
+    format!("Pluryprint   |   {repo}   |   GPLv3")
 }
 
 /// What the sheet's `Tray` row may honestly say: the configured bin name only
@@ -305,11 +305,11 @@ pub fn render(info: &TestPageInfo) -> Vec<u8> {
     });
     c.ops.push(Op::SetFillColor { col: rgb(INK) });
     c.ops.push(Op::ShowText {
-        items: vec![TextItem::Text("Maecly".to_string())],
+        items: vec![TextItem::Text("Plury".to_string())],
     });
     c.ops.push(Op::SetFillColor { col: rgb(ACCENT) });
     c.ops.push(Op::ShowText {
-        items: vec![TextItem::Text("Print".to_string())],
+        items: vec![TextItem::Text("print".to_string())],
     });
     c.ops.push(Op::EndTextSection);
     c.text(
@@ -337,7 +337,7 @@ pub fn render(info: &TestPageInfo) -> Vec<u8> {
         11.0,
         BuiltinFont::Helvetica,
         MUTED,
-        "If you can read this clearly, your printer is working with MaeclyPrint.",
+        "If you can read this clearly, your printer is working with Pluryprint.",
     );
 
     // Value-prop bullets.
@@ -362,7 +362,7 @@ pub fn render(info: &TestPageInfo) -> Vec<u8> {
         9.0,
         BuiltinFont::HelveticaBold,
         MUTED,
-        "PRINTED WITH YOUR MAECLYPRINT DEFAULTS",
+        "PRINTED WITH YOUR PLURYPRINT DEFAULTS",
     );
     let printer = ascii(&info.printer);
     let paper = ascii(info.paper.as_deref().unwrap_or("printer default"));
@@ -420,7 +420,7 @@ pub fn render(info: &TestPageInfo) -> Vec<u8> {
         10.0,
         BuiltinFont::Helvetica,
         MUTED,
-        "The commercial tools that do this cost $79-$149. MaeclyPrint is open source and free.",
+        "The commercial tools that do this cost $79-$149. Pluryprint is open source and free.",
     );
 
     // Registration crosshairs 12 mm from every PHYSICAL edge — they measure the
@@ -440,7 +440,7 @@ pub fn render(info: &TestPageInfo) -> Vec<u8> {
     c.text(20.0, 13.0, 8.5, BuiltinFont::Courier, MUTED, &footer_line());
 
     let page = PdfPage::new(Mm(page_w), Mm(page_h), c.ops);
-    let mut doc = PdfDocument::new("MaeclyPrint Test Page");
+    let mut doc = PdfDocument::new("Pluryprint Test Page");
     doc.with_pages(vec![page]);
     let mut warnings = Vec::new();
     doc.save(&PdfSaveOptions::default(), &mut warnings)
@@ -461,7 +461,7 @@ mod tests {
         assert!(pdf.len() > 1500, "page should have content");
     }
 
-    /// The sheet prints "PRINTED WITH YOUR MAECLYPRINT DEFAULTS" above the
+    /// The sheet prints "PRINTED WITH YOUR PLURYPRINT DEFAULTS" above the
     /// settings box, so every row under it has to be true of *this* print. The
     /// Windows path does not send a tray at all, and the page used to claim
     /// "Tray: Tray 2" anyway — a lie on paper, which nothing can retract.
@@ -504,7 +504,7 @@ mod tests {
         // The literal it replaced pointed at a personal fork.
         assert!(!footer.contains("MigelAngelEC"), "{footer}");
         assert!(!footer.contains("https://"), "{footer}");
-        assert!(footer.starts_with("MaeclyPrint   |   "), "{footer}");
+        assert!(footer.starts_with("Pluryprint   |   "), "{footer}");
         assert!(footer.ends_with("   |   GPLv3"), "{footer}");
     }
 

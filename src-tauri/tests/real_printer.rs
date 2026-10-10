@@ -41,9 +41,9 @@ use std::process::Command;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-use maeclyprint_lib::engine::print::spool;
-use maeclyprint_lib::platform::queue_of;
-use maeclyprint_lib::queue::job::{
+use pluryprint_lib::engine::print::spool;
+use pluryprint_lib::platform::queue_of;
+use pluryprint_lib::queue::job::{
     ColorMode, Duplex, JobSettings, Orientation, PaperSize, Quality, Scaling,
 };
 

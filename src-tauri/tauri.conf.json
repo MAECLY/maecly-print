@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MaeclyPrint",
+  "productName": "Pluryprint",
   "version": "0.0.1",
-  "identifier": "com.maecly.print",
+  "identifier": "com.maecly.pluryprint",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "MaeclyPrint",
+        "title": "Pluryprint",
         "width": 1080,
         "height": 680,
         "minWidth": 880,

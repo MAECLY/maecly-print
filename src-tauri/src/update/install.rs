@@ -10,7 +10,7 @@
 //!
 //! This module owns the policy around it, as pure functions with co-located
 //! tests, so the GUI command ([`crate::ipc::update::install_update`]) and the
-//! CLI (`maeclyprint update install`) apply exactly the same rules:
+//! CLI (`pluryprint update install`) apply exactly the same rules:
 //!
 //! - [`resolve_endpoint`] — the manifest URL, overridable through
 //!   [`ENDPOINT_ENV`] for local end-to-end testing.
@@ -41,7 +41,7 @@ pub const DEFAULT_ENDPOINT: &str =
 /// Environment variable that replaces [`DEFAULT_ENDPOINT`], for testing an
 /// update end to end against a local server. Release builds still require
 /// `https` (the plugin refuses plain `http` outside debug builds).
-pub const ENDPOINT_ENV: &str = "MAECLYPRINT_UPDATE_ENDPOINT";
+pub const ENDPOINT_ENV: &str = "PLURYPRINT_UPDATE_ENDPOINT";
 
 /// The manifest URL: `override_value` when it is set and non-blank, the
 /// default otherwise. Pure.
@@ -150,7 +150,7 @@ pub fn check_installable_location(os: &str, exe: &Path) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "this copy of MaeclyPrint ({}) is not an installed app bundle, so it cannot \
+            "this copy of Pluryprint ({}) is not an installed app bundle, so it cannot \
              update itself; download the release from the releases page instead",
             exe.display()
         ))
@@ -425,18 +425,17 @@ mod tests {
 
     #[test]
     fn fr_083_macos_refuses_to_update_a_binary_outside_an_app_bundle() {
-        let bundled = PathBuf::from("/Applications/MaeclyPrint.app/Contents/MacOS/maeclyprint");
+        let bundled = PathBuf::from("/Applications/Pluryprint.app/Contents/MacOS/pluryprint");
         assert!(check_installable_location("macos", &bundled).is_ok());
-        let user =
-            PathBuf::from("/Users/a/Applications/MaeclyPrint.app/Contents/MacOS/maeclyprint");
+        let user = PathBuf::from("/Users/a/Applications/Pluryprint.app/Contents/MacOS/pluryprint");
         assert!(check_installable_location("macos", &user).is_ok());
 
-        let dev = PathBuf::from("/Users/a/src/maecly-print/src-tauri/target/debug/maeclyprint");
+        let dev = PathBuf::from("/Users/a/src/maecly-print/src-tauri/target/debug/pluryprint");
         let err = check_installable_location("macos", &dev).unwrap_err();
         assert!(err.contains("not an installed app bundle"), "{err}");
 
         // Windows hands over to the per-user installer wherever the exe is.
-        let win = PathBuf::from(r"C:\dev\target\debug\maeclyprint.exe");
+        let win = PathBuf::from(r"C:\dev\target\debug\pluryprint.exe");
         assert!(check_installable_location("windows", &win).is_ok());
     }
 

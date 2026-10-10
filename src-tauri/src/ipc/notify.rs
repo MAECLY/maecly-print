@@ -1,7 +1,7 @@
 //! Native OS notifications (FR-072).
 //!
 //! The in-app toasts (FR-070/FR-071) only help someone looking at the window.
-//! MaeclyPrint mostly runs in the background — a right-click hands it files and
+//! Pluryprint mostly runs in the background — a right-click hands it files and
 //! the user goes back to what they were doing — so a finished, failed or stuck
 //! batch is also announced through the OS notification centre (Windows toast,
 //! macOS Notification Center) **when the window is not in front of the user**.

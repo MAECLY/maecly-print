@@ -1,4 +1,4 @@
-//! `maeclyprint printers …`
+//! `pluryprint printers …`
 //!
 //! A read-only view of what the OS spooler reports, straight from
 //! [`crate::platform`] — the same enumeration the Printers screen shows, so a

@@ -78,7 +78,7 @@ pub fn suppress_blank_password_probe(user_data_dir: &Path) -> std::io::Result<()
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
     let updated = with_probe_suppressed(current);
-    let tmp = user_data_dir.join(format!("{LOCAL_STATE}.maecly-tmp"));
+    let tmp = user_data_dir.join(format!("{LOCAL_STATE}.pluryprint-tmp"));
     std::fs::write(&tmp, serde_json::to_vec(&updated)?)?;
     std::fs::rename(&tmp, &path)
 }

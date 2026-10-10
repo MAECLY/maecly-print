@@ -9,7 +9,7 @@
 //! a cross toolchain that ships `rc.exe`). On a developer's macOS box
 //! `cargo check --target x86_64-pc-windows-msvc` must still type-check the
 //! crate, so a missing `rc.exe` is a warning, not an error. CI sets
-//! `MAECLYPRINT_REQUIRE_RESOURCES=1`, which turns it back into a hard failure
+//! `PLURYPRINT_REQUIRE_RESOURCES=1`, which turns it back into a hard failure
 //! so a shipped DLL can never be built without its manifest.
 
 use std::env;
@@ -17,7 +17,7 @@ use std::env;
 fn main() {
     println!("cargo:rerun-if-changed=res/shellext.rc");
     println!("cargo:rerun-if-changed=res/shellext.manifest");
-    println!("cargo:rerun-if-env-changed=MAECLYPRINT_REQUIRE_RESOURCES");
+    println!("cargo:rerun-if-env-changed=PLURYPRINT_REQUIRE_RESOURCES");
 
     // Non-Windows targets have no resource section at all; skip entirely so a
     // host-side `cargo test` never shells out to a compiler that cannot exist.
@@ -26,7 +26,7 @@ fn main() {
     }
 
     let result = embed_resource::compile("res/shellext.rc", embed_resource::NONE);
-    let strict = env::var("MAECLYPRINT_REQUIRE_RESOURCES").as_deref() == Ok("1");
+    let strict = env::var("PLURYPRINT_REQUIRE_RESOURCES").as_deref() == Ok("1");
 
     let outcome = if strict {
         // NotAttempted (no rc.exe) is also fatal here: a DLL without the
@@ -44,7 +44,7 @@ fn main() {
             "cargo:warning=res/shellext.rc was not embedded ({err}). \
              The resulting DLL has no side-by-side <msix> manifest and Explorer \
              will not load it. This is expected for a type-check-only build on a \
-             non-Windows host; set MAECLYPRINT_REQUIRE_RESOURCES=1 to make it fatal."
+             non-Windows host; set PLURYPRINT_REQUIRE_RESOURCES=1 to make it fatal."
         );
     }
 }

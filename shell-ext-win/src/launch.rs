@@ -5,7 +5,7 @@
 //! directory, then run
 //!
 //! ```text
-//! maeclyprint.exe --invoke=context-menu --files-from <path> [--action A] [--profile P]
+//! pluryprint.exe --invoke=context-menu --files-from <path> [--action A] [--profile P]
 //! ```
 //!
 //! `--action` and `--profile` are passed as well as being inside the file. The
@@ -48,7 +48,7 @@ pub fn deliver(
     }
 
     let exe = crate::module::app_exe().ok_or_else(|| {
-        std::io::Error::other("could not locate maeclyprint.exe next to the shell extension")
+        std::io::Error::other("could not locate pluryprint.exe next to the shell extension")
     })?;
 
     let handoff_path = handoff::write(paths, action, profile_id.clone())?;
@@ -289,10 +289,10 @@ mod tests {
     fn fr_003_the_handoff_path_is_quoted_the_same_way() {
         // Windows paths are the reason this has to be right: they are full of
         // backslashes, and a directory argument legitimately ends in one.
-        round_trips(r"C:\Users\ana\AppData\Roaming\MaeclyPrint\handoff\sel-1.json");
-        round_trips(r"C:\Program Files\Maecly Print\sel 1.json");
+        round_trips(r"C:\Users\ana\AppData\Roaming\Pluryprint\handoff\sel-1.json");
+        round_trips(r"C:\Program Files\Pluryprint App\sel 1.json");
 
-        let path = r"C:\Users\ana\AppData\Roaming\MaeclyPrint\handoff\sel-1.json";
+        let path = r"C:\Users\ana\AppData\Roaming\Pluryprint\handoff\sel-1.json";
         let line = format!(
             "--invoke=context-menu --files-from {} --action print-default",
             quote_arg(path)

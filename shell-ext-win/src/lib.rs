@@ -1,4 +1,4 @@
-//! `shell_ext_win.dll` — the "Print with MaeclyPrint" Explorer context menu.
+//! `shell_ext_win.dll` — the "Print with Pluryprint" Explorer context menu.
 //!
 //! # What this crate is
 //!
@@ -13,7 +13,7 @@
 //!
 //! It does **not** print. It serializes the selection to a JSON handoff file
 //! and launches
-//! `maeclyprint.exe --invoke=context-menu --files-from <path>`; the app
+//! `pluryprint.exe --invoke=context-menu --files-from <path>`; the app
 //! validates the file and takes over. A Windows command line is capped at
 //! 32,767 characters, so passing paths in argv would break somewhere around
 //! 380 files — the handoff file is what makes "any number of files" (FR-003)
@@ -70,7 +70,7 @@ mod selection;
 mod subcommands;
 
 #[cfg(windows)]
-pub use clsid::CLSID_MAECLYPRINT_COMMAND;
+pub use clsid::CLSID_PLURYPRINT_COMMAND;
 
 #[cfg(windows)]
 mod exports {
@@ -140,7 +140,7 @@ mod exports {
         if rclsid.is_null() || riid.is_null() {
             return E_POINTER;
         }
-        if *rclsid != crate::clsid::CLSID_MAECLYPRINT_COMMAND {
+        if *rclsid != crate::clsid::CLSID_PLURYPRINT_COMMAND {
             return CLASS_E_CLASSNOTAVAILABLE;
         }
 

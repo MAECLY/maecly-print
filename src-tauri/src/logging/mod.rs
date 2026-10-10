@@ -1,6 +1,6 @@
 //! Tracing setup.
 //!
-//! Writes structured JSONL to `<log_dir>/maeclyprint-YYYY-MM-DD.jsonl` and a
+//! Writes structured JSONL to `<log_dir>/pluryprint-YYYY-MM-DD.jsonl` and a
 //! human-friendly compact format to stdout for `pnpm tauri dev`. The record
 //! schema is documented in `docs/04-architecture/data-model.md` §5.
 //!
@@ -13,8 +13,8 @@
 //! and it is a plain [`Write`], so the non-blocking writer thread and the JSON
 //! layer are wired exactly as before.
 //!
-//! File names are `maeclyprint-<date>.jsonl` for the day's first file and
-//! `maeclyprint-<date>.<n>.jsonl` (n ≥ 2) for each size roll after it, so the
+//! File names are `pluryprint-<date>.jsonl` for the day's first file and
+//! `pluryprint-<date>.<n>.jsonl` (n ≥ 2) for each size roll after it, so the
 //! documented daily name is what a user finds unless a single day is unusually
 //! chatty.
 //!
@@ -51,7 +51,7 @@ pub fn flush() {
 }
 
 /// Leading part of every log file name, before the date.
-const FILE_PREFIX: &str = "maeclyprint-";
+const FILE_PREFIX: &str = "pluryprint-";
 /// Trailing part of every log file name, after the date (and part number).
 const FILE_SUFFIX: &str = ".jsonl";
 
@@ -84,8 +84,8 @@ impl Default for Policy {
 
 /// The level filter when `RUST_LOG` is not set: `info` for everything.
 ///
-/// It used to be `info,maeclyprint=debug`. An `EnvFilter` target is a string
-/// prefix, so `maeclyprint` also matched the library crate `maeclyprint_lib`,
+/// It used to be `info,pluryprint=debug`. An `EnvFilter` target is a string
+/// prefix, so `pluryprint` also matched the library crate `pluryprint_lib`,
 /// where every event lives: DEBUG was on by default and full paths (the
 /// shell-menu cache, handoff files) reached the default log, which
 /// `security-model.md` §6.2 and NFR-082 rule out.
@@ -236,12 +236,12 @@ fn panic_record(
         "level": "ERROR",
         "fields": {
             "event": "panic",
-            "message": "MaeclyPrint panicked",
+            "message": "Pluryprint panicked",
             "location": location,
             "payload": payload,
             "thread": thread,
         },
-        "target": "maeclyprint::panic",
+        "target": "pluryprint::panic",
     });
     format!("{record}\n")
 }
@@ -476,7 +476,7 @@ mod tests {
     }
 
     /// NFR-082: the default filter must not switch DEBUG on for the library
-    /// crate (`maeclyprint_lib`), where every event lives.
+    /// crate (`pluryprint_lib`), where every event lives.
     #[test]
     fn nfr_082_the_default_level_is_info_for_the_library_too() {
         use tracing_subscriber::layer::SubscriberExt;
@@ -484,9 +484,9 @@ mod tests {
         let subscriber = tracing_subscriber::registry().with(filter);
         tracing::subscriber::with_default(subscriber, || {
             assert!(
-                !tracing::enabled!(target: "maeclyprint_lib::shell_menu", tracing::Level::DEBUG)
+                !tracing::enabled!(target: "pluryprint_lib::shell_menu", tracing::Level::DEBUG)
             );
-            assert!(tracing::enabled!(target: "maeclyprint_lib::queue", tracing::Level::INFO));
+            assert!(tracing::enabled!(target: "pluryprint_lib::queue", tracing::Level::INFO));
         });
     }
 
@@ -535,26 +535,26 @@ mod tests {
         let dir = Path::new("/logs");
         assert_eq!(
             log_path(dir, "2026-07-20", 1),
-            dir.join("maeclyprint-2026-07-20.jsonl")
+            dir.join("pluryprint-2026-07-20.jsonl")
         );
         assert_eq!(
             log_path(dir, "2026-07-20", 3),
-            dir.join("maeclyprint-2026-07-20.3.jsonl")
+            dir.join("pluryprint-2026-07-20.3.jsonl")
         );
         assert_eq!(
-            parse_log_name("maeclyprint-2026-07-20.jsonl"),
+            parse_log_name("pluryprint-2026-07-20.jsonl"),
             Some(("2026-07-20".to_string(), 1))
         );
         assert_eq!(
-            parse_log_name("maeclyprint-2026-07-20.3.jsonl"),
+            parse_log_name("pluryprint-2026-07-20.3.jsonl"),
             Some(("2026-07-20".to_string(), 3))
         );
         // Anything else is somebody else's file and must be left alone.
         for stranger in [
-            "maeclyprint.jsonl",
-            "maeclyprint-2026-07-20.jsonl.bak",
-            "maeclyprint-not-a-date.jsonl",
-            "maeclyprint-2026-07-20.x.jsonl",
+            "pluryprint.jsonl",
+            "pluryprint-2026-07-20.jsonl.bak",
+            "pluryprint-not-a-date.jsonl",
+            "pluryprint-2026-07-20.x.jsonl",
             "queue.json",
         ] {
             assert_eq!(parse_log_name(stranger), None, "{stranger}");
@@ -581,9 +581,9 @@ mod tests {
         assert_eq!(
             names(tmp.path()),
             vec![
-                "maeclyprint-2026-07-20.2.jsonl",
-                "maeclyprint-2026-07-20.3.jsonl",
-                "maeclyprint-2026-07-20.jsonl",
+                "pluryprint-2026-07-20.2.jsonl",
+                "pluryprint-2026-07-20.3.jsonl",
+                "pluryprint-2026-07-20.jsonl",
             ]
         );
         for part in 1..=3 {
@@ -614,17 +614,14 @@ mod tests {
 
         assert_eq!(
             names(tmp.path()),
-            vec![
-                "maeclyprint-2026-07-20.jsonl",
-                "maeclyprint-2026-07-21.jsonl"
-            ]
+            vec!["pluryprint-2026-07-20.jsonl", "pluryprint-2026-07-21.jsonl"]
         );
     }
 
     #[test]
     fn nfr_081_writer_appends_to_an_existing_file_after_a_restart() {
         let tmp = tempfile::tempdir().unwrap();
-        touch(tmp.path(), "maeclyprint-2026-07-20.jsonl");
+        touch(tmp.path(), "pluryprint-2026-07-20.jsonl");
         let mut w = RollingJsonl::with_clock(
             tmp.path().to_path_buf(),
             Policy::default(),
@@ -647,7 +644,7 @@ mod tests {
         };
         // 2026-07-06 is exactly the cutoff (today - 14) and stays.
         for d in ["2026-06-01", "2026-07-05", "2026-07-06", "2026-07-20"] {
-            touch(tmp.path(), &format!("maeclyprint-{d}.jsonl"));
+            touch(tmp.path(), &format!("pluryprint-{d}.jsonl"));
         }
         let stranger = touch(tmp.path(), "notes.txt");
 
@@ -657,8 +654,8 @@ mod tests {
         assert_eq!(
             names(tmp.path()),
             vec![
-                "maeclyprint-2026-07-06.jsonl",
-                "maeclyprint-2026-07-20.jsonl",
+                "pluryprint-2026-07-06.jsonl",
+                "pluryprint-2026-07-20.jsonl",
                 "notes.txt",
             ]
         );
@@ -677,11 +674,11 @@ mod tests {
             ..Policy::default()
         };
         for d in ["2026-07-17", "2026-07-18", "2026-07-19"] {
-            touch(tmp.path(), &format!("maeclyprint-{d}.jsonl"));
+            touch(tmp.path(), &format!("pluryprint-{d}.jsonl"));
         }
         // Same-day parts count individually, newest part last.
-        touch(tmp.path(), "maeclyprint-2026-07-20.jsonl");
-        touch(tmp.path(), "maeclyprint-2026-07-20.2.jsonl");
+        touch(tmp.path(), "pluryprint-2026-07-20.jsonl");
+        touch(tmp.path(), "pluryprint-2026-07-20.2.jsonl");
 
         let removed = sweep(tmp.path(), date("2026-07-20"), &policy);
 
@@ -689,9 +686,9 @@ mod tests {
         assert_eq!(
             names(tmp.path()),
             vec![
-                "maeclyprint-2026-07-19.jsonl",
-                "maeclyprint-2026-07-20.2.jsonl",
-                "maeclyprint-2026-07-20.jsonl",
+                "pluryprint-2026-07-19.jsonl",
+                "pluryprint-2026-07-20.2.jsonl",
+                "pluryprint-2026-07-20.jsonl",
             ]
         );
     }
@@ -710,7 +707,7 @@ mod tests {
         let clock_src = now.clone();
         // Old files left by an earlier run, already past the age bound by the
         // time the date below advances.
-        touch(tmp.path(), "maeclyprint-2026-06-01.jsonl");
+        touch(tmp.path(), "pluryprint-2026-06-01.jsonl");
         let mut w = RollingJsonl::with_clock(
             tmp.path().to_path_buf(),
             policy,
@@ -735,10 +732,10 @@ mod tests {
         w.flush().unwrap();
         let left = names(tmp.path());
         assert!(
-            left.iter().all(|n| n.as_str() >= "maeclyprint-2026-07-08"),
+            left.iter().all(|n| n.as_str() >= "pluryprint-2026-07-08"),
             "nothing older than retain_days survives a date roll: {left:?}"
         );
-        assert!(left.contains(&"maeclyprint-2026-07-22.jsonl".to_string()));
+        assert!(left.contains(&"pluryprint-2026-07-22.jsonl".to_string()));
     }
 
     #[test]
@@ -754,7 +751,7 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
         assert_eq!(v["level"], "ERROR");
         assert_eq!(v["timestamp"], "2026-07-20T10:00:00Z");
-        assert_eq!(v["target"], "maeclyprint::panic");
+        assert_eq!(v["target"], "pluryprint::panic");
         assert_eq!(v["fields"]["event"], "panic");
         assert_eq!(v["fields"]["location"], "src/queue/dispatcher.rs:42:7");
         assert_eq!(v["fields"]["payload"], "index out of bounds");
@@ -774,8 +771,8 @@ mod tests {
     #[test]
     fn nfr_033_panic_record_lands_in_the_newest_part_of_today() {
         let tmp = tempfile::tempdir().unwrap();
-        touch(tmp.path(), "maeclyprint-2026-07-20.jsonl");
-        touch(tmp.path(), "maeclyprint-2026-07-20.2.jsonl");
+        touch(tmp.path(), "pluryprint-2026-07-20.jsonl");
+        touch(tmp.path(), "pluryprint-2026-07-20.2.jsonl");
         append_panic_record(tmp.path(), date("2026-07-20"), "{\"x\":1}\n").unwrap();
         let newest = std::fs::read_to_string(log_path(tmp.path(), "2026-07-20", 2)).unwrap();
         assert_eq!(newest, "{}\n{\"x\":1}\n");

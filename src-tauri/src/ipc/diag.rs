@@ -88,7 +88,7 @@ pub fn app_info() -> Result<AppInfo, IpcError> {
 /// `path` without the `\\?\` prefix `canonicalize` adds on Windows. Pure.
 ///
 /// The prefix is valid but alien: the Home screen's "Run from CLI" command
-/// showed `& '\\?\C:\Users\…\maeclyprint.exe'`, which nobody would type and
+/// showed `& '\\?\C:\Users\…\pluryprint.exe'`, which nobody would type and
 /// some tools reject. `\\?\UNC\server\share` becomes `\\server\share`.
 pub fn without_verbatim_prefix(path: &str) -> String {
     if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
@@ -242,9 +242,8 @@ fn issue_url(
 ) -> String {
     use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 
-    let body = format!(
-        "- MaeclyPrint: {version}\n- Build date: {build_date}\n- OS: {os} {arch}\n\n{text}"
-    );
+    let body =
+        format!("- Pluryprint: {version}\n- Build date: {build_date}\n- OS: {os} {arch}\n\n{text}");
     let enc = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
     format!("{repo}/issues/new?title={}&body={}", enc(""), enc(&body))
 }
@@ -293,8 +292,8 @@ mod tests {
     #[test]
     fn fr_008_the_offered_executable_has_no_verbatim_prefix() {
         assert_eq!(
-            without_verbatim_prefix(r"\\?\C:\Users\a\AppData\Local\MaeclyPrint\maeclyprint.exe"),
-            r"C:\Users\a\AppData\Local\MaeclyPrint\maeclyprint.exe"
+            without_verbatim_prefix(r"\\?\C:\Users\a\AppData\Local\Pluryprint\pluryprint.exe"),
+            r"C:\Users\a\AppData\Local\Pluryprint\pluryprint.exe"
         );
         assert_eq!(
             without_verbatim_prefix(r"\\?\UNC\srv\share\m.exe"),
@@ -322,7 +321,7 @@ mod tests {
         assert!(url.contains("%0A"), "newlines encoded: {url}");
         assert!(url.contains("%23"), "'#' encoded: {url}");
         // The environment block is present (percent-encoded).
-        assert!(url.contains("MaeclyPrint"));
+        assert!(url.contains("Pluryprint"));
         assert!(!url.contains(' '), "no raw spaces in the URL");
     }
 

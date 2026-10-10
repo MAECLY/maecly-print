@@ -459,7 +459,7 @@ fn stage_named(pdf: &Path, title: &str) -> Option<(tempfile::TempDir, std::path:
         return None;
     }
     let dir = tempfile::Builder::new()
-        .prefix("maeclyprint-spool-")
+        .prefix("pluryprint-spool-")
         .tempdir()
         .ok()?;
     let link = dir.path().join(&wanted);
@@ -556,7 +556,7 @@ pub fn lpstat_verdict(not_completed: &str, os_job_id: &str) -> super::OsJobState
     }
 }
 
-/// The `ipptool` test MaeclyPrint runs to read a job's state: the same request
+/// The `ipptool` test Pluryprint runs to read a job's state: the same request
 /// as CUPS's stock `get-job-attributes.test`, carried in the binary.
 ///
 /// `ipptool` looks a test named by a bare file name up in the *current
@@ -567,7 +567,7 @@ pub fn lpstat_verdict(not_completed: &str, os_job_id: &str) -> super::OsJobState
 /// therefore written to a private temporary file and named by its absolute
 /// path, which `ipptool` never resolves against the working directory.
 pub const GET_JOB_STATE_TEST: &str = r#"{
-	NAME "MaeclyPrint get job state"
+	NAME "Pluryprint get job state"
 	OPERATION get-job-attributes
 	GROUP operation
 	ATTR charset attributes-charset utf-8
@@ -584,7 +584,7 @@ pub const GET_JOB_STATE_TEST: &str = r#"{
 fn job_state_test_file() -> std::io::Result<tempfile::NamedTempFile> {
     use std::io::Write as _;
     let mut file = tempfile::Builder::new()
-        .prefix("maeclyprint-ipp-")
+        .prefix("pluryprint-ipp-")
         .suffix(".test")
         .tempfile()?;
     file.write_all(GET_JOB_STATE_TEST.as_bytes())?;
@@ -1178,7 +1178,7 @@ mod tests {
             "Maecly_Hold",
             &JobSettings::default(),
             &PrinterCaps::unknown(),
-            "maecly-track-test",
+            "pluryprint-track-test",
             Some(std::time::Duration::from_secs(30)),
         )
         .expect("spooled");

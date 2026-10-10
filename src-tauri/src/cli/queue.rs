@@ -1,4 +1,4 @@
-//! `maeclyprint queue …`
+//! `pluryprint queue …`
 //!
 //! The queue the CLI talks to is the **persisted** one (`queue.json`), read and
 //! written through [`crate::queue::persist`] and mutated only through the same
@@ -200,13 +200,13 @@ fn refuse_while_app_runs(queue_json: &Path) -> Result<(), CliError> {
     match state(&lock_path_for(queue_json)) {
         LockState::Free => Ok(()),
         LockState::Held => Err(IpcError::InvalidState(
-            "MaeclyPrint is open and owns the live queue, so nothing was changed — \
+            "Pluryprint is open and owns the live queue, so nothing was changed — \
              cancel from its Queue screen, or close the app and run this again"
                 .to_string(),
         )
         .into()),
         LockState::Unknown(why) => Err(IpcError::InvalidState(format!(
-            "could not check whether MaeclyPrint is open ({why}), so nothing was changed — \
+            "could not check whether Pluryprint is open ({why}), so nothing was changed — \
              cancel from its Queue screen if it is running"
         ))
         .into()),

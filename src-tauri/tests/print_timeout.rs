@@ -10,7 +10,7 @@
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use maeclyprint_lib::engine::print::{wait_with_timeout, PrintError};
+use pluryprint_lib::engine::print::{wait_with_timeout, PrintError};
 
 /// A child that sleeps far longer than any timeout used here, with its pipes
 /// silenced so the test output stays clean.

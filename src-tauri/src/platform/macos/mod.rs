@@ -3,7 +3,7 @@
 //! Two halves of one contract:
 //!
 //! - [`services`] declares and answers the NSService that puts "Print with
-//!   MaeclyPrint" in the Finder's Services submenu (FR-001);
+//!   Pluryprint" in the Finder's Services submenu (FR-001);
 //! - [`handoff`] writes the selection into the same JSON handoff file the
 //!   Windows shell extension produces, so both platforms hand the app a
 //!   selection in exactly one format ([`crate::cli::handoff`] reads it).

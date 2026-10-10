@@ -1,5 +1,5 @@
 [package]
-name = "maeclyprint"
+name = "pluryprint"
 version = "0.0.1"
 description = "Open source batch file printing for Windows and macOS."
 authors = ["Maecly maintainers"]
@@ -7,13 +7,13 @@ license = "GPL-3.0-only"
 repository = "https://github.com/MAECLY/maecly-print"
 edition = "2021"
 rust-version = "1.89"
-# Two binaries: the app (`maeclyprint`, GUI subsystem on Windows) and the
-# console-subsystem CLI front end (`maeclyprint-cli`, src/bin). `cargo run`
+# Two binaries: the app (`pluryprint`, GUI subsystem on Windows) and the
+# console-subsystem CLI front end (`pluryprint-cli`, src/bin). `cargo run`
 # and `tauri dev` mean the app.
-default-run = "maeclyprint"
+default-run = "pluryprint"
 
 [lib]
-name = "maeclyprint_lib"
+name = "pluryprint_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -122,7 +122,7 @@ tokio = { version = "1.41", features = ["test-util"] }
 base64 = "0.22"
 
 # --- macOS Finder integration (NSServices provider, FR-001) ---
-# Objective-C runtime access for the "Print with MaeclyPrint" service declared
+# Objective-C runtime access for the "Print with Pluryprint" service declared
 # in `Info.plist`. macOS-only, so the Windows build never sees these.
 #
 # The versions are pinned to the ones tao/wry already pull in (objc2 0.6,
@@ -174,7 +174,7 @@ windows = { version = "0.58", features = [
   "Win32_System_Com",
   # AttachConsole / GetStdHandle / SetStdHandle (cli::console).
   "Win32_System_Console",
-  # HKLM\SOFTWARE\Policies\Maecly\MaeclyPrint (settings::policy).
+  # HKLM\SOFTWARE\Policies\Maecly\Pluryprint (settings::policy).
   "Win32_System_Registry",
 ] }
 

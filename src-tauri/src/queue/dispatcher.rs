@@ -449,7 +449,7 @@ impl JobRunner for EngineRunner {
             None => resolve_os_default_printer()?,
         };
         // An explicit request, or the OS default, may still name a printer
-        // the user disabled in MaeclyPrint: that job pauses with the reason.
+        // the user disabled in Pluryprint: that job pauses with the reason.
         crate::ipc::printers::ensure_enabled(&prefs, &name)?;
         let overrides_for = |id: &str| prefs.overrides.get(id).cloned().unwrap_or_default();
         let enumerated = crate::platform::list_printers()
@@ -724,7 +724,7 @@ impl Dispatcher {
                         job.progress = None;
                         job.error = Some(JobError::new(
                             "interrupted_by_shutdown",
-                            "MaeclyPrint was closed while this job was in progress.",
+                            "Pluryprint was closed while this job was in progress.",
                         ));
                     }
                 }
@@ -1720,7 +1720,7 @@ fn plan_printer_fix(
                 crate::util::error::IpcErrorCode::InvalidState,
                 "resume_printer_disabled",
                 format!(
-                    "printer '{printer}' is disabled in MaeclyPrint — enable it on the Printers screen, then resume this job"
+                    "printer '{printer}' is disabled in Pluryprint — enable it on the Printers screen, then resume this job"
                 ),
             )
             .with_param("printer", &printer));
@@ -2302,7 +2302,7 @@ mod tests {
         papers: Mutex<Vec<String>>,
         /// Per-printer tray/paper overrides, as the Printers screen stores them.
         overrides: Mutex<HashMap<String, crate::settings::PrinterOverride>>,
-        /// Printers disabled in MaeclyPrint.
+        /// Printers disabled in Pluryprint.
         disabled: Mutex<HashSet<String>>,
         /// Names that match several OS queues.
         ambiguous: Mutex<HashSet<String>>,
@@ -4034,7 +4034,7 @@ mod tests {
         assert!(h.job(&open_id).settings.paper_size.is_auto());
     }
 
-    /// A job aimed at a printer disabled in MaeclyPrint is paused with a
+    /// A job aimed at a printer disabled in Pluryprint is paused with a
     /// reason that names it, and is never sent; once the printer is enabled
     /// again, resuming sends it there.
     #[tokio::test]

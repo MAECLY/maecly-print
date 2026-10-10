@@ -13,22 +13,22 @@
 
 use clap::Parser;
 
-use maeclyprint_lib::cli::args::{
+use pluryprint_lib::cli::args::{
     Cli, CliChannel, CliDuplex, CliScale, Command, ContextAction, InvokeSource, PrintersCmd,
     ProfilesCmd, QueueCmd, UpdateCmd, SUBCOMMANDS,
 };
-use maeclyprint_lib::cli::exit::{exit_code_for, CliError, ExitCode};
-use maeclyprint_lib::cli::handoff::{
+use pluryprint_lib::cli::exit::{exit_code_for, CliError, ExitCode};
+use pluryprint_lib::cli::handoff::{
     self, HANDOFF_SCHEMA_VERSION, MAX_HANDOFF_AGE, MAX_HANDOFF_PATHS,
 };
-use maeclyprint_lib::cli::output;
-use maeclyprint_lib::cli::{classify, pending, selection_from_payload, single_instance, Intent};
-use maeclyprint_lib::queue::job::{now_rfc3339, PaperSize};
-use maeclyprint_lib::util::error::IpcError;
+use pluryprint_lib::cli::output;
+use pluryprint_lib::cli::{classify, pending, selection_from_payload, single_instance, Intent};
+use pluryprint_lib::queue::job::{now_rfc3339, PaperSize};
+use pluryprint_lib::util::error::IpcError;
 
 /// Parse an argv the way `main` does (program name included).
 fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
-    let mut argv = vec!["maeclyprint"];
+    let mut argv = vec!["pluryprint"];
     argv.extend_from_slice(args);
     Cli::try_parse_from(argv)
 }
@@ -300,7 +300,7 @@ fn fr_112_every_subcommand_renders_a_non_empty_help() {
         }
     }
 
-    assert_help(&mut Cli::command(), "maeclyprint");
+    assert_help(&mut Cli::command(), "pluryprint");
 }
 
 #[test]
@@ -426,7 +426,7 @@ fn fr_009_every_ipc_error_maps_to_a_stable_code() {
 /// process returns.
 #[test]
 fn fr_009_a_batch_returns_its_worst_code() {
-    use maeclyprint_lib::cli::print::BatchOutcomes;
+    use pluryprint_lib::cli::print::BatchOutcomes;
 
     let mut batch = BatchOutcomes::with_capacity(4);
     assert_eq!(
@@ -481,8 +481,8 @@ fn fr_010_errors_serialize_as_the_documented_envelope() {
 
 #[test]
 fn fr_010_print_report_is_a_stable_json_object() {
-    use maeclyprint_lib::cli::print::{FileOutcome, PrintReport};
-    use maeclyprint_lib::queue::job::{JobError, JobSettings};
+    use pluryprint_lib::cli::print::{FileOutcome, PrintReport};
+    use pluryprint_lib::queue::job::{JobError, JobSettings};
 
     let report = PrintReport {
         batch_id: "b-1".to_string(),
@@ -675,12 +675,12 @@ fn nfr_014_argv_classification_decides_the_mode() {
 fn nfr_014_a_forwarded_launch_without_a_selection_is_just_a_focus_request() {
     // These are the argvs a second launch realistically carries. None of them
     // may make the running instance print anything.
-    assert!(single_instance::interpret(&["maeclyprint"], "").is_none());
-    assert!(single_instance::interpret(&["maeclyprint", "-psn_0_99"], "").is_none());
-    assert!(single_instance::interpret(&["maeclyprint", "--invoke=context-menu"], "").is_none());
+    assert!(single_instance::interpret(&["pluryprint"], "").is_none());
+    assert!(single_instance::interpret(&["pluryprint", "-psn_0_99"], "").is_none());
+    assert!(single_instance::interpret(&["pluryprint", "--invoke=context-menu"], "").is_none());
     assert!(single_instance::interpret(
         &[
-            "maeclyprint",
+            "pluryprint",
             "--invoke=context-menu",
             "--files-from",
             "/no/such/sel.json"
@@ -713,7 +713,7 @@ fn nfr_014_a_forwarded_context_menu_launch_delivers_its_selection() {
 
     // Exactly what `shell-ext-win` spawns (see its `launch.rs`).
     let argv = [
-        "maeclyprint".to_string(),
+        "pluryprint".to_string(),
         "--invoke=context-menu".to_string(),
         "--files-from".to_string(),
         file.to_string_lossy().into_owned(),
@@ -754,7 +754,7 @@ fn nfr_014_a_forwarded_headless_argv_is_never_acted_on() {
     // instance must not execute it.
     assert!(single_instance::interpret(
         &[
-            "maeclyprint",
+            "pluryprint",
             "print",
             "--files",
             "/tmp/a.pdf",

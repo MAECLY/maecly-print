@@ -1,10 +1,10 @@
-//! Where this DLL lives, and therefore where `maeclyprint.exe` lives.
+//! Where this DLL lives, and therefore where `pluryprint.exe` lives.
 //!
 //! The installer puts the executable and the DLL in the same directory, and the
 //! sparse package's `com:Class/@Path` is a bare file name resolved against the
 //! same external location. Deriving the exe path from our own module path is
 //! what keeps the extension working for a per-user install in
-//! `%LOCALAPPDATA%\Programs\MaeclyPrint` without reading the registry.
+//! `%LOCALAPPDATA%\Programs\Pluryprint` without reading the registry.
 //!
 //! `GetModuleFileNameW` is a cheap in-memory lookup, but the result is cached
 //! anyway so `GetIcon` — which Explorer calls while drawing — costs nothing
@@ -18,7 +18,7 @@ use windows::Win32::Foundation::HMODULE;
 use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
 
 /// File name of the GUI binary, next to this DLL.
-pub const APP_EXE: &str = "maeclyprint.exe";
+pub const APP_EXE: &str = "pluryprint.exe";
 
 /// Stored as an `isize` because `HMODULE` is a raw pointer newtype and is not
 /// `Sync`; the value is only ever handed straight back to Win32.
@@ -59,7 +59,7 @@ pub fn app_exe() -> Option<PathBuf> {
     dir().map(|d| d.join(APP_EXE))
 }
 
-/// `"<dir>\maeclyprint.exe,0"` — the `IExplorerCommand::GetIcon` format
+/// `"<dir>\pluryprint.exe,0"` — the `IExplorerCommand::GetIcon` format
 /// (module path, comma, icon index).
 pub fn icon_spec() -> Option<String> {
     app_exe().map(|exe| format!("{},0", exe.display()))

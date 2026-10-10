@@ -1,6 +1,6 @@
 //! Making stdout reachable on Windows.
 //!
-//! The release `maeclyprint.exe` is linked as a GUI subsystem app
+//! The release `pluryprint.exe` is linked as a GUI subsystem app
 //! (`windows_subsystem = "windows"` in `main.rs`) so double-clicking it never
 //! flashes a console window. The side effect is that a process started from
 //! `cmd.exe` or PowerShell inherits *no* console at all, and everything the
@@ -14,13 +14,13 @@
 //! It cannot fix the *waiting* half. `cmd.exe` and PowerShell do not wait for a
 //! GUI-subsystem program, so the prompt comes back at once and `%ERRORLEVEL%` /
 //! `$LASTEXITCODE` never see our exit code. That is what the console-subsystem
-//! `maeclyprint-cli.exe` (`src/bin/maeclyprint-cli.rs`) is for; scripts use it,
+//! `pluryprint-cli.exe` (`src/bin/pluryprint-cli.rs`) is for; scripts use it,
 //! or `start /wait` / `Start-Process -Wait` around the GUI exe. See
 //! `docs/04-architecture/ipc-and-cli.md` §3.
 
 /// Attach to the parent process' console so `println!` reaches the terminal.
 ///
-/// Handles the parent already gave us — `maeclyprint print … > out.txt`, a
+/// Handles the parent already gave us — `pluryprint print … > out.txt`, a
 /// pipe, or the console-subsystem shim's inherited handles — are kept: output
 /// must go where the caller redirected it. Only a missing stdout/stderr is
 /// pointed at the attached console (`CONOUT$`), because attaching alone does

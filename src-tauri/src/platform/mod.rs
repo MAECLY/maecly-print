@@ -17,7 +17,7 @@
 //!
 //! [`macos`] is the exception to the "printer enumeration" theme: it holds the
 //! Finder integration (the NSServices provider behind the "Print with
-//! MaeclyPrint" context-menu entry). It lives here because it is OS-specific
+//! Pluryprint" context-menu entry). It lives here because it is OS-specific
 //! glue of exactly the same kind — Objective-C runtime calls that must not be
 //! compiled anywhere else — and the Windows half of the same feature is a
 //! separate DLL crate outside `src-tauri` entirely.
@@ -40,7 +40,7 @@ use crate::ipc::printers::PrinterKind;
 /// keeping one list means a queue shared between the two hosts is classified
 /// the same way on both.
 ///
-/// `fax` is deliberately here: a fax queue is not a destination MaeclyPrint
+/// `fax` is deliberately here: a fax queue is not a destination Pluryprint
 /// should offer when reassigning a document route, and the UI filters
 /// `virtual` out of the reassign candidates.
 const VIRTUAL_WORDS: &[&str] = &[

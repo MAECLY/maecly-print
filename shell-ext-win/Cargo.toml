@@ -1,7 +1,7 @@
 [package]
-name = "maeclyprint-shellext"
+name = "pluryprint-shellext"
 version = "0.0.1"
-description = "Windows Explorer context-menu handler for MaeclyPrint (IExplorerCommand)."
+description = "Windows Explorer context-menu handler for Pluryprint (IExplorerCommand)."
 authors = ["Maecly maintainers"]
 license = "GPL-3.0-only"
 repository = "https://github.com/MAECLY/maecly-print"
@@ -31,7 +31,7 @@ uuid = { version = "1", features = ["v7"] }
 # RFC 3339 stamps for `invoked_at`; the consumer parses them with the same crate.
 time = { version = "0.3", features = ["formatting", "parsing"] }
 # Resolves the handoff directory with the *same* rules the app uses
-# (ProjectDirs::from("com", "Maecly", "MaeclyPrint")). Sharing the crate is what
+# (ProjectDirs::from("com", "Maecly", "Pluryprint")). Sharing the crate is what
 # guarantees the producer and the consumer agree on the path; the consumer
 # rejects any handoff file that does not canonicalize inside that directory.
 directories = "5"

@@ -1,16 +1,16 @@
 //! Filesystem path resolution.
 //!
 //! Centralizes every hardcoded directory name so the rest of the codebase
-//! never spells out "MaeclyPrint" or "Maecly". The layout is whatever
-//! `directories::ProjectDirs::from("com", "Maecly", "MaeclyPrint")` gives, and
+//! never spells out "Pluryprint" or "Maecly". The layout is whatever
+//! `directories::ProjectDirs::from("com", "Maecly", "Pluryprint")` gives, and
 //! the shell extension resolves the same way, so it must not drift:
 //!
 //! | Dir    | Windows                                  | macOS                                            |
 //! | ------ | ---------------------------------------- | ------------------------------------------------ |
-//! | config | `%APPDATA%\Maecly\MaeclyPrint\config\`     | `~/Library/Application Support/com.Maecly.MaeclyPrint/` |
-//! | data   | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\`  | `~/Library/Application Support/com.Maecly.MaeclyPrint/` |
-//! | cache  | `%LOCALAPPDATA%\Maecly\MaeclyPrint\cache\` | `~/Library/Caches/com.Maecly.MaeclyPrint/`        |
-//! | logs   | `<data>\logs\`                            | `~/Library/Logs/MaeclyPrint/`                     |
+//! | config | `%APPDATA%\Maecly\Pluryprint\config\`     | `~/Library/Application Support/com.Maecly.Pluryprint/` |
+//! | data   | `%LOCALAPPDATA%\Maecly\Pluryprint\data\`  | `~/Library/Application Support/com.Maecly.Pluryprint/` |
+//! | cache  | `%LOCALAPPDATA%\Maecly\Pluryprint\cache\` | `~/Library/Caches/com.Maecly.Pluryprint/`        |
+//! | logs   | `<data>\logs\`                            | `~/Library/Logs/Pluryprint/`                     |
 //!
 //! See `docs/04-architecture/data-model.md` §1 for the full table.
 //!
@@ -25,36 +25,36 @@ use crate::util::error::IpcError;
 
 const QUALIFIER: &str = "com";
 const ORG: &str = "Maecly";
-const APP: &str = "MaeclyPrint";
+const APP: &str = "Pluryprint";
 
 fn dirs() -> ProjectDirs {
     ProjectDirs::from(QUALIFIER, ORG, APP).expect("home directory must be resolvable")
 }
 
 /// Where `config.toml` and `profiles.toml` live.
-/// Windows: `%APPDATA%\Maecly\MaeclyPrint\config\`
-/// macOS:   `~/Library/Application Support/com.Maecly.MaeclyPrint/`
+/// Windows: `%APPDATA%\Maecly\Pluryprint\config\`
+/// macOS:   `~/Library/Application Support/com.Maecly.Pluryprint/`
 pub fn config_dir() -> PathBuf {
     dirs().config_dir().to_path_buf()
 }
 
 /// Where `queue.json` and other live state live.
-/// Windows: `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\`
-/// macOS:   `~/Library/Application Support/com.Maecly.MaeclyPrint/`
+/// Windows: `%LOCALAPPDATA%\Maecly\Pluryprint\data\`
+/// macOS:   `~/Library/Application Support/com.Maecly.Pluryprint/`
 pub fn data_dir() -> PathBuf {
     dirs().data_local_dir().to_path_buf()
 }
 
 /// Where converted PDFs live (`conversions/`).
-/// Windows: `%LOCALAPPDATA%\Maecly\MaeclyPrint\cache\`
-/// macOS:   `~/Library/Caches/com.Maecly.MaeclyPrint/`
+/// Windows: `%LOCALAPPDATA%\Maecly\Pluryprint\cache\`
+/// macOS:   `~/Library/Caches/com.Maecly.Pluryprint/`
 pub fn cache_dir() -> PathBuf {
     dirs().cache_dir().to_path_buf()
 }
 
 /// Where rotating JSONL logs are written.
-/// Windows: `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\`
-/// macOS:   `~/Library/Logs/MaeclyPrint/`
+/// Windows: `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\`
+/// macOS:   `~/Library/Logs/Pluryprint/`
 pub fn log_dir() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
@@ -226,12 +226,12 @@ mod tests {
 
     #[test]
     fn dirs_have_app_segment() {
-        // All resolved dirs should contain the literal "MaeclyPrint" segment somewhere.
+        // All resolved dirs should contain the literal "Pluryprint" segment somewhere.
         for p in [config_dir(), data_dir(), cache_dir()] {
             let s = p.to_string_lossy().to_lowercase();
             assert!(
-                s.contains("maeclyprint"),
-                "expected MaeclyPrint segment in {p:?}"
+                s.contains("pluryprint"),
+                "expected Pluryprint segment in {p:?}"
             );
         }
     }

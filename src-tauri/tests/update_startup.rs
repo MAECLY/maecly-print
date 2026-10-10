@@ -14,7 +14,7 @@
 use std::cell::Cell;
 use std::path::Path;
 
-use maeclyprint_lib::update::{
+use pluryprint_lib::update::{
     run_startup_check_with, ReleaseInfo, UpdateCheck, UpdateState, MIN_CHECK_INTERVAL_HOURS,
     STARTUP_CHECK_DELAY,
 };

@@ -1,4 +1,4 @@
-//! `maeclyprint profiles …`
+//! `pluryprint profiles …`
 //!
 //! A facade over [`crate::ipc::profiles`]' path-injected cores — the exact
 //! functions the Tauri commands call — so the CLI inherits every rule the UI

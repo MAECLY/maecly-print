@@ -3,7 +3,7 @@
 //! Windows caps a command line at 32,767 characters, so a selection of a few
 //! hundred files cannot travel in argv. The shell extension therefore writes
 //! the selection to `<data_dir>/handoff/sel-<uuid>.json` and launches
-//! `maeclyprint --invoke=context-menu --files-from <path>`; the only variable
+//! `pluryprint --invoke=context-menu --files-from <path>`; the only variable
 //! part of that command line is one path. There is deliberately **no**
 //! "small selections go through argv" shortcut: one code path is one code path
 //! to test.

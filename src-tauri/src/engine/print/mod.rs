@@ -82,13 +82,13 @@ pub enum PrintError {
         candidates: Vec<String>,
     },
 
-    /// No printer was requested and neither MaeclyPrint nor the OS has a default.
+    /// No printer was requested and neither Pluryprint nor the OS has a default.
     #[error("no printer is configured — choose a printer first")]
     NoPrinter,
 
-    /// The job resolved to a printer the user disabled in MaeclyPrint. Like a
+    /// The job resolved to a printer the user disabled in Pluryprint. Like a
     /// missing printer it is user-fixable, so the job is paused, never sent.
-    #[error("printer '{printer}' is disabled in MaeclyPrint — enable it on the Printers screen or choose another printer")]
+    #[error("printer '{printer}' is disabled in Pluryprint — enable it on the Printers screen or choose another printer")]
     PrinterDisabled {
         /// The disabled printer the job resolved to.
         printer: String,
@@ -99,7 +99,7 @@ pub enum PrintError {
     Engine(#[from] EngineError),
 }
 
-/// What MaeclyPrint knows about a printer's abilities when it spools to it,
+/// What Pluryprint knows about a printer's abilities when it spools to it,
 /// read from the OS enumeration ([`crate::ipc::printers::Printer`]).
 ///
 /// Empty lists mean "not reported", never "supports nothing": the platform
@@ -186,7 +186,7 @@ pub enum OsJobState {
     Stopped,
     /// The printer finished it (`completed`).
     Completed,
-    /// Someone cancelled it outside MaeclyPrint (`canceled`).
+    /// Someone cancelled it outside Pluryprint (`canceled`).
     Canceled,
     /// The spooler gave up on it (`aborted`).
     Aborted,
@@ -261,7 +261,7 @@ pub fn cancel_os_job(printer: &str, os_job_id: &str) -> anyhow::Result<()> {
 
 /// [`cancel_os_job`] for a job id read back from disk rather than tracked in
 /// this process: on Windows the spooler reuses ids, so the job is only
-/// deleted while it still carries one of `documents` (the names MaeclyPrint
+/// deleted while it still carries one of `documents` (the names Pluryprint
 /// spooled it under) and belongs to this user. CUPS ids are never reused, so
 /// there it is a plain cancel.
 pub fn cancel_os_job_if_ours(
@@ -382,7 +382,7 @@ pub fn effective_settings<'a>(settings: &'a JobSettings, input_ext: &str) -> Cow
     })
 }
 
-/// The exact command MaeclyPrint will run, as a copy-pasteable string for the
+/// The exact command Pluryprint will run, as a copy-pasteable string for the
 /// UI. It uses the same argument builders as [`spool`], so what the user sees is
 /// what actually runs — on Windows the SumatraPDF command (written for
 /// PowerShell), elsewhere the CUPS `lp` command (written for a POSIX shell).

@@ -2,7 +2,7 @@
 //!
 //! Loads/saves the file with atomic writes. The `printers` section is exposed
 //! to the frontend via the `get_printer_prefs` / `set_printer_prefs` IPC
-//! commands (see `ipc::printers`), and holds MaeclyPrint-level printer state
+//! commands (see `ipc::printers`), and holds Pluryprint-level printer state
 //! that must survive restarts: the app default, disabled printers, file-type
 //! routing rules, and per-printer tray/paper overrides.
 
@@ -52,7 +52,7 @@ pub(crate) fn config_corrupt_error() -> crate::util::error::IpcError {
 /// runtime.
 ///
 /// **This mutex is intra-process only**, and since the CLI shipped there is a
-/// second process writing the same file (`maeclyprint update channel beta` is a
+/// second process writing the same file (`pluryprint update channel beta` is a
 /// full read-modify-write of `config.toml`). The cross-process half of the
 /// problem is handled at the write itself, by [`Config::save_to`]'s
 /// section-wise reconciliation — see its documentation for the trade-off.
@@ -75,7 +75,7 @@ pub struct Config {
     /// `[app]`: UI and launch preferences.
     #[serde(default)]
     pub app: AppCfg,
-    /// `[printers]`: MaeclyPrint's own printer preferences.
+    /// `[printers]`: Pluryprint's own printer preferences.
     #[serde(default)]
     pub printers: PrinterPrefs,
     /// `[engine]`: conversion and printing limits.
@@ -398,13 +398,13 @@ pub struct AppSettings {
     pub meta: SettingsMeta,
 }
 
-/// MaeclyPrint-level printer preferences (never mutate the OS spooler).
+/// Pluryprint-level printer preferences (never mutate the OS spooler).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct PrinterPrefs {
     /// App default printer id; falls back to the OS default when `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_printer: Option<String>,
-    /// Printer ids disabled *in MaeclyPrint* — still installed in the OS.
+    /// Printer ids disabled *in Pluryprint* — still installed in the OS.
     #[serde(default)]
     pub disabled: Vec<String>,
     /// File-type routing: extension (e.g. ".pdf") → printer id.
@@ -642,7 +642,7 @@ impl Config {
     /// # Two processes, one file
     ///
     /// [`CONFIG_LOCK`] serializes writers inside one process, but the GUI and
-    /// the CLI are two processes: `maeclyprint update channel beta` running
+    /// the CLI are two processes: `pluryprint update channel beta` running
     /// against a Settings save is a load→mutate→save on each side, and the
     /// slower one used to write back its whole (now stale) copy — no corruption
     /// (the write is atomic) but a silently lost change.
@@ -1072,7 +1072,7 @@ mod tests {
 
     #[test]
     fn nfr_014_a_second_process_writing_another_section_is_not_clobbered() {
-        // The defect: `maeclyprint update channel beta` (a whole
+        // The defect: `pluryprint update channel beta` (a whole
         // load→mutate→save of config.toml) racing a save from the GUI lost one
         // of the two changes. The mutex that serializes writers is
         // intra-process; these two are not the same process.

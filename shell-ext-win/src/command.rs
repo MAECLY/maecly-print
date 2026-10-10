@@ -29,7 +29,7 @@ use windows::Win32::UI::Shell::{
 };
 use windows_core::{Interface, GUID, PWSTR};
 
-use crate::clsid::CLSID_MAECLYPRINT_COMMAND;
+use crate::clsid::CLSID_PLURYPRINT_COMMAND;
 use crate::guard::guard;
 use crate::handoff::Action;
 use crate::selection::SelectionCell;
@@ -72,7 +72,7 @@ impl Shared {
     }
 }
 
-/// The `IExplorerCommand` registered under [`CLSID_MAECLYPRINT_COMMAND`].
+/// The `IExplorerCommand` registered under [`CLSID_PLURYPRINT_COMMAND`].
 #[implement(IExplorerCommand, IObjectWithSelection)]
 pub struct RootCommand {
     _server: ServerRef,
@@ -123,7 +123,7 @@ impl IExplorerCommand_Impl for RootCommand_Impl {
     }
 
     fn GetCanonicalName(&self) -> windows_core::Result<GUID> {
-        Ok(CLSID_MAECLYPRINT_COMMAND)
+        Ok(CLSID_PLURYPRINT_COMMAND)
     }
 
     fn GetState(

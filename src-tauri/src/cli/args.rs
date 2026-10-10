@@ -22,10 +22,10 @@ use crate::queue::job::{ColorMode, Duplex, Orientation, PaperSize, Scaling};
 /// and the parser can never disagree.
 pub const SUBCOMMANDS: &[&str] = &["print", "printers", "profiles", "queue", "update"];
 
-/// `maeclyprint` — the whole command line.
+/// `pluryprint` — the whole command line.
 #[derive(Debug, Parser, PartialEq, Eq)]
 #[command(
-    name = "maeclyprint",
+    name = "pluryprint",
     version,
     about = "Batch file printing for Windows and macOS.",
     long_about = "Batch file printing for Windows and macOS.\n\nRun without arguments to open the app; run a subcommand to work headlessly \
@@ -121,7 +121,7 @@ pub enum Command {
         #[command(subcommand)]
         cmd: QueueCmd,
     },
-    /// Check for a newer MaeclyPrint release.
+    /// Check for a newer Pluryprint release.
     Update {
         /// Which update action to run.
         #[command(subcommand)]
@@ -129,12 +129,12 @@ pub enum Command {
     },
 }
 
-/// `maeclyprint print …` — exactly one input source is required.
+/// `pluryprint print …` — exactly one input source is required.
 #[derive(Debug, Args, PartialEq, Eq)]
 #[command(group(ArgGroup::new("input").required(true).args(["files", "files_from"])))]
 pub struct PrintArgs {
     /// Files to print: a comma-separated list of paths, directories or
-    /// wildcard patterns (`"*.pdf"`). Patterns are expanded by MaeclyPrint, so
+    /// wildcard patterns (`"*.pdf"`). Patterns are expanded by Pluryprint, so
     /// they work identically in cmd.exe and in a POSIX shell.
     #[arg(long, value_name = "FILES", value_delimiter = ',', num_args = 1..)]
     pub files: Vec<String>,
@@ -215,14 +215,14 @@ pub struct SettingFlags {
     pub no_collate: bool,
 }
 
-/// `maeclyprint printers …` actions.
+/// `pluryprint printers …` actions.
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum PrintersCmd {
     /// List every printer the OS spooler knows about.
     List,
 }
 
-/// `maeclyprint profiles …` actions.
+/// `pluryprint profiles …` actions.
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum ProfilesCmd {
     /// List every profile, built-ins first.
@@ -265,7 +265,7 @@ pub enum ProfilesCmd {
     },
 }
 
-/// `maeclyprint queue …` actions.
+/// `pluryprint queue …` actions.
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum QueueCmd {
     /// Show the persisted queue.
@@ -283,11 +283,11 @@ pub enum QueueCmd {
     CancelAll,
 }
 
-/// `maeclyprint update …` actions.
+/// `pluryprint update …` actions.
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum UpdateCmd {
     /// Ask whether a newer release exists (GitHub releases, or the manifest
-    /// MAECLYPRINT_UPDATE_ENDPOINT names).
+    /// PLURYPRINT_UPDATE_ENDPOINT names).
     Check,
     /// Download, verify and install the newest release (asks first unless --yes).
     Install {

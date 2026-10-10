@@ -267,7 +267,7 @@ fn build_agent() -> ureq::Agent {
 /// it is unwrapped here and callers see a single shape; only a transport-level
 /// failure (DNS, connection) is an `Err`.
 fn get_api(agent: &ureq::Agent, url: &str) -> Result<(u16, String), LocalizedError> {
-    let user_agent = format!("MaeclyPrint/{}", env!("CARGO_PKG_VERSION"));
+    let user_agent = format!("Pluryprint/{}", env!("CARGO_PKG_VERSION"));
     let response = agent
         .get(url)
         .set("User-Agent", &user_agent)
@@ -379,7 +379,7 @@ pub fn fetch_configured_latest() -> Result<Option<ReleaseInfo>, LocalizedError> 
     if let Some(raw) = override_value {
         let url =
             install::resolve_endpoint(Some(&raw)).map_err(|m| failure("not_configured", m))?;
-        let user_agent = format!("MaeclyPrint/{}", env!("CARGO_PKG_VERSION"));
+        let user_agent = format!("Pluryprint/{}", env!("CARGO_PKG_VERSION"));
         let (status, body) = match build_agent()
             .get(url.as_str())
             .set("User-Agent", &user_agent)
@@ -706,7 +706,7 @@ pub fn run_startup_check() -> Option<UpdateCheck> {
 mod tests {
     use super::*;
 
-    /// FR-080: with MAECLYPRINT_UPDATE_ENDPOINT set, the check reads the same
+    /// FR-080: with PLURYPRINT_UPDATE_ENDPOINT set, the check reads the same
     /// updater manifest `update install` does.
     #[test]
     fn fr_080_an_updater_manifest_reads_as_a_release() {

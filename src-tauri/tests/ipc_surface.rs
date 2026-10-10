@@ -17,15 +17,15 @@
 //! It also owns the drift gate for the generated frontend bindings — see
 //! `bindings_ts_is_committed_in_sync`.
 
-use maeclyprint_lib::ipc::profiles::{
+use pluryprint_lib::ipc::profiles::{
     delete_profile_at, list_profiles_at, save_profile_at, set_default_profile_at,
 };
-use maeclyprint_lib::ipc::settings::set_app_settings_at;
-use maeclyprint_lib::profiles::{
+use pluryprint_lib::ipc::settings::set_app_settings_at;
+use pluryprint_lib::profiles::{
     self, Profile, ProfileDuplex, ProfilesFile, Quality, StoredProfile, BUILTIN_QUICK,
 };
-use maeclyprint_lib::queue::job::{ColorMode, Orientation, PaperSize, Scaling};
-use maeclyprint_lib::settings::{AppSettings, Config, Theme};
+use pluryprint_lib::queue::job::{ColorMode, Orientation, PaperSize, Scaling};
+use pluryprint_lib::settings::{AppSettings, Config, Theme};
 
 const GARBAGE: &[u8] = b"not = valid = toml ][";
 
@@ -193,7 +193,7 @@ fn fr_regression_fix2_dangling_default_still_allows_theme_save() {
 }
 
 /// FR-008: `default_profile` has its own command (`set_default_profile`, also
-/// what `maeclyprint profiles set-default` calls), so `set_app_settings` never
+/// what `pluryprint profiles set-default` calls), so `set_app_settings` never
 /// writes it. A GUI holding a stale copy — the CLI changed the default and
 /// deleted the old one while the window was open — must neither revert the
 /// CLI's choice nor have every unrelated save refused because its stale id no

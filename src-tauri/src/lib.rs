@@ -1,4 +1,4 @@
-//! MaeclyPrint Tauri backend.
+//! Pluryprint Tauri backend.
 //!
 //! Boots the Tauri window and exposes the backend over typed (tauri-specta)
 //! IPC: the print engine (`engine`), the persistent job queue (`queue`),
@@ -8,7 +8,7 @@
 //!
 //! The same backend also has a second, windowless face: the `cli` module. It
 //! decides from argv whether this process is a GUI launch at all, so a
-//! `maeclyprint print …` never reaches [`run_with`] and never creates a webview.
+//! `pluryprint print …` never reaches [`run_with`] and never creates a webview.
 
 #![deny(missing_docs)]
 
@@ -173,7 +173,7 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
             pending.park_launch(selection, handoff);
             app.manage(pending);
 
-            // FR-001: the Finder's Services menu ("Print with MaeclyPrint")
+            // FR-001: the Finder's Services menu ("Print with Pluryprint")
             // reaches the app through this provider, and reaches it in-process
             // — so it must be registered *after* the store above exists, or a
             // service message arriving immediately would have nowhere to land.
@@ -189,11 +189,11 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
                 event = "app_started",
                 version = env!("CARGO_PKG_VERSION"),
                 build_date = env!("BUILD_DATE"),
-                "MaeclyPrint started"
+                "Pluryprint started"
             );
 
             // Tell the headless CLI that the live queue is in this process'
-            // memory (see `cli::instance`): `maeclyprint queue cancel` then
+            // memory (see `cli::instance`): `pluryprint queue cancel` then
             // refuses instead of editing a file we are about to overwrite. The
             // lock is held for the process lifetime by managing it; the OS
             // releases it however the process ends. Failing to take it only

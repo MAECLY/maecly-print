@@ -4,7 +4,7 @@
 //! the OS DNS-SD client (`DnsServiceBrowse`).
 //!
 //! The spooler queue itself is never paused, resumed or deleted from here:
-//! *Remove* on the Printers screen is a MaeclyPrint-only soft-disable
+//! *Remove* on the Printers screen is a Pluryprint-only soft-disable
 //! (`docs/05-features/printers-management.md`), and OS-level queue management
 //! is left to Windows (*Open printer settings*).
 //!
@@ -53,7 +53,7 @@ use crate::util::error::{IpcErrorCode, LocalizedError};
 const RPC_S_SERVER_UNAVAILABLE: u32 = 1722;
 
 /// Shown when the spooler is not running. The single most common Windows
-/// support case for "MaeclyPrint shows no printers".
+/// support case for "Pluryprint shows no printers".
 const SPOOLER_DOWN: &str = "The Windows Print Spooler service is not running. Start it \
      (Services → Print Spooler) and try again.";
 
@@ -258,7 +258,7 @@ pub fn set_os_default(name: &str) -> anyhow::Result<()> {
 // Test page
 // ----------------------------------------------------------------------------
 
-/// Print the branded MaeclyPrint test page, applying the user's configured
+/// Print the branded Pluryprint test page, applying the user's configured
 /// default paper and tray for this printer — the same contract the CUPS path
 /// honours: an override that is set is sent, and one that is not set sends
 /// nothing, so the driver's own default applies.
@@ -291,7 +291,7 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
     });
 
     let mut tmp = tempfile::Builder::new()
-        .prefix("maeclyprint-testpage-")
+        .prefix("pluryprint-testpage-")
         .suffix(".pdf")
         .tempfile()
         .with_context(|| "failed to create temp PDF")?;
@@ -333,7 +333,7 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
         tmp.path(),
         name,
         &settings,
-        "MaeclyPrint Test Page",
+        "Pluryprint Test Page",
         Some(Duration::from_secs(120)),
         paper_token,
     ) {
@@ -459,7 +459,7 @@ pub fn add_printer(name: &str, uri: &str) -> anyhow::Result<()> {
             )
             .into()),
             PS_EXIT_NO_IPPURL => anyhow::bail!(
-                "This version of Windows cannot add an IPP printer from MaeclyPrint \
+                "This version of Windows cannot add an IPP printer from Pluryprint \
                  (Add-Printer has no -IppURL). Use \"Open printer settings\" to add it from \
                  Windows."
             ),
@@ -665,9 +665,9 @@ fn unique_queue_name(base: &str, existing: &[String]) -> String {
 }
 
 /// Environment variable carrying the queue name to [`ADD_PRINTER_SCRIPT`].
-const ENV_PRINTER_NAME: &str = "MAECLYPRINT_PRINTER_NAME";
+const ENV_PRINTER_NAME: &str = "PLURYPRINT_PRINTER_NAME";
 /// Environment variable carrying the IPP URL to [`ADD_PRINTER_SCRIPT`].
-const ENV_PRINTER_URL: &str = "MAECLYPRINT_PRINTER_URL";
+const ENV_PRINTER_URL: &str = "PLURYPRINT_PRINTER_URL";
 
 /// The PowerShell script adding a queue for an IPP printer. A constant: the
 /// queue name and URL are read from [`ENV_PRINTER_NAME`] and
@@ -685,7 +685,7 @@ const ADD_PRINTER_SCRIPT: &str = "$ErrorActionPreference = 'Stop'; \
      [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; \
      try { \
        if (-not (Get-Command Add-Printer).Parameters.ContainsKey('IppURL')) { exit 3 }; \
-       Add-Printer -Name $env:MAECLYPRINT_PRINTER_NAME -IppURL $env:MAECLYPRINT_PRINTER_URL; \
+       Add-Printer -Name $env:PLURYPRINT_PRINTER_NAME -IppURL $env:PLURYPRINT_PRINTER_URL; \
        exit 0 \
      } catch { \
        $id = \"$($_.FullyQualifiedErrorId) $($_.Exception.HResult) $($_.Exception.MessageId)\"; \
@@ -1030,8 +1030,8 @@ mod tests {
     fn fr_printers_values_reach_powershell_as_data() {
         const ECHO: &str =
             "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; \
-             [Console]::Error.WriteLine($env:MAECLYPRINT_PRINTER_NAME); exit 7";
-        let marker = std::env::temp_dir().join("maeclyprint-pwned");
+             [Console]::Error.WriteLine($env:PLURYPRINT_PRINTER_NAME); exit 7";
+        let marker = std::env::temp_dir().join("pluryprint-pwned");
         let _ = std::fs::remove_file(&marker);
         let hostile = format!(
             "Lab\u{2019}; New-Item '{}' \u{2018}$(calc)' `\"x",

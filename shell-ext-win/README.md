@@ -1,6 +1,6 @@
 # shell-ext-win
 
-`shell_ext_win.dll` — the **Print with MaeclyPrint** entry in the Windows
+`shell_ext_win.dll` — the **Print with Pluryprint** entry in the Windows
 Explorer context menu (FR-001, FR-002, FR-003, FR-005; ADR-0005).
 
 It is an in-process COM server implementing `IExplorerCommand`,
@@ -8,7 +8,7 @@ It is an in-process COM server implementing `IExplorerCommand`,
 serializes the selection to a JSON handoff file and launches
 
 ```
-maeclyprint.exe --invoke=context-menu --files-from <path> --action <action> [--profile <id>]
+pluryprint.exe --invoke=context-menu --files-from <path> --action <action> [--profile <id>]
 ```
 
 The app (`src-tauri/src/cli/`) validates the file and takes over.
@@ -37,12 +37,12 @@ The app (`src-tauri/src/cli/`) validates the file and takes over.
 
 ```powershell
 # From this directory, on Windows with the MSVC toolchain:
-$env:MAECLYPRINT_REQUIRE_RESOURCES = "1"   # fail the build if the manifest is not embedded
+$env:PLURYPRINT_REQUIRE_RESOURCES = "1"   # fail the build if the manifest is not embedded
 cargo build --release --target x86_64-pc-windows-msvc
 ```
 
 The artifact is `target/<triple>/release/shell_ext_win.dll`. The installer must
-place it **next to `maeclyprint.exe`**: the extension derives the executable's
+place it **next to `pluryprint.exe`**: the extension derives the executable's
 path from its own module path.
 
 On a non-Windows host, `cargo check --target x86_64-pc-windows-msvc` type-checks
@@ -55,7 +55,7 @@ DLL — there is no `rc.exe`, so the `<msix>` manifest is not embedded.
    agree character for character with `AppxManifest.xml`:
    `publisher` ↔ `Identity/@Publisher`, `packageName` ↔ `Identity/@Name`,
    `applicationId` ↔ `Application/@Id`. The identical manifest must also be
-   embedded in `maeclyprint.exe`. Symptom: `0x80073D54`, or an extension that
+   embedded in `pluryprint.exe`. Symptom: `0x80073D54`, or an extension that
    registers cleanly and never appears.
 2. **`panic = "abort"`.** Both profiles in `Cargo.toml` pin `"unwind"`. With
    `abort`, `catch_unwind` catches nothing and a panic takes `explorer.exe` down.
@@ -81,7 +81,7 @@ CLSID: `{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}`
 ```xml
 <com:Extension Category="windows.comServer">
   <com:ComServer>
-    <com:SurrogateServer DisplayName="MaeclyPrint Shell Extension">
+    <com:SurrogateServer DisplayName="Pluryprint Shell Extension">
       <com:Class Id="B269B8DC-044F-4D65-8F1E-8F20A2E653EA"
                  Path="shell_ext_win.dll" ThreadingModel="STA" />
     </com:SurrogateServer>
@@ -91,10 +91,10 @@ CLSID: `{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}`
 <desktop4:Extension Category="windows.fileExplorerContextMenus">
   <desktop4:FileExplorerContextMenus>
     <desktop5:ItemType Type="*">
-      <desktop5:Verb Id="MaeclyPrint" Clsid="B269B8DC-044F-4D65-8F1E-8F20A2E653EA" />
+      <desktop5:Verb Id="Pluryprint" Clsid="B269B8DC-044F-4D65-8F1E-8F20A2E653EA" />
     </desktop5:ItemType>
     <desktop5:ItemType Type="Directory">
-      <desktop5:Verb Id="MaeclyPrint" Clsid="B269B8DC-044F-4D65-8F1E-8F20A2E653EA" />
+      <desktop5:Verb Id="Pluryprint" Clsid="B269B8DC-044F-4D65-8F1E-8F20A2E653EA" />
     </desktop5:ItemType>
   </desktop4:FileExplorerContextMenus>
 </desktop4:Extension>
@@ -110,13 +110,13 @@ Windows 10 has no modern menu but does honour `ExplorerCommandHandler`, so the
 same object serves both. Registered per-user, no elevation:
 
 ```reg
-[HKEY_CURRENT_USER\Software\Classes\*\shell\MaeclyPrint]
-@="Print with MaeclyPrint"
+[HKEY_CURRENT_USER\Software\Classes\*\shell\Pluryprint]
+@="Print with Pluryprint"
 "ExplorerCommandHandler"="{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}"
 "MultiSelectModel"="Player"
 
-[HKEY_CURRENT_USER\Software\Classes\Directory\shell\MaeclyPrint]
-@="Print with MaeclyPrint"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\Pluryprint]
+@="Print with Pluryprint"
 "ExplorerCommandHandler"="{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}"
 "MultiSelectModel"="Player"
 
@@ -145,13 +145,13 @@ app's exact output for a fixed input; both crates' tests read it.
   "schema_version": 1,
   "lang": "es",
   "labels": {
-    "root": "MaeclyPrint",
+    "root": "Pluryprint",
     "print_one": "Imprimir 1 archivo",
     "print_many": "Imprimir {count} archivos",
     "print_with_profile": "Imprimir con «{name}»",
     "configure": "Configurar trabajo de impresión…",
     "queue": "Añadir a la cola",
-    "tooltip": "Imprime la selección con MaeclyPrint"
+    "tooltip": "Imprime la selección con Pluryprint"
   },
   "profiles": [{ "id": "quick", "name": "Rápido" }]
 }

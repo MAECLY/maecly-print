@@ -267,7 +267,7 @@ fn literal_after(source: &str, prefix: &str) -> String {
 /// handoff directory, so the producer has to resolve the same path.
 ///
 /// The rule is derived from the app's own source rather than re-typed here: a
-/// second copy of `("com", "Maecly", "MaeclyPrint")` would agree with itself
+/// second copy of `("com", "Maecly", "Pluryprint")` would agree with itself
 /// forever, and renaming `ORG` in `src-tauri/src/util/paths.rs` would ship a
 /// DLL writing into a directory the app never reads — with no test failing.
 #[test]

@@ -5,7 +5,7 @@
 */
 
 /* Opens the selection in the Print Job screen to configure it. */
-"Print with MaeclyPrint" = "Print with MaeclyPrint";
+"Print with Pluryprint" = "Print with Pluryprint";
 
 /* Prints the selection straight away with the default profile. */
-"Print with MaeclyPrint (default profile)" = "Print with MaeclyPrint (default profile)";
+"Print with Pluryprint (default profile)" = "Print with Pluryprint (default profile)";

@@ -2456,50 +2456,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "maeclyprint"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "clap",
- "directories",
- "image",
- "lopdf 0.34.0",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "percent-encoding",
- "printpdf",
- "semver",
- "serde",
- "serde_json",
- "specta",
- "specta-typescript",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tauri-specta",
- "tempfile",
- "thiserror 2.0.18",
- "time",
- "tokio",
- "toml 0.8.2",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "ureq",
- "url",
- "uuid",
- "wait-timeout",
- "walkdir",
- "windows 0.58.0",
-]
-
-[[package]]
 name = "markup5ever"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3239,6 +3195,50 @@ dependencies = [
  "quick-xml",
  "serde",
  "time",
+]
+
+[[package]]
+name = "pluryprint"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "clap",
+ "directories",
+ "image",
+ "lopdf 0.34.0",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "percent-encoding",
+ "printpdf",
+ "semver",
+ "serde",
+ "serde_json",
+ "specta",
+ "specta-typescript",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tauri-specta",
+ "tempfile",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "toml 0.8.2",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "ureq",
+ "url",
+ "uuid",
+ "wait-timeout",
+ "walkdir",
+ "windows 0.58.0",
 ]
 
 [[package]]

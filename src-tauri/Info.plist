@@ -10,16 +10,16 @@
   `tauri.conf.json` and must NOT be repeated here.
 
   What this adds is the Finder integration: an NSServices declaration that puts
-  "Print with MaeclyPrint" in the Services submenu of the Finder's context menu
+  "Print with Pluryprint" in the Services submenu of the Finder's context menu
   (FR-001). The service is answered inside the running app by the provider in
   `src/platform/macos/services.rs`; see `docs/04-architecture/shell-extensions.md`
   §3 for why this is an NSService and not a Finder Sync .appex.
 
   Key notes (Apple, Services Implementation Guide):
-  - NSPortName must be the app's name, i.e. CFBundleName ("MaeclyPrint").
+  - NSPortName must be the app's name, i.e. CFBundleName ("Pluryprint").
   - NSMessage names the provider method minus its `:userData:error:` tail, so
-    `printWithMaeclyPrint` maps to
-    `-(void)printWithMaeclyPrint:(NSPasteboard *)pb userData:(NSString *)ud
+    `printWithPluryprint` maps to
+    `-(void)printWithPluryprint:(NSPasteboard *)pb userData:(NSString *)ud
                             error:(NSString **)err`.
   - NSUserData is how two menu entries share one NSMessage; its value is the
     `--action` vocabulary of the CLI (`configure`, `print-default`), so the two
@@ -46,12 +46,12 @@
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>Print with MaeclyPrint</string>
+				<string>Print with Pluryprint</string>
 			</dict>
 			<key>NSMessage</key>
-			<string>printWithMaeclyPrint</string>
+			<string>printWithPluryprint</string>
 			<key>NSPortName</key>
-			<string>MaeclyPrint</string>
+			<string>Pluryprint</string>
 			<key>NSUserData</key>
 			<string>configure</string>
 			<key>NSSendTypes</key>
@@ -71,12 +71,12 @@
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>Print with MaeclyPrint (default profile)</string>
+				<string>Print with Pluryprint (default profile)</string>
 			</dict>
 			<key>NSMessage</key>
-			<string>printWithMaeclyPrint</string>
+			<string>printWithPluryprint</string>
 			<key>NSPortName</key>
-			<string>MaeclyPrint</string>
+			<string>Pluryprint</string>
 			<key>NSUserData</key>
 			<string>print-default</string>
 			<key>NSSendTypes</key>

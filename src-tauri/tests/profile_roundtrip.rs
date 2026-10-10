@@ -1,14 +1,14 @@
 //! Integration tests for profile persistence (FR-020…FR-027).
 //!
-//! These drive the public `maeclyprint_lib::profiles` API against a tempdir —
+//! These drive the public `pluryprint_lib::profiles` API against a tempdir —
 //! never the real config dir — exercising the same pure CRUD core (`upsert`,
 //! `delete`) the IPC commands use, plus the atomic `load`/`save` round-trip.
 
-use maeclyprint_lib::profiles::{
+use pluryprint_lib::profiles::{
     self, delete, upsert, DeleteError, Profile, ProfileDuplex, ProfilesFile, Quality, UpsertError,
     BUILTIN_QUICK,
 };
-use maeclyprint_lib::queue::job::{ColorMode, Orientation, PaperSize, Scaling};
+use pluryprint_lib::queue::job::{ColorMode, Orientation, PaperSize, Scaling};
 
 /// A minimal valid custom profile with an empty id (create semantics).
 fn profile(name: &str) -> Profile {
@@ -104,7 +104,7 @@ fn fr_021_builtins_immutable_but_cloneable() {
 
 #[test]
 fn fr_022_delete_default_rejected_and_set_default_switches() {
-    use maeclyprint_lib::settings::Config;
+    use pluryprint_lib::settings::Config;
 
     let dir = tempfile::tempdir().unwrap();
     let profiles_path = dir.path().join("profiles.toml");
@@ -196,18 +196,18 @@ fn fr_027_five_hundred_profiles() {
 }
 
 /// FR-001: "Print with «profile»" can name a profile the running app has never
-/// seen — `maeclyprint-cli profiles create` writes `profiles.toml` (and the
+/// seen — `pluryprint-cli profiles create` writes `profiles.toml` (and the
 /// shell menu) while the GUI is open. The backend side of that seam must hold:
 /// the read commands go to disk on every call (no in-process cache to go
 /// stale), the handoff carries the reference through verbatim, and a reference
 /// that resolves to nothing is an error, never the default profile.
 #[test]
 fn fr_001_profile_created_out_of_process_is_resolvable_without_restart() {
-    use maeclyprint_lib::cli::args::ContextAction;
-    use maeclyprint_lib::cli::handoff::Handoff;
-    use maeclyprint_lib::cli::{profiles as cli_profiles, selection_from_payload, Paths};
-    use maeclyprint_lib::ipc::profiles::{get_profile_at, list_profiles_at, save_profile_at};
-    use maeclyprint_lib::util::error::IpcError;
+    use pluryprint_lib::cli::args::ContextAction;
+    use pluryprint_lib::cli::handoff::Handoff;
+    use pluryprint_lib::cli::{profiles as cli_profiles, selection_from_payload, Paths};
+    use pluryprint_lib::ipc::profiles::{get_profile_at, list_profiles_at, save_profile_at};
+    use pluryprint_lib::util::error::IpcError;
 
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {

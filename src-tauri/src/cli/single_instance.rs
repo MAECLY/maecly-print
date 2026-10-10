@@ -1,6 +1,6 @@
 //! Single instance (NFR-014): what the *second* launch hands to the first.
 //!
-//! Two MaeclyPrint processes must never run at once. Both would recover the
+//! Two Pluryprint processes must never run at once. Both would recover the
 //! same `queue.json` into their own memory and rewrite it from there, and — the
 //! damage that actually loses work — the second one's boot-time orphan sweep
 //! (`queue::sweep_orphans`) deletes every cached PDF the first one's live jobs
@@ -13,7 +13,7 @@
 //! function of the argv, so the interesting behaviour is testable without ever
 //! starting two processes.
 //!
-//! Note what does *not* come through here: a headless `maeclyprint print …`
+//! Note what does *not* come through here: a headless `pluryprint print …`
 //! never builds a Tauri app, so it never registers the plugin and is never
 //! forwarded. It also never touches `queue.json` or the shared conversion cache
 //! ([`crate::cli::print`]), so it cannot race a running app either.
@@ -52,7 +52,7 @@ pub fn interpret<S: AsRef<str>>(argv: &[S], cwd: &str) -> Option<Forwarded> {
 /// against `dir` (injected so the seam is testable against a tempdir).
 ///
 /// Relative "open with" paths are anchored against `cwd`, the *launching*
-/// process' working directory: `cd C:\docs && maeclyprint-cli report.pdf`
+/// process' working directory: `cd C:\docs && pluryprint-cli report.pdf`
 /// while the app runs must open `C:\docs\report.pdf`, not drop it because this
 /// process sits in another folder. An empty `cwd` anchors nothing.
 ///
@@ -134,7 +134,7 @@ mod tests {
 
     fn context_menu_argv(handoff: &Path) -> Vec<String> {
         vec![
-            "maeclyprint".to_string(),
+            "pluryprint".to_string(),
             "--invoke=context-menu".to_string(),
             "--files-from".to_string(),
             handoff.to_string_lossy().into_owned(),
@@ -198,14 +198,14 @@ mod tests {
 
     #[test]
     fn nfr_014_plain_relaunch_carries_no_selection() {
-        assert!(interpret(&["maeclyprint"], "").is_none());
-        assert!(interpret(&["maeclyprint", "-psn_0_1234"], "").is_none());
+        assert!(interpret(&["pluryprint"], "").is_none());
+        assert!(interpret(&["pluryprint", "-psn_0_1234"], "").is_none());
         // A subcommand can never reach this path (headless never builds an
         // app), and if one somehow did we must not act on it.
-        assert!(interpret(&["maeclyprint", "print", "--files", "a.pdf"], "").is_none());
+        assert!(interpret(&["pluryprint", "print", "--files", "a.pdf"], "").is_none());
     }
 
-    /// A file opened "with" MaeclyPrint while it is already running reaches
+    /// A file opened "with" Pluryprint while it is already running reaches
     /// the running window as a `configure` selection instead of vanishing.
     #[test]
     fn fr_008_a_forwarded_open_with_launch_carries_its_file() {
@@ -216,7 +216,7 @@ mod tests {
         let forwarded = interpret_at(
             dir.path(),
             &[
-                "maeclyprint".to_string(),
+                "pluryprint".to_string(),
                 file.to_string_lossy().into_owned(),
             ],
             "",
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn nfr_014_context_menu_without_a_handoff_is_rejected() {
-        assert!(interpret(&["maeclyprint", "--invoke=context-menu"], "").is_none());
+        assert!(interpret(&["pluryprint", "--invoke=context-menu"], "").is_none());
     }
 
     #[test]
@@ -258,7 +258,7 @@ mod tests {
         .unwrap();
 
         let argv = vec![
-            "maeclyprint".to_string(),
+            "pluryprint".to_string(),
             "--invoke=context-menu".to_string(),
             "--files-from".to_string(),
             path.to_string_lossy().into_owned(),
@@ -267,14 +267,14 @@ mod tests {
         assert!(path.exists(), "a refused payload is not consumed");
     }
 
-    /// FR-008: `cd C:\docs && maeclyprint-cli report.pdf` while the app is
+    /// FR-008: `cd C:\docs && pluryprint-cli report.pdf` while the app is
     /// open forwards a *relative* path. It is resolved against the launching
     /// terminal's folder, which the plugin reports, not dropped.
     #[test]
     fn fr_008_a_forwarded_relative_path_is_anchored_at_the_callers_cwd() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("report.pdf"), b"%PDF-1.4\n").unwrap();
-        let argv = ["maeclyprint".to_string(), "report.pdf".to_string()];
+        let argv = ["pluryprint".to_string(), "report.pdf".to_string()];
 
         let forwarded = interpret_at(dir.path(), &argv, &dir.path().to_string_lossy())
             .expect("the relative path resolves against the caller's folder");

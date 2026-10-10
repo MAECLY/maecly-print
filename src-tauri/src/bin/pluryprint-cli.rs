@@ -1,6 +1,6 @@
-//! `maeclyprint-cli` — the console-subsystem front end of the headless CLI.
+//! `pluryprint-cli` — the console-subsystem front end of the headless CLI.
 //!
-//! `maeclyprint.exe` is a GUI-subsystem program on Windows (no console window
+//! `pluryprint.exe` is a GUI-subsystem program on Windows (no console window
 //! on a double-click). `cmd.exe` and PowerShell do not wait for such a program:
 //! the prompt returns at once, the output lands after it, and `%ERRORLEVEL%` /
 //! `$LASTEXITCODE` never see the FR-009 exit code. This binary is linked as a
@@ -9,7 +9,7 @@
 //!
 //! When the command line asks for the GUI instead (no subcommand, a
 //! context-menu invocation, an "open with" path) it starts the sibling
-//! `maeclyprint` executable with the same arguments, detached, and exits 0 —
+//! `pluryprint` executable with the same arguments, detached, and exits 0 —
 //! a terminal must not stay blocked for as long as a window is open.
 //!
 //! On macOS and Linux both binaries are ordinary console programs; this one is
@@ -17,13 +17,13 @@
 
 use std::process::Command;
 
-use maeclyprint_lib::cli::{self, Startup};
+use pluryprint_lib::cli::{self, Startup};
 
 /// The GUI executable this one sits next to.
 #[cfg(windows)]
-const GUI_EXE: &str = "maeclyprint.exe";
+const GUI_EXE: &str = "pluryprint.exe";
 #[cfg(not(windows))]
-const GUI_EXE: &str = "maeclyprint";
+const GUI_EXE: &str = "pluryprint";
 
 fn main() {
     match cli::startup(std::env::args_os()) {
@@ -37,7 +37,7 @@ fn launch_gui() -> i32 {
     let exe = match std::env::current_exe() {
         Ok(me) => me.with_file_name(GUI_EXE),
         Err(e) => {
-            eprintln!("maeclyprint: cannot locate the MaeclyPrint app: {e}");
+            eprintln!("pluryprint: cannot locate the Pluryprint app: {e}");
             return cli::exit::ExitCode::Generic.code();
         }
     };
@@ -47,7 +47,7 @@ fn launch_gui() -> i32 {
     match command.spawn() {
         Ok(_) => 0,
         Err(e) => {
-            eprintln!("maeclyprint: cannot start {}: {e}", exe.display());
+            eprintln!("pluryprint: cannot start {}: {e}", exe.display());
             cli::exit::ExitCode::Generic.code()
         }
     }

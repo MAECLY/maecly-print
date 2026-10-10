@@ -57,7 +57,7 @@ pub struct ShellMenuCache {
 /// Labels in the reader's placeholder syntax (`{count}`, `{name}`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Labels {
-    /// The top-level menu entry ("MaeclyPrint").
+    /// The top-level menu entry ("Pluryprint").
     pub root: String,
     /// "Print" entry for a single selected file.
     pub print_one: String,
@@ -120,7 +120,7 @@ pub fn build(locale: &str, profiles: &[Profile]) -> ShellMenuCache {
         lang: lang.to_string(),
         labels: Labels {
             // The product name is not translated.
-            root: "MaeclyPrint".to_string(),
+            root: "Pluryprint".to_string(),
             print_one: label(catalog, "print_one"),
             print_many: label(catalog, "print_other"),
             print_with_profile: label(catalog, "printWithProfile"),

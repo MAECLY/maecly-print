@@ -16,7 +16,7 @@
 //!
 //! ## Why the decision lives here and not in `run()`
 //!
-//! `maeclyprint print --files a.pdf` must not create a window, so the split
+//! `pluryprint print --files a.pdf` must not create a window, so the split
 //! has to happen in `main` before [`crate::run_with`] is even called.
 //! [`startup`] therefore returns either "the work is done, exit with this
 //! code" or "boot the GUI, and here is the selection to pre-load".
@@ -162,7 +162,7 @@ pub fn classify<S: AsRef<str>>(args: &[S]) -> Intent {
             a if Path::new(a).exists() => return Intent::Gui,
             // Anything else is a typo. Routing it to the CLI lets clap answer
             // with "unrecognized subcommand" and a non-zero code; routing it to
-            // the GUI would silently open a window for `maeclyprint frobnicate`.
+            // the GUI would silently open a window for `pluryprint frobnicate`.
             _ => return Intent::Headless,
         }
     }
@@ -232,7 +232,7 @@ where
                     handoff,
                 },
                 Err(message) => {
-                    eprintln!("maeclyprint: ignoring the context-menu selection: {message}");
+                    eprintln!("pluryprint: ignoring the context-menu selection: {message}");
                     Startup::Gui {
                         selection: None,
                         handoff: None,
@@ -278,7 +278,7 @@ pub fn anchor_relative<S: AsRef<str>>(args: &[S], cwd: Option<&Path>) -> Vec<Str
         .collect()
 }
 
-/// The selection an "open with" launch carries (`maeclyprint C:\docs\a.pdf`,
+/// The selection an "open with" launch carries (`pluryprint C:\docs\a.pdf`,
 /// or a file dropped on the executable): every non-flag argument that resolves
 /// to an existing absolute path, as a `configure` selection — the app opens on
 /// the Print Job screen with the files loaded, and nothing prints by itself.
@@ -317,7 +317,7 @@ fn execute(cli: Cli) -> i32 {
     // run that cannot open its log still runs: the log explains failures, it
     // must never become one — so the problem goes to stderr and we carry on.
     if let Err(e) = crate::logging::init_cli() {
-        eprintln!("maeclyprint: logging disabled for this run: {e}");
+        eprintln!("pluryprint: logging disabled for this run: {e}");
     }
     tracing::info!(
         event = "cli_invoked",
@@ -526,7 +526,7 @@ mod tests {
     fn fr_008_json_usage_errors_are_json() {
         for argv in [
             vec![
-                "maeclyprint",
+                "pluryprint",
                 "print",
                 "--files",
                 "a.pdf",
@@ -534,7 +534,7 @@ mod tests {
                 "--json",
             ],
             vec![
-                "maeclyprint",
+                "pluryprint",
                 "--json",
                 "print",
                 "--copies",
@@ -542,7 +542,7 @@ mod tests {
                 "--files",
                 "a.pdf",
             ],
-            vec!["maeclyprint", "print", "--json"],
+            vec!["pluryprint", "print", "--json"],
         ] {
             let err = Cli::try_parse_from(&argv).unwrap_err();
             assert!(wants_json(&argv), "{argv:?}");
@@ -559,7 +559,7 @@ mod tests {
         }
 
         // Help stays help, and a `--json` after `--` is a value, not the flag.
-        let help = Cli::try_parse_from(["maeclyprint", "print", "--help"]).unwrap_err();
+        let help = Cli::try_parse_from(["pluryprint", "print", "--help"]).unwrap_err();
         assert!(parse_error_json(&help).is_none());
         assert!(!wants_json(&["print", "--files", "--", "--json"]));
     }
@@ -623,7 +623,7 @@ mod tests {
             .into_owned();
 
         match startup([
-            "maeclyprint".to_string(),
+            "pluryprint".to_string(),
             file.to_string_lossy().into_owned(),
         ]) {
             Startup::Gui { selection, handoff } => {
@@ -639,7 +639,7 @@ mod tests {
 
     #[test]
     fn fr_008_a_plain_launch_preloads_nothing() {
-        match startup(["maeclyprint".to_string(), "-psn_0_1234".to_string()]) {
+        match startup(["pluryprint".to_string(), "-psn_0_1234".to_string()]) {
             Startup::Gui { selection, .. } => assert!(selection.is_none()),
             other => panic!("a plain launch opens the GUI, got {other:?}"),
         }
@@ -657,7 +657,7 @@ mod tests {
         );
     }
 
-    /// Regression: `maeclyprint frobnicate` used to open a window instead of
+    /// Regression: `pluryprint frobnicate` used to open a window instead of
     /// reporting an unknown subcommand, so a typo silently spawned a GUI.
     #[test]
     fn fr_009_an_unknown_word_is_a_cli_error_not_a_window() {
@@ -686,7 +686,7 @@ mod tests {
         .expect("write");
 
         let cli = Cli::try_parse_from([
-            "maeclyprint",
+            "pluryprint",
             "--invoke=context-menu",
             "--files-from",
             path.to_string_lossy().as_ref(),
@@ -715,7 +715,7 @@ mod tests {
         // Outside the real handoff directory, so the containment gate refuses
         // it — the same verdict a planted payload gets.
         let startup = startup([
-            "maeclyprint".to_string(),
+            "pluryprint".to_string(),
             "--invoke=context-menu".to_string(),
             "--files-from".to_string(),
             path.to_string_lossy().into_owned(),
@@ -734,10 +734,10 @@ mod tests {
     /// arguments carry absolute paths (NFR-082).
     #[test]
     fn fr_035_cli_log_names_the_subcommand_not_its_arguments() {
-        let cli = Cli::try_parse_from(["maeclyprint", "print", "--files", "/secret/a.pdf"])
+        let cli = Cli::try_parse_from(["pluryprint", "print", "--files", "/secret/a.pdf"])
             .expect("a well-formed print argv");
         assert_eq!(cli.command.as_ref().map(command_name), Some("print"));
-        let cli = Cli::try_parse_from(["maeclyprint", "queue", "status"]).unwrap();
+        let cli = Cli::try_parse_from(["pluryprint", "queue", "status"]).unwrap();
         assert_eq!(cli.command.as_ref().map(command_name), Some("queue"));
     }
 

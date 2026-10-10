@@ -37,7 +37,7 @@ there is (correctly) no Windows executable here.
 
 `resources`, not `externalBin`: `externalBin` is the sidecar mechanism. It wants
 a `-$TARGET_TRIPLE` suffix on the file name, is invoked through the shell
-plugin's `sidecar()` API — which MaeclyPrint does not use, since the engine
+plugin's `sidecar()` API — which Pluryprint does not use, since the engine
 spawns the process itself to pass `CREATE_NO_WINDOW` — and expects a binary per
 build target, which is wrong for a Windows-only helper that must not end up
 inside the macOS `.app`.

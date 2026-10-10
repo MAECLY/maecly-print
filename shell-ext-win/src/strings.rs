@@ -104,13 +104,13 @@ pub struct Labels {
 impl Default for Labels {
     fn default() -> Self {
         Self {
-            root: "MaeclyPrint".into(),
+            root: "Pluryprint".into(),
             print_one: "Print 1 file".into(),
             print_many: "Print {count} files".into(),
             print_with_profile: "Print with \u{201c}{name}\u{201d}".into(),
             configure: "Configure print job\u{2026}".into(),
             queue: "Add to print queue".into(),
-            tooltip: "Batch print the selected files with MaeclyPrint".into(),
+            tooltip: "Batch print the selected files with Pluryprint".into(),
         }
     }
 }
@@ -244,7 +244,7 @@ fn read_capped(path: &Path) -> io::Result<String> {
 /// Directory the cache lives in: the app's local data dir, resolved exactly as
 /// the app resolves it.
 pub fn cache_dir() -> io::Result<PathBuf> {
-    directories::ProjectDirs::from("com", "Maecly", "MaeclyPrint")
+    directories::ProjectDirs::from("com", "Maecly", "Pluryprint")
         .map(|d| d.data_local_dir().to_path_buf())
         .ok_or_else(|| io::Error::other("no home directory to resolve the menu cache in"))
 }

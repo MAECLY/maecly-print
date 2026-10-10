@@ -512,7 +512,9 @@ mod tests {
         custom.page_range = Some("1-3".to_string());
         write_customs(&env, vec![custom]);
 
-        let dest = env.profiles.with_file_name("Press A.maecly-profile.toml");
+        let dest = env
+            .profiles
+            .with_file_name("Press A.pluryprint-profile.toml");
         export_profile_at(&env.profiles, &env.config, "c-1".to_string(), &dest).unwrap();
         assert!(dest.exists());
 
@@ -531,7 +533,7 @@ mod tests {
     #[test]
     fn fr_024_exporting_a_builtin_produces_an_importable_custom() {
         let env = env();
-        let dest = env.profiles.with_file_name("quick.maecly-profile.toml");
+        let dest = env.profiles.with_file_name("quick.pluryprint-profile.toml");
         export_profile_at(&env.profiles, &env.config, BUILTIN_QUICK.to_string(), &dest).unwrap();
 
         let imported = import_profiles_at(&env.profiles, &env.config, &dest).unwrap();

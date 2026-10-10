@@ -37,7 +37,7 @@ fn dll_clsid() -> String {
     let src = read("shell-ext-win/src/clsid.rs");
     let line = src
         .lines()
-        .find(|l| l.contains("CLSID_MAECLYPRINT_COMMAND: GUID"))
+        .find(|l| l.contains("CLSID_PLURYPRINT_COMMAND: GUID"))
         .expect("CLSID constant");
     let hex = line
         .split("0x")
@@ -90,14 +90,14 @@ fn fr_001_the_hooks_register_the_context_menu_dll_per_user() {
         "the hooks must register {clsid}, the CLSID shell_ext_win.dll serves"
     );
     for needle in [
-        "!define MAECLYPRINT_SHELLEXT_SRC \"${__FILEDIR__}\\${MAECLYPRINT_SHELLEXT_DLL}\"",
-        "File \"${MAECLYPRINT_SHELLEXT_SRC}\"",
-        "\\InprocServer32\" \"\" \"$INSTDIR\\${MAECLYPRINT_SHELLEXT_DLL}\"",
+        "!define PLURYPRINT_SHELLEXT_SRC \"${__FILEDIR__}\\${PLURYPRINT_SHELLEXT_DLL}\"",
+        "File \"${PLURYPRINT_SHELLEXT_SRC}\"",
+        "\\InprocServer32\" \"\" \"$INSTDIR\\${PLURYPRINT_SHELLEXT_DLL}\"",
         "\"ThreadingModel\" \"Apartment\"",
-        "\"ExplorerCommandHandler\" \"${MAECLYPRINT_SHELLEXT_CLSID}\"",
+        "\"ExplorerCommandHandler\" \"${PLURYPRINT_SHELLEXT_CLSID}\"",
         "\"MultiSelectModel\" \"Player\"",
-        "MAECLYPRINT_REGISTER_VERB \"*\"",
-        "MAECLYPRINT_REGISTER_VERB \"Directory\"",
+        "PLURYPRINT_REGISTER_VERB \"*\"",
+        "PLURYPRINT_REGISTER_VERB \"Directory\"",
         "!error",
     ] {
         assert!(nsh.contains(needle), "missing {needle}");
@@ -123,16 +123,16 @@ fn fr_001_uninstall_removes_what_install_wrote() {
         .nth(1)
         .expect("uninstall hook");
     for key in [
-        "Software\\Classes\\*\\shell\\${MAECLYPRINT_SHELLEXT_VERB}",
-        "Software\\Classes\\Directory\\shell\\${MAECLYPRINT_SHELLEXT_VERB}",
-        "Software\\Classes\\CLSID\\${MAECLYPRINT_SHELLEXT_CLSID}",
+        "Software\\Classes\\*\\shell\\${PLURYPRINT_SHELLEXT_VERB}",
+        "Software\\Classes\\Directory\\shell\\${PLURYPRINT_SHELLEXT_VERB}",
+        "Software\\Classes\\CLSID\\${PLURYPRINT_SHELLEXT_CLSID}",
     ] {
         assert!(
             un.contains(&format!("DeleteRegKey HKCU \"{key}\"")),
             "uninstall must delete {key}"
         );
     }
-    assert!(un.contains("Delete /REBOOTOK \"$INSTDIR\\${MAECLYPRINT_SHELLEXT_DLL}\""));
+    assert!(un.contains("Delete /REBOOTOK \"$INSTDIR\\${PLURYPRINT_SHELLEXT_DLL}\""));
 }
 
 #[test]

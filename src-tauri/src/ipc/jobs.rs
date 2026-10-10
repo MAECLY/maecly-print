@@ -136,7 +136,7 @@ pub async fn print_files(
 /// is the first thing the user needs to know.
 ///
 /// `pub(crate)` because the headless surface calls exactly this function
-/// (`cli::print::check_ranges`): `maeclyprint print --range 500-600` used to
+/// (`cli::print::check_ranges`): `pluryprint print --range 500-600` used to
 /// spool zero pages in silence where the dialog refused the same range, and two
 /// copies of this rule would have drifted apart again.
 pub(crate) fn check_ranges_fit_documents(ranges: &str, files: &[String]) -> Result<(), String> {
@@ -331,7 +331,7 @@ pub async fn inspect_files(paths: Vec<String>) -> Result<Vec<FileInfo>, IpcError
     .await
 }
 
-/// The exact command MaeclyPrint would run for `req` (honesty policy: no hidden
+/// The exact command Pluryprint would run for `req` (honesty policy: no hidden
 /// flags), for **every** file in the batch.
 ///
 /// The dispatcher settles three things per file, so the preview does too:

@@ -35,10 +35,10 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use maeclyprint_lib::engine::print::{cancel_os_job, job_state, spool, OsJobState};
-use maeclyprint_lib::ipc::printers::PrinterStatus;
-use maeclyprint_lib::platform::{list_printers, queue_of};
-use maeclyprint_lib::queue::job::JobSettings;
+use pluryprint_lib::engine::print::{cancel_os_job, job_state, spool, OsJobState};
+use pluryprint_lib::ipc::printers::PrinterStatus;
+use pluryprint_lib::platform::{list_printers, queue_of};
+use pluryprint_lib::queue::job::JobSettings;
 
 /// Queue-name prefixes this suite must never touch, whatever the environment
 /// says.

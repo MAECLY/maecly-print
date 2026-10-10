@@ -174,13 +174,13 @@ pub fn format_rfc3339(at: time::OffsetDateTime) -> String {
 /// Directory both sides agree on: `<data_local_dir>/handoff`.
 ///
 /// Resolved through the same `directories::ProjectDirs` call the app makes
-/// (`ProjectDirs::from("com", "Maecly", "MaeclyPrint")`), because the app
+/// (`ProjectDirs::from("com", "Maecly", "Pluryprint")`), because the app
 /// canonicalizes the incoming path and refuses anything that does not land
 /// inside *its* idea of this directory. On Windows this is under
 /// `%LOCALAPPDATA%`, which is ACL'd to the user — unlike a shared temp dir,
 /// where another account could plant a payload.
 pub fn handoff_dir() -> io::Result<PathBuf> {
-    directories::ProjectDirs::from("com", "Maecly", "MaeclyPrint")
+    directories::ProjectDirs::from("com", "Maecly", "Pluryprint")
         .map(|d| d.data_local_dir().join("handoff"))
         .ok_or_else(|| io::Error::other("no home directory to resolve the handoff directory in"))
 }

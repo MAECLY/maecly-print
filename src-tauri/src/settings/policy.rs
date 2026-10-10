@@ -1,6 +1,6 @@
 //! Organization printer policy.
 //!
-//! An admin-managed setting that lets an organization pin MaeclyPrint
+//! An admin-managed setting that lets an organization pin Pluryprint
 //! behavior. Today it carries a single field — the enforced default printer —
 //! which the UI presents as a locked "managed by your organization" state.
 //!
@@ -9,15 +9,15 @@
 //!
 //! | Platform | Source, most authoritative first |
 //! | -------- | -------------------------------- |
-//! | Windows  | `HKLM\SOFTWARE\Policies\Maecly\MaeclyPrint` value `DefaultPrinter` (REG_SZ; Group Policy friendly, admin-only), then `C:\ProgramData\MaeclyPrint\policy.json` **only if the file is owned by Administrators or SYSTEM** |
-//! | macOS    | `/Library/Application Support/MaeclyPrint/policy.json` (admin-writable) |
-//! | Linux    | `/etc/maeclyprint/policy.json` (root-writable) |
+//! | Windows  | `HKLM\SOFTWARE\Policies\Maecly\Pluryprint` value `DefaultPrinter` (REG_SZ; Group Policy friendly, admin-only), then `C:\ProgramData\Pluryprint\policy.json` **only if the file is owned by Administrators or SYSTEM** |
+//! | macOS    | `/Library/Application Support/Pluryprint/policy.json` (admin-writable) |
+//! | Linux    | `/etc/pluryprint/policy.json` (root-writable) |
 //!
 //! `C:\ProgramData` lets any standard user create folders (and own them), so a
 //! `policy.json` there that a user created is ignored — otherwise any user
 //! could impose a "managed" default printer on everyone else on the machine.
 //! The folder holding it must be admin/SYSTEM-owned too: a user who created
-//! `C:\ProgramData\MaeclyPrint` first could otherwise swap files inside it.
+//! `C:\ProgramData\Pluryprint` first could otherwise swap files inside it.
 //!
 //! The file is opened **once**, its owner is read from that open handle, and
 //! the content is read from the same handle ([`read_trusted`]). Checking the
@@ -103,17 +103,17 @@ fn system_policy_path() -> Option<PathBuf> {
     #[cfg(windows)]
     {
         std::env::var_os("ProgramData")
-            .map(|pd| PathBuf::from(pd).join("MaeclyPrint").join("policy.json"))
+            .map(|pd| PathBuf::from(pd).join("Pluryprint").join("policy.json"))
     }
     #[cfg(target_os = "macos")]
     {
         Some(PathBuf::from(
-            "/Library/Application Support/MaeclyPrint/policy.json",
+            "/Library/Application Support/Pluryprint/policy.json",
         ))
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        Some(PathBuf::from("/etc/maeclyprint/policy.json"))
+        Some(PathBuf::from("/etc/pluryprint/policy.json"))
     }
     #[cfg(not(any(windows, unix)))]
     {
@@ -136,7 +136,7 @@ fn policy_from_registry_value(value: Option<String>) -> Option<PrinterPolicy> {
     })
 }
 
-/// `HKLM\SOFTWARE\Policies\Maecly\MaeclyPrint` → `DefaultPrinter`. Only
+/// `HKLM\SOFTWARE\Policies\Maecly\Pluryprint` → `DefaultPrinter`. Only
 /// administrators (and Group Policy) can write under `HKLM\SOFTWARE\Policies`.
 fn registry_policy() -> Option<PrinterPolicy> {
     #[cfg(windows)]
@@ -248,7 +248,7 @@ mod win {
     /// A REG_SZ under the policy key, or `None` when the key or value is absent.
     pub(super) fn read_policy_string(value: &str) -> Option<String> {
         let name: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
-        let key = w!("SOFTWARE\\Policies\\Maecly\\MaeclyPrint");
+        let key = w!("SOFTWARE\\Policies\\Maecly\\Pluryprint");
         let mut size = 0u32;
         let rc = unsafe {
             RegGetValueW(

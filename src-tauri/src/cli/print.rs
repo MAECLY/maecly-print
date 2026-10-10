@@ -1,4 +1,4 @@
-//! `maeclyprint print …` (FR-008).
+//! `pluryprint print …` (FR-008).
 //!
 //! The headless print hop. It resolves a profile plus the per-invocation
 //! overrides into one [`JobSettings`], applies exactly the acceptance rules
@@ -168,7 +168,7 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
 
     // Private, self-deleting conversion cache — see the module docs.
     let cache = tempfile::Builder::new()
-        .prefix("maeclyprint-cli-")
+        .prefix("pluryprint-cli-")
         .tempdir()
         .map_err(|e| {
             CliError::from(IpcError::Internal(format!(
@@ -529,7 +529,7 @@ fn accept_files(files: &[String], max_mb: u32) -> Result<Vec<String>, CliError> 
 
 /// Resolve the target printer and whether it can duplex, mirroring the
 /// dispatcher's [`crate::engine::print::PrintError`] semantics: the requested
-/// name, else MaeclyPrint's app default, else the OS default; a name the OS
+/// name, else Pluryprint's app default, else the OS default; a name the OS
 /// does not enumerate is refused rather than handed to the spooler.
 ///
 /// Both failures are [`ExitCode::Printer`], so a script can tell "this host is
@@ -558,7 +558,7 @@ fn resolve_printer(
                 CliError::printer("no printer is configured; pass --printer or set a default")
             })?,
     };
-    // A printer disabled in MaeclyPrint is refused by name, like the queue does.
+    // A printer disabled in Pluryprint is refused by name, like the queue does.
     crate::ipc::printers::ensure_enabled(&prefs, &name)
         .map_err(|e| CliError::printer(e.to_string()))?;
 
@@ -679,7 +679,7 @@ mod tests {
         );
 
         let parsed =
-            Cli::try_parse_from(["maeclyprint", "print", "--files", "a.pdf", "--no-collate"])
+            Cli::try_parse_from(["pluryprint", "print", "--files", "a.pdf", "--no-collate"])
                 .expect("--no-collate parses");
         let Some(Command::Print(args)) = parsed.command else {
             panic!("expected print");
@@ -690,7 +690,7 @@ mod tests {
                 .collate
         );
 
-        let parsed = Cli::try_parse_from(["maeclyprint", "print", "--files", "a.pdf", "--collate"])
+        let parsed = Cli::try_parse_from(["pluryprint", "print", "--files", "a.pdf", "--collate"])
             .expect("--collate parses");
         let Some(Command::Print(args)) = parsed.command else {
             panic!("expected print");
@@ -703,7 +703,7 @@ mod tests {
 
         assert!(
             Cli::try_parse_from([
-                "maeclyprint",
+                "pluryprint",
                 "print",
                 "--files",
                 "a.pdf",
@@ -725,7 +725,7 @@ mod tests {
 
         let paper_of = |value: &str| {
             let cli =
-                Cli::try_parse_from(["maeclyprint", "print", "--files", "a.pdf", "--paper", value])
+                Cli::try_parse_from(["pluryprint", "print", "--files", "a.pdf", "--paper", value])
                     .unwrap_or_else(|e| panic!("--paper {value}: {e}"));
             let Some(Command::Print(args)) = cli.command else {
                 panic!("expected print");
@@ -753,7 +753,7 @@ mod tests {
 
         // Blank is still refused by the parser.
         assert!(
-            Cli::try_parse_from(["maeclyprint", "print", "--files", "a.pdf", "--paper", " "])
+            Cli::try_parse_from(["pluryprint", "print", "--files", "a.pdf", "--paper", " "])
                 .is_err()
         );
     }
@@ -801,7 +801,7 @@ mod tests {
         let pdf = one_page_pdf(dir.path(), "doc.pdf");
 
         let cli = crate::cli::args::Cli::try_parse_from([
-            "maeclyprint",
+            "pluryprint",
             "print",
             "--printer",
             "Nowhere",

@@ -16,12 +16,12 @@
 
 use std::path::{Path, PathBuf};
 
-use maeclyprint_lib::engine::{
+use pluryprint_lib::engine::{
     expand_folder, ExpansionLimits, FolderExpansion, FolderScan, SkipReason,
 };
-use maeclyprint_lib::ipc::jobs::expand_selection;
-use maeclyprint_lib::util::error::IpcError;
-use maeclyprint_lib::util::paths::canonical_input;
+use pluryprint_lib::ipc::jobs::expand_selection;
+use pluryprint_lib::util::error::IpcError;
+use pluryprint_lib::util::paths::canonical_input;
 
 /// Generous ceiling: the limit tests override it explicitly.
 const NO_SIZE_LIMIT_MB: u32 = 4096;

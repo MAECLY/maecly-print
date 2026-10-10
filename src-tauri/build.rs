@@ -26,7 +26,7 @@ fn main() {
     // Windows: the Common-Controls v6 manifest must reach *every* linked
     // artifact, not only the app binary. `tauri_build::build()` embeds it as a
     // resource that is linked into `[[bin]]` targets alone, so the lib's test
-    // harness (`maeclyprint_lib-*.exe`) imports comctl32 v6 entry points
+    // harness (`pluryprint_lib-*.exe`) imports comctl32 v6 entry points
     // (TaskDialogIndirect, pulled in by tao/rfd) without the manifest that
     // makes the loader resolve them, and dies with STATUS_ENTRYPOINT_NOT_FOUND
     // (0xc0000139) before running a single test. Tauri's own guidance is to

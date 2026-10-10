@@ -14,15 +14,15 @@
   A mismatch shows up as 0x80073D54 (or as an extension that simply never
   appears), so any change here has to be made in installers/windows/sparse-msix/
   in the same commit. The identical manifest must also be embedded in
-  maeclyprint.exe.
+  pluryprint.exe.
 -->
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
   <assemblyIdentity
       type="win32"
-      name="Maecly.MaeclyPrint.ShellExtension"
+      name="Maecly.Pluryprint.ShellExtension"
       version="0.0.1.0" />
   <msix xmlns="urn:schemas-microsoft-com:msix.v1"
         publisher="CN=Maecly, O=Maecly, C=ES"
-        packageName="MaeclyPrint"
-        applicationId="MaeclyPrint" />
+        packageName="Pluryprint"
+        applicationId="Pluryprint" />
 </assembly>

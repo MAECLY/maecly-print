@@ -1,7 +1,7 @@
 //! "Is the app open right now?" — answered by an OS file lock, not a guess.
 //!
 //! The GUI owns the live queue in memory and rewrites `queue.json` on every
-//! transition. A headless `maeclyprint queue cancel` that edited the file
+//! transition. A headless `pluryprint queue cancel` that edited the file
 //! behind its back would report success while the job kept printing, and its
 //! write of a stale snapshot could drop jobs the GUI had persisted in between
 //! (NFR-010). So the GUI holds an exclusive lock on `instance.lock` (next to
@@ -165,8 +165,8 @@ mod tests {
     #[test]
     fn lock_lives_next_to_queue_json() {
         assert_eq!(
-            lock_path_for(Path::new("/data/MaeclyPrint/queue.json")),
-            Path::new("/data/MaeclyPrint/instance.lock")
+            lock_path_for(Path::new("/data/Pluryprint/queue.json")),
+            Path::new("/data/Pluryprint/instance.lock")
         );
     }
 }

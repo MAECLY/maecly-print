@@ -1,4 +1,4 @@
-//! `maeclyprint update …`
+//! `pluryprint update …`
 //!
 //! `check` is the CLI face of [`crate::ipc::update::check_for_updates`]: the
 //! same pure [`crate::update::evaluate`] over the same GitHub `releases/latest`
@@ -12,7 +12,7 @@
 //! non-interactive run without `--yes` is refused rather than guessed.
 //!
 //! Two Windows-only rules follow from how the installer works there. The
-//! per-user NSIS setup runs in passive mode and closes a running MaeclyPrint
+//! per-user NSIS setup runs in passive mode and closes a running Pluryprint
 //! without asking, so `install` refuses while the app is open (it may be
 //! printing) — [`refuse_install_while_app_runs`]. And the updater plugin ends
 //! the process itself (`std::process::exit`) once the installer is launched,
@@ -98,11 +98,11 @@ pub fn confirmation(yes: bool, interactive: bool) -> Confirmation {
 pub fn prompt_text(current: &str, version: &str, major: bool) -> String {
     if major {
         format!(
-            "MaeclyPrint {version} is a MAJOR update from {current} and may change how the app \
+            "Pluryprint {version} is a MAJOR update from {current} and may change how the app \
              works. Install it now? [y/N] "
         )
     } else {
-        format!("Install MaeclyPrint {version} (running {current}) now? [y/N] ")
+        format!("Install Pluryprint {version} (running {current}) now? [y/N] ")
     }
 }
 
@@ -149,13 +149,13 @@ impl Handoff {
 }
 
 /// Refuse `update install` while the app is open, on Windows: the passive
-/// per-user installer closes a running MaeclyPrint without asking, which
+/// per-user installer closes a running Pluryprint without asking, which
 /// would cut off whatever it is printing. Pure; `app_running` comes from the
 /// instance lock ([`crate::cli::instance`]).
 pub fn refuse_install_while_app_runs(windows: bool, app_running: bool) -> Result<(), CliError> {
     if windows && app_running {
         return Err(IpcError::InvalidState(
-            "MaeclyPrint is open, and installing an update would close it in the middle of \
+            "Pluryprint is open, and installing an update would close it in the middle of \
              whatever it is printing — nothing was installed. Update from the app (About → \
              Install update), or close it and run this again"
                 .to_string(),
@@ -168,8 +168,8 @@ pub fn refuse_install_while_app_runs(windows: bool, app_running: bool) -> Result
 fn print_result(emitter: Emitter, result: &crate::update::install::UpdateInstallResult) {
     emitter.emit(result, || {
         match (&result.installed, result.restart_required) {
-            (Some(v), true) => format!("Installed MaeclyPrint {v}; restart the app to use it"),
-            (Some(v), false) => format!("Installing MaeclyPrint {v}"),
+            (Some(v), true) => format!("Installed Pluryprint {v}; restart the app to use it"),
+            (Some(v), false) => format!("Installing Pluryprint {v}"),
             (None, _) => "Nothing to install".to_string(),
         }
     });
@@ -220,7 +220,7 @@ fn install(paths: &Paths, emitter: Emitter, yes: bool) -> Result<(), CliError> {
         Confirmation::Granted => {}
         Confirmation::Refused => {
             return Err(CliError::from(IpcError::InvalidRequest(format!(
-                "MaeclyPrint {} is available; re-run with --yes to install it without a prompt",
+                "Pluryprint {} is available; re-run with --yes to install it without a prompt",
                 update.version
             ))));
         }
@@ -243,7 +243,7 @@ fn install(paths: &Paths, emitter: Emitter, yes: bool) -> Result<(), CliError> {
 
     if !emitter.json {
         eprintln!(
-            "Downloading MaeclyPrint {} and verifying its signature…",
+            "Downloading Pluryprint {} and verifying its signature…",
             update.version
         );
     }

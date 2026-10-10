@@ -33,7 +33,7 @@
 //! whatever quality its own driver defaults to.
 //!
 //! We do not paper over that. There is no plausible fake for it either —
-//! `resolution=NxM` exists, but MaeclyPrint does not know the device's DPI
+//! `resolution=NxM` exists, but Pluryprint does not know the device's DPI
 //! ladder, so mapping "high" to an invented number would be a guess dressed up
 //! as a setting. Instead [`quality_note`] states the limitation in the honesty
 //! preview the user reads before printing, and [`spool`] logs it against the
@@ -392,7 +392,7 @@ pub fn spool_file_name(title: &str) -> String {
 /// handed the job to the spooler, which keeps its own copy of the data.
 pub fn stage_for_spool(pdf: &Path, title: &str) -> std::io::Result<(tempfile::TempDir, PathBuf)> {
     let dir = tempfile::Builder::new()
-        .prefix("maeclyprint-spool-")
+        .prefix("pluryprint-spool-")
         .tempdir()?;
     let staged = dir.path().join(spool_file_name(title));
     if std::fs::hard_link(pdf, &staged).is_err() {

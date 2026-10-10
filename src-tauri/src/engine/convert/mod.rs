@@ -191,7 +191,7 @@ impl WorkDir {
             .take(40)
             .collect();
         tempfile::Builder::new()
-            .prefix(&format!("maeclyprint-convert-{tag}-"))
+            .prefix(&format!("pluryprint-convert-{tag}-"))
             .tempdir()
             .map(WorkDir)
             .map_err(|e| {
@@ -808,7 +808,7 @@ mod tests {
             path.file_name()
                 .unwrap()
                 .to_string_lossy()
-                .starts_with("maeclyprint-convert-0192-abcevil-"),
+                .starts_with("pluryprint-convert-0192-abcevil-"),
             "{path:?}"
         );
         drop(work);

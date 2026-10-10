@@ -616,9 +616,9 @@ pub enum ImportError {
     Unreadable(String),
     /// The file is not a profile document (bad TOML, or missing/ill-typed
     /// fields).
-    #[error("this is not a MaeclyPrint profile file: {0}")]
+    #[error("this is not a Pluryprint profile file: {0}")]
     Malformed(String),
-    /// The document was written by a newer MaeclyPrint.
+    /// The document was written by a newer Pluryprint.
     #[error("the file uses profile format version {0}, which this version cannot read")]
     UnsupportedVersion(u32),
     /// The document parsed but holds no `[[profile]]` entry.
@@ -1449,7 +1449,7 @@ mod tests {
     fn fr_024_read_document_round_trips_an_export() {
         let dir = tempfile::tempdir().unwrap();
         let p = builtins().remove(0);
-        let path = write_doc(&dir, "quick.maecly-profile.toml", &export_document(&p));
+        let path = write_doc(&dir, "quick.pluryprint-profile.toml", &export_document(&p));
 
         let doc = read_document(&path).unwrap();
         assert_eq!(doc.profile.len(), 1);
@@ -1482,7 +1482,7 @@ mod tests {
         std::fs::write(&empty, b"schema_version = 1\n").unwrap();
         assert_eq!(read_document(&empty), Err(ImportError::Empty));
 
-        // Written by a newer MaeclyPrint.
+        // Written by a newer Pluryprint.
         let newer = dir.path().join("newer.toml");
         let mut doc = export_document(&builtins().remove(0));
         doc.schema_version = PROFILES_SCHEMA_VERSION + 1;

@@ -94,7 +94,7 @@ printf '%%PDF-1.4\n%%fake\n' > "$out/$stem.pdf""#,
         let argv: Vec<&str> = argv.lines().collect();
         assert!(
             argv[0].starts_with("-env:UserInstallation=file://")
-                && argv[0].contains("maeclyprint-convert-job-"),
+                && argv[0].contains("pluryprint-convert-job-"),
             "{argv:?}"
         );
         assert!(argv.contains(&"--headless"));

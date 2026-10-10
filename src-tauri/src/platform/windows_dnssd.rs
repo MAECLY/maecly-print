@@ -6,7 +6,7 @@
 //! Printers answer an mDNS query by **multicasting** to `224.0.0.251:5353`,
 //! which is inbound traffic. Windows Defender Firewall's built-in
 //! "mDNS (UDP-In)" rule only admits it for the DNS Client service
-//! (`svchost.exe`, service `dnscache`), not for `maeclyprint.exe`; the per-user
+//! (`svchost.exe`, service `dnscache`), not for `pluryprint.exe`; the per-user
 //! installer adds no rule of its own (no admin), and the first listening
 //! socket raises a prompt a standard user cannot approve. An in-process mDNS
 //! browser therefore heard nothing and "Scan network" reported an empty

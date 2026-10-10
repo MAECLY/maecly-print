@@ -289,7 +289,7 @@ pub fn spec(dep: Dependency, os: Os) -> Spec {
             // whose absence really does stop printing.
             blocks: crate::engine::SUPPORTED_EXTS,
             effect: "no file can be printed on Windows until it is installed. \
-                     Install SumatraPDF, or place SumatraPDF.exe next to MaeclyPrint.exe",
+                     Install SumatraPDF, or place SumatraPDF.exe next to Pluryprint.exe",
         },
         Dependency::LibreOffice => Spec {
             id: dep,
@@ -604,10 +604,10 @@ mod tests {
 
     #[test]
     fn bundled_layout_covers_the_installed_resource_dir() {
-        let dirs = bundled_dirs(Path::new("/apps/MaeclyPrint"), "sumatrapdf");
-        assert!(dirs.contains(&PathBuf::from("/apps/MaeclyPrint/resources/sumatrapdf")));
+        let dirs = bundled_dirs(Path::new("/apps/Pluryprint"), "sumatrapdf");
+        assert!(dirs.contains(&PathBuf::from("/apps/Pluryprint/resources/sumatrapdf")));
         assert!(dirs.contains(&PathBuf::from("/apps/Resources/sumatrapdf")));
-        assert!(dirs.contains(&PathBuf::from("/apps/MaeclyPrint")));
+        assert!(dirs.contains(&PathBuf::from("/apps/Pluryprint")));
     }
 
     #[test]

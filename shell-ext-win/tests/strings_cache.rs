@@ -21,7 +21,7 @@ fn cache_json(profiles: usize) -> String {
         .collect();
     format!(
         r#"{{"schema_version":{CACHE_SCHEMA_VERSION},"lang":"es",
-            "labels":{{"root":"MaeclyPrint",
+            "labels":{{"root":"Pluryprint",
                        "print_one":"Imprimir 1 archivo",
                        "print_many":"Imprimir {{count}} archivos",
                        "print_with_profile":"Imprimir con «{{name}}»",
@@ -135,7 +135,7 @@ fn fr_002_an_unusable_cache_is_ignored_rather_than_trusted() {
     // A partial cache still works — every label has a compiled-in fallback.
     let partial = strings::parse(r#"{"schema_version":1,"labels":{"queue":"Encolar"}}"#).unwrap();
     assert_eq!(partial.labels.queue, "Encolar");
-    assert_eq!(partial.labels.root, "MaeclyPrint");
+    assert_eq!(partial.labels.root, "Pluryprint");
 }
 
 #[test]

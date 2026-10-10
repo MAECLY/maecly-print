@@ -374,7 +374,7 @@ pub fn job_state(printer: &str, os_job_id: &str) -> Result<OsJobState, super::Tr
     })
 }
 
-/// Whether the spooler job `job` is the one MaeclyPrint spooled: submitted by
+/// Whether the spooler job `job` is the one Pluryprint spooled: submitted by
 /// `user` (when both sides know a user) and carrying one of `documents`
 /// ([`document_names`]). Pure.
 ///
@@ -402,7 +402,7 @@ pub fn cancel_if_ours(printer: &str, os_job_id: &str, documents: &[String]) -> a
     let user = std::env::var("USERNAME").unwrap_or_default();
     if !is_our_job(job, documents, &user) {
         anyhow::bail!(
-            "job {id} on {printer} is no longer the one MaeclyPrint sent, so it was left alone"
+            "job {id} on {printer} is no longer the one Pluryprint sent, so it was left alone"
         );
     }
     ffi::delete(printer, id)
@@ -433,7 +433,7 @@ mod tests {
         let ours = vec!["report.pdf".to_string(), "0192-abc.pdf".to_string()];
         assert!(is_our_job(
             &job(
-                r"C:\Users\a\AppData\Local\Temp\maeclyprint-spool-x\report.pdf",
+                r"C:\Users\a\AppData\Local\Temp\pluryprint-spool-x\report.pdf",
                 "a"
             ),
             &ours,

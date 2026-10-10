@@ -15,8 +15,8 @@
 
 use std::path::{Path, PathBuf};
 
-use maeclyprint_lib::engine::deps::{self, Dependency, FoundIn, Os, Probe, Resolution, ALL};
-use maeclyprint_lib::engine::SUPPORTED_EXTS;
+use pluryprint_lib::engine::deps::{self, Dependency, FoundIn, Os, Probe, Resolution, ALL};
+use pluryprint_lib::engine::SUPPORTED_EXTS;
 
 /// Create `dir/name` as an empty file and return its path.
 fn touch(dir: &Path, name: &str) -> PathBuf {

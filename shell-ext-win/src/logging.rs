@@ -16,7 +16,7 @@ use std::path::PathBuf;
 const MAX_LOG_BYTES: u64 = 1024 * 1024;
 
 fn log_path() -> Option<PathBuf> {
-    let dir = directories::ProjectDirs::from("com", "Maecly", "MaeclyPrint")?
+    let dir = directories::ProjectDirs::from("com", "Maecly", "Pluryprint")?
         .data_local_dir()
         .join("logs");
     std::fs::create_dir_all(&dir).ok()?;

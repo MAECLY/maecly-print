@@ -161,10 +161,10 @@ pub async fn discover_printers() -> Result<Vec<DiscoveredPrinter>, IpcError> {
 }
 
 // ---------------------------------------------------------------------------
-// Preferences (persisted MaeclyPrint-level state) + OS actions
+// Preferences (persisted Pluryprint-level state) + OS actions
 // ---------------------------------------------------------------------------
 
-/// Read the persisted MaeclyPrint printer preferences.
+/// Read the persisted Pluryprint printer preferences.
 #[tauri::command]
 #[specta::specta]
 pub async fn get_printer_prefs() -> Result<crate::settings::PrinterPrefs, IpcError> {
@@ -256,14 +256,14 @@ pub fn routed_printer(
         .cloned()
 }
 
-/// Whether `printer` is disabled in MaeclyPrint (`PrinterPrefs::disabled`).
-/// Disabled printers stay installed in the OS; MaeclyPrint just never sends
+/// Whether `printer` is disabled in Pluryprint (`PrinterPrefs::disabled`).
+/// Disabled printers stay installed in the OS; Pluryprint just never sends
 /// them anything.
 pub fn is_disabled(prefs: &crate::settings::PrinterPrefs, printer: &str) -> bool {
     prefs.disabled.iter().any(|d| d == printer)
 }
 
-/// Refuse `printer` when it is disabled in MaeclyPrint. Called on the printer
+/// Refuse `printer` when it is disabled in Pluryprint. Called on the printer
 /// a job actually resolved to — an explicit request, or the OS default — since
 /// routing and the app default already skip disabled printers on their own
 /// ([`resolve_app_printer`]).
@@ -279,14 +279,14 @@ pub fn ensure_enabled(
     Ok(())
 }
 
-/// The MaeclyPrint-level printer choice for one input file, in spec order:
+/// The Pluryprint-level printer choice for one input file, in spec order:
 ///
 /// 1. an explicit request (a profile's printer, `--printer`, the Print Job
 ///    dropdown) — a deliberate choice always wins, even a disabled printer, so
 ///    that the caller can refuse it *by name* ([`ensure_enabled`]) instead of
 ///    silently printing somewhere else;
 /// 2. the file-type routing rule for the input's extension, unless it points
-///    at a printer disabled in MaeclyPrint;
+///    at a printer disabled in Pluryprint;
 /// 3. the app default printer (`PrinterPrefs::default_printer`), unless it is
 ///    disabled.
 ///
@@ -424,7 +424,7 @@ pub async fn open_printer_settings() -> Result<(), IpcError> {
 /// `name` is the human label; `uri` selects the transport (driverless IPP/IPPS
 /// or a raw socket/LPD on Unix; IPP/IPPS on Windows). On failure the spooler's
 /// own diagnostic (e.g. lpadmin's "Unable to connect to …") is surfaced so the
-/// UI can show it verbatim. Never mutates MaeclyPrint preferences — only the OS.
+/// UI can show it verbatim. Never mutates Pluryprint preferences — only the OS.
 #[tauri::command]
 #[specta::specta]
 pub async fn add_printer(name: String, uri: String) -> Result<(), IpcError> {
@@ -561,7 +561,7 @@ mod tests {
         assert_eq!(resolve_app_printer(&prefs, None, "a.pdf"), None);
     }
 
-    /// A printer disabled in MaeclyPrint is never chosen by routing or as the
+    /// A printer disabled in Pluryprint is never chosen by routing or as the
     /// app default; an explicit request for it comes back by name so the
     /// caller can refuse it with a reason.
     #[test]
@@ -692,7 +692,7 @@ mod tests {
     fn fr_044_match_installed_resolves_display_names_to_queue_ids() {
         let list = vec![
             printer("HP_LaserJet_Pro_M404", "HP LaserJet Pro M404"),
-            printer("Maecly_Hold", "MaeclyPrint hold test queue"),
+            printer("Maecly_Hold", "Pluryprint hold test queue"),
         ];
         for input in [
             "HP_LaserJet_Pro_M404",

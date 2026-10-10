@@ -16,7 +16,7 @@
 //!
 //! On Windows the extension is a DLL inside Explorer, so it *must* start (or
 //! signal) the app: it writes a handoff file and launches
-//! `maeclyprint --invoke=context-menu --files-from <PATH>`. On macOS the
+//! `pluryprint --invoke=context-menu --files-from <PATH>`. On macOS the
 //! service is answered by the app itself — Launch Services starts it if it is
 //! not running and reuses it if it is, which is the same single-instance
 //! guarantee `tauri-plugin-single-instance` provides on Windows. Relaunching
@@ -57,20 +57,20 @@ define_class!(
     // Fixed runtime name: it shows up in crash reports and in `pbs` output, and
     // a generated name (which embeds the crate version) would change on every
     // release for no reason.
-    #[name = "MaeclyPrintServicesProvider"]
+    #[name = "PluryprintServicesProvider"]
     #[ivars = Ivars]
     struct ServicesProvider;
 
     impl ServicesProvider {
-        /// `-(void)printWithMaeclyPrint:(NSPasteboard *)pb
+        /// `-(void)printWithPluryprint:(NSPasteboard *)pb
         ///                      userData:(NSString *)ud
         ///                         error:(NSString **)err`
         ///
         /// The selector is derived from `NSMessage` in `Info.plist`
-        /// (`printWithMaeclyPrint`) plus the `userData:error:` tail AppKit
+        /// (`printWithPluryprint`) plus the `userData:error:` tail AppKit
         /// always appends; the two must be changed together.
-        #[unsafe(method(printWithMaeclyPrint:userData:error:))]
-        fn print_with_maecly_print(
+        #[unsafe(method(printWithPluryprint:userData:error:))]
+        fn print_with_pluryprint(
             &self,
             pasteboard: &NSPasteboard,
             user_data: Option<&NSString>,
@@ -337,10 +337,7 @@ mod tests {
     #[test]
     fn fr_001_every_declared_service_is_implemented_by_the_provider() {
         let class = ServicesProvider::class();
-        assert_eq!(
-            class.name().to_str().unwrap(),
-            "MaeclyPrintServicesProvider"
-        );
+        assert_eq!(class.name().to_str().unwrap(), "PluryprintServicesProvider");
 
         let messages = plist_values("NSMessage");
         assert_eq!(messages.len(), 2, "Info.plist declares two menu entries");
@@ -376,7 +373,7 @@ mod tests {
         // NSPortName must be the bundle's CFBundleName, which Tauri derives
         // from `productName` in tauri.conf.json.
         for port in plist_values("NSPortName") {
-            assert_eq!(port, "MaeclyPrint");
+            assert_eq!(port, "Pluryprint");
         }
     }
 

@@ -78,7 +78,7 @@ pub fn set_os_default(name: &str) -> anyhow::Result<()> {
     run_ok_capture("lpoptions", &["-d", name])
 }
 
-/// Print the branded MaeclyPrint test page, applying the user's configured
+/// Print the branded Pluryprint test page, applying the user's configured
 /// default paper/tray for this printer (from `PrinterPrefs`).
 pub fn print_test_page(name: &str) -> anyhow::Result<()> {
     use std::io::Write as _;
@@ -102,7 +102,7 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
     });
 
     let mut tmp = tempfile::Builder::new()
-        .prefix("maeclyprint-testpage-")
+        .prefix("pluryprint-testpage-")
         .suffix(".pdf")
         .tempfile()
         .with_context(|| "failed to create temp PDF")?;
@@ -116,7 +116,7 @@ pub fn print_test_page(name: &str) -> anyhow::Result<()> {
         "-d".to_string(),
         name.to_string(),
         "-t".to_string(),
-        "MaeclyPrint Test Page".to_string(),
+        "Pluryprint Test Page".to_string(),
     ];
     // The saved names go to `lp -o`, which splits a value on whitespace into
     // extra options; refuse anything that is not a single CUPS keyword.
@@ -242,7 +242,7 @@ fn lpadmin_args(queue: &str, uri: &str, display: &str) -> anyhow::Result<Vec<Str
                 IpcErrorCode::InvalidRequest,
                 "add_printer_unsupported_scheme",
                 format!(
-                    "MaeclyPrint can't add a printer over '{other}'. Add it from your \
+                    "Pluryprint can't add a printer over '{other}'. Add it from your \
                      system's printer settings instead."
                 ),
             )
@@ -1112,9 +1112,9 @@ mod tests {
     #[ignore]
     fn add_and_remove_real_queue() {
         // A raw socket queue can be created without a reachable device.
-        add_printer("MaeclyPrint Test Queue", "socket://127.0.0.1:9100").expect("add should work");
+        add_printer("Pluryprint Test Queue", "socket://127.0.0.1:9100").expect("add should work");
         // Best-effort cleanup of the queue id sanitize_queue_name would produce.
-        let _ = run_ok("lpadmin", &["-x", "MaeclyPrint_Test_Queue"]);
+        let _ = run_ok("lpadmin", &["-x", "Pluryprint_Test_Queue"]);
     }
 
     /// Verbatim `ippfind -x printf` output from the dev Mac: one EPSON
