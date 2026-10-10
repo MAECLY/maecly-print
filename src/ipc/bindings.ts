@@ -1042,7 +1042,63 @@ params?: Partial<{ [key in string]: string }> | null }
 /**
  * The stable error family of an [`IpcError`] — its `code` on the wire.
  */
-export type IpcErrorCode = "FileNotFound" | "InvalidRequest" | "UnsupportedFormat" | "ConversionFailed" | "PrintFailed" | "UnsupportedSetting" | "DependencyMissing" | "JobNotFound" | "InvalidState" | "ProfileNotFound" | "UpdateCheckFailed" | "UpdateInstallFailed" | "UpdateSignatureInvalid" | "Internal"
+export type IpcErrorCode = 
+/**
+ * A named input file does not exist or cannot be read.
+ */
+"FileNotFound" | 
+/**
+ * The request is structurally invalid (bad copies, page range, …).
+ */
+"InvalidRequest" | 
+/**
+ * The engine cannot print this file format.
+ */
+"UnsupportedFormat" | 
+/**
+ * A converter could not turn the input into a printable PDF.
+ */
+"ConversionFailed" | 
+/**
+ * The OS spooler or printer backend rejected the job.
+ */
+"PrintFailed" | 
+/**
+ * The driver cannot honour a requested setting (currently duplex).
+ */
+"UnsupportedSetting" | 
+/**
+ * A required external program (CUPS `lp`, SumatraPDF) is missing.
+ */
+"DependencyMissing" | 
+/**
+ * No queued job has the given id.
+ */
+"JobNotFound" | 
+/**
+ * The action is not legal in the job's current state.
+ */
+"InvalidState" | 
+/**
+ * No profile has the given id.
+ */
+"ProfileNotFound" | 
+/**
+ * The GitHub-release update check could not complete.
+ */
+"UpdateCheckFailed" | 
+/**
+ * Downloading or installing an update failed.
+ */
+"UpdateInstallFailed" | 
+/**
+ * The downloaded update failed signature verification (FR-082).
+ */
+"UpdateSignatureInvalid" | 
+/**
+ * A bug or app-state failure the user cannot fix by changing input.
+ */
+"Internal"
 /**
  * One print job: a single input file tracked through the convert → print
  * pipeline. Persisted verbatim in `queue.json`.

@@ -24,19 +24,33 @@ use thiserror::Error;
 /// The stable error family of an [`IpcError`] — its `code` on the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Type)]
 pub enum IpcErrorCode {
+    /// A named input file does not exist or cannot be read.
     FileNotFound,
+    /// The request is structurally invalid (bad copies, page range, …).
     InvalidRequest,
+    /// The engine cannot print this file format.
     UnsupportedFormat,
+    /// A converter could not turn the input into a printable PDF.
     ConversionFailed,
+    /// The OS spooler or printer backend rejected the job.
     PrintFailed,
+    /// The driver cannot honour a requested setting (currently duplex).
     UnsupportedSetting,
+    /// A required external program (CUPS `lp`, SumatraPDF) is missing.
     DependencyMissing,
+    /// No queued job has the given id.
     JobNotFound,
+    /// The action is not legal in the job's current state.
     InvalidState,
+    /// No profile has the given id.
     ProfileNotFound,
+    /// The GitHub-release update check could not complete.
     UpdateCheckFailed,
+    /// Downloading or installing an update failed.
     UpdateInstallFailed,
+    /// The downloaded update failed signature verification (FR-082).
     UpdateSignatureInvalid,
+    /// A bug or app-state failure the user cannot fix by changing input.
     Internal,
 }
 
@@ -71,13 +85,21 @@ impl IpcErrorCode {
 /// recovers it intact instead of flattening it to `Internal`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalizedError {
+    /// The family this failure belongs to; serialized as `code`.
     pub code: IpcErrorCode,
+    /// Stable machine-readable sub-code the UI maps to a translated sentence.
+    /// Part of the wire contract: never rename an existing value.
     pub reason: &'static str,
+    /// Interpolation values for the translated sentence, keyed by placeholder name.
     pub params: BTreeMap<String, String>,
+    /// English detail for logs and the CLI, and the UI's fallback when it has no
+    /// translation for `reason`.
     pub message: String,
 }
 
 impl LocalizedError {
+    /// A localized error of family `code` with `reason` and no params yet; add
+    /// them with [`LocalizedError::param`].
     pub fn new(code: IpcErrorCode, reason: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -108,8 +130,14 @@ impl From<LocalizedError> for IpcError {
     }
 }
 
+/// Every failure a Tauri command or a CLI subcommand can report.
+///
+/// The variant name is the stable `code` on the wire (see the module docs);
+/// the payload is the English `message`.
 #[derive(Debug, Error)]
 pub enum IpcError {
+    /// A file the request named does not exist or cannot be read. The payload
+    /// is the offending path.
     #[error("File not found: {0}")]
     FileNotFound(String),
 
@@ -171,6 +199,8 @@ pub enum IpcError {
     #[error("Update signature invalid: {0}")]
     UpdateSignatureInvalid(String),
 
+    /// A failure with no more specific family: a bug, an I/O error on app
+    /// state, a poisoned lock. Not something the user can fix by changing input.
     #[error("Internal error: {0}")]
     Internal(String),
 
