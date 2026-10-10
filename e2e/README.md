@@ -23,11 +23,11 @@ e2e/
 ├── artifacts/              # failure screenshots (gitignored, with wdio-logs/)
 ├── specs/
 │   ├── helpers.ts          # dismiss onboarding (EN/ES), navigate the sidebar, forceEnglishUi, restore settings
-│   ├── home.e2e.ts         # formats advertised, shortcut layer (NFR-034), focusable quick actions, live recent activity
-│   ├── print-job.e2e.ts    # drop a file, submit (queue paused, never spooled), see it in the Queue; FR-005; FR-004
+│   ├── home.e2e.ts         # formats advertised (GIF never), shortcut layer (NFR-034), focusable quick actions, live recent activity
+│   ├── print-job.e2e.ts    # drop a file, submit (queue paused, never spooled), see it in the Queue; FR-005 (.xyz and a GIF refused); FR-004
 │   ├── queue.e2e.ts        # live queue, List/Board/Timeline views, queue controls and an honest "Clear done"
 │   ├── printers.e2e.ts     # enumeration from the host spooler; add-printer tabs and the Windows transport limit
-│   ├── profiles.e2e.ts     # create a profile and make it default; unsaved edits survive navigation
+│   ├── profiles.e2e.ts     # create a profile and make it default; unsaved edits survive navigation; removes what it created
 │   ├── settings.e2e.ts     # dark theme class; a setting survives relaunch (FR-100); language switch (FR-094)
 │   └── about.e2e.ts        # semver, links (FR-110), log directory (FR-113), versions, live update check
 └── browser/
@@ -152,7 +152,10 @@ shapes, `IpcError` rejections), not the Rust implementation:
 - a queue whose jobs advance on a timer (queued → converting → converted →
   printing → done, one printing at a time; a file named `*fail*` fails),
   emitting `queue-updated` and `job-progress-event`, honouring pause/resume,
-  cancel, retry and clear.
+  cancel, retry, clear and `adjust_job` (a paused job's printer or sides);
+- `install_dependency` with the same consent contract as the app: without
+  `consent: true` it is refused, with it the "page opens" and the dependency
+  stays missing (nothing is installed from a browser).
 
 A command it does not model rejects with `Internal: not stubbed …`.
 
@@ -182,13 +185,14 @@ opt-in real-spooler suites below.
 
 ## Real-spooler suites (opt-in, never print)
 
-Both are `#[ignore]`d **and** gated on `MAECLY_REAL_PRINTER=1`, go through the
+All three are `#[ignore]`d **and** gated on `MAECLY_REAL_PRINTER=1`, go through the
 engine's real `spool` path, and refuse to submit to any queue that would print:
 
-| Suite                                     | Platform      | Queue (`MAECLY_HOLD_QUEUE`)                                          | What it proves                                                                                                                     |
-| ----------------------------------------- | ------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `src-tauri/tests/real_printer.rs`         | macOS / Linux | `Maecly_Hold`, a CUPS queue with `job-hold-until-default=indefinite` | CUPS turns the `lp` vector into the intended IPP job attributes; every job stays `pending-held` and is cancelled on the way out    |
-| `src-tauri/tests/real_printer_windows.rs` | Windows       | `Maecly_Hold_Win`, a **paused** queue on a file port                 | SumatraPDF spools, the job is found by its document among the user's new jobs, `GetJob` reads its state, and the cancel removes it |
+| Suite                                      | Platform      | Queue (`MAECLY_HOLD_QUEUE`)                                                   | What it proves                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------ | ------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src-tauri/tests/real_printer.rs`          | macOS / Linux | `Maecly_Hold`, a CUPS queue with `job-hold-until-default=indefinite`          | CUPS turns the `lp` vector into the intended IPP job attributes; every job stays `pending-held` and is cancelled on the way out                                                                                                                                                                        |
+| `src-tauri/tests/real_printer_windows.rs`  | Windows       | `Maecly_Hold_Win`, a **paused** queue on a file port                          | SumatraPDF spools, the job is found by its document among the user's new jobs, `GetJob` reads its state, and the cancel removes it                                                                                                                                                                     |
+| `src-tauri/tests/print_quality_windows.rs` | Windows       | `PLURYPRINT_QUALITY_QUEUES` (default `Maecly_Hold_Win`), every one **paused** | Draft/High reach the job's own DEVMODE through the per-user default swap, the user's default comes back byte for byte (or is cleared again), a killed process is recovered, two processes keep their own quality, `paperkind=`/`bin=` ids land in the job, a no-print PDF is refused before SumatraPDF |
 
 ```sh
 MAECLY_REAL_PRINTER=1 cargo test --test real_printer -- --ignored              # macOS
@@ -196,4 +200,30 @@ $env:MAECLY_REAL_PRINTER='1'; cargo test --test real_printer_windows -- --ignore
 ```
 
 The doc comment at the top of each file has the one-time command that creates
-the hold queue. Never point `MAECLY_HOLD_QUEUE` at a real device.
+the hold queue. Never point `MAECLY_HOLD_QUEUE` or `PLURYPRINT_QUALITY_QUEUES`
+at a real device.
+
+## Windows VM scripts
+
+Two PowerShell scripts in `scripts/vm/` run checks that need a real Windows
+desktop or spooler, and were run on the Windows 11 ARM64 test VM in round 3:
+
+- `print-quality-e2e.ps1` creates the paused queues (a file-port queue on the
+  Microsoft IPP Class Driver, optionally one bound to an `ippeveprinter` URL)
+  and runs `print_quality_windows`.
+- `r3-contextmenu-e2e.ps1` opens Explorer on a file, right-clicks it and
+  reaches the classic menu through **Show more options** with **real mouse
+  input**, prints the Pluryprint submenu as Explorer built it, can click an
+  entry, and takes a screenshot with the menus. Real input is the point:
+  activating "Show more options" through UI Automation builds a menu whose
+  submenus all open empty, Windows' own included
+  ([shell-extensions.md](../docs/04-architecture/shell-extensions.md)).
+
+## Worker binaries
+
+`src-tauri/tests/render_worker.rs` and `src-tauri/tests/svg_worker.rs` drive the
+freshly built `pluryprint --worker render-pdf` and `--worker svg` the way the
+engine does: HTML, Markdown, text and RTF pages through the system web view
+(pagination, paper, relative images, a hostile page that must not reach a local
+listener, two workers in parallel) and SVG drawings to vector PDF. They run in
+the normal `cargo test`.
