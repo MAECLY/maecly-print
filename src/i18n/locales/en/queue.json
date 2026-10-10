@@ -198,6 +198,7 @@
         "render_failed": "The page could not be laid out for printing.",
         "render_worker_missing": "The Pluryprint app, which lays out pages for printing, was not found next to the command-line tool. Reinstall Pluryprint.",
         "share_reference_refused": "The page uses a file on a network share, which the browser renderer cannot load safely. Print it with the system renderer.",
+        "page_not_checkable": "Pluryprint could not fully check this page for links to network shares (a stylesheet is too large, there are too many stylesheets, or the text encoding or the start of the page cannot be read), so it was not printed. Save the page again as UTF-8, or print it with the system renderer.",
         "text_unreadable": "The text file could not be read as text."
       },
       "print_failed": {

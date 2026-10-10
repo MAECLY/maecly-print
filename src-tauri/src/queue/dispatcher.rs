@@ -2325,35 +2325,18 @@ fn record_failure(job: &mut Job, e: &EngineError, is_conversion: bool, post: &mu
         // same budget again. So are a format the engine cannot print and a
         // PDF that forbids printing or uses unreadable encryption (FR-058,
         // FR-059): retrying never changes the file.
+        // A conversion failure whose reason is deterministic (the app missing
+        // next to the CLI, a page that names a share or cannot be checked)
+        // fails the same way every time: terminal too
+        // ([`crate::util::reasons::is_terminal_conversion_reason`]).
         EngineError::ConversionTimedOut(_)
         | EngineError::UnsupportedFormat(_)
-        | EngineError::PdfProtected(_) => {
-            let event = match e {
-                EngineError::ConversionTimedOut(_) => "job_conversion_timeout",
-                _ => "job_failed_terminal",
-            };
-            job.state = JobState::Failed;
-            job.error = Some(to_job_error(e));
-            job.finished_at = Some(now_rfc3339());
-            job.progress = None;
-            if let Some(c) = job.cache_pdf.take() {
-                post.delete_cache.push(c);
-            }
-            let f = JobLog::of(job);
-            tracing::warn!(
-                event,
-                job_id = %job.id,
-                file = %f.file,
-                profile = %f.profile,
-                printer = %f.printer,
-                pages = f.pages,
-                status = %f.status,
-                started_at = %f.started_at,
-                finished_at = %f.finished_at,
-                attempts = job.attempts,
-                error = %f.error,
-                message = %e
-            );
+        | EngineError::PdfProtected(_) => terminal_failure(job, e, post),
+        EngineError::ConversionFailed(f)
+            if f.reason
+                .is_some_and(crate::util::reasons::is_terminal_conversion_reason) =>
+        {
+            terminal_failure(job, e, post)
         }
         // Cancellation is handled by the cancel path; defensive here.
         EngineError::Cancelled => {
@@ -2364,56 +2347,90 @@ fn record_failure(job: &mut Job, e: &EngineError, is_conversion: bool, post: &mu
                 post.delete_cache.push(c);
             }
         }
-        _ => {
-            job.attempts += 1;
-            job.error = Some(to_job_error(e));
-            job.progress = None;
-            if job.attempts >= MAX_ATTEMPTS {
-                job.state = JobState::Failed;
-                job.finished_at = Some(now_rfc3339());
-                if let Some(c) = job.cache_pdf.take() {
-                    post.delete_cache.push(c);
-                }
-                let f = JobLog::of(job);
-                tracing::warn!(
-                    event = "job_failed",
-                    job_id = %job.id,
-                    file = %f.file,
-                    profile = %f.profile,
-                    printer = %f.printer,
-                    pages = f.pages,
-                    status = %f.status,
-                    started_at = %f.started_at,
-                    finished_at = %f.finished_at,
-                    attempts = job.attempts,
-                    error = %f.error,
-                    message = %e
-                );
-            } else {
-                job.state = if is_conversion {
-                    JobState::Queued
-                } else {
-                    JobState::Converted
-                };
-                let idx = (job.attempts as usize - 1).min(RETRY_BACKOFFS.len() - 1);
-                post.retry = Some((job.id.clone(), RETRY_BACKOFFS[idx]));
-                let f = JobLog::of(job);
-                tracing::warn!(
-                    event = "job_retry_scheduled",
-                    job_id = %job.id,
-                    file = %f.file,
-                    profile = %f.profile,
-                    printer = %f.printer,
-                    pages = f.pages,
-                    status = %f.status,
-                    started_at = %f.started_at,
-                    attempts = job.attempts,
-                    backoff_ms = RETRY_BACKOFFS[idx].as_millis() as u64,
-                    error = %f.error,
-                    message = %e
-                );
-            }
+        _ => retry_or_fail(job, e, is_conversion, post),
+    }
+}
+
+/// Fail `job` at once with `e`: a retry would fail the same way.
+fn terminal_failure(job: &mut Job, e: &EngineError, post: &mut Post) {
+    let event = match e {
+        EngineError::ConversionTimedOut(_) => "job_conversion_timeout",
+        _ => "job_failed_terminal",
+    };
+    job.state = JobState::Failed;
+    job.error = Some(to_job_error(e));
+    job.finished_at = Some(now_rfc3339());
+    job.progress = None;
+    if let Some(c) = job.cache_pdf.take() {
+        post.delete_cache.push(c);
+    }
+    let f = JobLog::of(job);
+    tracing::warn!(
+        event,
+        job_id = %job.id,
+        file = %f.file,
+        profile = %f.profile,
+        printer = %f.printer,
+        pages = f.pages,
+        status = %f.status,
+        started_at = %f.started_at,
+        finished_at = %f.finished_at,
+        attempts = job.attempts,
+        error = %f.error,
+        message = %e
+    );
+}
+
+/// Count one more failed attempt of `job`, and schedule its FR-034 retry or
+/// fail it once [`MAX_ATTEMPTS`] is reached.
+fn retry_or_fail(job: &mut Job, e: &EngineError, is_conversion: bool, post: &mut Post) {
+    job.attempts += 1;
+    job.error = Some(to_job_error(e));
+    job.progress = None;
+    if job.attempts >= MAX_ATTEMPTS {
+        job.state = JobState::Failed;
+        job.finished_at = Some(now_rfc3339());
+        if let Some(c) = job.cache_pdf.take() {
+            post.delete_cache.push(c);
         }
+        let f = JobLog::of(job);
+        tracing::warn!(
+            event = "job_failed",
+            job_id = %job.id,
+            file = %f.file,
+            profile = %f.profile,
+            printer = %f.printer,
+            pages = f.pages,
+            status = %f.status,
+            started_at = %f.started_at,
+            finished_at = %f.finished_at,
+            attempts = job.attempts,
+            error = %f.error,
+            message = %e
+        );
+    } else {
+        job.state = if is_conversion {
+            JobState::Queued
+        } else {
+            JobState::Converted
+        };
+        let idx = (job.attempts as usize - 1).min(RETRY_BACKOFFS.len() - 1);
+        post.retry = Some((job.id.clone(), RETRY_BACKOFFS[idx]));
+        let f = JobLog::of(job);
+        tracing::warn!(
+            event = "job_retry_scheduled",
+            job_id = %job.id,
+            file = %f.file,
+            profile = %f.profile,
+            printer = %f.printer,
+            pages = f.pages,
+            status = %f.status,
+            started_at = %f.started_at,
+            attempts = job.attempts,
+            backoff_ms = RETRY_BACKOFFS[idx].as_millis() as u64,
+            error = %f.error,
+            message = %e
+        );
     }
 }
 
@@ -3320,6 +3337,45 @@ mod tests {
         assert_eq!(job.error.unwrap().code, "unsupported_format");
         assert_eq!(h.runner.convert_calls.load(Ordering::Relaxed), 1);
         assert!(!h.d.delayed.contains_key(&id), "no retry is scheduled");
+    }
+
+    /// FR-034: a conversion failure with a deterministic reason (the app
+    /// missing next to the CLI, a page that names a share or cannot be
+    /// checked) fails at once; it used to burn the whole retry chain first.
+    /// A failure with any other reason is still retried.
+    #[tokio::test]
+    async fn fr_034_deterministic_conversion_failures_are_terminal() {
+        for reason in crate::util::reasons::TERMINAL_CONVERSION_REASONS {
+            let mut h = harness();
+            push_error(
+                &h,
+                EngineError::ConversionFailed(crate::engine::Failure::new(reason, "x")),
+            );
+            let j = make_job("page.html");
+            let id = j.id.clone();
+            h.submit(vec![j]);
+            h.run_to_idle();
+
+            let job = h.job(&id);
+            assert_eq!(job.state, JobState::Failed, "{reason}");
+            let err = job.error.unwrap();
+            assert_eq!(err.code, "conversion_failed");
+            assert_eq!(err.reason.as_deref(), Some(*reason));
+            assert_eq!(h.runner.convert_calls.load(Ordering::Relaxed), 1);
+            assert!(!h.d.delayed.contains_key(&id), "{reason}: no retry");
+        }
+
+        let mut h = harness();
+        push_error(
+            &h,
+            EngineError::ConversionFailed(crate::engine::Failure::new("render_failed", "x")),
+        );
+        let j = make_job("page.html");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        assert_eq!(h.job(&id).attempts, 1);
+        assert!(h.d.delayed.contains_key(&id), "a render failure is retried");
     }
 
     /// FR-059: a PDF that forbids printing, or whose encryption cannot be

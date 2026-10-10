@@ -278,6 +278,9 @@ pub const JOB_REASONS: &[ReasonSpec<&'static str>] = &[
     ("conversion_failed", "render_worker_missing", &[]),
     // The browser fallback refuses a page whose stylesheets name a share.
     ("conversion_failed", "share_reference_refused", &[]),
+    // The browser fallback refuses a page (or a stylesheet of it) it cannot
+    // fully check: too large, too many stylesheets, an unknown encoding.
+    ("conversion_failed", "page_not_checkable", &[]),
     ("conversion_failed", "text_unreadable", &[]),
     // --- Printing ---
     ("print_failed", "sumatra_start_failed", &[]),
@@ -322,6 +325,23 @@ pub const PREVIEW_NOTES: &[(&str, &[&str])] = &[
     ("paper_not_listed", &["paper"]),
     ("tray_not_listed", &["tray"]),
 ];
+
+/// The `conversion_failed` reasons that are deterministic: the same file on
+/// the same machine fails the same way every time, so the queue fails the job
+/// at once instead of retrying it (FR-034 retries are for transient failures).
+pub const TERMINAL_CONVERSION_REASONS: &[&str] = &[
+    "render_worker_missing",
+    "share_reference_refused",
+    "page_not_checkable",
+    "svg_too_large",
+    "heif_size_unsupported",
+];
+
+/// Whether a `conversion_failed` `reason` is terminal
+/// ([`TERMINAL_CONVERSION_REASONS`]).
+pub fn is_terminal_conversion_reason(reason: &str) -> bool {
+    TERMINAL_CONVERSION_REASONS.contains(&reason)
+}
 
 /// Whether `reason` is a registered preview note.
 pub fn is_preview_note(reason: &str) -> bool {
@@ -545,6 +565,15 @@ mod tests {
             }
         }
         assert!(errors.is_empty(), "{}", errors.join("\n"));
+    }
+
+    /// Every terminal conversion reason is a registered one.
+    #[test]
+    fn fr_034_terminal_conversion_reasons_are_registered() {
+        for reason in TERMINAL_CONVERSION_REASONS {
+            assert!(is_job_reason("conversion_failed", reason), "{reason}");
+        }
+        assert!(!is_terminal_conversion_reason("render_failed"));
     }
 
     #[test]
