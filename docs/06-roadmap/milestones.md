@@ -6,14 +6,14 @@ This document is the source of truth for what each milestone contains. Anything 
 
 ## Overview
 
-| Milestone | Theme | Public version | Status (2026-07-20) |
+| Milestone | Theme | Public version | Status (2026-10-10, after round 3) |
 |---|---|---|---|
 | M0 | Foundation | `0.0.1` (repo only) | Done |
-| M1 | Print Core (Win) | `0.1.0-alpha` (internal) | In progress — scope delivered, exit criteria unverified |
-| M2 | Shell Integration (Win) | `0.1.0-beta` (public) | In progress — handlers built, packaging not started |
-| M3 | Multi-format (Win) | `0.2.0` | Planned |
-| M4 | Auto-update + Polish (Win) | `1.0.0` GA | Planned (i18n pulled forward into M1) |
-| M5 | macOS Port | `1.1.0` | Planned (printing + Finder entry pulled forward) |
+| M1 | Print Core (Win) | `0.1.0-alpha` (internal) | Scope delivered, exit criteria unverified |
+| M2 | Shell Integration (Win) | `0.1.0-beta` (public) | Installer and classic-menu entry shipped; Windows 11 top-level menu waits for a certificate (D3) |
+| M3 | Multi-format (Win) | `0.2.0` | Adapters delivered (every format but GIF, which is refused by decision); Settings dependency panel owed |
+| M4 | Auto-update + Polish (Win) | `1.0.0` GA | Update install, channels, release pipeline and i18n delivered; no OS certificates by decision (ADR-0011); no release published |
+| M5 | macOS Port | `1.1.0` | Printing, Finder entry and per-architecture `.dmg` delivered; no notarization by decision |
 
 Milestones are strictly sequential. We do not start M(n+1) work until M(n) exit criteria are met. Spillover items roll forward and reduce the next milestone's headroom.
 
@@ -68,7 +68,11 @@ None. M0 is the bootstrap.
 
 **Goal:** Printing works from a CLI on Windows for PDF inputs, with a profiles system and a minimal GUI.
 
-### Status (2026-07-20) — in progress
+### Status (2026-10-10) — scope delivered
+
+Round 3 closed the items the entry below left open: the **per-user NSIS installer** bundles SumatraPDF 3.6.1 for x64 and ARM64 ([installer-windows.md](../07-build-and-release/installer-windows.md)); `tray` and `quality` **reach the printer** (CUPS options; on Windows the driver's bin id and a temporary per-user quality default, D16); the **release pipeline** signs, verifies and drafts releases on a tag, and the **channels** read their own manifests ([ADR-0011](../adr/0011-release-channel.md)). A print nobody confirmed now ends `unconfirmed`, never done. Still open: the exit criteria below (no fixture-diff print test, no `clippy::panic` gate), no published release, and no per-profile notification mute (FR-073).
+
+### Status (2026-07-20) — superseded by the entry above
 
 **Delivered since the 2026-07-12 entry below:**
 
@@ -150,7 +154,11 @@ Note: several scope lines below are framed Windows-first, but the enumeration/pr
 
 **Goal:** Right-click in File Explorer on a selection of files surfaces a "Print all with Pluryprint" submenu that hands the selection to the running app (or starts it).
 
-### Status (2026-07-20) — in progress, started ahead of M1 sign-off
+### Status (2026-10-10) — shipped in the classic menu
+
+The installer registers the handler per user as an `ExplorerCommandHandler` verb, with the DLL of the operating system's native architecture, and removes it on uninstall ([ADR-0013](../adr/0013-explorer-command-per-user-verb.md), supersedes ADR-0005). Verified on Windows 11 24H2 ARM64 with UAC on, with real right-clicks: the full submenu under **Show more options**, and forwarded selections acted on at once (the window is raised without faked input). That registration is also what the Windows 10 menu shows, so the separate Windows 10 fallback is moot; no Windows 10 machine has run it. **Still open:** the Windows 11 top-level entry, which needs a sparse package signed with a trusted certificate (decision D3, [shell-extensions.md §2.5](../04-architecture/shell-extensions.md)); the x64 installer emulated on ARM is untested; there is no Inno Setup installer and none is planned (ADR-0008).
+
+### Status (2026-07-20) — superseded by the entry above
 
 **Delivered:**
 
@@ -210,7 +218,11 @@ Note: several scope lines below are framed Windows-first, but the enumeration/pr
 
 **Goal:** Office documents, web pages, Markdown, and images print transparently through format-specific adapters.
 
-### Status (2026-07-20) — planned, with one line already delivered
+### Status (2026-10-10) — adapters delivered
+
+Every format in [supported-formats.md](../03-requirements/supported-formats.md) prints. Round 3 replaced the browser and Pandoc routes with the system web view in a worker process ([ADR-0012](../adr/0012-system-web-view-renderer.md)), added SVG/SVGZ as vector pages, decoded text and Markdown in-process, sent RTF through `textutil` on macOS, hardened LibreOffice's profile against linked resources, and made encrypted PDFs ask for their password. GIF is refused by decision (D9). Missing LibreOffice or HEIC codecs pause the job and can be installed from the Print Job screen after consent (D13). Still open: the always-on Settings dependency panel, magic-byte detection, `qpdf` preprocessing, and per-format adapter selection in profiles.
+
+### Status (2026-07-20) — superseded by the entry above
 
 **Dependency detection is done** (`engine::deps`, FR-058): LibreOffice, Chromium and Pandoc are located across bundled directories, `PATH` and the usual per-OS install locations, reported through `app_info`, and surfaced with remediation text on the Print Job screen — but only for the dependencies that actually gate a file the user added. The always-on Settings panel in the M3 deliverables table is still owed. ImageMagick is not probed, because nothing uses it yet.
 
@@ -260,7 +272,11 @@ Note: several scope lines below are framed Windows-first, but the enumeration/pr
 
 **Goal:** A signed, reputation-bearing 1.0.0 that updates itself silently, supports English and Spanish, and is ready for general public consumption.
 
-### Status (2026-07-20) — planned, minus the i18n line
+### Status (2026-10-10) — delivered except the certificates
+
+Signed in-app updates (FR-082/083/084/087), stable and beta manifests (FR-085; nightly follows beta), the release workflow that builds, signs, verifies and drafts the four targets with checksums and sources, and backend reasons translated in the UI (FR-092) are all in place. By decision ([ADR-0011](../adr/0011-release-channel.md)) there is no EV certificate and no Developer ID: SmartScreen and Gatekeeper warn, and the release notes explain both. Still open: no published release (the repository is private until the first stable one), no downgrade confirmation (FR-086), no `axe-core` gate, no silent background install (installs happen only when the user asks).
+
+### Status (2026-07-20) — superseded by the entry above
 
 The **i18n scope below is already delivered** (in M1): EN + ES catalogues externalized per screen, OS-locale detection on first run, a Settings selector. Two caveats against the scope text — it is a small in-house translator, not `react-i18next`, and there is no `fluent-rs`, so **backend strings are not translated**. `i18next-parser` is not in the toolchain either, so translation completeness is not machine-checked.
 
@@ -311,7 +327,11 @@ Everything else in M4 is untouched: no download-verify-relaunch path, no updater
 
 **Goal:** A notarized, signed macOS application with a Finder Sync Extension or Quick Action that mirrors the Windows shell integration UX.
 
-### Status (2026-07-20) — planned, but the two hardest technical questions are already answered
+### Status (2026-10-10) — shipping without notarization
+
+`release.yml` builds `aarch64-apple-darwin` and `x86_64-apple-darwin` as separate, ad-hoc-signed `.dmg` downloads with signed updater archives; HTML, Markdown and text print through WKWebView in a worker, and RTF through `textutil`. By decision there is no Developer ID, no notarization and no universal binary (ADR-0011); the release notes give the Gatekeeper step. The Finder entry is the `NSServices` provider described below.
+
+### Status (2026-07-20) — superseded by the entry above
 
 Delivered early, alongside M1/M2:
 
