@@ -51,7 +51,9 @@ pub const CACHE_SCHEMA_VERSION: u32 = 1;
 /// A profile the user can print with straight from the menu.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Profile {
+    /// Profile id, written into the handoff's `profile_id` when chosen.
     pub id: String,
+    /// Display name substituted into the "Print with …" label.
     pub name: String,
 }
 
@@ -67,8 +69,11 @@ pub enum MenuItem {
 /// A clickable entry and the invocation it produces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuCommand {
+    /// Localized label shown in the menu.
     pub title: String,
+    /// What the app is asked to do when this entry is clicked.
     pub action: Action,
+    /// Profile to print with, for a per-profile entry; `None` otherwise.
     pub profile_id: Option<String>,
     /// Rendered bold by Explorer (`ECS_DEFAULT` is not a thing for sub-items;
     /// this maps to `ECF_DEFAULT`).
@@ -119,7 +124,9 @@ pub struct Strings {
     pub schema_version: u32,
     /// BCP-47 tag of the language the labels are in. Diagnostics only.
     pub lang: String,
+    /// The localized labels, already in `{count}`/`{name}` placeholder syntax.
     pub labels: Labels,
+    /// Profiles offered as "Print with …" entries, in menu order.
     pub profiles: Vec<Profile>,
 }
 

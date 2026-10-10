@@ -84,11 +84,18 @@ impl Serialize for Action {
 /// contract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Handoff {
+    /// Payload format version ([`SCHEMA_VERSION`]); the app refuses any other.
     pub schema_version: u32,
+    /// Which integration wrote the file; always [`SOURCE`] here.
     pub source: String,
+    /// What the user picked from the menu.
     pub action: Action,
+    /// Profile to print with, for a "Print with …" entry; `None` otherwise.
     pub profile_id: Option<String>,
+    /// RFC 3339 UTC time of the click; the app refuses a stale payload.
     pub invoked_at: String,
+    /// The selected items as Explorer reported them: never empty, at most
+    /// [`MAX_PATHS`], and cut short to keep the file under [`MAX_BYTES`].
     pub paths: Vec<String>,
     /// The real selection size when it was cut to [`MAX_PATHS`]; `null`
     /// otherwise. The app shows a warning for it (FR-005: nothing is dropped
