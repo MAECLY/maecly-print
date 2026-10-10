@@ -44,8 +44,21 @@ Vitest), and `pnpm test:e2e` is the sole WebdriverIO entry point.
 ## WebdriverIO on Windows
 
 `tauri-driver` supports **Windows and Linux only**. The CI e2e job runs on
-Windows and is **non-blocking** (`continue-on-error`) because a real GUI driver
-is inherently flake-prone.
+Windows. Two smoke specs (`about`, `queue`) gate it, so a suite that cannot
+open a session at all fails the job; the full suite is advisory
+(`continue-on-error`) because a real GUI driver is flake-prone.
+
+Two things make WebDriver reach the app's WebView2, both verified on Windows
+11 ARM64 with WebView2 154:
+
+- `msedgedriver` asks for its debugging port through
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, which WebView2 ignores once wry
+  passes explicit arguments. The app folds that variable into its windows'
+  arguments at startup (`util::chromium::merge_browser_args`); without it every
+  session failed with `DevToolsActivePort file doesn't exist`.
+- `wdio.conf.ts` sets `wdio:enforceWebDriverClassic`: WebDriver BiDi commands
+  target a browsing context msedgedriver does not have for a WebView2, and the
+  specs then read a blank page.
 
 ```powershell
 # 1. Install the WebDriver bridge (once).

@@ -63,6 +63,11 @@ export const config: WebdriverIO.Config = {
       'tauri:options': { application },
       // tauri-driver ignores browserName, but wdio requires a value.
       browserName: 'wry',
+      // WebDriver BiDi does not reach the app's WebView2 through
+      // msedgedriver: its commands target a browsing context that does not
+      // exist ("Cannot find context with specified id") and the specs read a
+      // blank page. Classic WebDriver addresses the window that is there.
+      'wdio:enforceWebDriverClassic': true,
     } as WebdriverIO.Capabilities,
   ],
 

@@ -415,9 +415,9 @@ jobs:
     needs: [frontend, backend]
     runs-on: windows-latest
     timeout-minutes: 35
-    # Non-blocking: driving a real WebView2 GUI through tauri-driver (pre-1.0)
-    # is inherently flake-prone, so failures inform but do not gate merges.
-    continue-on-error: true
+    # The smoke specs below gate the job, so a suite that can no longer even
+    # open a WebDriver session (as happened when WebView2 ignored the driver's
+    # arguments) fails loudly. The full suite stays advisory.
     steps:
       - uses: actions/checkout@v4
 
@@ -468,15 +468,18 @@ jobs:
           "NATIVE_DRIVER=$dest\msedgedriver.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "msedgedriver at $dest\msedgedriver.exe"
 
-      # Build the frontend then the app binary directly (faster than a full
-      # `tauri build`, which also produces installers the E2E run doesn't need).
-      - name: Build frontend + app binary (debug)
-        run: |
-          pnpm build
-          cargo build --manifest-path src-tauri/Cargo.toml
+      # `tauri build --no-bundle` builds the frontend and embeds it (a plain
+      # `cargo build` is a dev build that loads devUrl, which nothing serves
+      # here) without producing installers the E2E run does not need.
+      - name: Build the app (debug, assets embedded)
+        run: pnpm tauri build --debug --no-bundle --config src-tauri/tauri.ci.conf.json
 
       # wdio.conf.ts spawns tauri-driver with --native-driver $NATIVE_DRIVER.
-      - name: Run E2E specs
+      - name: Run E2E smoke specs (blocking)
+        run: pnpm test:e2e --spec e2e/specs/about.e2e.ts --spec e2e/specs/queue.e2e.ts
+
+      - name: Run the full E2E suite (advisory)
+        continue-on-error: true
         run: pnpm test:e2e
 
       - name: Upload E2E artifacts (screenshots)
