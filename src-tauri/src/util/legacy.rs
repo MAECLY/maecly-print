@@ -374,8 +374,9 @@ fn migrate_with(layout: &Layout, ops: &Ops) -> Migration {
             merge_with(&pair.old, &pair.new, &mut report, ops);
         }
     }
-    // The old lock was deleted with its folder's contents while held (Windows
-    // lets it go once the handle closes), so the folders can go now.
+    // Everything else has moved: release the old lock, delete it, and then the
+    // emptied folders can go. The lock only detects an old app that is already
+    // running; a pre-rename build starts even when it finds it held.
     drop(old_guard);
     let _ = std::fs::remove_file(&layout.old_lock);
     for pair in &layout.pairs {
@@ -546,9 +547,11 @@ fn merge_with(old: &Path, new: &Path, report: &mut Report, ops: &Ops) {
     for entry in entries.flatten() {
         let name = entry.file_name();
         // The old app's lock is not state: it has no meaning for the new app,
-        // which keeps its own next to its own queue.json.
+        // which keeps its own next to its own queue.json. It is left in place
+        // here and removed only after the move, once its guard is dropped:
+        // deleting it now would let an old app starting mid-move take a fresh
+        // lock while queue.json is still being moved (NTFS lists it first).
         if name == instance::LOCK_FILE {
-            let _ = std::fs::remove_file(entry.path());
             continue;
         }
         let src = entry.path();
@@ -1124,6 +1127,8 @@ mod tests {
     fn the_old_lock_is_held_for_the_whole_move() {
         let root = tempfile::tempdir().unwrap();
         let layout = Layout::windows(&root.path().join("Roaming"), &root.path().join("Local"));
+        // A stale lock left on disk, listed before queue.json as NTFS would.
+        write(&layout.old_lock, "");
         write(&layout.old_lock.with_file_name("queue.json"), "[]");
         write(&layout.pairs[0].old.join("config.toml"), "cfg");
         let old_lock = layout.old_lock.clone();
