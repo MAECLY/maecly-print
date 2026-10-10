@@ -388,7 +388,11 @@
   ; runs only with displayLanguageSelector (off: the setup takes the Windows
   ; display language). Without the value the uninstaller of a two-language
   ; build opened with an "Installer Language" dialog. Tauri's uninstaller
-  ; deletes the value itself.
+  ; deletes the value itself, with the rest of that key, when "Delete the
+  ; application data" is ticked; otherwise it stays, like the install path
+  ; Tauri keeps there, for the next setup. Checked on the Windows 11 VM: an
+  ; es-ES display language gives a Spanish setup and uninstaller, en-US
+  ; English ones, and neither asks.
   !ifdef MUI_LANGDLL_REGISTRY_KEY & MUI_LANGDLL_REGISTRY_VALUENAME
     WriteRegStr HKCU "${MUI_LANGDLL_REGISTRY_KEY}" "${MUI_LANGDLL_REGISTRY_VALUENAME}" "$LANGUAGE"
   !else
