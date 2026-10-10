@@ -116,6 +116,10 @@ def stage_bundle(bundle_dir: str, label: str, version: str, out: str,
     """Copy one build's release files into `out`. Returns their names."""
     if label not in PLATFORMS:
         raise ValueError(f"unknown label {label!r}; one of {sorted(PLATFORMS)}")
+    if os.path.isdir(out) and os.listdir(out):
+        # A shared folder (Vite's dist/ cost the first 0.0.1 draft) would
+        # carry foreign files into the artifact and the release.
+        raise ValueError(f"{out} is not empty; stage into a fresh folder")
     os.makedirs(out, exist_ok=True)
     staged = []
     for sub, suffix, ext in BUNDLE_KINDS:

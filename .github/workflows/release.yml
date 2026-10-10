@@ -344,7 +344,9 @@ jobs:
             "$app/Contents/MacOS/pluryprint" --version
           fi
 
-      # The release names, and no throwaway signature among them.
+      # The release names, and no throwaway signature among them. Not `dist/`:
+      # that is Vite's output (index.html, assets/), which would ride along into
+      # the artifact and the release.
       - name: Stage the release files
         shell: bash
         env:
@@ -356,14 +358,14 @@ jobs:
           version=$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d'"' -f2)
           "$PYTHON" -I scripts/release/release_tools.py stage-bundle \
             --bundle-dir "src-tauri/target/$TARGET/release/bundle" \
-            --label "$LABEL" --version "$version" --out dist
-          ls -la dist
+            --label "$LABEL" --version "$version" --out release-staging
+          ls -la release-staging
 
       - name: Upload the unsigned files
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: unsigned-${{ matrix.label }}
-          path: dist/
+          path: release-staging/
           if-no-files-found: error
           retention-days: 7
 
