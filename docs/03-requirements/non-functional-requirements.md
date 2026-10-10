@@ -17,9 +17,9 @@ Each NFR has a stable ID (`NFR-XXX`), a measurable target, and a verification me
 | NFR-003 | Idle RAM usage of the resident GUI MUST be <100 MB | RSS ≤ 100 MB after 60s idle | `ps`/Task Manager assertion in CI |
 | NFR-004 | Peak RAM usage with 50 jobs queued MUST be <250 MB | RSS ≤ 250 MB | Load test |
 | NFR-005 | The system MUST NOT add more than 50 ms of overhead to the total per-file printing time vs invoking the same backend (SumatraPDF/CUPS) directly | Δ ≤ 50 ms p50 | Microbenchmark in CI |
-| NFR-006 | The Windows installer (`setup.exe`) MUST be ≤ 15 MB | size ≤ 15 MB | Size assertion in release pipeline |
-| NFR-007 | The macOS `.dmg` MUST be ≤ 25 MB (universal binary) | size ≤ 25 MB | Same |
-| NFR-008 | The Sparse MSIX package MUST be ≤ 2 MB | size ≤ 2 MB | Same |
+| NFR-006 | The Windows installer (`setup.exe`) MUST be ≤ 15 MB | size ≤ 15 MB | Size assertion in release pipeline — **in place**: `release.yml` fails a Windows build over 15 MiB, `ci.yml`'s `installers` job reports the size and warns. Measured: the ARM64 installer is 13.48 MiB, about 8 MiB of it SumatraPDF ([releasing.md §9](../07-build-and-release/releasing.md)) |
+| NFR-007 | The macOS `.dmg` MUST be ≤ 25 MB (universal binary) | size ≤ 25 MB | Same — **not gated**: releases ship one `.dmg` per architecture (`apple_silicon`, `apple_intel`), not a universal binary, and no step measures them |
+| NFR-008 | The Sparse MSIX package MUST be ≤ 2 MB | size ≤ 2 MB | Same — **not applicable yet**: no sparse package is built (decision D3, [shell-extensions.md §2.5](../04-architecture/shell-extensions.md)) |
 
 ## 2. Reliability
 
@@ -36,13 +36,13 @@ Each NFR has a stable ID (`NFR-XXX`), a measurable target, and a verification me
 | ID | Requirement | Target | Verification |
 |---|---|---|---|
 | NFR-020 | The application MUST install and run without administrator privileges for normal use | Install in `%LOCALAPPDATA%`, register in `HKCU` only | Manual QA on standard user account |
-| NFR-021 | All released binaries MUST be code-signed with a valid certificate (EV cert preferred for Windows from day 1) | `signtool verify /pa` passes; Apple `codesign -dvv` passes; notarization passes | Release pipeline gate |
+| NFR-021 | All released binaries MUST be code-signed with a valid certificate (EV cert preferred for Windows from day 1) | `signtool verify /pa` passes; Apple `codesign -dvv` passes; notarization passes | Release pipeline gate — **not met, by decision**: [ADR-0011](../adr/0011-release-channel.md) ships without Apple or Microsoft certificates; updates are signed with Pluryprint's own minisign key and every release lists SHA-256 checksums, and the release notes explain the Gatekeeper and SmartScreen warnings |
 | NFR-022 | All update artifacts MUST be cryptographically signed; the client MUST refuse unsigned or wrongly-signed updates | Tampered update is rejected with `SignatureMismatch` error | Updater integration test |
-| NFR-023 | The application MUST NOT make any unsolicited network requests except to the configured update server | Network audit shows only `updates.maecly.com` egress (or user-configured override) | Wireshark capture in QA |
+| NFR-023 | The application MUST NOT make any unsolicited network requests except to the configured update server | Network audit shows only the update manifest's host (`github.com` release assets for the user's channel, or `PLURYPRINT_UPDATE_ENDPOINT`) | Wireshark capture in QA — not run. By construction: the converters and render workers get no network (dead proxies, request filters, a hardened LibreOffice profile), and a dependency install reaches winget, Homebrew or a web page only after the user's consent |
 | NFR-024 | The shell extension COM DLL MUST be limited to: receive selection, serialize to file/stdin, spawn the main executable. It MUST NOT touch user data. | Code review + LOC budget ≤ 1500 | Code review checklist |
 | NFR-025 | The application MUST validate all file paths from the shell extension as canonical absolute paths before passing to converters (no path traversal). | Fuzz test with `..\..\..\Windows\System32` payloads | Fuzz harness |
-| NFR-026 | All third-party converter invocations MUST use **arg vector** APIs (`Command::new(...).args(...)`), never shell strings, to prevent command injection. | Code review; clippy lint `clippy::cmd_arg_string` enabled | Static analysis |
-| NFR-027 | Secrets (signing private keys, future API tokens) MUST NEVER be committed; CI uses GitHub Secrets / OIDC. | **No gitleaks scan exists.** Vacuously satisfied today: `ci.yml` reads no secret at all, because nothing signs or publishes. | — |
+| NFR-026 | All third-party converter invocations MUST use **arg vector** APIs (`Command::new(...).args(...)`), never shell strings, to prevent command injection. | Code review; clippy lint `clippy::cmd_arg_string` enabled | Static analysis — every converter, worker and the winget/brew dependency installs use an argument vector; `clippy::cmd_arg_string` is not a real lint, so this is held by review and the `process` tests |
+| NFR-027 | Secrets (signing private keys, future API tokens) MUST NEVER be committed; CI uses GitHub Secrets / OIDC. | **No gitleaks scan exists.** `ci.yml` reads no secret; `release.yml` reads the updater key from the `TAURI_SIGNING_PRIVATE_KEY` GitHub secret and stops when it is unset. The private key lives outside the repository. | — |
 
 ## 4. Usability
 
@@ -91,7 +91,7 @@ Each NFR has a stable ID (`NFR-XXX`), a measurable target, and a verification me
 
 | ID | Requirement | Target | Verification |
 |---|---|---|---|
-| NFR-070 | A single codebase MUST support Windows (x64, ARM64) and macOS (Apple Silicon, Intel) | **Not verified for all four.** `ci.yml` builds only each runner's native architecture; the sole cross-arch matrix is `shell-ext-win` (x64 + ARM64, ARM64 build-only). No `x86_64-apple-darwin` lane, no universal binary. | Partial CI |
+| NFR-070 | A single codebase MUST support Windows (x64, ARM64) and macOS (Apple Silicon, Intel) | **Built for all four on release.** `release.yml` builds `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc` and refuses a release missing any of them. `ci.yml` tests natively, adds `cargo check` for `aarch64-pc-windows-msvc`, and builds both Windows installers in its `installers` job. Tests run natively on Windows x64 and ARM64 (the VM) and on Apple silicon; no Intel Mac runs them. No universal binary. | CI + release |
 | NFR-071 | Platform-specific code MUST be isolated to clearly named modules | **Met.** `src-tauri/src/platform/`: `windows.rs`, `cups.rs`, `macos/`. Windows is a single file rather than a directory; the isolation requirement is satisfied either way. | Code review |
 | NFR-072 | The system MUST NOT require Linux support in v1; Linux MAY be added in v2 if community demand exists | Documented in [milestones.md](../06-roadmap/milestones.md) | Roadmap |
 
@@ -118,7 +118,7 @@ See [privacy.md](../09-legal/privacy.md) for the full statement.
 
 | ID | Requirement | Target | Verification |
 |---|---|---|---|
-| NFR-100 | The project MUST comply with AGPL-3.0 obligations: source disclosure, license text in distribution, copyright notices preserved. | `LICENSE`, `THIRD-PARTY-NOTICES.md` and `LICENSES/` present in the bundle (`src-tauri/tests/licence_bundle.rs`); About links the source, the license, the CLA and the notices | Release checklist |
+| NFR-100 | The project MUST comply with AGPL-3.0 obligations: source disclosure, license text in distribution, copyright notices preserved. | `LICENSE`, `THIRD-PARTY-NOTICES.md` and `LICENSES/` present in the bundle (`src-tauri/tests/licence_bundle.rs`); About links the source, the license, the CLA and the notices. `THIRD-PARTY-NOTICES.md` is generated (`scripts/licenses/generate-notices.sh`, checked current by CI), SumatraPDF ships with its GPL-3.0 written source offer (`SOURCE-OFFER.txt`), and every release attaches the Pluryprint and SumatraPDF sources | Release checklist |
 | NFR-101 | All bundled third-party components MUST be license-compatible with the AGPL-3.0. See [third-party-licenses.md](../09-legal/third-party-licenses.md). | License audit per release | Release checklist |
 | NFR-102 | The project MUST publish a SECURITY.md with a private vulnerability disclosure channel. | File exists, channel works | Release checklist |
 
@@ -141,19 +141,21 @@ Verified against the tree. Only NFRs whose status is non-obvious or has recently
 | **NFR-061** | **Newly met.** `#![deny(missing_docs)]` in `src-tauri/src/lib.rs` and `shell-ext-win/src/lib.rs`: an undocumented public item is a compile error, so the bar is held by every `cargo build`/`clippy`/`test` in CI rather than by review. Doc comments on `specta`-exported types also flow into `src/ipc/bindings.ts` as JSDoc. |
 | **NFR-071** | `src-tauri/src/platform/{windows.rs, cups.rs, macos/}`. |
 | **NFR-081** | `logging::Policy` — daily + size roll, swept at startup and on every roll by `retain_days` (14) and `retain_files` (7), whichever bites first. |
+| **NFR-006** | `release.yml` fails a Windows installer over 15 MiB; the ARM64 installer measured 13.48 MiB on 2026-10-10. The x64 size is reported by every CI and release build. |
+| **NFR-020** | The per-user NSIS installer (`installMode: "currentUser"`) installs to `%LOCALAPPDATA%\Pluryprint` and registers the Explorer command under `HKCU` only. Verified on Windows 11 24H2 ARM64 from a medium-integrity session with UAC on: no elevation prompt, nothing under `HKLM`. Installing LibreOffice from the dependency dialog is the one action that asks for administrator approval, and the dialog says so first. |
 
 ### Not met, or unverified
 
 | ID | Reality |
 |---|---|
-| **NFR-001 … NFR-008** | No performance or artifact-size measurement of any kind. There is no `benches/` directory, no `criterion`, no RAM assertion, and no installer to measure. |
-| **NFR-021** | Nothing is code-signed (no Authenticode, no Developer ID). |
-| **NFR-022** | *Client side met:* the app refuses unsigned or wrongly-signed updates (`UpdateSignatureInvalid`; unit-tested mapping, and checked by hand against a one-byte-tampered artifact served locally). No release pipeline signs and publishes artifacts yet, and the check is not an automated integration test. |
-| **NFR-027** | No gitleaks scan. Vacuously true today — `ci.yml` reads no secrets. |
+| **NFR-001 … NFR-005, NFR-007, NFR-008** | No performance measurement of any kind: no `benches/` directory, no `criterion`, no RAM assertion. The macOS `.dmg` is not measured, and there is no sparse package. |
+| **NFR-021** | Nothing is code-signed (no Authenticode, no Developer ID), by decision ([ADR-0011](../adr/0011-release-channel.md)). |
+| **NFR-022** | *Met on both sides, not yet exercised by a published release:* the app refuses unsigned or wrongly-signed updates (`UpdateSignatureInvalid`; unit-tested mapping, and checked by hand against a one-byte-tampered artifact served locally), and `release.yml` signs every updater artifact, then verifies each signature against the key compiled into the app and checks that a tampered copy fails before the draft is finished. No release has been published yet. |
+| **NFR-027** | No gitleaks scan. The only secret in use is the updater key, read by `release.yml` from GitHub Secrets. |
 | **NFR-040** | No axe-core, no Playwright. WCAG AA is approached through the per-component assertions listed above, not through an automated conformance scan. |
 | **NFR-050** | Neither the ESLint rule nor the (non-existent) Rust attribute is in place; externalisation is enforced by review. |
 | **NFR-051, NFR-052, NFR-053** | See the inline notes: no ICU, no gendered forms, adding a language touches code, no expansion testing. |
 | **NFR-060** | Gated, but with `cargo llvm-cov` rather than tarpaulin, and the TS thresholds sit below the 60% target as a regression gate. |
 | **NFR-064** | No reproducibility verification. |
 | **NFR-065** | No `cargo audit` / `pnpm audit` workflow. |
-| **NFR-070** | Only native architectures are built in CI; no universal macOS binary. |
+| **NFR-070** | All four targets are built by `release.yml`, but no Intel Mac runs the tests, and there is no universal macOS binary. |
