@@ -12678,7 +12678,7 @@ the following restrictions:
 | `scheduler`                 | 0.28.0  | MIT               |
 | `sonner`                    | 2.0.8   | MIT               |
 | `tailwindcss`               | 3.4.19  | MIT               |
-| `zustand`                   | 5.0.14  | MIT               |
+| `zustand`                   | 5.0.15  | MIT               |
 
 ### `@tauri-apps/api` 2.11.0
 
@@ -13056,7 +13056,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### `zustand` 5.0.14
+### `zustand` 5.0.15
 
 MIT. https://github.com/pmndrs/zustand
 

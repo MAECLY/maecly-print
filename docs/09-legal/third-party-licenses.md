@@ -81,7 +81,7 @@ This crate is deliberately **not** a workspace member (see [`../04-architecture/
 | `react`, `react-dom` | ^19.3.0 | MIT | UI runtime |
 | `@tauri-apps/api` | ^2.1.1 | MIT / Apache-2.0 | IPC + event bridge |
 | `@tauri-apps/plugin-dialog` | ^2.7.1 | MIT / Apache-2.0 | File picker binding |
-| `zustand` | ^5.0.14 | MIT | Frontend state |
+| `zustand` | ^5.0.15 | MIT | Frontend state |
 | `sonner` | ^2.0.8 | MIT | Toasts |
 | JetBrains Mono (font, bundled `.woff2`) | — | SIL OFL 1.1 | Monospace typeface shipped offline |
 
