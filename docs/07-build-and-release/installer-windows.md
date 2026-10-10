@@ -21,6 +21,29 @@ ADRs are not rewritten, they are superseded. Do not edit ADR-0006 to match the c
 
 Whichever way it goes, one constraint binds both options: `SumatraPDF.exe` is **not committed**. Any packaging job must run `scripts/fetch-sumatrapdf.ps1` first, or `bundle.resources` (`resources/sumatrapdf/*`) copies only a `README.md` and every print job on the installed app fails with `DependencyMissing`.
 
+## Packaging a Windows installer (current procedure)
+
+Three steps, in this order, on a Windows machine of the installer's architecture (or with `-Arch` for the other one):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\fetch-sumatrapdf.ps1 -Arch arm64   # or x64
+powershell -ExecutionPolicy Bypass -File scripts\build-shell-ext.ps1 -Arch arm64    # or x64
+pnpm tauri build                      # PR/CI builds: --config src-tauri/tauri.ci.conf.json
+```
+
+- `fetch-sumatrapdf.ps1` puts the SumatraPDF build for that architecture, with its licence files, in `src-tauri/resources/sumatrapdf/`.
+- `build-shell-ext.ps1` builds `shell_ext_win.dll` and copies it to `src-tauri/windows/`. The installer hooks (`src-tauri/windows/installer-hooks.nsh`, wired through `bundle.windows.nsis.installerHooks`) refuse to build an installer without it.
+- The result is `src-tauri/target/release/bundle/nsis/MaeclyPrint_<version>_<arch>-setup.exe`, per user (`installMode: "currentUser"`), installing to `%LOCALAPPDATA%\MaeclyPrint\` with its uninstall entry under HKCU. No MSI is built (`bundle.targets` has no `msi`).
+
+What the hooks register, all under `HKCU\Software\Classes`:
+
+| Key | Value |
+|---|---|
+| `CLSID\{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}\InprocServer32` | `(Default)` = `<install dir>\shell_ext_win.dll`, `ThreadingModel` = `Apartment` |
+| `*\shell\MaeclyPrint` and `Directory\shell\MaeclyPrint` | `ExplorerCommandHandler` = the CLSID, `MultiSelectModel` = `Player`, `Icon` = `maeclyprint.exe,0` |
+
+That is the Windows 10 verb shape from `shell-ext-win/README.md`: the menu entry appears on Windows 10 and in the Windows 11 classic menu (*Show more options*, Shift+F10), for any number of selected items. Uninstall deletes the three keys. The Windows 11 top-level entry needs a sparse package signed with a trusted certificate, and waits for the code-signing certificate (ADR-0008, Risks).
+
 ## What actually ships today
 
 `bundle` in `src-tauri/tauri.conf.json`:
