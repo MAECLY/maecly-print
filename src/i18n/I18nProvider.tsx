@@ -17,7 +17,10 @@
  * webview inherits the user's system/UI language from the host OS, so it is
  * already the right answer, and reading it needs no IPC round-trip — the very
  * first paint is in the right language instead of flashing English while a
- * command resolves. There is no Rust-side locale command to call either.
+ * command resolves. On Windows the backend may have settled it already, from
+ * the Windows display language, before any window opened (the Explorer menu
+ * and the CLI need it first: `settings::locale`); the flag then says so and
+ * nothing is detected here.
  */
 
 import {
@@ -29,6 +32,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { useProfilesStore } from '@/stores/profilesStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 import {
@@ -141,6 +145,22 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.lang = locale;
   }, [locale]);
+
+  // FR-093: the backend names the built-in profiles in the app's language
+  // ("Quick" / "Rápido"), so a language change re-reads a list already
+  // loaded. A list not loaded yet is read in the new language anyway.
+  const profilesReady = useProfilesStore((s) => s.status === 'ready');
+  const reloadProfiles = useProfilesStore((s) => s.reload);
+  const shownLocale = useRef(locale);
+  useEffect(() => {
+    if (shownLocale.current === locale) return;
+    shownLocale.current = locale;
+    if (profilesReady && reloadProfiles) {
+      void reloadProfiles().catch(() => {
+        /* advisory: the old names stay until the next reload */
+      });
+    }
+  }, [locale, profilesReady, reloadProfiles]);
 
   const value = useMemo<I18nContextValue>(() => ({ locale }), [locale]);
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

@@ -134,7 +134,12 @@ pub fn resolve(paths: &Paths, name_or_id: &str) -> Result<Profile, CliError> {
         .collect();
     match by_name.as_slice() {
         [one] => Ok((*one).clone()),
-        [] => Err(IpcError::ProfileNotFound(needle.to_string()).into()),
+        // A built-in by its name in another language (`--profile Quick` in a
+        // script, with the app in Spanish): the names are all reserved, so
+        // this cannot be anybody else's profile.
+        [] => crate::profiles::builtin_id_by_any_name(needle)
+            .and_then(|id| all.iter().find(|p| p.id == id).cloned())
+            .ok_or_else(|| IpcError::ProfileNotFound(needle.to_string()).into()),
         many => Err(CliError::new(
             ExitCode::Profile,
             IpcError::InvalidRequest(format!(
@@ -198,5 +203,34 @@ fn render(profiles: &[Profile]) -> String {
 fn refresh_menu(paths: &Paths) {
     if paths.profiles == crate::profiles::profiles_path() {
         crate::shell_menu::refresh();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// FR-093: with the app in Spanish the built-ins are listed as "Rápido",
+    /// "Doble cara B/N" and "Foto color", and a script written against the
+    /// English names keeps working.
+    #[test]
+    fn fr_093_a_builtin_resolves_by_its_name_in_any_language() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths {
+            config: dir.path().join("config.toml"),
+            profiles: dir.path().join("profiles.toml"),
+            queue: dir.path().join("queue.json"),
+        };
+        let mut cfg = crate::settings::Config::default();
+        cfg.app.locale = "es-ES".into();
+        cfg.save_to(&paths.config).unwrap();
+
+        for name in ["Photo Color", "foto color", "builtin-photo-color"] {
+            let p = resolve(&paths, name).unwrap();
+            assert_eq!(p.id, crate::profiles::BUILTIN_PHOTO_COLOR, "{name}");
+            assert_eq!(p.name, "Foto color");
+        }
+        assert_eq!(resolve(&paths, "r\u{e1}pido").unwrap().id, "builtin-quick");
+        assert!(resolve(&paths, "Nope").is_err());
     }
 }

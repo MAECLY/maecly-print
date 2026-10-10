@@ -44,7 +44,10 @@ pub fn list_profiles_at(
 ) -> Result<Vec<Profile>, IpcError> {
     let file = load_for_read(profiles_path);
     let default_id = current_default_id(config_path, &file);
-    Ok(profiles::list_all(&file.profile, &default_id))
+    let mut all = profiles::list_all(&file.profile, &default_id);
+    // FR-093: the built-ins are named in the app's language.
+    profiles::localize_builtins(&mut all, &Config::load_from(config_path).app.locale);
+    Ok(all)
 }
 
 /// Fetch one profile by id (built-in or custom), with its computed flags.
@@ -68,6 +71,10 @@ pub fn get_profile_at(
 
     if let Some(mut b) = profiles::builtins().into_iter().find(|b| b.id == id) {
         b.default = b.id == default_id;
+        profiles::localize_builtins(
+            std::slice::from_mut(&mut b),
+            &Config::load_from(config_path).app.locale,
+        );
         return Ok(b);
     }
     if let Some(c) = file.profile.iter().find(|c| c.id == id) {
@@ -466,6 +473,54 @@ mod tests {
             get_profile_at(&env.profiles, &env.config, BUILTIN_PHOTO_COLOR.to_string()).unwrap();
         assert!(photo.builtin);
         assert!(!photo.default);
+    }
+
+    /// FR-093: with the app in Spanish the built-ins are listed (and the
+    /// Explorer menu cache is written) with Spanish names; customs keep
+    /// theirs, and the ids never change.
+    #[test]
+    fn fr_093_builtins_are_named_in_the_app_language() {
+        let env = env();
+        write_customs(&env, vec![stored("c-1", "Press A")]);
+        let names = |env: &Env| -> Vec<(String, String)> {
+            list_profiles_at(&env.profiles, &env.config)
+                .unwrap()
+                .into_iter()
+                .map(|p| (p.id, p.name))
+                .collect()
+        };
+        assert_eq!(names(&env)[0].1, "Quick");
+
+        let mut cfg = Config::default();
+        cfg.app.locale = "es-ES".into();
+        cfg.save_to(&env.config).unwrap();
+        let es = names(&env);
+        assert_eq!(
+            es,
+            [
+                (BUILTIN_QUICK.to_string(), "R\u{e1}pido".to_string()),
+                (
+                    crate::profiles::BUILTIN_DUPLEX_BW.to_string(),
+                    "Doble cara B/N".to_string()
+                ),
+                (BUILTIN_PHOTO_COLOR.to_string(), "Foto color".to_string()),
+                ("c-1".to_string(), "Press A".to_string()),
+            ]
+        );
+        let photo =
+            get_profile_at(&env.profiles, &env.config, BUILTIN_PHOTO_COLOR.to_string()).unwrap();
+        assert_eq!(photo.name, "Foto color");
+
+        // The menu cache follows the same language, labels and names.
+        let dir = tempfile::tempdir().unwrap();
+        crate::shell_menu::refresh_at(dir.path(), &env.config, &env.profiles);
+        let cache: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join(crate::shell_menu::CACHE_FILE)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(cache["lang"], "es");
+        assert_eq!(cache["profiles"][0]["name"], "R\u{e1}pido");
+        assert_eq!(cache["labels"]["print_one"], "Imprimir 1 archivo");
     }
 
     #[test]

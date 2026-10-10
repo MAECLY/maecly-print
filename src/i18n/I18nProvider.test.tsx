@@ -2,6 +2,7 @@ import { render, screen, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { fixtureAppSettings } from '@/test/fixtures';
+import { useProfilesStore } from '@/stores/profilesStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 import { I18nProvider, useT, useLocale } from './I18nProvider';
@@ -63,6 +64,34 @@ describe('I18nProvider', () => {
       expect(screen.getByTestId('cancel')).toHaveTextContent('Cancelar'),
     );
     expect(screen.getByTestId('locale')).toHaveTextContent('es-ES');
+  });
+
+  it('FR-093: a language change re-reads the profile list (built-in names are localized)', async () => {
+    const reload = vi.fn().mockResolvedValue([]);
+    const original = useProfilesStore.getState();
+    useProfilesStore.setState({ status: 'ready', reload });
+    try {
+      loaded('en-US');
+      render(
+        <I18nProvider>
+          <Probe />
+        </I18nProvider>,
+      );
+      expect(reload).not.toHaveBeenCalled();
+
+      act(() => loaded('es-ES'));
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+
+      // A list that was never loaded is not fetched early.
+      useProfilesStore.setState({ status: 'idle' });
+      act(() => loaded('en-US'));
+      await waitFor(() =>
+        expect(screen.getByTestId('locale')).toHaveTextContent('en-US'),
+      );
+      expect(reload).toHaveBeenCalledTimes(1);
+    } finally {
+      useProfilesStore.setState(original, true);
+    }
   });
 
   it('FR-094: keeps <html lang> and the non-React locale in step with the UI', async () => {

@@ -306,6 +306,44 @@ pub fn builtins() -> Vec<Profile> {
     ]
 }
 
+/// The built-in profiles' display names in every UI language: id, English
+/// (what [`builtins`] carries), Spanish. A built-in is listed under the name
+/// of the app's language ([`localize_builtins`]); every one of these names is
+/// reserved, whatever the language, so a custom profile can never take one.
+const BUILTIN_NAMES: [(&str, &str, &str); 3] = [
+    (BUILTIN_QUICK, "Quick", "R\u{e1}pido"),
+    (BUILTIN_DUPLEX_BW, "Duplex BW", "Doble cara B/N"),
+    (BUILTIN_PHOTO_COLOR, "Photo Color", "Foto color"),
+];
+
+/// The name of built-in `id` in `locale` (`es-ES` → Spanish, anything else
+/// English), or `None` for an id that is not built in. Pure.
+pub fn builtin_name(id: &str, locale: &str) -> Option<&'static str> {
+    let spanish = crate::settings::locale::match_locale(locale) == Some("es-ES");
+    BUILTIN_NAMES
+        .iter()
+        .find(|(b, _, _)| *b == id)
+        .map(|(_, en, es)| if spanish { *es } else { *en })
+}
+
+/// Name the built-ins in `profiles` in `locale` (FR-093); customs keep theirs.
+pub fn localize_builtins(profiles: &mut [Profile], locale: &str) {
+    for p in profiles.iter_mut() {
+        if let Some(name) = builtin_name(&p.id, locale) {
+            p.name = name.to_string();
+        }
+    }
+}
+
+/// The built-in whose name, in any language, is `name` (case-insensitively).
+pub fn builtin_id_by_any_name(name: &str) -> Option<&'static str> {
+    let lc = name.trim().to_lowercase();
+    BUILTIN_NAMES
+        .iter()
+        .find(|(_, en, es)| en.to_lowercase() == lc || es.to_lowercase() == lc)
+        .map(|(id, _, _)| *id)
+}
+
 /// True iff `id` names a built-in profile.
 pub fn is_builtin_id(id: &str) -> bool {
     builtins().iter().any(|b| b.id == id)
@@ -372,7 +410,8 @@ pub fn validate_and_normalize(
         return Err(ProfileInvalid::NameTooLong);
     }
     let name_lc = name.to_lowercase();
-    let clashes_builtin = builtins().iter().any(|b| b.name.to_lowercase() == name_lc);
+    // In any language: the built-ins are listed under the UI language's name.
+    let clashes_builtin = builtin_id_by_any_name(name).is_some();
     let clashes_custom = existing
         .iter()
         .any(|e| Some(e.id.as_str()) != self_id && e.name.trim().to_lowercase() == name_lc);
@@ -635,12 +674,12 @@ pub enum ImportError {
 }
 
 /// Every profile name currently taken (case-insensitively): the three built-ins
-/// plus the customs in `file`. The uniqueness domain the importer renames
+/// in every UI language plus the customs in `file`. The uniqueness domain the importer renames
 /// against.
 fn taken_names(file: &ProfilesFile) -> std::collections::HashSet<String> {
-    builtins()
+    BUILTIN_NAMES
         .iter()
-        .map(|b| b.name.to_lowercase())
+        .flat_map(|(_, en, es)| [en.to_lowercase(), es.to_lowercase()])
         .chain(file.profile.iter().map(|c| c.name.trim().to_lowercase()))
         .collect()
 }
@@ -1104,6 +1143,35 @@ mod tests {
     fn validate_rejects_name_clash_with_builtin_case_insensitive() {
         let p = sample_profile("quICK"); // clashes with built-in "Quick"
         assert!(validate_and_normalize(p, &[], None).is_err());
+    }
+
+    /// FR-093: a built-in's name is reserved in every UI language, so the
+    /// list never shows two "Rápido" after the language changes.
+    #[test]
+    fn fr_093_builtin_names_are_reserved_in_every_language() {
+        for name in ["r\u{e1}pido", "FOTO COLOR", " Doble cara B/N ", "duplex bw"] {
+            assert!(
+                validate_and_normalize(sample_profile(name), &[], None).is_err(),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            builtin_id_by_any_name("Foto Color"),
+            Some(BUILTIN_PHOTO_COLOR)
+        );
+        assert_eq!(builtin_id_by_any_name("Quick"), Some(BUILTIN_QUICK));
+        assert_eq!(builtin_id_by_any_name("Rapido"), None);
+        assert_eq!(builtin_name(BUILTIN_QUICK, "es-MX"), Some("R\u{e1}pido"));
+        assert_eq!(builtin_name(BUILTIN_QUICK, "en-US"), Some("Quick"));
+        assert_eq!(builtin_name(BUILTIN_QUICK, "fr-FR"), Some("Quick"));
+        assert_eq!(builtin_name("c-1", "es-ES"), None);
+        // `builtins()` carries the English names (src/lib/profiles.ts mirror).
+        for b in builtins() {
+            assert_eq!(builtin_name(&b.id, "en-US"), Some(b.name.as_str()));
+        }
+        // An import of a profile called like a built-in in Spanish is renamed.
+        let taken = taken_names(&ProfilesFile::default());
+        assert!(taken.contains("foto color") && taken.contains("photo color"));
     }
 
     #[test]
