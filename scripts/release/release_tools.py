@@ -216,6 +216,9 @@ def extract_signatures(manifest: dict, assets: list, out: str,
 
 
 def main(argv: list[str]) -> int:
+    # The lines this prints are read back by `while read` loops: end them
+    # with LF on every platform, never the CRLF Python writes on Windows.
+    sys.stdout.reconfigure(newline="\n")
     parser = argparse.ArgumentParser(prog="release_tools.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
