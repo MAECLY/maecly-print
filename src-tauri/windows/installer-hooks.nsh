@@ -308,7 +308,10 @@
   ; (about 23 MB). Nothing reads it any more: the first-run flags it held
   ; live in config.toml, which the app migrates (src-tauri/src/util/legacy.rs).
   ; It is deleted only once no MaeclyPrint is left that could still be using
-  ; it; a half-deleted profile (a file still open) is only wasted space.
+  ; it. What this per-user process cannot delete stays and is only wasted
+  ; space: a file still open, or the web view's component folders when
+  ; MaeclyPrint ran elevated (UAC off), which are ACL'd to SYSTEM and
+  ; Administrators only (seen in the round-3 VM: 16 of 276 files left).
   ${If} $R6 = 0
   ${AndIf} ${FileExists} "$LOCALAPPDATA\${PLURY_LEGACY_IDENTIFIER}\*.*"
     DetailPrint "Removing the unused ${PLURY_LEGACY_PRODUCT} web view profile"

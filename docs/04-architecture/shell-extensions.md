@@ -54,6 +54,8 @@ The per-user NSIS installer ([ADR-0008](../adr/0008-installer-nsis-per-user.md))
 
 **Uninstall** deletes the keys, the DLL (at the next restart if Explorer still holds it) and the SumatraPDF settings file. With **Delete the application data** ticked it also removes `%APPDATA%\Maecly\Pluryprint` and `%LOCALAPPDATA%\Maecly\Pluryprint` (settings, profiles, queue, logs, cache): Tauri's own checkbox only knows the `%APPDATA%\<identifier>` folders, which hold the web view profile.
 
+**Verified** on Windows 11 24H2 ARM64 with UAC on, from a medium-integrity session (round 3): the arm64 installer installs in 8 s with no elevation prompt, copies the arm64 DLL next to `pluryprint.exe` and writes the keys above; "Show more options" shows Pluryprint ▸ with every entry; ten "Print 1 file" clicks with the app already open were each submitted within 0.2 s to a paused queue; the GUI uninstall with **Delete the application data** ticked left no install folder, no data folders, no keys and no pending renames.
+
 **UAC off.** With UAC disabled (EnableLUA = 0) Explorer runs elevated and ignores COM classes registered under HKCU, so the entry does not appear. That is a Windows rule for every per-user shell extension.
 
 ### 2.3 Where the entry appears
