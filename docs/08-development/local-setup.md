@@ -133,14 +133,14 @@ cargo clippy --manifest-path shell-ext-win/Cargo.toml --all-targets -- -D warnin
 pnpm tauri build          # or: make build
 ```
 
-On Windows, run `powershell -ExecutionPolicy Bypass -File scripts\fetch-sumatrapdf.ps1` first (it runs in the stock Windows PowerShell 5.1 as well as `pwsh`, and picks the host architecture unless given `-Arch x64|arm64`; POSIX twin: `scripts/fetch-sumatrapdf.sh --arch x64|arm64`). It downloads SumatraPDF from a pinned vendor URL, verifies a pinned SHA-256, fetches the licence files from the pinned upstream commit (each verified), and drops the executable plus `LICENSE.txt`, `COPYING.BSD.txt`, `AUTHORS.txt` and `SOURCE.txt` into `src-tauri/resources/sumatrapdf/`, which `bundle.resources` copies into the bundle. The binary is deliberately not committed; without this step the app builds but every print job fails with `DependencyMissing`.
+On Windows, run `powershell -ExecutionPolicy Bypass -File scripts\fetch-sumatrapdf.ps1` first (it runs in the stock Windows PowerShell 5.1 as well as `pwsh`, and picks the host architecture unless given `-Arch x64|arm64`; POSIX twin: `scripts/fetch-sumatrapdf.sh --arch x64|arm64`). It downloads SumatraPDF from a pinned vendor URL, verifies a pinned SHA-256, fetches the licence files from the pinned upstream commit (each verified), and drops the executable plus `LICENSE.txt`, `COPYING.BSD.txt`, `AUTHORS.txt`, `SOURCE.txt` and the written offer `SOURCE-OFFER.txt` into `src-tauri/resources/sumatrapdf/`, which `bundle.resources` copies into the bundle. The binary is deliberately not committed; without this step the app builds but every print job fails with `DependencyMissing`. Then run `powershell -ExecutionPolicy Bypass -File scripts\build-shell-ext.ps1 -Arch all` to build the Explorer DLL for x64 and ARM64 into `src-tauri/resources/shellext/<arch>/`: the installer hooks refuse to build with neither DLL (and, with `CI=true`, without both).
 
 Output:
 
 - Windows: `src-tauri/target/release/bundle/nsis/` (NSIS is what `tauri.conf.json` configures today) and the binary at `src-tauri/target/release/pluryprint.exe`.
 - macOS: `src-tauri/target/release/bundle/macos/Pluryprint.app`.
 
-There is no separate installer script to run afterwards — `installers/windows/` and `installers/macos/` are empty placeholders. See [installer-windows.md](../07-build-and-release/installer-windows.md).
+The NSIS setup in `bundle/nsis/` is the installer: it registers the Explorer entry per user through `src-tauri/windows/installer-hooks.nsh`. `installers/windows/` and `installers/macos/` are empty placeholders. See [installer-windows.md](../07-build-and-release/installer-windows.md).
 
 ### CLI usage during dev
 
@@ -346,7 +346,7 @@ Husky may not be set up if you're cloning a fork. Skip with `pnpm install --igno
 
 ### Windows: shell extension registered but still not in the menu
 
-Explorer caches shell extension DLLs aggressively. Restart `explorer.exe` (or log out and back in) after any registration change. Note that there is **no installer to do the registration for you yet** — `installers/windows/` is an empty placeholder, so registration during development is manual. See [installer-windows.md](../07-build-and-release/installer-windows.md) for the intended registration surface and what is still missing.
+Explorer caches shell extension DLLs aggressively. Restart `explorer.exe` (or log out and back in) after any registration change. Installing a build made with `pnpm tauri build` registers it for you (per user, under `HKCU`); a dev build run with `pnpm tauri dev` is not registered, so register by hand as `shell-ext-win/README.md` shows, or install a build. On Windows 11 the entry is under **Show more options**, and with UAC turned off Explorer ignores per-user registrations altogether. See [installer-windows.md](../07-build-and-release/installer-windows.md).
 
 ## Performance tips
 

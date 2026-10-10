@@ -107,25 +107,33 @@ Excluded from coverage:
 
 ### Location
 
-`src-tauri/tests/`. Each `.rs` file is a separate test binary, which means each gets its own clean environment. Eight binaries exist today:
+`src-tauri/tests/`. Each `.rs` file is a separate test binary, which means each gets its own clean environment. Twenty-three binaries exist today:
 
 ```
 src-tauri/tests/
-├── cli_contract.rs       # The headless surface: subcommand/flag names and the
-│                         #   exit-code contract (FR-008/009/112)
-├── engine_deps.rs        # Dependency resolution order and the remediation
-│                         #   messages a missing program produces (FR-058)
-├── folder_expansion.rs   # Walking a dropped directory: limits, skip reasons
-│                         #   (FR-004/005/007/059)
-├── ipc_surface.rs        # The tauri-specta binding drift gate — regenerates
-│                         #   src/ipc/bindings.ts and fails if the commit is stale
-├── print_timeout.rs      # A hung child must not wedge the queue (NFR-012)
-├── profile_roundtrip.rs  # FR-020/021/022/026/027 — CRUD, immutable built-ins,
-│                         #   atomic save, 500 profiles, default rules
-├── settings_persist.rs   # FR-100/101/102/103 — human-readable TOML, corrupt-file
-│                         #   fallback, atomic write, schema_version
-└── update_startup.rs     # The startup update check, offline and error paths
-                          #   (the live-network variant stays #[ignore]d in-module)
+├── bundle_identity.rs       # ADR-0009 bundle identity; the NSIS hooks compile with makensis
+├── cli_console_binary.rs    # FR-009: pluryprint-cli.exe returns the documented exit codes
+├── cli_contract.rs          # The headless surface: subcommands, flags, exit codes (FR-008/009/112)
+├── engine_deps.rs           # FR-058: resolution order, remediation, install options
+├── fetch_scripts.rs         # The SumatraPDF fetch scripts agree on version, hashes, licences
+├── folder_expansion.rs      # Walking a dropped directory: limits, skip reasons (FR-004/005/059)
+├── installer_hooks.rs       # FR-001/083: what the installer ships and registers, DLL per architecture
+├── installer_i18n.rs        # FR-093: every hook message in English and Spanish, ASCII files
+├── ipc_surface.rs           # Every Tauri command is registered; settings/profiles IPC
+├── licence_bundle.rs        # ADR-0010: LICENSE, LICENSES/ and the notices are in the bundle
+├── macos_services_l10n.rs   # Finder Services titles localized
+├── print_quality_windows.rs # D16 on paused Windows queues (ignored, opt-in)
+├── print_timeout.rs         # A hung child must not wedge the queue (NFR-012)
+├── profile_roundtrip.rs     # FR-020…027: CRUD, built-ins, atomic save, 500 profiles
+├── real_printer.rs          # CUPS option mapping on the Maecly_Hold queue (ignored, opt-in)
+├── real_printer_windows.rs  # SumatraPDF spool, tracking and cancel on a paused queue (ignored, opt-in)
+├── release_pipeline.rs      # release.yml / ci.yml contract: guard, signatures by asset id, size budget
+├── render_worker.rs         # FR-055/056/057 through the built `--worker render-pdf`
+├── settings_persist.rs      # FR-100…103: TOML, corrupt-file fallback, atomic write, schema_version
+├── svg_worker.rs            # FR-052a through the built `--worker svg`
+├── tauri_conf_contract.rs   # tauri.conf.json and the main capability
+├── third_party_notices.rs   # THIRD-PARTY-NOTICES.md covers every direct dependency
+└── update_startup.rs        # The startup update check, offline and error paths
 ```
 
 There is **no** `pdf_print.rs`, `queue_concurrency.rs` or `shell_handoff.rs`. Print-output verification is unbuilt (see *Print harness — planned* below); queue concurrency and the dispatcher are covered in-module under `src-tauri/src/queue/`; the shell handoff schema is covered by `shell-ext-win/tests/handoff_roundtrip.rs` on the producer side and `src-tauri/src/cli/handoff.rs` on the consumer side.
@@ -153,23 +161,29 @@ Verification would be page count + text layer (deterministic, fast), with an opt
 
 ### Subprocess fixtures — not applicable yet
 
-CI installs **no** converters yet. The converters that shell out (LibreOffice, a headless browser, Pandoc, `sips`) are covered at two levels in `engine::convert`:
+CI installs **no** converters yet. The converters that shell out (LibreOffice, `sips`, the render worker, and the headless browser of the hidden fallback) are covered at three levels:
 
-- **Fake binaries** (`external_tests::fakes`, Unix only): `/bin/sh` scripts standing in for `soffice`, `chrome`, `pandoc` and `sips`. They pin the argument vector that is actually spawned, the "exit 0 but no PDF" failure, the timeout kill of the whole process tree, and scratch-folder cleanup. They need nothing installed.
-- **Real tools** (`external_tests::fr_05x_real_*`): convert fixtures generated in-test (a multi-page UTF-8 TXT, an RTF, a DOCX made by LibreOffice from a TXT, an HTML page with a relative stylesheet, a Markdown file, and on macOS a HEIC made by `sips`). Each test locates its tool with the engine's own resolver and **returns early with a `SKIPPED` note** when the tool is absent, instead of using `#[ignore]`. A developer machine with the tools runs them on every `cargo test`, and a bare CI runner stays green.
+- **Fake binaries** (`external_tests::fakes`, Unix only): `/bin/sh` scripts standing in for `soffice`, the browser, the render worker and `sips`. They pin the argument vector that is actually spawned, the "exit 0 but no PDF" failure, the timeout kill of the whole process tree, the browser profile seeding, scratch-folder cleanup, and that HTML and Markdown go to the worker rather than a browser or Pandoc. They need nothing installed.
+- **Real tools** (`external_tests::fr_05x_real_*`): convert fixtures generated in-test (an RTF, a DOCX made by LibreOffice, an HTML page through the browser fallback, and on macOS a HEIC made by `sips`), plus a LibreOffice document and an HTML page that must not reach a local listener. Each test locates its tool with the engine's own resolver and **returns early with a `SKIPPED` note** when the tool is absent, instead of using `#[ignore]`. A developer machine with the tools runs them on every `cargo test`, and a bare CI runner stays green.
 
-Installing the tools in CI (`choco install libreoffice-fresh pandoc` on Windows, `brew install --cask libreoffice` and `brew install pandoc` on macOS) would turn those skips into real coverage. That CI step is still owed.
+- **The real workers** (`tests/render_worker.rs`, `tests/svg_worker.rs`): the built binary's `--worker render-pdf` and `--worker svg`, with pagination, paper sizes, relative images, a hostile page, Markdown, UTF-16 text, RTF and parallel workers. They need only the OS web view.
+
+Installing LibreOffice in CI (`choco install libreoffice-fresh` on Windows, `brew install --cask libreoffice` on macOS) would turn the remaining skips into real coverage. That CI step is still owed.
 
 ### Ignored tests
 
-Three unit tests and the `real_printer` integration suite are `#[ignore]`d because they reach outside the process (the comment above the `ignored-tests` job in `ci.yml` still says "two" — it predates `list_printers_smoke`):
+These tests are `#[ignore]`d because they reach outside the process:
 
 | Test | Why | How to run |
 |---|---|---|
-| `update::tests::live_github_release_check` | Hits `api.github.com`; rate limits and third-party downtime must not fail a merge | `cargo test -- --ignored live_github_release_check` |
+| `update::tests::live_manifest_check` | Reads the published update manifests on `github.com`; network trouble must not fail a merge | `cargo test -- --ignored live_manifest_check` |
 | `platform::cups::tests::add_and_remove_real_queue` | Creates a real CUPS queue via `lpadmin` | `cargo test -- --ignored add_and_remove` |
 | `platform::cups::tests::list_printers_smoke` | Shells out to the host's CUPS install; the result depends on the developer's real queues | `cargo test -- --ignored list_printers_smoke` |
-| `tests/real_printer.rs` (5 tests) | Submits held jobs to a real CUPS queue and reads their IPP attributes back (see *Virtual printer* above); a no-op unless `MAECLY_REAL_PRINTER=1` | `MAECLY_REAL_PRINTER=1 cargo test --test real_printer -- --ignored --test-threads=1` |
+| `engine::print::cups::tests::maecly_hold_job_is_tracked_as_held_then_canceled` | Needs the local CUPS hold queue `Maecly_Hold` | `cargo test -- --ignored maecly_hold` |
+| `platform::windows::tests::discover_printers_smoke`, `platform::windows_dnssd::tests::browse_smoke` | Wait for the DNS-SD browse window on a real Windows network | on the Windows VM, `cargo test -- --ignored smoke` |
+| `engine_deps::fr_058_print_this_hosts_report` | Diagnostic: prints the host's dependency report | `cargo test --test engine_deps -- --ignored --nocapture` |
+| `tests/real_printer.rs` (6 tests) | Submits held jobs to a real CUPS queue and reads their IPP attributes back (see *Virtual printer* above); a no-op unless `MAECLY_REAL_PRINTER=1` | `MAECLY_REAL_PRINTER=1 cargo test --test real_printer -- --ignored --test-threads=1` |
+| `tests/real_printer_windows.rs` (2 tests), `tests/print_quality_windows.rs` (10 tests) | Spool to **paused** Windows queues and read the jobs back; a no-op unless `MAECLY_REAL_PRINTER=1` | see [e2e/README.md](../../e2e/README.md#real-spooler-suites-opt-in-never-print); `scripts/vm/print-quality-e2e.ps1` sets up the queues |
 
 CI runs them in the **`ignored-tests`** job — `cargo test -- --ignored`, which runs *only* those, on `macos-latest`. That job is `continue-on-error: true` and fires on a weekly schedule (`cron: '0 5 * * 1'`) or `workflow_dispatch`; it never runs on a pull request and never gates a merge. Note the flag: CI uses `-- --ignored` (only the ignored ones — the rest already ran in the blocking lanes), **not** `--include-ignored`.
 
