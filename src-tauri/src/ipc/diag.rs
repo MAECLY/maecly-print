@@ -71,8 +71,23 @@ pub fn app_info() -> Result<AppInfo, IpcError> {
         executable: std::env::current_exe()
             .ok()
             .map(|p| p.canonicalize().unwrap_or(p))
-            .map(|p| p.to_string_lossy().into_owned()),
+            .map(|p| without_verbatim_prefix(&p.to_string_lossy())),
     })
+}
+
+/// `path` without the `\\?\` prefix `canonicalize` adds on Windows. Pure.
+///
+/// The prefix is valid but alien: the Home screen's "Run from CLI" command
+/// showed `& '\\?\C:\Users\…\maeclyprint.exe'`, which nobody would type and
+/// some tools reject. `\\?\UNC\server\share` becomes `\\server\share`.
+pub fn without_verbatim_prefix(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = path.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        path.to_string()
+    }
 }
 
 /// Reveal the app's log directory in the OS file browser (creating it first if
@@ -262,6 +277,24 @@ fn allowed_external(raw: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FR-008: the command the UI offers to copy names the executable the way
+    /// a user would type it.
+    #[test]
+    fn fr_008_the_offered_executable_has_no_verbatim_prefix() {
+        assert_eq!(
+            without_verbatim_prefix(r"\\?\C:\Users\a\AppData\Local\MaeclyPrint\maeclyprint.exe"),
+            r"C:\Users\a\AppData\Local\MaeclyPrint\maeclyprint.exe"
+        );
+        assert_eq!(
+            without_verbatim_prefix(r"\\?\UNC\srv\share\m.exe"),
+            r"\\srv\share\m.exe"
+        );
+        assert_eq!(
+            without_verbatim_prefix("/Applications/M.app/x"),
+            "/Applications/M.app/x"
+        );
+    }
 
     #[test]
     fn issue_url_encodes_spaces_newlines_and_hash() {
