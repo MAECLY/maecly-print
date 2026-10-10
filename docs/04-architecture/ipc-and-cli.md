@@ -403,6 +403,7 @@ pluryprint print (--files <FILES> | --files-from <PATH>)
                   [--scale <fit|shrink|actual>]
                   [--orientation <auto|portrait|landscape>]
                   [--collate | --no-collate]
+                  [--password-file <PATH> | --password-stdin]
                   [--no-dialog] [--wait]
 
 pluryprint printers list
@@ -441,6 +442,7 @@ pluryprint --help
 - `--printer` accepts the spooler **queue id** (`HP_LaserJet_Pro_M404`) or the **display name** `printers list` shows (`HP LaserJet Pro M404`, CUPS `printer-info`), the id ignoring case as CUPS does. Either way the job is spooled to the matched queue id, never to the text typed. A display name shared by several queues is refused with exit code `Printer` and the candidate ids; pass the id instead. The queue applies the same rule to a profile's printer (an unmatched or ambiguous name pauses the job as `PrinterMissing`).
 - With no `--printer`, the target is the file-type route, then the org-policy default (`policy.json`), then the app default, then the OS default — the same chain the GUI queue uses.
 - `--color` and `--mono` are mutually exclusive; omitting both leaves the profile's value. The same holds for `--collate` / `--no-collate`.
+- `--password-file <PATH>` / `--password-stdin` (FR-059) give the password of the batch's encrypted PDFs: the first line of the file, or of standard input (`printf %s "$PW" | pluryprint print …`). There is deliberately no flag that takes the password itself, so it never shows in `ps` or the shell history; `--password-stdin` refuses a terminal, where typing would echo it. The password is read before anything prints, kept in memory only, and used to decrypt each protected PDF into the run's private cache (deleted on exit); plain files ignore it. A protected PDF without it or with a wrong one fails that file only (exit 13, `password_required` / `password_incorrect`), and one that forbids printing is refused whatever the password (`printing_not_allowed`).
 - `--no-dialog` and `--wait` are accepted for compatibility and are **no-ops**: a headless `print` never opens a window and always handles each file (convert, then hand to the spooler) before exiting.
 - Each file in the `print` report has a `state`: `done` means the system spooler **accepted** the job, not that paper came out (no spooler says that synchronously); `held` means it was accepted by a queue that is paused or offline, so nothing prints until the printer is back (the exit code is still 0, since the job is safely queued); `failed` carries an `error` and raises the exit code. A failed file is also logged as WARN `cli_job_failed` (file name, extension, error code and message), the headless counterpart of the queue's `job_failed`.
 - `--json` switches every command to JSON on stdout; errors become JSON on stderr. That includes command lines the parser refuses (an unknown flag, a bad value, a missing `--files`): they come back as `{"error":{"code":"InvalidRequest","message":…}}` with exit 2. `--help` and `--version` print as text.
