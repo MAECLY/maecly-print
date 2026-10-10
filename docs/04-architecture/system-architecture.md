@@ -78,7 +78,7 @@ engine/              SUPPORTED_EXTS, dependency resolver (deps.rs), page ranges
   convert/           router + one module per converter: image, heif, svg, office,
                      html, markdown, text, rtf_mac, pdf_security, process (bounded runner)
   print/             cups.rs, sumatra.rs, windows.rs (spooler tracking),
-                     devmode_swap.rs (Windows quality, D16)
+                     devmode_swap.rs (Windows quality and colour, D16)
 render/              web view printing for the render worker (windows.rs, macos.rs)
 worker/              the --worker dispatch: render, svg
 platform/            printer listing, defaults, add printer, test page, DNS-SD,
@@ -132,7 +132,7 @@ User       Explorer      DLL              pluryprint (running)        engine / c
 | Second launch → running app | single-instance plugin, then `take_pending_selections` | Drained once, never twice |
 | Webview ↔ Rust | Tauri IPC, typed by `src/ipc/bindings.ts` | Errors carry a stable `code` + `reason` + `params`, translated in the UI |
 | Rust → converters and workers | argument vector, private scratch folder | Output is a PDF file; stderr is kept as the technical detail |
-| Rust → printer (Windows) | `SumatraPDF.exe -print-to … -print-settings …` | Paper and tray as driver ids; quality through the per-user default swap |
+| Rust → printer (Windows) | `SumatraPDF.exe -print-to … -print-settings …` | Paper and tray as driver ids; quality, and colour for PrintTicket drivers, through the per-user default swap |
 | Rust → printer (macOS) | `lp -d … -o …` | CUPS options; the job id from `lp`'s reply |
 | Rust → GitHub | HTTPS GET of `latest.json`; on request, the signed update | minisign verified before install |
 | Rust → disk | JSONL logs, `queue.json`, `config.toml`, `profiles.toml` | Atomic writes (temp file + rename) |

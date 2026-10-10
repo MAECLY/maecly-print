@@ -137,7 +137,7 @@ pluryprint --worker render-pdf <request>    # spawned by the engine, never by th
 pluryprint --worker svg <in.svg> <out.pdf>
 ```
 
-(`engine::convert::svg`, FR-052a.) `usvg` parses and `svg2pdf` writes one vector page of the drawing's own size at 96 dpi, clamped to 200 in; the printer's scaling fits it to the paper. A parser panic on a hostile drawing aborts the worker, not the app. Failures are `svg_invalid`, `svg_too_large` or `svg_convert_failed`. An `<image>` loads only from the SVG's own folder (no UNC, `file://host/`, `../` or URL), there is no network, script or external entity, and an `.svgz` is inflated with a 64 MB cap.
+(`engine::convert::svg`, FR-052a.) `usvg` parses and `svg2pdf` writes the drawing as a form XObject (`to_chunk`), drawn by a page of the drawing's own size at 96 dpi, clamped to 200 in (not `to_pdf`, which leaves pattern matrices unscaled at that dpi and stretches gradients by 4/3); the printer's scaling fits it to the paper. A parser panic on a hostile drawing aborts the worker, not the app. Failures are `svg_invalid`, `svg_too_large` or `svg_convert_failed`. An `<image>` loads only from the SVG's own folder (no UNC, `file://host/`, `../` or URL), there is no network, script or external entity, and an `.svgz` is inflated with a 64 MB cap.
 
 **The worker is the resource boundary** (security note 8). The parent starts it through `process::run_capped` with a 1 GiB memory cap (`svg::WORKER_MEMORY_CAP`):
 

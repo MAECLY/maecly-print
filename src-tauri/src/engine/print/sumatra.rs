@@ -47,6 +47,17 @@
 //! reads the job back to log what it really got. Normal is never forced: it is
 //! what the driver does anyway. [`quality_note`] tells the user which of
 //! those will happen before printing.
+//!
+//! ## Colour
+//!
+//! `color` only sets the public `dmColor`, which a PrintTicket driver may
+//! not read as colour: the Microsoft IPP Class Driver spooled such a job as
+//! `psk:PageOutputColor = psk:AutoSelect` (the printer got
+//! `print-color-mode=auto`). So a colour job also goes through the swap,
+//! selecting `psk:Color`, when the driver offers it and the user's default
+//! does not already select it ([`super::devmode_swap::needed`]).
+//! `monochrome` needs nothing: `dmColor = DMCOLOR_MONOCHROME` reaches the
+//! same driver as `psk:Grayscale`.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -630,14 +641,15 @@ pub fn spool_with(
     use std::os::windows::process::CommandExt;
     use std::time::{Duration, Instant};
 
-    use super::devmode_swap::{self as swap, QualityOutcome, Target};
+    use super::devmode_swap::{self as swap, QualityOutcome, Request, SwapError};
 
     // Suppress the transient console window when spawning the child.
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     // How often the queue is looked at while the user's default is swapped.
     const SWAP_POLL: Duration = Duration::from_millis(50);
 
-    let target = Target::for_quality(settings.quality);
+    let request = Request::for_job(settings.quality, settings.color_mode);
+    let target = request.quality;
     let exe = locate()?;
     let (stage, staged) = stage_for_spool(pdf, title).map_err(|e| {
         EngineError::PrintFailed(format!("cannot prepare the file for the print queue: {e}").into())
@@ -666,27 +678,30 @@ pub fn spool_with(
         }
     };
 
-    // The quality swap, made last so the user's default is changed for as
-    // short a time as possible. A swap that cannot be made is not a failure:
-    // the job prints at the driver's default and says so.
+    // The quality and colour swap, made last so the user's default is
+    // changed for as short a time as possible. A swap that cannot be made is
+    // not a failure: the job prints at the driver's default and says so.
     let mut quality_swap = None;
-    if let Some(target) = target {
+    if !request.is_empty() {
         match swap::Swap::begin(
             swap::SpoolerDefaults,
             &swap::journal_dir(),
             printer,
-            target,
+            request,
             swap::LOCK_TIMEOUT,
-            || swap::build_job_devmode(printer, target),
+            || swap::build_job_devmode(printer, request),
         ) {
             Ok(s) => quality_swap = Some(s),
+            // Colour alone, and the driver needs no change for it (it
+            // already selects colour, or reads SumatraPDF's `dmColor`).
+            Err(SwapError::NotOffered(_)) if target.is_none() => {}
             Err(e) => {
                 tracing::warn!(
                     event = "print_setting_not_applied",
-                    setting = "quality",
+                    setting = if target.is_some() { "quality" } else { "color" },
                     backend = "sumatra",
                     printer = %printer,
-                    quality = target.label(),
+                    selects = request.label(),
                     message = %e,
                 );
             }
@@ -807,6 +822,33 @@ pub fn spool_with(
                 printer = %printer,
                 quality = target.label(),
                 message = %why,
+            ),
+        }
+    }
+
+    if request.color && swapped {
+        let found = os_job_id
+            .as_ref()
+            .map(|job| swap::job_color(printer, job.id));
+        match found {
+            Some(Some(c)) if c == swap::COLOR_KEYWORD => tracing::info!(
+                event = "print_setting_applied",
+                setting = "color",
+                backend = "sumatra",
+                printer = %printer,
+            ),
+            Some(Some(other)) => tracing::warn!(
+                event = "print_setting_not_applied",
+                setting = "color",
+                backend = "sumatra",
+                printer = %printer,
+                message = %format!("the job's settings carry \"{other}\" instead of \"Color\""),
+            ),
+            _ => tracing::info!(
+                event = "print_setting_unverified",
+                setting = "color",
+                backend = "sumatra",
+                printer = %printer,
             ),
         }
     }

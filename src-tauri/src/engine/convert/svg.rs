@@ -305,20 +305,71 @@ fn render(input: &Path) -> Result<Vec<u8>, EngineError> {
     budget.check()?;
     check_raster_work(&tree)?;
 
-    let size = tree.size();
-    let page = svg2pdf::PageOptions {
-        dpi: page_dpi(size.width(), size.height()),
-    };
-    let options = svg2pdf::ConversionOptions {
-        raster_scale: RASTER_SCALE,
-        ..svg2pdf::ConversionOptions::default()
-    };
-    let pdf = svg2pdf::to_pdf(&tree, options, page)
-        .map_err(|e| convert_failed(&format!("the SVG could not be converted: {e:?}")))?;
+    let pdf = page_pdf(&tree)?;
     if pdf.len() as u64 > MAX_PDF_BYTES {
         return Err(pdf_too_large());
     }
     Ok(pdf)
+}
+
+/// One page of the drawing at [`page_dpi`]: svg2pdf writes the drawing as a
+/// form XObject (`to_chunk`) and the page draws it scaled to its size.
+///
+/// Not `svg2pdf::to_pdf`: with a dpi other than 72 it scales the page
+/// content but leaves every pattern's /Matrix in CSS px, and a pattern
+/// matrix is relative to the page's default space, not the current
+/// transform, so each gradient came out 4/3 too large and offset (round 8:
+/// an A4 bar's middle stop printed at ~70 % of the bar). Inside a form, a
+/// pattern is relative to the form's space, which the `cm` before `Do`
+/// scales together with everything else.
+fn page_pdf(tree: &usvg::Tree) -> Result<Vec<u8>, EngineError> {
+    use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref};
+
+    let size = tree.size();
+    let scale = 72.0 / page_dpi(size.width(), size.height());
+    let (width, height) = (size.width() * scale, size.height() * scale);
+    let options = svg2pdf::ConversionOptions {
+        raster_scale: RASTER_SCALE,
+        ..svg2pdf::ConversionOptions::default()
+    };
+    let (chunk, drawing) = svg2pdf::to_chunk(tree, options)
+        .map_err(|e| convert_failed(&format!("the SVG could not be converted: {e:?}")))?;
+
+    // The page's own four objects come first; the chunk's ids (from 1) are
+    // shifted past them.
+    let (catalog, pages, page, content) = (Ref::new(1), Ref::new(2), Ref::new(3), Ref::new(4));
+    let shift = |r: Ref| Ref::new(r.get() + 4);
+    let chunk = chunk.renumber(shift);
+    let drawing = shift(drawing);
+    let name = Name(b"D");
+
+    let mut pdf = Pdf::new();
+    pdf.catalog(catalog).pages(pages);
+    pdf.pages(pages).kids([page]).count(1);
+    let mut p = pdf.page(page);
+    p.media_box(Rect::new(0.0, 0.0, width, height));
+    p.parent(pages);
+    p.contents(content);
+    p.resources().x_objects().pair(name, drawing);
+    // As `to_pdf` does: blend the drawing's transparency in an isolated
+    // RGB group.
+    p.group()
+        .transparency()
+        .isolated(true)
+        .knockout(false)
+        .color_space()
+        .device_rgb();
+    p.finish();
+
+    // The form maps its drawing onto the unit square.
+    let mut c = Content::new();
+    c.save_state()
+        .transform([width, 0.0, 0.0, height, 0.0, 0.0])
+        .x_object(name)
+        .restore_state();
+    pdf.stream(content, &c.finish());
+    pdf.extend(&chunk);
+    Ok(pdf.finish())
 }
 
 /// The dpi that maps the drawing onto the page: 96, or more for a drawing
@@ -1652,6 +1703,140 @@ mod tests {
         assert!(!parse(RECT));
         let pdf = convert_file(&svg).unwrap();
         mediabox(&pdf);
+    }
+
+    /// A PDF matrix `[a b c d e f]`, composed as PDF does (row vectors).
+    type Matrix = [f32; 6];
+
+    /// `a` then `b`: the matrix that applies `a` first.
+    fn then(a: Matrix, b: Matrix) -> Matrix {
+        [
+            a[0] * b[0] + a[1] * b[2],
+            a[0] * b[1] + a[1] * b[3],
+            a[2] * b[0] + a[3] * b[2],
+            a[2] * b[1] + a[3] * b[3],
+            a[4] * b[0] + a[5] * b[2] + b[4],
+            a[4] * b[1] + a[5] * b[3] + b[5],
+        ]
+    }
+
+    fn apply(m: Matrix, x: f32, y: f32) -> (f32, f32) {
+        (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
+    }
+
+    fn matrix_of(obj: &lopdf::Object) -> Matrix {
+        let v: Vec<f32> = obj
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|o| o.as_float().unwrap())
+            .collect();
+        v.try_into().unwrap()
+    }
+
+    fn dict_at<'a>(doc: &'a lopdf::Document, obj: &'a lopdf::Object) -> &'a lopdf::Dictionary {
+        match doc.dereference(obj).unwrap().1 {
+            lopdf::Object::Dictionary(d) => d,
+            lopdf::Object::Stream(s) => &s.dict,
+            other => panic!("not a dictionary: {other:?}"),
+        }
+    }
+
+    /// Every pattern a content stream (and the forms it draws) paints with,
+    /// as the matrix that maps pattern space onto the page. A pattern's
+    /// /Matrix is relative to the default space of the stream whose
+    /// resources hold it (`base`: identity for the page, the form's matrix
+    /// times the CTM at its `Do` for a form), not to the CTM at the fill.
+    fn patterns_in(
+        doc: &lopdf::Document,
+        resources: &lopdf::Dictionary,
+        content: &[u8],
+        base: Matrix,
+        out: &mut Vec<Matrix>,
+    ) {
+        if let Ok(patterns) = resources.get(b"Pattern") {
+            for (_, p) in dict_at(doc, patterns).iter() {
+                let m = dict_at(doc, p)
+                    .get(b"Matrix")
+                    .map(matrix_of)
+                    .unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+                out.push(then(m, base));
+            }
+        }
+        let mut ctm = base;
+        let mut stack = Vec::new();
+        for op in lopdf::content::Content::decode(content).unwrap().operations {
+            match op.operator.as_str() {
+                "q" => stack.push(ctm),
+                "Q" => ctm = stack.pop().unwrap(),
+                "cm" => {
+                    let m: Vec<f32> = op.operands.iter().map(|o| o.as_float().unwrap()).collect();
+                    ctm = then(m.try_into().unwrap(), ctm);
+                }
+                "Do" => {
+                    let name = op.operands[0].as_name().unwrap();
+                    let xobjects = dict_at(doc, resources.get(b"XObject").unwrap());
+                    let id = xobjects.get(name).unwrap().as_reference().unwrap();
+                    let form = doc.get_object(id).unwrap().as_stream().unwrap();
+                    let matrix = form
+                        .dict
+                        .get(b"Matrix")
+                        .map(matrix_of)
+                        .unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+                    let inner = form
+                        .dict
+                        .get(b"Resources")
+                        .map(|r| dict_at(doc, r).clone())
+                        .unwrap_or_default();
+                    let bytes = form
+                        .decompressed_content()
+                        .unwrap_or_else(|_| form.content.clone());
+                    patterns_in(doc, &inner, &bytes, then(matrix, ctm), out);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// FR-052a: an `objectBoundingBox` gradient spans exactly the shape it
+    /// fills on the 96 dpi page. svg2pdf's `to_pdf` scales the page content
+    /// by 72/96 but leaves the pattern matrices in CSS px, so the gradient
+    /// came out 4/3 too large and offset (on an A4 drawing, the bar's
+    /// mid-stop drifted from the middle to ~70 % of the bar, round 8 print).
+    #[test]
+    fn fr_052a_svg_gradient_spans_its_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg = write(
+            dir.path(),
+            "g.svg",
+            br##"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
+            <defs><linearGradient id="g"><stop offset="0" stop-color="#0cc"/>
+            <stop offset="0.5" stop-color="#c0c"/><stop offset="1" stop-color="#ee0"/></linearGradient></defs>
+            <rect x="20" y="10" width="160" height="80" fill="url(#g)"/></svg>"##,
+        );
+        let pdf = convert_file(&svg).unwrap();
+        let doc = lopdf::Document::load(&pdf).unwrap();
+        let page = *doc.get_pages().values().next().unwrap();
+        let page_dict = doc.get_dictionary(page).unwrap();
+        let resources = dict_at(&doc, page_dict.get(b"Resources").unwrap()).clone();
+        let content = doc.get_page_content(page).unwrap();
+        let mut found = Vec::new();
+        let identity = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+        patterns_in(&doc, &resources, &content, identity, &mut found);
+        assert_eq!(found.len(), 1, "one gradient pattern: {found:?}");
+        // The bounding box (unit square) lands on the rect: 20..180 ×
+        // 10..90 px → 15..135 × 7.5..67.5 pt, the y axis flipped.
+        let close = |(x, y): (f32, f32), (ex, ey): (f32, f32)| {
+            assert!(
+                (x - ex).abs() < 0.01 && (y - ey).abs() < 0.01,
+                "({x}, {y}) != ({ex}, {ey}); pattern {:?}",
+                found[0]
+            )
+        };
+        close(apply(found[0], 0.0, 0.0), (15.0, 67.5));
+        close(apply(found[0], 1.0, 1.0), (135.0, 7.5));
+        close(apply(found[0], 0.5, 0.0), (75.0, 67.5));
+        assert_eq!(mediabox(&pdf), vec![0.0, 0.0, 150.0, 75.0]);
     }
 
     /// The worker's failure line round-trips its reason and params; a line

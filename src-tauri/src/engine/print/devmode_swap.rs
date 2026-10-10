@@ -4,7 +4,9 @@
 //! SumatraPDF has no print-quality switch: it starts every job from the
 //! printer's **per-user default DEVMODE** (`DocumentProperties` with no input)
 //! and only layers its own `-print-settings` on top. So for a Draft or High
-//! job (never for Normal, which is "whatever the driver does"):
+//! job (never for Normal, which is "whatever the driver does"), and for a
+//! colour job whose driver would not otherwise select `psk:Color`
+//! ([`Request`]):
 //!
 //! 1. a DEVMODE carrying the quality is built from the user's current default
 //!    through a PrintTicket (`psk:PageOutputQuality`), which is how v4 and
@@ -55,7 +57,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::queue::job::Quality;
+use crate::queue::job::{ColorMode, Quality};
 
 /// The env var that makes [`Swap::begin`] exit the process right after the
 /// default was changed (debug builds only): the crash-recovery tests use it to
@@ -110,6 +112,60 @@ impl Target {
         match self {
             Self::Draft => "draft",
             Self::High => "high",
+        }
+    }
+}
+
+/// Everything one swap selects in the job's PrintTicket: a quality and/or
+/// explicit colour.
+///
+/// Colour is here because SumatraPDF's `color` only sets the public
+/// `dmColor`, and a PrintTicket driver need not read that as colour: the
+/// Microsoft IPP Class Driver keeps its private `ColorMode` (by default
+/// `AutoSelect`) and spools `psk:PageOutputColor = psk:AutoSelect`, so the
+/// printer got `print-color-mode=auto` (round 8, Windows 11 ARM64, EPSON
+/// L15160). `monochrome` needs nothing: the same driver turns `dmColor =
+/// DMCOLOR_MONOCHROME` into `psk:Grayscale`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Request {
+    /// The quality to select, if any ([`Target::for_quality`]).
+    pub quality: Option<Target>,
+    /// Select `psk:PageOutputColor = psk:Color`.
+    pub color: bool,
+}
+
+impl From<Target> for Request {
+    fn from(target: Target) -> Self {
+        Self {
+            quality: Some(target),
+            color: false,
+        }
+    }
+}
+
+impl Request {
+    /// What a job with `quality` and `color_mode` asks the swap for.
+    pub fn for_job(quality: Quality, color_mode: ColorMode) -> Self {
+        Self {
+            quality: Target::for_quality(quality),
+            color: color_mode == ColorMode::Color,
+        }
+    }
+
+    /// Whether there is nothing to select.
+    pub fn is_empty(self) -> bool {
+        self.quality.is_none() && !self.color
+    }
+
+    /// The words for logs and errors.
+    pub fn label(self) -> &'static str {
+        match (self.quality, self.color) {
+            (Some(Target::Draft), false) => "draft",
+            (Some(Target::High), false) => "high",
+            (Some(Target::Draft), true) => "draft, colour",
+            (Some(Target::High), true) => "high, colour",
+            (None, true) => "colour",
+            (None, false) => "nothing",
         }
     }
 }
@@ -310,8 +366,14 @@ fn feature_options(xml: &str, feature: &str) -> Vec<String> {
 /// (`Draft`, `Normal`, `High`…). Options in a private namespace keep their
 /// prefix, so they never pass for a standard keyword.
 pub fn quality_options(xml: &str) -> Vec<String> {
+    keyword_options(xml, "PageOutputQuality")
+}
+
+/// The options of the `psk:<feature>` feature, as keyword local names; an
+/// option in a private namespace keeps its prefix.
+fn keyword_options(xml: &str, feature: &str) -> Vec<String> {
     let psk = prefix_for(xml, PSK_NS, "psk");
-    let feature = format!("{psk}:PageOutputQuality");
+    let feature = format!("{psk}:{feature}");
     feature_options(xml, &feature)
         .into_iter()
         .map(|o| match o.split_once(':') {
@@ -319,6 +381,48 @@ pub fn quality_options(xml: &str) -> Vec<String> {
             _ => o,
         })
         .collect()
+}
+
+/// The `PageOutputColor` options a document lists (`Color`, `Grayscale`,
+/// `Monochrome`, `AutoSelect`…), as for [`quality_options`].
+pub fn color_options(xml: &str) -> Vec<String> {
+    keyword_options(xml, "PageOutputColor")
+}
+
+/// The colour a PrintTicket selects, as a keyword local name.
+pub fn selected_color(ticket_xml: &str) -> Option<String> {
+    color_options(ticket_xml).into_iter().next()
+}
+
+/// The `psk:PageOutputColor` option that means colour.
+pub const COLOR_KEYWORD: &str = "Color";
+
+/// Whether a PrintCapabilities document offers `psk:Color`.
+pub fn offers_color(capabilities_xml: &str) -> bool {
+    color_options(capabilities_xml)
+        .iter()
+        .any(|o| o == COLOR_KEYWORD)
+}
+
+/// The part of `request` a driver with these PrintCapabilities and this
+/// current PrintTicket needs: a quality it offers, and colour when it offers
+/// `psk:Color` and the ticket does not already select it. Pure.
+pub fn needed(request: Request, capabilities_xml: &str, ticket_xml: &str) -> Request {
+    Request {
+        quality: request.quality.filter(|&t| offers(capabilities_xml, t)),
+        color: request.color
+            && offers_color(capabilities_xml)
+            && selected_color(ticket_xml).as_deref() != Some(COLOR_KEYWORD),
+    }
+}
+
+/// Whether a merged PrintTicket still selects everything in `wanted`.
+pub fn ticket_selects(ticket_xml: &str, wanted: Request) -> bool {
+    let quality = wanted
+        .quality
+        .is_none_or(|t| selected_quality(ticket_xml).as_deref() == Some(t.keyword()));
+    let color = !wanted.color || selected_color(ticket_xml).as_deref() == Some(COLOR_KEYWORD);
+    quality && color
 }
 
 /// Whether a PrintCapabilities document offers `target`.
@@ -333,14 +437,25 @@ pub fn selected_quality(ticket_xml: &str) -> Option<String> {
     quality_options(ticket_xml).into_iter().next()
 }
 
-/// A delta PrintTicket that only selects `target`.
-pub fn delta_ticket(target: Target) -> String {
+/// A delta PrintTicket that only selects what `request` asks for.
+pub fn delta_ticket(request: impl Into<Request>) -> String {
+    let request = request.into();
+    let mut features = String::new();
+    if let Some(target) = request.quality {
+        features.push_str(&format!(
+            "<psf:Feature name=\"psk:PageOutputQuality\"><psf:Option name=\"psk:{}\"/></psf:Feature>",
+            target.keyword()
+        ));
+    }
+    if request.color {
+        features.push_str(&format!(
+            "<psf:Feature name=\"psk:PageOutputColor\"><psf:Option name=\"psk:{COLOR_KEYWORD}\"/></psf:Feature>"
+        ));
+    }
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
 <psf:PrintTicket xmlns:psf=\"{PSF_NS}\" xmlns:psk=\"{PSK_NS}\" version=\"1\">\
-<psf:Feature name=\"psk:PageOutputQuality\"><psf:Option name=\"psk:{}\"/></psf:Feature>\
-</psf:PrintTicket>",
-        target.keyword()
+{features}</psf:PrintTicket>"
     )
 }
 
@@ -584,8 +699,9 @@ pub enum SwapError {
     /// Another Pluryprint process kept the printer's lock past the timeout.
     #[error("another Pluryprint job kept this printer's default busy")]
     Busy,
-    /// The driver offers no such quality: nothing was changed.
-    #[error("the driver offers no \"{0}\" quality")]
+    /// The driver needs none of the request (it offers no such quality, or
+    /// already selects colour): nothing was changed.
+    #[error("the driver offers or needs no \"{0}\" change")]
     NotOffered(&'static str),
     /// The journal or the lock could not be written; nothing was changed.
     #[error("the swap journal could not be written: {0}")]
@@ -615,15 +731,17 @@ impl<S: UserDefaults> Swap<S> {
     /// Lock the printer, finish any swap a crashed process left behind, then
     /// make the DEVMODE `build` returns (from the now-restored default) the
     /// user's default for `printer`. `build` returning `None` means the driver
-    /// offers no such quality: nothing is changed.
+    /// needs none of `request` (it offers no such quality, or already selects
+    /// colour): nothing is changed.
     pub fn begin(
         store: S,
         dir: &Path,
         printer: &str,
-        target: Target,
+        request: impl Into<Request>,
         lock_timeout: Duration,
         build: impl FnOnce() -> Result<Option<Vec<u8>>, String>,
     ) -> Result<Self, SwapError> {
+        let request = request.into();
         let lock = lock_printer(dir, printer, lock_timeout)
             .map_err(|e| SwapError::Journal(e.to_string()))?
             .ok_or(SwapError::Busy)?;
@@ -641,7 +759,7 @@ impl<S: UserDefaults> Swap<S> {
         }
         let devmode = build()
             .map_err(SwapError::Spooler)?
-            .ok_or(SwapError::NotOffered(target.label()))?;
+            .ok_or(SwapError::NotOffered(request.label()))?;
         let original = store.get(printer).map_err(SwapError::Spooler)?;
         let mut journal = Journal {
             version: 1,
@@ -665,7 +783,7 @@ impl<S: UserDefaults> Swap<S> {
                 tracing::warn!(event = "devmode_swap_journal_update_failed", error = %e);
             }
         }
-        tracing::info!(event = "devmode_swap_begun", printer = %printer, quality = target.label());
+        tracing::info!(event = "devmode_swap_begun", printer = %printer, selects = request.label());
         if cfg!(debug_assertions) && std::env::var(ABORT_AFTER_SWAP_ENV).as_deref() == Ok("1") {
             std::process::exit(ABORT_AFTER_SWAP_EXIT);
         }
@@ -780,7 +898,7 @@ pub fn journal_dir() -> PathBuf {
 
 #[cfg(windows)]
 pub use self::ffi::{
-    build_job_devmode, job_devmode, job_quality, print_capabilities, quality_support,
+    build_job_devmode, job_color, job_devmode, job_quality, print_capabilities, quality_support,
     recover_stale_journals, recover_stale_journals_in_background, SpoolerDefaults,
 };
 
@@ -806,8 +924,9 @@ mod ffi {
     };
 
     use super::{
-        devmode_len, judge_job, offers, print_quality, selected_quality, with_print_quality,
-        QualityOutcome, QualitySupport, Target, UserDefaults,
+        devmode_len, judge_job, needed, offers, print_quality, selected_color, selected_quality,
+        ticket_selects, with_print_quality, QualityOutcome, QualitySupport, Request, Target,
+        UserDefaults,
     };
 
     /// 8-byte aligned scratch for spooler structs (they hold pointers).
@@ -1075,13 +1194,19 @@ mod ffi {
         read_all(&caps)
     }
 
-    /// The user's default DEVMODE for `printer` with `target` selected, or
-    /// `None` when the driver offers no such quality (see the module docs).
-    pub fn build_job_devmode(printer: &str, target: Target) -> Result<Option<Vec<u8>>, String> {
+    /// The user's default DEVMODE for `printer` with what `request` needs
+    /// selected, or `None` when the driver needs none of it: it offers no
+    /// such quality, and offers no `psk:Color` or already selects it (see
+    /// the module docs and [`super::needed`]).
+    pub fn build_job_devmode(
+        printer: &str,
+        request: impl Into<Request>,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let request = request.into();
         let _com = Com::init();
         let p = Printer::open(printer)?;
         let base = document_properties(&p, None)?;
-        match via_print_ticket(&p, &base, target) {
+        match via_print_ticket(&p, &base, request) {
             Ok(result) => return Ok(result),
             Err(e) => tracing::info!(
                 event = "devmode_swap_print_ticket_unavailable",
@@ -1090,6 +1215,11 @@ mod ffi {
             ),
         }
         // No PrintTicket provider: the public field, if the driver uses it.
+        // Colour needs nothing here: without PrintTickets the public
+        // `dmColor` SumatraPDF sets is what the driver reads.
+        let Some(target) = request.quality else {
+            return Ok(None);
+        };
         if print_quality(&base).is_none() {
             return Ok(None);
         }
@@ -1101,14 +1231,15 @@ mod ffi {
     fn via_print_ticket(
         p: &Printer,
         base: &[u8],
-        target: Target,
+        request: Request,
     ) -> Result<Option<Vec<u8>>, String> {
         let prov = Provider::open(p)?;
         let ticket = ticket_of(&prov, base)?;
-        if !offers(&capabilities(&prov, &ticket)?, target) {
+        let wanted = needed(request, &capabilities(&prov, &ticket)?, &read_all(&ticket)?);
+        if wanted.is_empty() {
             return Ok(None);
         }
-        let delta = stream_with(super::delta_ticket(target).as_bytes())?;
+        let delta = stream_with(super::delta_ticket(wanted).as_bytes())?;
         let merged = stream()?;
         rewind(&ticket)?;
         // SAFETY: live streams.
@@ -1116,8 +1247,8 @@ mod ffi {
             PTMergeAndValidatePrintTicket(prov.0, &ticket, &delta, kPTJobScope, &merged, None)
         }
         .map_err(|e| format!("PTMergeAndValidatePrintTicket failed: {e}"))?;
-        if selected_quality(&read_all(&merged)?).as_deref() != Some(target.keyword()) {
-            // The driver's constraints resolved it away.
+        if !ticket_selects(&read_all(&merged)?, wanted) {
+            // The driver's constraints resolved (part of) it away.
             return Ok(None);
         }
         let mut size = 0u32;
@@ -1221,6 +1352,19 @@ mod ffi {
             .ok()
             .and_then(|xml| selected_quality(&xml));
         judge_job(target, ticket_quality.as_deref(), print_quality(&dm))
+    }
+
+    /// The `psk:PageOutputColor` option job `job_id` on `printer` carries,
+    /// read from its own DEVMODE through the driver's PrintTicket provider;
+    /// `None` when the driver has none or the job cannot be read.
+    pub fn job_color(printer: &str, job_id: u32) -> Option<String> {
+        let _com = Com::init();
+        let dm = job_devmode(printer, job_id).ok().flatten()?;
+        Printer::open(printer)
+            .and_then(|p| Provider::open(&p))
+            .and_then(|prov| read_all(&ticket_of(&prov, &dm)?))
+            .ok()
+            .and_then(|xml| selected_color(&xml))
     }
 
     /// [`super::recover_stale_journals_in`] on the real spooler and the real
@@ -1390,6 +1534,79 @@ mod tests {
         let t = delta_ticket(Target::High);
         assert_eq!(selected_quality(&t).as_deref(), Some("High"));
         assert!(t.contains(PSF_NS) && t.contains(PSK_NS));
+    }
+
+    /// The IPP Class Driver's colour feature, as its PrintCapabilities and a
+    /// ticket made from the default DEVMODE list it (round 8, VM).
+    const COLOR_CAPS: &str = r#"<psf:PrintCapabilities xmlns:psf="http://schemas.microsoft.com/windows/2003/08/printing/printschemaframework" xmlns:psk="http://schemas.microsoft.com/windows/2003/08/printing/printschemakeywords" version="1">
+  <psf:Feature name="psk:PageOutputColor"><psf:Option name="psk:AutoSelect"/><psf:Option name="psk:Color"/><psf:Option name="psk:Grayscale"/><psf:Option name="psk:Monochrome"/></psf:Feature>
+  <psf:Feature name="psk:PageOutputQuality"><psf:Option name="psk:Normal"/><psf:Option name="psk:High"/></psf:Feature>
+</psf:PrintCapabilities>"#;
+    const AUTO_TICKET: &str = r#"<psf:PrintTicket xmlns:psf="http://schemas.microsoft.com/windows/2003/08/printing/printschemaframework" xmlns:psk="http://schemas.microsoft.com/windows/2003/08/printing/printschemakeywords" version="1"><psf:Feature name="psk:PageOutputColor"><psf:Option name="psk:AutoSelect"/></psf:Feature><psf:Feature name="psk:PageOutputQuality"><psf:Option name="psk:Normal"/></psf:Feature></psf:PrintTicket>"#;
+
+    #[test]
+    fn print_settings_color_request_follows_the_job() {
+        use crate::queue::job::ColorMode;
+        let r = Request::for_job(Quality::Normal, ColorMode::Color);
+        assert_eq!((r.quality, r.color, r.label()), (None, true, "colour"));
+        let r = Request::for_job(Quality::Draft, ColorMode::Monochrome);
+        assert_eq!(r, Request::from(Target::Draft));
+        assert!(Request::for_job(Quality::Normal, ColorMode::Monochrome).is_empty());
+        assert_eq!(
+            Request::for_job(Quality::High, ColorMode::Color).label(),
+            "high, colour"
+        );
+    }
+
+    #[test]
+    fn print_settings_color_is_selected_only_when_the_driver_needs_it() {
+        assert_eq!(
+            color_options(COLOR_CAPS),
+            vec!["AutoSelect", "Color", "Grayscale", "Monochrome"]
+        );
+        assert_eq!(selected_color(AUTO_TICKET).as_deref(), Some("AutoSelect"));
+        let colour = Request {
+            quality: None,
+            color: true,
+        };
+        // AutoSelect today: colour is needed.
+        assert_eq!(needed(colour, COLOR_CAPS, AUTO_TICKET), colour);
+        // Already psk:Color: nothing to change.
+        let explicit = AUTO_TICKET.replace("psk:AutoSelect", "psk:Color");
+        assert!(needed(colour, COLOR_CAPS, &explicit).is_empty());
+        // A driver without psk:Color (a mono laser) is left alone.
+        let mono = COLOR_CAPS.replace("<psf:Option name=\"psk:Color\"/>", "");
+        assert!(needed(colour, &mono, AUTO_TICKET).is_empty());
+        // Quality keeps its own rule: Draft is not offered here, High is.
+        let both = Request {
+            quality: Some(Target::Draft),
+            color: true,
+        };
+        assert_eq!(needed(both, COLOR_CAPS, AUTO_TICKET), colour);
+        let high = Request {
+            quality: Some(Target::High),
+            color: true,
+        };
+        assert_eq!(needed(high, COLOR_CAPS, AUTO_TICKET), high);
+    }
+
+    #[test]
+    fn print_settings_color_delta_ticket_selects_colour_and_quality() {
+        let both = Request {
+            quality: Some(Target::High),
+            color: true,
+        };
+        let t = delta_ticket(both);
+        assert_eq!(selected_color(&t).as_deref(), Some("Color"));
+        assert_eq!(selected_quality(&t).as_deref(), Some("High"));
+        assert!(ticket_selects(&t, both));
+        let colour_only = delta_ticket(Request {
+            quality: None,
+            color: true,
+        });
+        assert_eq!(selected_quality(&colour_only), None);
+        assert!(!ticket_selects(AUTO_TICKET, both));
+        assert!(ticket_selects(AUTO_TICKET, Request::default()));
     }
 
     #[test]
