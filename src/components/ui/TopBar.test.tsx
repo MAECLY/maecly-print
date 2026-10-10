@@ -32,7 +32,9 @@ describe('MPTopBar', () => {
     // One line with an ellipsis, never a word per line.
     expect(subtitle.style.whiteSpace).toBe('nowrap');
     expect(subtitle.style.textOverflow).toBe('ellipsis');
-    expect(subtitle.parentElement!.style.minWidth).toBe('0');
+    // React writes `minWidth: 0` as "0"; the CSSOM serialises a zero length
+    // as "0px", as browsers do.
+    expect(subtitle.parentElement!.style.minWidth).toBe('0px');
   });
 });
 

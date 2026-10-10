@@ -10,7 +10,7 @@ Everything in this table is declared in `src-tauri/Cargo.toml`, `shell-ext-win/C
 | ---------------------- | ------------------------------------------------------- |
 | Application shell      | **Tauri 2.1** (Rust host + system webview)              |
 | Backend / core logic   | **Rust 1.78+** (stable, edition 2021)                   |
-| Frontend / UI          | **React 18 + TypeScript 5 + Vite 5 + Tailwind CSS 3** (layout utilities only; design tokens are CSS custom properties, Tailwind `preflight` disabled) |
+| Frontend / UI          | **React 18 + TypeScript 5 + Vite 7 + Tailwind CSS 3** (layout utilities only; design tokens are CSS custom properties, Tailwind `preflight` disabled) |
 | Frontend state         | `zustand` 5; toasts via `sonner`                        |
 | Localization           | **In-house** (`src/i18n/`, JSON catalogues per screen) — no i18n library |
 | Typed IPC              | `tauri-specta` + `specta` (pinned `=` pre-release) → generated `src/ipc/bindings.ts` |
@@ -136,7 +136,7 @@ The frontend is a small SPA: a print dialog, a profile editor, a queue viewer, a
 | `zustand` 5                  | Cross-route state (queue, profiles, settings stores) |
 | `sonner` 1.7                 | Toasts |
 
-**Build / dev only:** `vite` 5, `typescript` 5.7, `tailwindcss` 3.4 + `postcss` + `autoprefixer`, `eslint` 9 (+ react, react-hooks, jsx-a11y, react-refresh plugins), `prettier`, `vitest` 2 + `@vitest/coverage-v8` + `jsdom`, `@testing-library/{react,jest-dom,user-event}`, `@wdio/*` 9 for e2e, `husky` + `lint-staged` + `@commitlint/*`, `@tauri-apps/cli`.
+**Build / dev only:** `vite` 7, `typescript` 5.7, `tailwindcss` 3.4 + `postcss` + `autoprefixer`, `eslint` 9 (+ react, react-hooks, jsx-a11y, react-refresh plugins), `prettier`, `vitest` 5 + `@vitest/coverage-v8` + `jsdom` 30, `@testing-library/{react,jest-dom,user-event}`, `@wdio/*` 9 for e2e, `husky` + `lint-staged` + `@commitlint/*`, `@tauri-apps/cli`.
 
 Packages named in earlier drafts and **not** used: `@radix-ui/*`, `react-hook-form`, `@tanstack/react-query`, `lucide-react`, `clsx`, `tailwind-merge`, `react-i18next`, `playwright`.
 
