@@ -107,5 +107,11 @@
   "config": {
     "corruptTitle": "No se pudo leer tu archivo de ajustes",
     "corruptBody": "Los valores de abajo son los predeterminados, no tus ajustes guardados, y los cambios no podrán guardarse hasta que arregles o elimines el archivo. Cierra Pluryprint y repara o borra este archivo: en el siguiente guardado se escribirá uno nuevo a partir de los valores predeterminados."
+  },
+  "notices": {
+    "htmlRendererRetired": {
+      "title": "Las páginas web se imprimen ahora con el renderizador del sistema",
+      "detail": "Tu config.toml pedía el renderizador Edge/Chrome sin interfaz para HTML, Markdown y texto. Esa opción se ha eliminado porque no podía mantener las páginas lejos de las carpetas compartidas de red de forma segura. Pluryprint usa ahora siempre la vista web del propio sistema operativo, que no necesita instalar nada; el resto de tus ajustes no cambia."
+    }
   }
 }

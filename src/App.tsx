@@ -19,6 +19,7 @@ import {
   openLogsFolder,
   printFiles,
   takePendingSelections,
+  takeRetiredRendererNotice,
   type Selection,
 } from '@/lib/ipc';
 import { logError } from '@/lib/errorLog';
@@ -143,6 +144,8 @@ function App() {
   // The launch-time update toast is the same news the About screen's update
   // card shows, so it reuses that screen's strings verbatim.
   const tAbout = useT('about');
+  // The one-time notice about the retired HTML renderer is about a setting.
+  const tSettings = useT('settings');
   const { mode, resolved, setMode } = useTheme();
   const { density, setDensity } = useDensity();
   const [active, setActive] = useState<ScreenId>('home');
@@ -356,6 +359,27 @@ function App() {
       unlisten?.();
     };
   }, [tAbout]);
+
+  // Round 6: the headless-browser HTML renderer (`[engine] html_renderer =
+  // "browser"`, a hand edit of config.toml) is gone. Someone who had chosen it
+  // hears once, at launch, that their pages now print with the system web
+  // view. The backend removes the retired key as it answers, so this is a
+  // one-shot whatever happens to the toast; it is not guarded by the effect's
+  // cleanup for the same reason the selection drain is not.
+  useEffect(() => {
+    if (!isTauri()) return;
+    takeRetiredRendererNotice()
+      .then((retired) => {
+        if (!retired) return;
+        toast.info(tSettings('notices.htmlRendererRetired.title'), {
+          description: tSettings('notices.htmlRendererRetired.detail'),
+          duration: Infinity,
+        });
+      })
+      .catch((e: unknown) => {
+        logError('app.retired-renderer-notice', e);
+      });
+  }, [tSettings]);
 
   const completeOnboarding = () => {
     try {

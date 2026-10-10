@@ -737,6 +737,17 @@ export async function takePendingSelections(): Promise<Selection[]> {
   return unwrap(commands.takePendingSelections());
 }
 
+/**
+ * Whether to tell the user, once, that the headless-browser HTML renderer
+ * they had set by hand in `config.toml` is gone (their pages now print with
+ * the system web view). The backend removes the retired key as it answers,
+ * so this is `true` at most once per machine.
+ */
+export async function takeRetiredRendererNotice(): Promise<boolean> {
+  if (!isTauri()) throw noHost();
+  return unwrap(commands.takeRetiredRendererNotice());
+}
+
 /** Reveal the app's log directory in the OS file browser. */
 export async function openLogsFolder(): Promise<void> {
   if (!isTauri()) throw noHost();

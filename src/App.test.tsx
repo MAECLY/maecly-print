@@ -8,6 +8,7 @@ import {
 } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
+import { toast } from 'sonner';
 
 /**
  * Capture the native drag & drop handler App registers, so a drop can be
@@ -795,6 +796,68 @@ describe('App', () => {
       await waitFor(() =>
         expect(screen.queryByText(/is available/)).toBeNull(),
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Round 6: the retired headless-browser renderer, told once at launch
+  // -------------------------------------------------------------------------
+
+  describe('retired HTML renderer notice', () => {
+    afterEach(() => {
+      // The notice stays until dismissed; never leak it into other tests.
+      act(() => {
+        toast.dismiss();
+      });
+    });
+
+    it('FR-055: tells a user who had chosen the browser renderer, once', async () => {
+      const calls: string[] = [];
+      mockIPC((cmd) => {
+        calls.push(cmd);
+        switch (cmd) {
+          case 'take_retired_renderer_notice':
+            return true;
+          case 'get_app_settings':
+            return fixtureAppSettings;
+          case 'list_profiles':
+            return fixtureProfiles;
+          case 'queue_status':
+            return { schema_version: 1, queue_paused: false, jobs: [] };
+          case 'take_pending_selections':
+            return [];
+          default:
+            return null;
+        }
+      });
+      render(<App />);
+      expect(
+        await screen.findByText('Web pages now print with the system renderer'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/headless Edge\/Chrome renderer .* has been removed/),
+      ).toBeInTheDocument();
+      expect(
+        calls.filter((c) => c === 'take_retired_renderer_notice').length,
+      ).toBeGreaterThanOrEqual(1);
+    });
+
+    it('says nothing when there was no retired renderer', async () => {
+      const calls: string[] = [];
+      mockIPC((cmd) => {
+        calls.push(cmd);
+        if (cmd === 'take_retired_renderer_notice') return false;
+        if (cmd === 'take_pending_selections') return [];
+        if (cmd === 'get_app_settings') return fixtureAppSettings;
+        return null;
+      });
+      render(<App />);
+      await waitFor(() =>
+        expect(calls).toContain('take_retired_renderer_notice'),
+      );
+      expect(
+        screen.queryByText('Web pages now print with the system renderer'),
+      ).toBeNull();
     });
   });
 

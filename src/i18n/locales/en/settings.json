@@ -107,5 +107,11 @@
   "config": {
     "corruptTitle": "Your settings file could not be read",
     "corruptBody": "The values below are the defaults, not your saved settings, and changes cannot be saved until the file is fixed or removed. Close Pluryprint, then repair or delete this file — a new one is written from the defaults on the next save."
+  },
+  "notices": {
+    "htmlRendererRetired": {
+      "title": "Web pages now print with the system renderer",
+      "detail": "Your config.toml asked for the headless Edge/Chrome renderer for HTML, Markdown and text. That option has been removed because it could not keep pages away from network shares safely. Pluryprint now always uses the operating system's own web view, which needs nothing installed; your other settings are unchanged."
+    }
   }
 }
