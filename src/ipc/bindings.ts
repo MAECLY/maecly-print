@@ -384,6 +384,20 @@ async previewCommand(req: PrintRequest) : Promise<Result<string, IpcError>> {
 }
 },
 /**
+ * Supply the password of job `id`'s encrypted PDF and resume it. With
+ * `apply_to_batch`, the same password is tried on the batch's other
+ * protected PDFs too. A wrong password pauses the job again with
+ * `password_incorrect`.
+ */
+async jobSupplyPassword(id: string, password: string, applyToBatch: boolean) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("job_supply_password", { id, password, applyToBatch }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * List every profile: built-ins in canonical order, then customs sorted
  * case-insensitively by name. The `default` flag is computed from
  * `engine.default_profile`.
@@ -1234,6 +1248,13 @@ export type IpcErrorCode =
  * The downloaded update failed signature verification (FR-082).
  */
 "UpdateSignatureInvalid" | 
+/**
+ * FR-059: the PDF is encrypted or forbids printing. The reason says which
+ * (`password_required`, `password_incorrect`, `printing_not_allowed`,
+ * `unsupported_encryption`); the first two are fixed by supplying a
+ * password, the others are final.
+ */
+"PdfProtected" | 
 /**
  * A bug or app-state failure the user cannot fix by changing input.
  */

@@ -8,6 +8,7 @@ pub mod diag;
 pub mod events;
 pub mod jobs;
 pub mod notify;
+pub mod pdf_password;
 pub mod printers;
 pub mod profiles;
 pub mod settings;

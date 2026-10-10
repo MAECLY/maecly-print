@@ -161,6 +161,24 @@ impl QueueHandle {
             .await
     }
 
+    /// FR-059: hand the dispatcher the password the user typed for `id`'s
+    /// encrypted PDF and resume it (and, with `apply_to_batch`, the batch's
+    /// other protected PDFs). The password stays in memory only.
+    pub async fn supply_password(
+        &self,
+        id: String,
+        password: crate::engine::PdfPassword,
+        apply_to_batch: bool,
+    ) -> Result<(), IpcError> {
+        self.request(|reply| dispatcher::Cmd::SupplyPassword {
+            id,
+            password,
+            apply_to_batch,
+            reply,
+        })
+        .await
+    }
+
     /// Retry a failed job from the start (attempts reset).
     pub async fn retry(&self, id: String) -> Result<(), IpcError> {
         self.request(|reply| dispatcher::Cmd::Retry { id, reply })

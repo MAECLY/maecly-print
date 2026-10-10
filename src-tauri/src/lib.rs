@@ -345,6 +345,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::jobs::inspect_files,
             ipc::jobs::expand_folders,
             ipc::jobs::preview_command,
+            ipc::pdf_password::job_supply_password,
             ipc::profiles::list_profiles,
             ipc::profiles::get_profile,
             ipc::profiles::save_profile,
