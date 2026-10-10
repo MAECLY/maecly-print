@@ -70,9 +70,11 @@ DLL — there is no `rc.exe`, so the `<msix>` manifest is not embedded.
 
 ## Registration (owned by the installer, not by this crate)
 
-The DLL exports **no** `DllRegisterServer`. On Windows 11 the sparse package
-supplies the COM registration; on Windows 10 the installer writes the registry
-itself. Both are outside this crate.
+The DLL exports **no** `DllRegisterServer`. What ships today is the per-user
+registry verb below, written by `src-tauri/windows/installer-hooks.nsh`; the
+sparse package that would add the Windows 11 top-level entry needs a trusted
+code-signing certificate and is not shipped (decision D3, see
+`docs/04-architecture/shell-extensions.md` §2.5). Both are outside this crate.
 
 CLSID: `{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}`
 
@@ -116,13 +118,16 @@ Get-AppxPackage -Name MaeclyPrint | Remove-AppxPackage
 ```
 
 and the uninstaller must remove both names. No such package was ever shipped,
-so this is a requirement for `installers/windows/sparse-msix/` when it is
-written, not a migration that exists today.
+so this is a requirement for the sparse-package step when it is written, not a
+migration that exists today.
 
-### Windows 10 — registry verb, same DLL
+### Registry verb, same DLL (what the installer ships)
 
-Windows 10 has no modern menu but does honour `ExplorerCommandHandler`, so the
-same object serves both. Registered per-user, no elevation:
+Every Windows version honours `ExplorerCommandHandler`, so the same object
+serves the Windows 10 menu and the Windows 11 classic menu ("Show more
+options", Shift+right-click). The installer ships the DLL for x64 and arm64 and
+registers the one for the OS's **native** architecture (Explorer on Windows on
+ARM cannot load the x64 DLL). Registered per-user, no elevation:
 
 ```reg
 [HKEY_CURRENT_USER\Software\Classes\*\shell\Pluryprint]
@@ -145,6 +150,13 @@ documentation says to declare it on every verb anyway. A COM verb has **no**
 item limit; the 15-item cap belongs to `Document`-model _command-line_ verbs.
 Do **not** register `shellex\ContextMenuHandlers`: that route calls
 `IShellExtInit`/`IContextMenu`, which this DLL does not implement.
+
+**Testing it.** Open "Show more options" with a real click or the keyboard
+(`scripts/vm/r3-contextmenu-e2e.ps1`). Activated through UI Automation's
+`InvokePattern`, Windows builds a classic menu whose cascades all open empty
+(its own "Send to" included) and never calls `IEnumExplorerCommand::Next`;
+that is a property of that activation path, not of this DLL. With UAC off,
+Explorer runs elevated and ignores HKCU COM classes, so nothing shows at all.
 
 ## The menu label cache
 

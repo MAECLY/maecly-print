@@ -1,6 +1,6 @@
 # Shell Extensions
 
-> **TL;DR** — On Windows we ship a tiny C++ COM DLL implementing `IExplorerCommand`, registered through a **Sparse MSIX** package so the entry appears in the modern Win 11 context menu (not relegated to "Show more options"). On macOS the integration ships **inside the app bundle** as an `NSServices` declaration answered by a Rust/`objc2` provider — no `.appex`, no sandbox, no separate signature and nothing for the user to enable (see §3). In both cases the shell extension does *no real work*: it serializes the user's selection and spawns the main Pluryprint binary.
+> **TL;DR** — On Windows we ship a small Rust COM DLL implementing `IExplorerCommand`, registered per user as an `ExplorerCommandHandler` verb: it shows in the Windows 10 menu and in the Windows 11 classic menu ("Show more options"). The Windows 11 top-level menu needs a signed sparse MSIX package, which waits on a code-signing certificate (§2.5). On macOS the integration ships **inside the app bundle** as an `NSServices` declaration answered by a Rust/`objc2` provider — no `.appex`, no sandbox, no separate signature and nothing for the user to enable (see §3). In both cases the shell extension does *no real work*: it serializes the user's selection and spawns the main Pluryprint binary.
 
 ## 1. The problem we are solving
 
@@ -17,248 +17,73 @@ Pluryprint replaces this with a single context-menu entry — **"Print all with 
 
 To do this properly on Windows 11 we need a real shell extension, not a registry-only command.
 
-## 2. Windows 11: the modern context menu
+## 2. Windows: an Explorer command, registered per user
 
-Windows 11 introduced a redesigned context menu in 2021. Two surfaces exist:
+**Status: implemented (registry verb); the sparse-package route for the Windows 11 top-level menu is designed but not shipped** (decision D3 of round 3, see §2.5).
 
-- **Modern menu** — the new, compact menu shown by default.
-- **"Show more options"** — falls through to the legacy Win 10 menu.
+Windows 11 has two context menus:
 
-Registry-only entries (under `HKCR\*\shell\<verb>`) appear *only* in the legacy menu. To reach the modern menu, an entry must be:
+- the **modern menu**, shown by default;
+- the **classic menu**, reached through **Show more options**, Shift+F10 or Shift+right-click. It is the Windows 10 menu.
 
-1. Implemented as a COM server exposing `IExplorerCommand` (and optionally `IExplorerCommandState`, `IInitializeCommand`).
-2. Registered via a **packaged identity** — either a full MSIX install or a *sparse* MSIX package (which lets a non-MSIX app obtain identity without changing how it is installed).
-3. Declared in the package manifest with the `desktop4:Extension` element category `windows.fileExplorerContextMenuHandler`.
+A third-party entry reaches the modern menu only as an `IExplorerCommand` declared by a **packaged** app (a full MSIX, or a *sparse* package that gives an externally installed app an identity), and Windows registers a sparse package only when it is signed with a certificate the machine trusts. Without that certificate (NFR-021, D2/D4: no code signing this round) the entry lives in the classic menu, where it works on every Windows version with no elevation.
 
-This is documented but underexposed; most third-party apps still rely on the registry-only path and accept the legacy-menu demotion. Pluryprint takes the proper path because the right-click experience is the entire UX.
+### 2.1 The DLL
 
-### 2.1 The COM DLL
+`shell_ext_win.dll` is a Rust crate, [`shell-ext-win/`](../../shell-ext-win/README.md), outside the app's workspace so its release profile can keep `panic = "unwind"` (a panic must be caught at the COM boundary, not take Explorer down). It is an in-process COM server with one class, `{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}`, implementing `IExplorerCommand`, `IObjectWithSelection` and `IEnumExplorerCommand`:
 
-The DLL is C++17, ~500–1000 LOC, and links against `windowsapp.lib`, `shell32.lib`, `ole32.lib`. It exposes one COM coclass implementing `IExplorerCommand`.
+- the root entry, **Pluryprint**, has sub-commands: *Print N files* (default profile), one *Print with "<profile>"* per profile (at most 8), *Configure print job…* and *Add to print queue*;
+- the labels and profiles come from `<data_local_dir>\shell-menu.json`, which the app writes in the UI language (`src-tauri/src/shell_menu.rs`), so no file is read while Explorer draws the menu;
+- the entry hides itself (`ECS_HIDDEN`) when none of the first 16 selected items is a supported file or a folder (FR-005); the app is the authority on what prints;
+- on click it writes the selection to a JSON handoff file and starts `pluryprint.exe --invoke=context-menu --files-from <file> --action <action> [--profile <id>]`. A command line has a fixed size whatever the selection, so there is no 15-item limit (FR-003).
 
-#### IExplorerCommand interface
+The DLL never prints, never reads file contents and never talks to the running app: that is the app's job (§4).
 
-```cpp
-class __declspec(uuid("{E63C5A1F-2E8B-4D7C-9F31-7B2C0F8E4A2D}"))
-PrintAllCommand : public winrt::implements<
-    PrintAllCommand,
-    IExplorerCommand,
-    IObjectWithSite>
-{
-public:
-    // IExplorerCommand
-    IFACEMETHODIMP GetTitle(IShellItemArray*, LPWSTR* name) override;
-    IFACEMETHODIMP GetIcon(IShellItemArray*, LPWSTR* icon) override;
-    IFACEMETHODIMP GetToolTip(IShellItemArray*, LPWSTR* infoTip) override;
-    IFACEMETHODIMP GetCanonicalName(GUID* guid) override;
-    IFACEMETHODIMP GetState(IShellItemArray*, BOOL okToBeSlow, EXPCMDSTATE* state) override;
-    IFACEMETHODIMP Invoke(IShellItemArray* selection, IBindCtx*) override;
-    IFACEMETHODIMP GetFlags(EXPCMDFLAGS* flags) override;
-    IFACEMETHODIMP EnumSubCommands(IEnumExplorerCommand**) override;
+### 2.2 What the installer registers
 
-    // IObjectWithSite
-    IFACEMETHODIMP SetSite(IUnknown* site) override { m_site = site; return S_OK; }
-    IFACEMETHODIMP GetSite(REFIID riid, void** site) override { return m_site.copy_to(riid, site); }
-private:
-    winrt::com_ptr<IUnknown> m_site;
-};
-```
+The per-user NSIS installer ([ADR-0008](../adr/0008-installer-nsis-per-user.md)) does it in [`src-tauri/windows/installer-hooks.nsh`](../../src-tauri/windows/installer-hooks.nsh), all under `HKCU\Software\Classes`, so neither install nor update asks for elevation:
 
-Only `Invoke` does meaningful work; the rest return localized strings, an icon resource ID, the canonical name (`Pluryprint.PrintAll`), and a state of `ECS_ENABLED` whenever the selection contains at least one file.
+| Key | Values |
+|---|---|
+| `CLSID\{B269B8DC-…}\InprocServer32` | `(Default)` = `<install dir>\shell_ext_win.dll`, `ThreadingModel` = `Apartment` |
+| `*\shell\Pluryprint` and `Directory\shell\Pluryprint` | `ExplorerCommandHandler` = the CLSID, `MultiSelectModel` = `Player`, `Icon` = `pluryprint.exe,0` |
 
-#### Inside `Invoke`
+**Architecture.** The installer carries the DLL for both architectures (`resources\shellext\x64` and `resources\shellext\arm64`) and copies the one for the **operating system's** native architecture next to `pluryprint.exe`. Explorer on Windows on ARM is a native ARM64 process and cannot load an x64 DLL, even when the x64 installer runs there under emulation. CI builds must carry both DLLs (the hooks refuse to compile otherwise); a local single-architecture installer run on the other architecture registers nothing rather than a CLSID that points at no file.
 
-```cpp
-IFACEMETHODIMP PrintAllCommand::Invoke(IShellItemArray* items, IBindCtx*) noexcept
-try {
-    DWORD count = 0;
-    winrt::check_hresult(items->GetCount(&count));
+**Updates.** Explorer keeps the DLL loaded once a menu has been shown. A loaded DLL cannot be overwritten but can be renamed, so the old copy is moved aside as `shell_ext_win.dll.old<N>` and removed by the next update or the uninstaller.
 
-    // Build a JSON array of absolute paths.
-    std::wstring json = L"[";
-    for (DWORD i = 0; i < count; ++i) {
-        winrt::com_ptr<IShellItem> item;
-        winrt::check_hresult(items->GetItemAt(i, item.put()));
+**Uninstall** deletes the keys, the DLL (at the next restart if Explorer still holds it) and the SumatraPDF settings file. With **Delete the application data** ticked it also removes `%APPDATA%\Maecly\Pluryprint` and `%LOCALAPPDATA%\Maecly\Pluryprint` (settings, profiles, queue, logs, cache): Tauri's own checkbox only knows the `%APPDATA%\<identifier>` folders, which hold the web view profile.
 
-        wil::unique_cotaskmem_string path;
-        winrt::check_hresult(item->GetDisplayName(SIGDN_FILESYSPATH, path.put()));
+**UAC off.** With UAC disabled (EnableLUA = 0) Explorer runs elevated and ignores COM classes registered under HKCU, so the entry does not appear. That is a Windows rule for every per-user shell extension.
 
-        if (i > 0) json += L",";
-        json += L"\"";
-        json += json_escape(path.get());
-        json += L"\"";
-    }
-    json += L"]";
+### 2.3 Where the entry appears
 
-    // For small selections (<= 1024 chars total) pass on the command line.
-    // For larger selections, write to a temp file and pass --files-from=<path>.
-    std::wstring exe = locate_main_exe();         // installed alongside the DLL
-    std::wstring args;
-    if (json.size() <= 8000) {
-        args = L"--invoke=context-menu --files=" + quote(json);
-    } else {
-        std::wstring temp = write_temp_file(json);
-        args = L"--invoke=context-menu --files-from=" + quote(temp);
-    }
+| Surface | Entry |
+|---|---|
+| Windows 10 menu | Pluryprint ▸ submenu |
+| Windows 11, **Show more options** (click or keyboard) | Pluryprint ▸ submenu |
+| Windows 11, Shift+right-click / Shift+F10 | Pluryprint ▸ submenu |
+| Windows 11 top-level menu | not shown (needs the signed sparse package, §2.5) |
 
-    SHELLEXECUTEINFOW sei{};
-    sei.cbSize = sizeof(sei);
-    sei.fMask  = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-    sei.lpVerb = L"open";
-    sei.lpFile = exe.c_str();
-    sei.lpParameters = args.c_str();
-    sei.nShow  = SW_SHOWNORMAL;
-    if (!ShellExecuteExW(&sei)) {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-    return S_OK;
-}
-catch (...) { return winrt::to_hresult(); }
-```
+**A test trap, not a product defect.** If **Show more options** is activated through UI Automation (`InvokePattern`) instead of a real click or the keyboard, Explorer builds the classic menu without the owner-draw handling its cascades need: every submenu opens as an empty box about 20 px wide, Windows' own *Send to* included, and Explorer calls `EnumSubCommands` but never `Next`. The round-3 upgrade test reported that as an empty Pluryprint submenu (row 7b). The VM test ([`scripts/vm/r3-contextmenu-e2e.ps1`](../../scripts/vm/r3-contextmenu-e2e.ps1)) therefore uses real mouse input. A classic `IContextMenu` handler, which builds its whole submenu in `QueryContextMenu`, was tried as an alternative and shows the same empty box under `InvokePattern` and the same full submenu with a real click, so it brought nothing and was not kept.
 
-Notes:
+### 2.4 Handing the selection to a running app
 
-- We use `IShellItem::GetDisplayName(SIGDN_FILESYSPATH)` which gives a real absolute path, not a virtual or library-virtualized name.
-- The DLL **never reads file content**. It only handles paths.
-- The DLL does not allocate large buffers in the Explorer process beyond the path JSON.
-- Errors are returned as HRESULTs; Explorer surfaces them as a balloon, but we also write a single-line crash report into `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\shellext.log`.
+When the app is already open, the process the DLL starts is a second instance. `tauri-plugin-single-instance` hands its argv to the running one (a `WM_COPYDATA` message) and exits; the running instance reads the handoff file, parks the selection and rings the window (`selection-forwarded`), which drains it (`take_pending_selections`).
 
-### 2.2 Sparse MSIX package
+The running window then comes to the front **without faked input** (`src-tauri/src/cli/foreground.rs`). Tauri's `set_focus` was used before; on Windows, when `SetForegroundWindow` is refused (a background app may not take the foreground), it injects an Alt key press. The lone Alt puts the window into menu mode, a modal loop that left the selection undelivered until the user's next click: the intermittent stall of the upgrade test (row 7c). Now the second instance, which Explorer started in response to the user's click and which may therefore set the foreground, passes that right on with `AllowSetForegroundWindow(ASFW_ANY)` before it forwards, and the running instance calls plain `SetForegroundWindow`; if Windows still refuses, the taskbar button flashes. Before raising, the callback also ends menu mode (`EndMenu`) whoever caused it: it runs on the window's thread, inside the modal loop, which makes it the one place that can.
 
-A *sparse* package is an MSIX package that declares package identity for an externally installed app. The user installs Pluryprint via Inno Setup (small `.exe` installer) into `%LOCALAPPDATA%\Programs\Pluryprint`, and as part of that install we register the sparse package. The OS then treats the externally located `.exe` and `.dll` as if they were inside a packaged app, granting the COM-server-as-shell-extension capability.
+Measured on Windows 11 24H2 ARM64: with the window put in menu mode by a lone Alt, the pre-fix build did not act on a forwarded selection within 40 s (3 of 3) and did at once after Escape; the fixed build acted in 0.2 to 0.3 s (3 of 3), and in 0.2 to 0.3 s for 10 of 10 selections sent through the real Explorer menu, each time with the window raised (`window_raised`, `outcome: raised` in the log).
 
-#### AppManifest.xml fragments
+### 2.5 The sparse package (designed, not shipped)
 
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<Package
-    xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
-    xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-    xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
-    xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
-    xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
-    xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
-    IgnorableNamespaces="uap uap3 com desktop4 desktop5">
+The top-level Windows 11 entry needs a sparse package registered with `Add-AppxPackage -Path <msix> -ExternalLocation <install dir>`, whose manifest declares the same CLSID as a `windows.comServer` and a `windows.fileExplorerContextMenus` verb (`desktop5:ItemType Type="*"` and `"Directory"`), and the DLL and `pluryprint.exe` must embed the matching side-by-side `<msix>` manifest (`shell-ext-win/res/shellext.manifest`, embedded by `build.rs`). Windows installs such a package only when it is signed by a certificate the machine trusts, which outside a test machine means a code-signing certificate. Per decision D3 the installer registers the HKCU verb always and will add the sparse package only once a trusted-signed `.msix` exists; with both registered, the packaged verb serves the top-level menu and the HKCU verb must then be dropped from the classic menu to avoid a duplicate entry.
 
-  <Identity Name="Pluryprint" Publisher="CN=Pluryprint" Version="1.0.0.0"/>
-
-  <Properties>
-    <DisplayName>Pluryprint</DisplayName>
-    <PublisherDisplayName>Pluryprint</PublisherDisplayName>
-    <Logo>Assets\StoreLogo.png</Logo>
-  </Properties>
-
-  <Dependencies>
-    <TargetDeviceFamily Name="Windows.Desktop"
-                        MinVersion="10.0.19041.0"
-                        MaxVersionTested="10.0.26100.0"/>
-  </Dependencies>
-
-  <Resources>
-    <Resource Language="en-us"/>
-  </Resources>
-
-  <Applications>
-    <Application Id="Pluryprint" Executable="Pluryprint.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements
-          DisplayName="Pluryprint"
-          Description="Print N files in batch from Explorer."
-          BackgroundColor="transparent"
-          Square150x150Logo="Assets\Square150x150Logo.png"
-          Square44x44Logo="Assets\Square44x44Logo.png"/>
-
-      <Extensions>
-
-        <!-- 1. Register the COM in-process server -->
-        <com:Extension Category="windows.comServer">
-          <com:ComServer>
-            <com:SurrogateServer DisplayName="Pluryprint Shell Extension">
-              <com:Class Id="E63C5A1F-2E8B-4D7C-9F31-7B2C0F8E4A2D"
-                         Path="PluryprintShellExt.dll"
-                         ThreadingModel="STA"/>
-            </com:SurrogateServer>
-          </com:ComServer>
-        </com:Extension>
-
-        <!-- 2. Declare it as a context-menu handler for ALL files -->
-        <desktop4:Extension Category="windows.fileExplorerContextMenuHandler">
-          <desktop4:FileExplorerContextMenus>
-            <desktop5:ItemType Type="*">
-              <desktop5:Verb Id="PluryprintAll" Clsid="E63C5A1F-2E8B-4D7C-9F31-7B2C0F8E4A2D"/>
-            </desktop5:ItemType>
-            <!-- Optionally, scope to specific extensions to avoid noise: -->
-            <!--
-            <desktop5:ItemType Type=".pdf">
-              <desktop5:Verb Id="PluryprintAll" Clsid="..."/>
-            </desktop5:ItemType>
-            -->
-          </desktop4:FileExplorerContextMenus>
-        </desktop4:Extension>
-
-      </Extensions>
-    </Application>
-  </Applications>
-
-  <Capabilities>
-    <rescap:Capability Name="runFullTrust"
-        xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"/>
-  </Capabilities>
-</Package>
-```
-
-#### Registering the sparse package
-
-Before registering, the installer removes any sparse package registered under the product's former identity, `MaeclyPrint` ([ADR-0009](../adr/0009-rename-to-pluryprint.md)). It would claim the same CLSID and verb as the Pluryprint package. No such package was ever shipped, but developer and test machines may have one:
+Whatever registers the package must first remove any package registered under the former identity, `MaeclyPrint` ([ADR-0009](../adr/0009-rename-to-pluryprint.md)), which would claim the same CLSID:
 
 ```powershell
 Get-AppxPackage -Name MaeclyPrint | Remove-AppxPackage
 ```
-
-Inno Setup runs this PowerShell snippet at install time:
-
-```powershell
-$manifest = "$env:LOCALAPPDATA\Programs\Pluryprint\AppxManifest.xml"
-$externalLocation = "$env:LOCALAPPDATA\Programs\Pluryprint"
-
-Add-AppxPackage `
-    -Path $manifest `
-    -ExternalLocation $externalLocation `
-    -Register
-```
-
-`-ExternalLocation` is the key: it tells Windows that the app's binaries live outside the AppX deployment root. The `<uap10:AllowExternalContent>true</uap10:AllowExternalContent>` declaration in the `Properties` block is required for this to be honored.
-
-At uninstall time:
-
-```powershell
-Get-AppxPackage Pluryprint | Remove-AppxPackage
-Get-AppxPackage MaeclyPrint | Remove-AppxPackage   # the pre-rename identity, if any
-```
-
-### 2.3 Choice of `Type="*"` vs explicit list
-
-We register against `Type="*"` so the command appears for any file, then filter at runtime in the Tauri exe. This is preferred because:
-
-- Users expect to be able to print any file we can convert.
-- Adding a new converter (e.g. `.epub`) does not require re-registering or updating the AppManifest.
-- The DLL is too thin to do meaningful filtering.
-
-The cost is a small amount of menu clutter for users who select files we can't handle. We mitigate this by filtering out unsupported types in the dialog (showing them grouped at the bottom with a "skip" badge).
-
-### 2.4 Fallback: registry-only handler
-
-For users on Windows 10 (or who refuse MSIX), we ship a registry-only fallback that puts the same verb into `HKCU\Software\Classes\*\shell\Pluryprint`. This appears only in the legacy "Show more options" menu on Win 11 but works fully on Win 10. The installer asks during setup which mode is preferred; default is **Sparse MSIX on Win 11, registry on Win 10**.
-
-```reg
-[HKEY_CURRENT_USER\Software\Classes\*\shell\Pluryprint]
-@="Print all with Pluryprint"
-"Icon"="C:\\Users\\<user>\\AppData\\Local\\Programs\\Pluryprint\\Pluryprint.exe,0"
-
-[HKEY_CURRENT_USER\Software\Classes\*\shell\Pluryprint\command]
-@="\"C:\\Users\\<user>\\AppData\\Local\\Programs\\Pluryprint\\Pluryprint.exe\" --invoke=context-menu --files=\"%1\""
-```
-
-The registry path only receives one file at a time per `%1` substitution, which is exactly the limitation Windows imposes. To work around this, the second-and-later launches are detected by the Tauri exe via a named mutex and the additional paths are pushed into the running instance over a named pipe.
 
 ## 3. macOS: an NSService inside the app
 
@@ -444,7 +269,7 @@ automatable.
 +-----------+      +-------------------+      +----------------------+      +---------------+
 | Explorer  |      | Pluryprint       |      | Pluryprint.exe      |      | WebView2      |
 | (or       | ---> | shell ext DLL     | ---> | (Rust core)          | ---> | print dialog  |
-| Finder)   |      | (C++/Swift)       |      |                      |      | (React UI)    |
+| Finder)   |      | (Rust)            |      |                      |      | (React UI)    |
 +-----------+      +-------------------+      +----------------------+      +---------------+
                           |                            |                            |
                           | 1. enumerate items         |                            |
@@ -454,9 +279,9 @@ automatable.
                           | 5. spawn Tauri exe         |                            |
                           | 6. exit                    |                            |
                           X                            |                            |
-                                                       | A. parse --files arg       |
-                                                       | B. acquire singleton mutex |
-                                                       |    (or pipe to existing)   |
+                                                       | A. read --files-from file  |
+                                                       | B. single-instance mutex   |
+                                                       |    (or forward argv)       |
                                                        | C. boot Tauri runtime      |
                                                        | D. open print dialog       |
                                                        |--------------------------> |
@@ -472,25 +297,19 @@ automatable.
 
 - **Cheap DLL.** Anything beyond serialization in the DLL risks crashing Explorer.
 - **Single source of truth.** The Tauri exe is the only place that knows about profiles, supported formats, the queue, etc. The DLL doesn't need to be redeployed when a converter is added.
-- **Singleton.** A second right-click while the dialog is open routes new files into the existing instance (named pipe `\\.\pipe\Pluryprint`).
+- **Singleton.** A second right-click while the app is open routes the new selection into the running instance: `tauri-plugin-single-instance` forwards the argv (`WM_COPYDATA`), and the window is raised without faked input (§2.4).
 
 ## 5. Logging and diagnostics
 
-The DLL logs only to `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\shellext.log`, one line per invocation:
-
-```
-2026-05-03T12:34:56Z INVOKE files=12 transport=args ok=true exe=...\Pluryprint.exe
-2026-05-03T12:35:11Z INVOKE files=312 transport=files-from path=...\filelist-abc.json ok=true
-2026-05-03T12:36:02Z INVOKE files=1 transport=args ok=false hr=0x80004005
-```
+The DLL logs only to `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\shellext.jsonl`: one JSON line per invocation (action, item count, handoff file) and per caught panic, nothing while the menu is drawn, capped at 1 MB.
 
 The Tauri exe logs in JSONL to its own log file (see [`data-model.md`](./data-model.md)).
 
 ## 6. Testing the shell extension
 
-- **Unit (DLL).** Mock `IShellItemArray` and assert the JSON output.
-- **Integration (Win).** A PowerShell script enumerates known test files, builds a `Shell.Application` COM object, finds the verb, and invokes it; assert the Tauri exe was launched with the correct `--files` payload.
-- **Manual.** A `tools/install-dev-shellext.ps1` script registers the development build of the sparse package without uninstalling the production install.
+- **Unit (DLL).** `cargo test` in `shell-ext-win/` covers the handoff payload, the menu model and the label cache on any host; the app reads the same fixtures (`tests/handoff_roundtrip.rs`, `tests/strings_cache.rs`).
+- **Installer.** `src-tauri/tests/installer_hooks.rs` and `bundle_identity.rs` pin what the hooks register and remove, and compile them with `makensis -WX`.
+- **VM.** [`scripts/vm/r3-contextmenu-e2e.ps1`](../../scripts/vm/r3-contextmenu-e2e.ps1) opens the classic menu with real mouse input, prints the Pluryprint submenu, clicks an entry and takes a screenshot (§2.3 explains why UI Automation's `InvokePattern` must not be used for "Show more options").
 
 On macOS everything that does not need the Finder is a plain `cargo test` in `platform::macos::*` — handoff writing and its caps, `NSPasteboard`→paths decoding built from real `NSURL`s, hostile file names, the action vocabulary. Whether the system *discovered* the service is assertable in CI (`plutil -extract NSServices` on the bundled `Info.plist`, then `lsregister -f` + `pbs -flush` + `pbs -dump_pboard | grep`); whether the entry renders in the Finder's menu is not automatable (see `shell-ext-mac/README.md`).
 
@@ -499,4 +318,4 @@ On macOS everything that does not need the Finder is a plain `cargo test` in `pl
 - [`system-architecture.md`](./system-architecture.md) — where this fits in the overall layout.
 - [`ipc-and-cli.md`](./ipc-and-cli.md) — exact `--invoke` flag semantics.
 - ADR [`0005-shell-extension-sparse-msix`](../adr/0005-shell-extension-sparse-msix.md) — why Sparse MSIX over the alternatives.
-- ADR [`0006-installer-inno-setup`](../adr/0006-installer-inno-setup.md) — how the package is registered at install time.
+- ADR [`0008-installer-nsis-per-user`](../adr/0008-installer-nsis-per-user.md) — the per-user installer that registers the verb (supersedes ADR-0006).

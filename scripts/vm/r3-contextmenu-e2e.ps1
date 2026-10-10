@@ -126,6 +126,9 @@ $full = (Resolve-Path $Path).Path
 $leaf = Split-Path $full -Leaf
 Start-Process explorer.exe -ArgumentList ('/select,"' + $full + '"')
 $win = Find-Top ([regex]::Escape((Split-Path (Split-Path $full -Parent) -Leaf))) 15
+# Explorer in front even when another app holds the foreground: a test
+# harness may tap Alt to be allowed to call SetForegroundWindow.
+[E2E]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero); [E2E]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
 [void][E2E]::SetForegroundWindow([IntPtr]$win.Current.NativeWindowHandle)
 Start-Sleep -Milliseconds 800
 $item = $null
