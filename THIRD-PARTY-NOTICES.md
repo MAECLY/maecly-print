@@ -352,7 +352,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 
 ## Rust crates
 
-506 crates are compiled into the shipped binaries. The table names each one, the licence it is offered under, the licence Pluryprint uses it under, and where it ships; the licence texts follow, each with the crates that ship it.
+505 crates are compiled into the shipped binaries. The table names each one, the licence it is offered under, the licence Pluryprint uses it under, and where it ships; the licence texts follow, each with the crates that ship it.
 
 | Crate                               | Version          | Offered under                                       | Used under               | Ships in                          |
 | ----------------------------------- | ---------------- | --------------------------------------------------- | ------------------------ | --------------------------------- |
@@ -651,8 +651,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `serde_derive`                      | 1.0.228          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `serde_derive`                      | 1.0.229          | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
 | `serde_derive_internals`            | 0.29.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serde_json`                        | 1.0.149          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serde_json`                        | 1.0.151          | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `serde_json`                        | 1.0.152          | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `serde_repr`                        | 0.1.20           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `serde_spanned`                     | 0.6.9            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `serde_spanned`                     | 1.1.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
@@ -733,7 +732,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `tinystr`                           | 0.8.3            | Unicode-3.0                                         | Unicode-3.0              | app                               |
 | `tinyvec`                           | 1.11.0           | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
 | `tinyvec_macros`                    | 0.1.1            | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
-| `tokio`                             | 1.52.1           | MIT                                                 | MIT                      | app                               |
+| `tokio`                             | 1.53.2           | MIT                                                 | MIT                      | app                               |
 | `tokio-macros`                      | 2.7.0            | MIT                                                 | MIT                      | app                               |
 | `tokio-rustls`                      | 0.26.6           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `tokio-util`                        | 0.7.18           | MIT                                                 | MIT                      | app                               |
@@ -1599,8 +1598,7 @@ Used by:
 - `serde_derive` 1.0.228 (https://github.com/serde-rs/serde), by Erick Tryzelaar, David Tolnay
 - `serde_derive` 1.0.229 (https://github.com/serde-rs/serde), by Erick Tryzelaar, David Tolnay
 - `serde_derive_internals` 0.29.1 (https://github.com/serde-rs/serde), by Erick Tryzelaar, David Tolnay
-- `serde_json` 1.0.149 (https://github.com/serde-rs/json), by Erick Tryzelaar, David Tolnay
-- `serde_json` 1.0.151 (https://github.com/serde-rs/json), by Erick Tryzelaar, David Tolnay
+- `serde_json` 1.0.152 (https://github.com/serde-rs/json)
 - `serde_repr` 0.1.20 (https://github.com/dtolnay/serde-repr), by David Tolnay
 - `siphasher` 1.0.3 (https://github.com/jedisct1/rust-siphash), by Frank Denis
 - `subsetter` 0.2.6 (https://github.com/typst/subsetter), by Laurenz Mädje, Laurenz Stampfl
@@ -11523,7 +11521,7 @@ SOFTWARE.
 
 Used by:
 
-- `tokio` 1.52.1 (https://github.com/tokio-rs/tokio), by Tokio Contributors
+- `tokio` 1.53.2 (https://github.com/tokio-rs/tokio), by Tokio Contributors
 - `tokio-util` 0.7.18 (https://github.com/tokio-rs/tokio), by Tokio Contributors
 
 ```text
