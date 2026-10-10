@@ -99,7 +99,7 @@ image = { version = "0.25", default-features = false, features = [
 # parsed objects on pool threads with stacks of their own (a thread pool is
 # not worth it for a page count), `chrono-clock` only stamps dates on PDFs
 # lopdf writes, which we do not need.
-lopdf = { version = "0.44", default-features = false }
+lopdf = { version = "0.45", default-features = false }
 # FR-052a: SVG/SVGZ -> vector PDF in-process (Typst's converter). `usvg` is
 # pinned to the exact line svg2pdf 0.13 is built on, so the tree never holds
 # two copies of the SVG parser. Both MIT OR Apache-2.0.
