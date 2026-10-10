@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { FileGlyph, MPIconButton, StatusDot } from '@/components/ui';
 import { useT, type TFunction } from '@/i18n/I18nProvider';
@@ -14,14 +14,14 @@ import type { JobChange } from '@/ipc/bindings';
 import type { ConfirmState } from '@/components/ConfirmDialog';
 import { needsPassword } from '@/lib/pdfPassword';
 
+import { missingDependency } from '@/lib/deps';
+import type { AttentionHandlers } from './AttentionActions';
 import { useJobLabels } from './useJobLabels';
 
-interface QueueListViewProps {
+interface QueueListViewProps extends AttentionHandlers {
   jobs: UiQueueJobView[];
   /** Request an in-app confirmation (used for cancelling an in-flight job). */
   onConfirm: (state: ConfirmState) => void;
-  /** Ask for the password of a job's encrypted PDF (FR-059). */
-  onEnterPassword: (job: UiQueueJobView) => void;
 }
 
 const TERMINAL = new Set(['done', 'unconfirmed', 'failed', 'cancelled']);
@@ -52,36 +52,75 @@ function pauseFixes(
   return oneSided || otherPrinter ? { oneSided, otherPrinter } : null;
 }
 
+/** A reload asked for sooner than this after the last one is skipped. */
+const PRINTERS_REFRESH_MS = 5000;
+
+/** The printers a paused job can be sent to, and how loading them went. */
+interface UsablePrinters {
+  printers: PrinterOption[];
+  /** The last load failed: the row says so and offers a retry. */
+  failed: boolean;
+  /**
+   * Load the list again. `force` skips the throttle (an explicit retry);
+   * otherwise a reload right after the previous one is skipped.
+   */
+  reload: (force?: boolean) => void;
+}
+
 /**
  * The printers a job can be moved to: installed and not removed from
- * Pluryprint. Loaded only while some job needs the choice.
+ * Pluryprint. Loaded only while some job needs the choice, and again when the
+ * window regains focus or the user opens the list — a printer added in the
+ * meantime shows up without leaving the Queue. A failed load is reported,
+ * never swallowed: the "send to another printer" choice must not vanish
+ * without a word.
  */
-function useUsablePrinters(needed: boolean): PrinterOption[] {
+function useUsablePrinters(needed: boolean): UsablePrinters {
   const [printers, setPrinters] = useState<PrinterOption[]>([]);
-  useEffect(() => {
-    if (!needed || !isTauri()) return;
-    let alive = true;
+  const [failed, setFailed] = useState(false);
+  const alive = useRef(true);
+  const lastLoad = useRef(0);
+
+  const reload = useCallback((force = false) => {
+    if (!isTauri()) return;
+    const now = Date.now();
+    if (!force && now - lastLoad.current < PRINTERS_REFRESH_MS) return;
+    lastLoad.current = now;
     Promise.all([
       listPrinters(),
       getPrinterPrefs().catch((): PrinterPrefs => ({})),
     ])
       .then(([ps, prefs]) => {
-        if (!alive) return;
+        if (!alive.current) return;
         const disabled = new Set(prefs.disabled ?? []);
         setPrinters(
           ps
             .filter((p) => !disabled.has(p.id))
             .map((p) => ({ id: p.id, name: p.name })),
         );
+        setFailed(false);
       })
       .catch(() => {
-        // Without a list the select stays empty; one-sided still works.
+        if (alive.current) setFailed(true);
       });
+  }, []);
+
+  useEffect(() => {
+    alive.current = true;
     return () => {
-      alive = false;
+      alive.current = false;
     };
-  }, [needed]);
-  return printers;
+  }, []);
+
+  useEffect(() => {
+    if (!needed) return;
+    reload(true);
+    const onFocus = () => reload();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [needed, reload]);
+
+  return { printers, failed, reload };
 }
 
 /**
@@ -167,10 +206,12 @@ interface RowProps {
   onRetry: () => void;
   onCancel: () => void;
   onEnterPassword: () => void;
+  /** Offer to install what the paused job is missing (FR-058). */
+  onInstallDependency: () => void;
   /** Change the paused job, then resume it (see {@link pauseFixes}). */
   onAdjust: (change: JobChange) => void;
-  /** Where a paused job can be sent instead. */
-  printers: PrinterOption[];
+  /** Where a paused job can be sent instead, and whether loading it failed. */
+  printers: UsablePrinters;
   /** A command for this job is still in flight: no second click (NFR-033). */
   busy: boolean;
 }
@@ -184,13 +225,15 @@ function Row({
   onRetry,
   onCancel,
   onEnterPassword,
+  onInstallDependency,
   onAdjust,
   printers,
   busy,
 }: RowProps) {
+  const tCommon = useT('common');
   const terminal = TERMINAL.has(j.status);
   const fixes = pauseFixes(j);
-  const targets = printers.filter((p) => p.id !== j.printer);
+  const targets = printers.printers.filter((p) => p.id !== j.printer);
   const error = labels.error(j);
   const meta = [
     t('job.meta', { profile: j.profile, printer: labels.printer(j) }),
@@ -270,10 +313,43 @@ function Row({
                 {t('fix.oneSided')}
               </button>
             )}
+            {fixes.otherPrinter && printers.failed && (
+              <span
+                role="alert"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 11,
+                  color: 'var(--mp-warn)',
+                }}
+              >
+                {t('fix.printersFailed')}
+                <button
+                  type="button"
+                  className="mp-focus"
+                  onClick={() => printers.reload(true)}
+                  style={{
+                    fontSize: 11,
+                    padding: '2px 8px',
+                    borderRadius: 5,
+                    border: '1px solid var(--mp-border)',
+                    background: 'var(--mp-surface)',
+                    color: 'var(--mp-text)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {tCommon('actions.retry')}
+                </button>
+              </span>
+            )}
             {fixes.otherPrinter && targets.length > 0 && (
               <select
                 aria-label={t('fix.sendToLabel', { file: j.file })}
                 disabled={busy}
+                // Opening the list refreshes it: a printer added since the
+                // last load appears without leaving the Queue.
+                onFocus={() => printers.reload()}
                 value=""
                 onChange={(e) => {
                   if (e.target.value) {
@@ -348,6 +424,15 @@ function Row({
             onClick={onEnterPassword}
           />
         )}
+        {missingDependency(j) && (
+          <MPIconButton
+            icon="download"
+            size={24}
+            label={t('fix.installLabel', { file: j.file })}
+            disabled={busy}
+            onClick={onInstallDependency}
+          />
+        )}
         {j.status === 'paused' && !needsPassword(j.status, j.errorInfo) && (
           <MPIconButton
             icon="play"
@@ -384,6 +469,7 @@ export function QueueListView({
   jobs,
   onConfirm,
   onEnterPassword,
+  onInstallDependency,
 }: QueueListViewProps) {
   const t = useT('queue');
   const pauseJob = useQueueStore((s) => s.pauseJob);
@@ -473,6 +559,7 @@ export function QueueListView({
                   onRetry={() => void retryJob(j.id)}
                   onCancel={() => requestCancel(j)}
                   onEnterPassword={() => onEnterPassword(j)}
+                  onInstallDependency={() => onInstallDependency(j)}
                   onAdjust={(change) => void adjustAndResume(j.id, change)}
                   printers={printers}
                   busy={pendingIds.includes(j.id)}

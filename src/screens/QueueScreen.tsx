@@ -1,12 +1,18 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 import { ConfirmDialog, type ConfirmState } from '@/components/ConfirmDialog';
+import { DependencyInstallDialog } from '@/components/DependencyInstallDialog';
 import { PdfPasswordDialog } from '@/components/PdfPasswordDialog';
 import { Icon } from '@/components/Icon';
 import { MPButton, MPSegmented, MPTopBar } from '@/components/ui';
 import { useT } from '@/i18n/I18nProvider';
+import type { DependencyReport } from '@/ipc/bindings';
+import { remediationKey } from '@/lib/deps';
+import { fetchAppInfo, type UiQueueJobView } from '@/lib/ipc';
+import { errorMessage } from '@/lib/ipcError';
 import { CLEAR_UNDO_MS, useQueueStore } from '@/stores/queueStore';
+import { missingDependency } from '@/lib/deps';
 import { QueueListView } from './QueueViews/QueueListView';
 import { QueueBoardView } from './QueueViews/QueueBoardView';
 import { QueueTimelineView } from './QueueViews/QueueTimelineView';
@@ -88,12 +94,73 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
   const requestClearDone = useQueueStore((s) => s.requestClearDone);
   const undoClearDone = useQueueStore((s) => s.undoClearDone);
   const cancelAll = useQueueStore((s) => s.cancelAll);
+  const resumeJob = useQueueStore((s) => s.resumeJob);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
-  /** The job whose PDF password is being asked for (FR-059). */
-  const [passwordFor, setPasswordFor] = useState<{
-    id: string;
-    file: string;
-  } | null>(null);
+  /**
+   * The job whose PDF password is being asked for (FR-059). In the store, so
+   * a toast can open it and the store can hold back a second alarm for it.
+   */
+  const passwordFor = useQueueStore((s) => s.passwordPrompt);
+  const openPasswordPrompt = useQueueStore((s) => s.openPasswordPrompt);
+  const closePasswordPrompt = useQueueStore((s) => s.closePasswordPrompt);
+  // Leaving the Queue closes the prompt: coming back later must not find it
+  // open over a job that may have moved on.
+  useEffect(() => () => closePasswordPrompt(), [closePasswordPrompt]);
+  /** FR-058: the dependency a paused job is missing, offered for install. */
+  const [installFor, setInstallFor] = useState<DependencyReport | null>(null);
+
+  /**
+   * Resume every job paused because `report`'s dependency was missing, once
+   * it is found. Returns how many were resumed.
+   */
+  const resumeWaitingOn = (report: DependencyReport): number => {
+    const waiting = useQueueStore
+      .getState()
+      .uiJobs.filter((j) => missingDependency(j) === report.id);
+    for (const j of waiting) void resumeJob(j.id);
+    return waiting.length;
+  };
+
+  /**
+   * FR-058: a job paused on `dependency_missing` offers the same consent
+   * dialog as Print Job. The dependency is probed afresh first: if it is
+   * there by now, the job just resumes; if nothing can install it, the
+   * remediation says what to do instead.
+   */
+  const installDependencyFor = async (job: UiQueueJobView) => {
+    const id = missingDependency(job);
+    if (!id) return;
+    try {
+      const info = await fetchAppInfo();
+      const report = (info.dependencies ?? []).find((d) => d.id === id);
+      if (!report) {
+        toast.info(tCommon(remediationKey(id)));
+      } else if (report.found) {
+        resumeWaitingOn(report);
+        toast.success(t('fix.alreadyInstalled', { name: report.name }));
+      } else if (report.install.length === 0) {
+        toast.info(tCommon(remediationKey(id)));
+      } else {
+        setInstallFor(report);
+      }
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
+  /** After an install (or a background one ending): resume what it unblocks. */
+  const onDependencyResolved = (report: DependencyReport) => {
+    if (!report.found) return;
+    const count = resumeWaitingOn(report);
+    if (count > 0) {
+      toast.success(t('fix.resumed', { count, name: report.name }));
+    }
+  };
+
+  const attention = {
+    onEnterPassword: (j: UiQueueJobView) => openPasswordPrompt(j.id, j.file),
+    onInstallDependency: (j: UiQueueJobView) => void installDependencyFor(j),
+  };
 
   const subtitle =
     view === 'board'
@@ -268,16 +335,12 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
     );
   } else if (view === 'list') {
     body = (
-      <QueueListView
-        jobs={uiJobs}
-        onConfirm={setConfirm}
-        onEnterPassword={(j) => setPasswordFor({ id: j.id, file: j.file })}
-      />
+      <QueueListView jobs={uiJobs} onConfirm={setConfirm} {...attention} />
     );
   } else if (view === 'board') {
-    body = <QueueBoardView jobs={uiJobs} />;
+    body = <QueueBoardView jobs={uiJobs} {...attention} />;
   } else {
-    body = <QueueTimelineView jobs={uiJobs} />;
+    body = <QueueTimelineView jobs={uiJobs} {...attention} />;
   }
 
   return (
@@ -301,7 +364,14 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
             key={passwordFor.id}
             jobId={passwordFor.id}
             file={passwordFor.file}
-            onClose={() => setPasswordFor(null)}
+            onClose={closePasswordPrompt}
+          />
+        )}
+        {installFor && (
+          <DependencyInstallDialog
+            report={installFor}
+            onClose={() => setInstallFor(null)}
+            onResolved={onDependencyResolved}
           />
         )}
       </div>

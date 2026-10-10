@@ -8,8 +8,13 @@ import {
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 
-import type { Job, QueueSnapshot } from '@/ipc/bindings';
-import { fixturePrinters, fixtureQueueSnapshot, mkJob } from '@/test/fixtures';
+import type { DependencyReport, Job, QueueSnapshot } from '@/ipc/bindings';
+import {
+  fixtureAppInfo,
+  fixturePrinters,
+  fixtureQueueSnapshot,
+  mkJob,
+} from '@/test/fixtures';
 import { resetPrinterNames } from '@/stores/printerNamesStore';
 import { Toaster } from '@/components/AppShell/Toaster';
 
@@ -17,7 +22,13 @@ import { Toaster } from '@/components/AppShell/Toaster';
 // on init); real `commands` stay so mockIPC serves the queue commands.
 const eventMock = vi.hoisted(() => {
   const noop = { listen: () => Promise.resolve(() => {}) };
-  return { events: { queueUpdated: noop, jobProgressEvent: noop } };
+  return {
+    events: {
+      queueUpdated: noop,
+      jobProgressEvent: noop,
+      dependencyInstallProgress: noop,
+    },
+  };
 });
 
 vi.mock('@/ipc/bindings', async (importOriginal) => {
@@ -60,6 +71,7 @@ function resetStore() {
     pendingClear: [],
     pendingIds: [],
     notifiedBatches: [],
+    passwordPrompt: null,
     uiJobs: [],
     counts: { active: 0, pending: 0, done: 0 },
     queuePaused: false,
@@ -593,5 +605,181 @@ describe('QueueScreen — alternate views', () => {
     // An unfinished job has no duration to show — and none is invented.
     expect(screen.queryByText(/took 0s/)).not.toBeInTheDocument();
     expect(screen.getByText('now.pdf')).toBeInTheDocument();
+  });
+
+  const removedPrinterJob = () =>
+    snapshotOf([
+      mkJob({
+        id: 'j-removed',
+        state: 'paused',
+        file_name: 'invoice.pdf',
+        error: {
+          code: 'printer_unavailable',
+          params: { printer: 'HL_L2350' },
+          message: 'x',
+        },
+      }),
+    ]);
+
+  it('FR-044: a printer list that fails to load says so and can be retried', async () => {
+    let fail = true;
+    const calls: Call[] = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+      if (cmd === 'queue_status') return removedPrinterJob();
+      if (cmd === 'list_printers') {
+        if (fail) throw new Error('spooler down');
+        return fixturePrinters;
+      }
+      if (cmd === 'get_printer_prefs') return { disabled: [] };
+      return null;
+    });
+    await useQueueStore.getState().init();
+    render(<QueueScreen view="list" setView={() => {}} />);
+
+    expect(
+      await screen.findByText(
+        'The printers to send it to could not be loaded.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', {
+        name: 'Send invoice.pdf to another printer',
+      }),
+    ).toBeNull();
+
+    fail = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    const select = await screen.findByRole('combobox', {
+      name: 'Send invoice.pdf to another printer',
+    });
+    await within(select).findByText('EPSON L15160 Series');
+    expect(
+      screen.queryByText('The printers to send it to could not be loaded.'),
+    ).toBeNull();
+  });
+
+  it('FR-044: the printer list refreshes when the window regains focus', async () => {
+    let printers = fixturePrinters.filter((p) => p.id !== 'EPSON_L15160');
+    mockIPC((cmd) => {
+      if (cmd === 'queue_status') return removedPrinterJob();
+      if (cmd === 'list_printers') return printers;
+      if (cmd === 'get_printer_prefs') return { disabled: [] };
+      return null;
+    });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      await useQueueStore.getState().init();
+      render(<QueueScreen view="list" setView={() => {}} />);
+      const select = await screen.findByRole('combobox', {
+        name: 'Send invoice.pdf to another printer',
+      });
+      expect(within(select).queryByText('EPSON L15160 Series')).toBeNull();
+
+      // A printer is added while the user is elsewhere, then they come back.
+      printers = fixturePrinters;
+      now.mockReturnValue(1_000_000 + 60_000);
+      fireEvent.focus(window);
+      await within(select).findByText('EPSON L15160 Series');
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  const office = (found: boolean): DependencyReport => ({
+    id: 'libre-office',
+    name: 'LibreOffice',
+    applicable: true,
+    found,
+    path: null,
+    found_in: null,
+    blocks: found ? [] : ['docx'],
+    remediation: found ? null : 'LibreOffice is missing — …',
+    install: [
+      {
+        method: 'winget',
+        command: 'winget install --id TheDocumentFoundation.LibreOffice',
+        needs_admin: true,
+        paid: false,
+        approx_mb: 350,
+        available: true,
+      },
+    ],
+  });
+
+  const missingOffice = () =>
+    snapshotOf([
+      mkJob({
+        id: 'j-docx',
+        state: 'paused',
+        file_name: 'letter.docx',
+        error: {
+          code: 'dependency_missing',
+          reason: 'libre-office',
+          message: 'LibreOffice is missing',
+        },
+      }),
+    ]);
+
+  it.each(['list', 'board', 'timeline'] as const)(
+    'FR-058: a job paused for a missing converter offers to install it (%s view), then resumes',
+    async (view) => {
+      const calls: Call[] = [];
+      mockIPC((cmd, args) => {
+        calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+        if (cmd === 'queue_status') return missingOffice();
+        if (cmd === 'app_info')
+          return { ...fixtureAppInfo, dependencies: [office(false)] };
+        if (cmd === 'install_dependency')
+          return { status: 'installed', exit_code: 0, report: office(true) };
+        return null;
+      });
+      await useQueueStore.getState().init();
+      render(<QueueScreen view={view} setView={() => {}} />);
+
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: 'Install what is missing for letter.docx',
+        }),
+      );
+      const dialog = await screen.findByRole('dialog', {
+        name: 'Install LibreOffice',
+      });
+      // Nothing installs until the user agrees in the dialog.
+      expect(calls.some((c) => c.cmd === 'install_dependency')).toBe(false);
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Install' }));
+      await waitFor(() =>
+        expect(calls.find((c) => c.cmd === 'resume_job')?.args).toEqual({
+          id: 'j-docx',
+        }),
+      );
+      expect(calls.find((c) => c.cmd === 'install_dependency')?.args).toEqual({
+        id: 'libre-office',
+        method: 'winget',
+        consent: true,
+      });
+    },
+  );
+
+  it('FR-058: if the converter is there by now, the job just resumes', async () => {
+    const calls: Call[] = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+      if (cmd === 'queue_status') return missingOffice();
+      if (cmd === 'app_info')
+        return { ...fixtureAppInfo, dependencies: [office(true)] };
+      return null;
+    });
+    await useQueueStore.getState().init();
+    render(<QueueScreen view="list" setView={() => {}} />);
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Install what is missing for letter.docx',
+      }),
+    );
+    await waitFor(() =>
+      expect(calls.some((c) => c.cmd === 'resume_job')).toBe(true),
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

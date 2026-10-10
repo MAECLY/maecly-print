@@ -2,9 +2,10 @@ import { FileGlyph, MPBadge, StatusDot, type BadgeTone } from '@/components/ui';
 import { useT, type TFunction } from '@/i18n/I18nProvider';
 import type { UiQueueJobView } from '@/lib/ipc';
 
+import { AttentionActions, type AttentionHandlers } from './AttentionActions';
 import { useJobLabels } from './useJobLabels';
 
-interface QueueTimelineViewProps {
+interface QueueTimelineViewProps extends AttentionHandlers {
   jobs: UiQueueJobView[];
 }
 
@@ -35,7 +36,11 @@ function formatDuration(ms: number, t: TFunction<'queue'>): string {
   });
 }
 
-export function QueueTimelineView({ jobs }: QueueTimelineViewProps) {
+export function QueueTimelineView({
+  jobs,
+  onEnterPassword,
+  onInstallDependency,
+}: QueueTimelineViewProps) {
   const t = useT('queue');
   const labels = useJobLabels(jobs);
   return (
@@ -116,6 +121,11 @@ export function QueueTimelineView({ jobs }: QueueTimelineViewProps) {
               {j.noteKey ? ` · ${t(`note.${j.noteKey}`)}` : ''}
               {labels.error(j) ? ` · ${labels.error(j)}` : ''}
             </div>
+            <AttentionActions
+              job={j}
+              onEnterPassword={onEnterPassword}
+              onInstallDependency={onInstallDependency}
+            />
           </div>
         </div>
       ))}

@@ -1,14 +1,19 @@
 import { FileGlyph, MPCard, StatusDot } from '@/components/ui';
 import { useT } from '@/i18n/I18nProvider';
 import type { UiQueueJobView } from '@/lib/ipc';
+import { AttentionActions, type AttentionHandlers } from './AttentionActions';
 import { JobProgressBar } from './QueueListView';
 import { useJobLabels } from './useJobLabels';
 
-interface QueueBoardViewProps {
+interface QueueBoardViewProps extends AttentionHandlers {
   jobs: UiQueueJobView[];
 }
 
-export function QueueBoardView({ jobs }: QueueBoardViewProps) {
+export function QueueBoardView({
+  jobs,
+  onEnterPassword,
+  onInstallDependency,
+}: QueueBoardViewProps) {
   const t = useT('queue');
   const labels = useJobLabels(jobs);
   const cols = [
@@ -154,7 +159,11 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
                 <div
                   style={{
                     fontSize: 10.5,
-                    color: 'var(--mp-error)',
+                    // Unconfirmed is a warning, not a failure (FR-071).
+                    color:
+                      j.status === 'unconfirmed'
+                        ? 'var(--mp-warn)'
+                        : 'var(--mp-error)',
                     marginTop: 6,
                     overflowWrap: 'anywhere',
                   }}
@@ -162,6 +171,11 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
                   {labels.error(j)}
                 </div>
               )}
+              <AttentionActions
+                job={j}
+                onEnterPassword={onEnterPassword}
+                onInstallDependency={onInstallDependency}
+              />
             </MPCard>
           ))}
         </div>
