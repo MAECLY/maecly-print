@@ -362,9 +362,9 @@ pub fn locate() -> Result<PathBuf, EngineError> {
 /// same way) with the characters Windows forbids in a file name replaced by
 /// `_` and no trailing dot or space before the extension.
 pub fn spool_file_name(title: &str) -> String {
-    let name = super::cups::document_file_name(title);
-    let stem = name.strip_suffix(".pdf").unwrap_or(&name);
-    let clean: String = stem
+    // Replaced first: on Windows `a:b.png` parses as drive `a:` plus `b.png`,
+    // and the name would lose its first part.
+    let safe: String = title
         .chars()
         .map(|c| {
             if matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*') {
@@ -374,7 +374,9 @@ pub fn spool_file_name(title: &str) -> String {
             }
         })
         .collect();
-    let clean = clean.trim_end_matches(['.', ' ']);
+    let name = super::cups::document_file_name(&safe);
+    let stem = name.strip_suffix(".pdf").unwrap_or(&name);
+    let clean = stem.trim_end_matches(['.', ' ']);
     if clean.is_empty() {
         "document.pdf".to_string()
     } else {
