@@ -148,22 +148,23 @@ describe('ConfirmDialog', () => {
   });
 
   it('NFR-034: reports an open modal so app shortcuts can stand down', () => {
-    let open = false;
     function Probe() {
-      open = useAnyModalOpen();
-      return null;
+      return (
+        <output data-testid="modal-open">{String(useAnyModalOpen())}</output>
+      );
     }
+    const open = () => screen.getByTestId('modal-open').textContent;
     const { rerender } = render(<Probe />);
-    expect(open).toBe(false);
+    expect(open()).toBe('false');
     rerender(
       <>
         <Probe />
         <ConfirmDialog state={STATE} onClose={() => {}} />
       </>,
     );
-    expect(open).toBe(true);
+    expect(open()).toBe('true');
     rerender(<Probe />);
-    expect(open).toBe(false);
+    expect(open()).toBe('false');
   });
 
   it('NFR-041: one Escape closes only the topmost of two stacked dialogs', async () => {
