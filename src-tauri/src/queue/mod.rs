@@ -312,8 +312,11 @@ pub(crate) fn probe_pages(path: &Path, ext: &str, bytes: u64) -> Option<u32> {
             if bytes > MAX_PDF_PROBE_BYTES {
                 return None;
             }
+            // A PDF that needs a password loads with no readable pages: its
+            // count is unknown (FR-059), not zero.
             lopdf::Document::load(path)
                 .ok()
+                .filter(|d| !d.is_encrypted())
                 .map(|d| d.get_pages().len() as u32)
         }
         "" => None,
@@ -528,6 +531,24 @@ mod tests {
         assert_eq!(
             probe_pages(Path::new("/x/a.pdf"), "pdf", MAX_PDF_PROBE_BYTES + 1),
             None
+        );
+    }
+
+    /// FR-059: a PDF that needs a password has an unknown page count, not 0
+    /// (which would make any page range look out of bounds); an owner-only
+    /// one opens and is counted.
+    #[test]
+    fn fr_059_probe_pages_of_a_protected_pdf_is_unknown() {
+        use crate::engine::convert::pdf_security::tests::{QUARTZ_OWNER, QUARTZ_USER};
+        let dir = tempfile::tempdir().unwrap();
+        let user = dir.path().join("user.pdf");
+        std::fs::write(&user, QUARTZ_USER).unwrap();
+        assert_eq!(probe_pages(&user, "pdf", QUARTZ_USER.len() as u64), None);
+        let owner = dir.path().join("owner.pdf");
+        std::fs::write(&owner, QUARTZ_OWNER).unwrap();
+        assert_eq!(
+            probe_pages(&owner, "pdf", QUARTZ_OWNER.len() as u64),
+            Some(2)
         );
     }
 
