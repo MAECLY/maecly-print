@@ -1,6 +1,6 @@
 # Pluryprint by MAECLY
 
-> Free batch file printing for Windows and macOS, licensed AGPL-3.0-only. Select 5, 50 or 500 files and print them all as one job with one set of print settings. Local by design: no account, no cloud, no telemetry. Status on 2026-10-10: pre-alpha, version 0.0.1. There is no public release and no download yet, and the source repository is not public yet.
+> Free batch file printing for Windows and macOS, licensed AGPL-3.0-only. Select 5, 50 or 500 files and print them all as one job with one set of print settings. Local by design: no account, no cloud, no telemetry. Status on 2026-10-10: pre-alpha. Version 0.0.1 preview was published on 2026-10-10 on GitHub Releases (https://github.com/MAECLY/maecly-print/releases/tag/v0.0.1), and the source repository is public at https://github.com/MAECLY/maecly-print.
 
 ## Canonical pages
 
@@ -9,9 +9,12 @@ The primary landing is in Spanish; the English page mirrors it section for secti
 - [Spanish landing](https://pluryprint.maecly.com/)
 - [English landing](https://pluryprint.maecly.com/en/)
 - [Agent guidance](https://pluryprint.maecly.com/agents.txt)
+- [Release 0.0.1 preview](https://github.com/MAECLY/maecly-print/releases/tag/v0.0.1)
+- [All releases](https://github.com/MAECLY/maecly-print/releases)
+- [Source repository](https://github.com/MAECLY/maecly-print)
 - [Licence: AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html)
 
-## What it does today (in the code, not yet released)
+## What it does today (version 0.0.1 preview)
 
 - Formats: 27 file extensions. PDF is printed as-is after a structural check. JPG, JPEG, PNG, TIF, TIFF, BMP and WebP are converted to PDF inside the app (transparency on white). SVG and SVGZ become vector PDF pages inside the app. TXT, HTML, HTM, MD and MARKDOWN are converted inside the app and paginated by the operating system's own web view (WebView2 on Windows, WebKit on macOS) in a separate worker process, with scripts off and no network or file-share access; no browser and no Pandoc are needed. HEIC and HEIF use the built-in `sips` on macOS; on Windows they need the Microsoft Store HEIF and HEVC extensions. RTF uses the built-in `textutil` on macOS and LibreOffice on Windows. DOCX, DOC, XLSX, XLS, PPTX, PPT, ODT, ODS and ODP need LibreOffice installed (it is not bundled); its conversions do not fetch linked pictures or objects.
 - Encrypted PDFs are detected: the job pauses and the Queue asks for the password (the command line takes it from `--password-file` or `--password-stdin`, never as an argument). The password is used for that job only and is not saved. A PDF whose permissions forbid printing is refused, whatever the password.
@@ -21,25 +24,32 @@ The primary landing is in Spanish; the English page mirrors it section for secti
 - Queue: saved on disk, with crash recovery. 2 conversions at once by default (configurable from 1 to 8) and 1 print at a time. A job is followed in the system print queue until it prints; one the system did not confirm ends as "unconfirmed", never as printed. Transient failures retry 3 times automatically (after 1 s, 5 s and 25 s); a missing tool, an unsupported setting, a missing printer or a PDF password pauses the job instead (a paused job can be switched to one-sided or to another printer), and a conversion or print timeout fails it at once. Pause, resume or cancel one job or the whole queue. Finished-job history is capped at 200. List, Board and Timeline views.
 - Profiles: three built-ins (Quick, the default; Duplex BW; Photo Color) plus any number of custom profiles: create, clone, edit, set as default, delete with a 5-second undo, import and export.
 - Printers: lists system printers with live status, capabilities and supply levels; finds network printers through mDNS/Bonjour or adds one by IP address (IPP/IPPS; WSD is not supported yet); set default and test page; choose which printers the app shows; send each file type to a different printer; reassign or forget a missing printer; an organisation can lock the default printer through `policy.json`.
-- Command line: on macOS the app binary itself, on Windows a separate console executable shipped next to the app (the app is a GUI program, so shells would not wait for it or see its exit code). It has the subcommands `print`, `printers`, `profiles`, `queue` and `update`, with `--help` on each, `--json` output and fixed exit codes. A command-line run opens no window. The command is not added to PATH yet, and its final name may change before the first release.
+- Command line: on macOS `Pluryprint.app/Contents/MacOS/pluryprint-cli` (the app binary `Contents/MacOS/pluryprint` also accepts the same subcommands), on Windows a separate console executable shipped next to the app (the app is a GUI program, so shells would not wait for it or see its exit code). It has the subcommands `print`, `printers`, `profiles`, `queue` and `update`, with `--help` on each, `--json` output and fixed exit codes. A command-line run opens no window. The command is not added to PATH yet.
 - Right-click on macOS: Finder → Services → "Print with Pluryprint", or with the default profile. Built into the app; there is no extension to enable.
 - Right-click on Windows: an Explorer submenu (print N files, up to 8 "print with <profile>" rows, configure the print job, add to the queue), with no file-count limit. The per-user installer registers it, so it appears on Windows 10 and, on Windows 11, in the classic menu ("Show more options", Shift+F10). A top-level entry in the Windows 11 menu needs a sparse MSIX package signed with a trusted certificate, which does not exist yet. The entry does not appear when Explorer itself runs elevated (UAC turned off).
-- Updates: the app reads the update manifest of its channel (stable or beta) from GitHub Releases at startup (after 30 s, at most once a day) and from About, and offers Install now (signature-verified, per-user, no admin), Remind me later or Skip this version. It never updates by itself. No version has been published yet, so in practice nothing updates today.
+- Updates: the app reads the update manifest of its channel (stable or beta) from GitHub Releases at startup (after 30 s, at most once a day) and from About, and offers Install now (signature-verified, per-user, no admin), Remind me later or Skip this version. It never updates by itself. Version 0.0.1 preview is the first published version, so no update has been offered through the app yet.
 - App: seven screens (Home, Print Job, Queue, Printers, Profiles, Settings, About); English and Spanish interface, error messages included; light, dark and system themes; keyboard shortcuts; native notifications; drag and drop; folders with or without subfolders.
 - Privacy: no account and no telemetry. The only network traffic is the update check, an update download the user starts, and a missing-tool install the user confirms. A printed document cannot reach the network.
 
 ## Platforms
 
+Downloads for 0.0.1 preview (the version is in each file name; `SHA256SUMS` lists every file's checksum: https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/SHA256SUMS):
+
+- Windows x64: https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_windows_x64.exe (about 17.1 MiB)
+- Windows ARM64: https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_windows_arm64.exe (about 15.5 MiB)
+- macOS, Apple silicon: https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_apple_silicon.dmg
+- macOS, Intel: https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_apple_intel.dmg
+
 - Windows 10 and 11, x64: built and tested in CI. Installer: per-user NSIS in English and Spanish, no administrator rights; it bundles SumatraPDF and registers the Explorer menu.
-- Windows 11, ARM64: its own installer (about 13.5 MiB), tested on Windows 11 on ARM, which registers the ARM64 Explorer menu handler.
+- Windows 11, ARM64: its own installer (about 15.5 MiB), tested on Windows 11 on ARM, which registers the ARM64 Explorer menu handler. The x64 installer also works there, emulated.
 - macOS 13 or later, Apple silicon: built and tested in CI. Its own .dmg (no universal binary).
-- macOS, Intel: the release workflow builds a separate .dmg, but it has not been tested on an Intel Mac.
+- macOS 13 or later, Intel: its own .dmg. Smoke-tested only under Rosetta 2 on an Apple silicon Mac (the app starts and the CLI prints to a held queue), not yet on an Intel Mac.
 - Linux: out of scope.
-- No Apple or Microsoft code-signing certificates: Windows SmartScreen and macOS Gatekeeper will warn the first time, and the release notes will say how to proceed. Updates are signed with the project's own key and verified by the app before installing; each release will list SHA-256 checksums.
+- No Apple or Microsoft code-signing certificates. Windows SmartScreen warns the first time (More info → Run anyway); with Smart App Control on, Windows blocks the installer with no bypass short of turning Smart App Control off, which cannot be undone without reinstalling Windows. The macOS app is ad-hoc signed and not notarized, so macOS 15 and later says Apple could not verify it; open it once through System Settings → Privacy & Security → Open Anyway, or clear the quarantine flag with `xattr -dr com.apple.quarantine /Applications/Pluryprint.app` (Control-click → Open no longer works on macOS 15 and later). The release notes explain both. Updates are signed with the project's own key and verified by the app before installing; each release lists SHA-256 checksums in `SHA256SUMS`.
 
 ## Limits
 
-- No public release, no download and no public repository yet.
+- Pre-alpha: 0.0.1 preview is the first published version.
 - Office and OpenDocument (and RTF on Windows) need LibreOffice; Windows HEIC needs the Store codecs; Windows printing needs SumatraPDF (the installer bundles it). The app offers to install what is missing, but only after the user confirms.
 - On Windows, Draft or High print quality is applied only when the printer's driver offers it; otherwise the command preview says it is not applied.
 - No GIF.
@@ -53,7 +63,7 @@ Vendor list prices for one user, as collected in the project's 2026 research and
 
 ## Licence and trademark
 
-- Licence: GNU Affero General Public License v3.0 only (AGPL-3.0-only). It replaces the GPL-3.0 announced earlier. The source repository is not public yet; it will be published under this licence.
+- Licence: GNU Affero General Public License v3.0 only (AGPL-3.0-only). It replaces the GPL-3.0 announced earlier. The source code is public under this licence at https://github.com/MAECLY/maecly-print.
 - Contributions will be accepted under a Contributor License Agreement (CLA).
 - Pluryprint, its wordmark and its mark are trademarks of MAECLY; the AGPL-3.0 licence grants no right to use them, and forks must change them before distributing.
 
