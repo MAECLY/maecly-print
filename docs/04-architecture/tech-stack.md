@@ -1,6 +1,6 @@
 # Tech Stack
 
-> **TL;DR** — Pluryprint is built on **Tauri 2 + Rust + React (TypeScript)**. This combination gives us a small installer, fast cold start, low idle RAM, and a near-fully shared codebase across Windows and macOS — which is exactly what a context-menu-invoked utility needs. Note that the shipped build does **not** use Tauri's updater plugin; see §2 and [`auto-updater.md`](./auto-updater.md).
+> **TL;DR** — Pluryprint is built on **Tauri 2 + Rust + React (TypeScript)**. This combination gives us a small installer, fast cold start, low idle RAM, and a near-fully shared codebase across Windows and macOS — which is exactly what a context-menu-invoked utility needs. Updates install through Tauri's updater plugin with a minisign-signed manifest per channel on GitHub Releases; see [`auto-updater.md`](./auto-updater.md).
 
 ## 1. Stack at a glance
 
@@ -20,18 +20,22 @@ Everything in this table is declared in `src-tauri/Cargo.toml`, `shell-ext-win/C
 | HTTP (update check)    | `ureq` 2.12, blocking, 10 s timeout                     |
 | Windows API bindings   | `windows` 0.58 (`Win32_Graphics_Printing`, `Win32_Storage_Xps`, …) |
 | macOS API bindings     | `objc2` 0.6 + `objc2-app-kit` / `objc2-foundation` 0.3, feature-narrowed |
-| Image → PDF            | `image` 0.25 (jpeg/png/tiff/bmp/webp) + `lopdf` 0.34, **in-process** |
-| PDF inspection         | `lopdf`; `printpdf` 0.9 with `default-features = false` |
+| Image → PDF            | `image` 0.25 (jpeg/png/tiff/bmp/webp) + `lopdf` 0.39, **in-process** |
+| SVG → PDF              | `usvg` + `svg2pdf` (vector), `flate2` for SVGZ, in the `--worker svg` process |
+| Markdown / text → HTML | `pulldown-cmark` 0.13 (`html` only); text decoded in-process |
+| HTML → PDF             | The system web view in the `--worker render-pdf` process: WebView2 through `webview2-com` / `windows-core` (Windows), `WKWebView` through `objc2` + `block2` (macOS) |
+| Encrypted PDFs         | `lopdf` decryption in-process; the password held in a `zeroize`d buffer |
+| PDF inspection         | `lopdf`; `printpdf` 0.9 with `default-features = false` (the test page) |
 | CLI                    | `clap` 4 (`derive`), plus `wait-timeout` for bounded child waits and `walkdir` for folder expansion |
 | Shell extension (Win)  | **Rust** `cdylib` implementing `IExplorerCommand` (`shell-ext-win/`), built with `windows` + `embed-resource` |
 | Shell extension (Mac)  | NSServices provider declared in `Info.plist`, backed by `objc2` |
-| Installer (Win)        | Tauri's **NSIS** target, `installMode: currentUser` + Sparse MSIX for shell identity |
-| Installer (Mac)        | `.dmg` + notarized `.app` bundle                        |
-| Update flow            | **Read-only check against the GitHub Releases API.** No `tauri-plugin-updater`, no download, no install |
-| Tauri plugins in use   | `tauri-plugin-dialog`, `tauri-plugin-opener`, `tauri-plugin-single-instance` |
+| Installer (Win)        | Tauri's **NSIS** target, `installMode: currentUser`, English and Spanish, registering the Explorer command per user (no sparse package yet, ADR-0013) |
+| Installer (Mac)        | `.dmg` per architecture, `.app` signed ad hoc, not notarized (ADR-0011) |
+| Update flow            | `tauri-plugin-updater`: check and install read the same `latest.json` per channel on GitHub Releases; minisign signatures; install only on request |
+| Tauri plugins in use   | `tauri-plugin-dialog`, `tauri-plugin-opener`, `tauri-plugin-single-instance`, `tauri-plugin-notification`, `tauri-plugin-updater` |
 | Tests                  | `vitest` + `@testing-library/react` (frontend), `cargo test` incl. `src-tauri/tests/*` (backend), **WebdriverIO** for e2e |
-| CI/CD                  | GitHub Actions (`.github/workflows/ci.yml`)            |
-| Code signing           | EV cert (Win), Apple Developer ID (Mac)                 |
+| CI/CD                  | GitHub Actions: `ci.yml`, `release.yml` (draft releases on a tag), `release-channels.yml`, `pages.yml` |
+| Code signing           | None for the OS (ADR-0011); updates signed with minisign |
 
 ## 2. Why Tauri 2
 
@@ -56,8 +60,8 @@ Tauri 2 was selected after benchmarking five competing frameworks. The full comp
 
 ### Concrete Tauri 2 advantages
 
-1. **Updater plugin — evaluated, and deliberately not used today.** The framework offers a signed-manifest updater; the shipped build instead performs a read-only update *check* against the GitHub Releases API and lets the user install the artifact themselves. That keeps us from operating a signing key and a release CDN for a v0 utility, at the cost of a one-click in-app update. The comparison table below therefore over-credits Tauri on the "auto-update" axis relative to what we actually ship — the capability is real and available, we just have not taken it. See [`auto-updater.md`](./auto-updater.md) §8 for the open decision this leaves against ADR-0004.
-2. **System webview.** Uses WebView2 on Windows and WKWebView on macOS — no Chromium bundled. This is the source of the small installer and low RAM.
+1. **Updater plugin, in use.** Tauri's signed-manifest updater installs updates per user once the user asks; the check reads the same manifest. Releases live on GitHub, so there is no update server to run ([ADR-0011](../adr/0011-release-channel.md)).
+2. **System webview.** Uses WebView2 on Windows and WKWebView on macOS — no Chromium bundled. This is the source of the small installer and low RAM, and since round 3 the same web view also prints HTML, Markdown and text documents in a worker process ([ADR-0012](../adr/0012-system-web-view-renderer.md)).
 3. **Rust backend.** Memory-safe, zero garbage-collection pauses, fast startup, excellent FFI for the COM DLL boundary, and a strong ecosystem (`tokio`, `serde`, `tracing`).
 4. **Type-safe IPC.** `tauri::command` macros plus generated TypeScript bindings (`tauri-specta` or hand-rolled) make the React ↔ Rust boundary safe.
 5. **First-class Windows support.** Tauri 2 fixed several Windows pain points from v1 (better installer story, MSIX support, mobile, capabilities system).
@@ -81,6 +85,8 @@ The Rust core handles file enumeration, format detection, conversion orchestrati
 | `tauri-plugin-dialog`                  | Native file picker |
 | `tauri-plugin-opener`                  | Open URLs / reveal folders (Rust-side only) |
 | `tauri-plugin-single-instance`         | Forward a second launch's argv (NFR-014) |
+| `tauri-plugin-notification`            | Native OS notifications (FR-072) |
+| `tauri-plugin-updater`                 | Download, minisign verification and per-user install of an update (FR-082/083) |
 | `tauri-specta`, `specta`, `specta-typescript` | Typed IPC bindings; pinned `=` because they are pre-release |
 | `tokio` 1.41                           | Async runtime for the queue dispatcher |
 | `serde`, `serde_json`, `toml`          | Config / profiles / queue / IPC serialization |
@@ -89,9 +95,14 @@ The Rust core handles file enumeration, format detection, conversion orchestrati
 | `wait-timeout` 0.2                     | Bounded wait on the print child, so a hung process cannot wedge the queue |
 | `walkdir` 2                            | Folder expansion with bounded depth and symlink-loop handling (FR-004) |
 | `image` 0.25                           | Pure-Rust image decoding (jpeg/png/tiff/bmp/webp) |
-| `lopdf` 0.34                           | PDF page counts, and hand-built single-page image PDFs |
+| `lopdf` 0.39                           | PDF page counts, hand-built single-page image PDFs, and decrypting a protected PDF with the user's password |
+| `usvg`, `svg2pdf`, `flate2`            | SVG/SVGZ → vector PDF in the SVG worker |
+| `pulldown-cmark` 0.13                  | Markdown → HTML in-process |
+| `zeroize` 1                            | Zeroes a PDF password when it is dropped |
+| `webview2-com`, `windows-core` *(Windows only)* | WebView2 `PrintToPdf` in the render worker |
+| `block2` *(macOS only)*                | WebKit completion handlers in the render worker |
 | `printpdf` 0.9.1                       | PDF primitives (`default-features = false`; its image path is a stub) |
-| `ureq` 2.12                            | Blocking HTTPS for the GitHub release check — no async runtime in the update path |
+| `ureq` 2.12                            | Blocking HTTPS for the update check (the channel's `latest.json`) |
 | `semver` 1                             | Version comparison by SemVer *precedence* |
 | `percent-encoding` 2.3                 | Prefilled "report issue" URL |
 | `uuid` 1 (`v7`)                        | Time-sortable job ids — queue ordering falls out of the id |
@@ -102,7 +113,7 @@ The Rust core handles file enumeration, format detection, conversion orchestrati
 | `windows` 0.58 *(Windows only)*        | winspool `EnumPrinters` + GDI `DeviceCapabilities` |
 | `objc2` + `objc2-app-kit` / `objc2-foundation` *(macOS only)* | NSServices provider (FR-001) |
 
-Crates named in earlier drafts and **not** used: `tauri-plugin-updater`, `tauri-plugin-cli`, `reqwest`, `winreg`, `which`, `mime_guess`, `infer`, `rayon`, `notify`, `minisign-verify`.
+Crates named in earlier drafts and **not** used: `tauri-plugin-cli`, `reqwest`, `winreg`, `which`, `mime_guess`, `infer`, `rayon`, `notify`, `minisign-verify`.
 
 ## 4. Why React + TypeScript for the UI
 
