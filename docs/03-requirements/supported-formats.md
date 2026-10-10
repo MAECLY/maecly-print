@@ -41,6 +41,7 @@ All external converters share one runner, `engine::convert::process::run_bounded
 - **Bounded.** Each child is polled every 100 ms against `engine.conversion_timeout_seconds` and the job's cancel flag. The dispatcher's conversion timer raises that flag too. On either signal, the child **and its helpers** are killed: the process group on Unix, `taskkill /T` on Windows.
 - **Private scratch folder.** Each conversion gets its own `maeclyprint-convert-<job>-*` folder in the OS temp directory. That folder holds the LibreOffice profile, the browser profile, the generated HTML and the converter's stderr log. It is removed on every exit path: success, failure, cancel or timeout. Only the final PDF moves to the conversion cache (`<cache>/conversions/<job>.pdf`).
 - **The output decides.** LibreOffice exits 0 even when it could not load a document, so success means the expected PDF exists and starts with `%PDF-`. If it does not, the error quotes the tail of the converter's stderr.
+- **Where a program is found.** Every external program is resolved the same way before it runs (`engine::deps`): first a copy **bundled next to MaeclyPrint** (`resources/<subdir>` beside the executable, `Resources/<subdir>` in a macOS `.app`, or the executable's own folder), then **`PATH`**, then the vendor's **well-known install folders** listed per format below. A bundled copy always wins, because it is the version that was tested. There is no setting yet to point at a program by hand.
 - **A missing program pauses the job.** The converter is located before anything is written. If it is not found, the result is `DependencyMissing` with the FR-058 remediation text, and the job is **paused**, not failed. Once the user has installed the program, resuming the job is enough.
 - **Pages appear after conversion.** A document's page count is unknown when it is added (the Print Job row shows no count). The conversion task measures the converted PDF, and the job, the queue views and Home show that number.
 - **Page ranges.** A range applies to the pages of the converted PDF for PDFs and documents. Images and HEIC are one page, so the engine drops the range for them (`engine::print::effective_settings`). Before submitting, the range is checked only against PDFs whose page count is known.
@@ -99,7 +100,7 @@ soffice -env:UserInstallation=file:///<scratch>/profile --headless --invisible -
 - **Macros are not executed.** LibreOffice headless does not run document macros.
 - **Fidelity.** Complex Word layouts and Office 365–specific features can render differently than in Microsoft Word. A spreadsheet prints every sheet that has content.
 
-LibreOffice is located at `/Applications/LibreOffice.app/Contents/MacOS/soffice` on macOS, at `%ProgramFiles%\LibreOffice\program\soffice.exe` (or the x86 path) on Windows, or on `PATH`.
+Besides a bundled copy and `PATH`, LibreOffice is looked for in `/Applications/LibreOffice.app/Contents/MacOS/` on macOS and in `%ProgramFiles%\LibreOffice\program\` (then the x86 Program Files) on Windows.
 
 ### HTML
 
@@ -116,7 +117,7 @@ LibreOffice is located at `/Applications/LibreOffice.app/Contents/MacOS/soffice`
           --print-to-pdf=<scratch>/out.pdf file:///path/to/page.html
 ```
 
-- **Browser.** On Windows, Edge comes first (it is always installed), then Chrome. On macOS the order is Edge, Chrome, then Chromium in `/Applications`. On Linux it is `google-chrome`, `chromium`, `chromium-browser`, then `microsoft-edge` on `PATH`.
+- **Browser.** On Windows, Edge comes first (it is always installed), then Chrome, in their Program Files folders. On macOS the order is Edge, Chrome, then Chromium in `/Applications`. On Linux it is `google-chrome`, `chromium`, `chromium-browser`, then `microsoft-edge`. A bundled copy and `PATH` are searched before those folders, as for every converter.
 - **Private browser profile.** The user's open browser and its profile are never touched.
 - **The finished PDF ends the step.** Some Chrome builds (seen with Chrome 156 on macOS) write the PDF in about a second and then never exit. The step therefore ends once the PDF has its `%%EOF` trailer and its size has stopped changing between polls. The browser tree is then killed.
 - **The job's paper.** The browser lays pages out on US Letter unless the page sets a size, so an A4 job used to get Letter pages (clipped on the right at actual size). When the job names a paper (`A4`, `Letter`, `Legal`, `A3`, `A5`, `A6`, `B4`, `B5`, `Tabloid`, `Executive`, `4x6`-style inch sizes or CUPS `w<pt>h<pt>` keywords), the browser loads a copy of the page from the scratch folder that starts with `<style>@page { size: <w> <h>; }</style>` (landscape swaps the two) and, if the page has none, a `<base href>` to its own folder so relative links still resolve. The user's file is never changed, and a size the page sets itself still wins. Paper `auto` (printer default) and sizes MaeclyPrint cannot measure keep the browser default. A UTF-16 page is printed as is.
@@ -141,7 +142,7 @@ A Markdown file is text, and printing it must not make it active content:
 - **`--sandbox`** limits Pandoc to the files named on its command line, with no network.
 - **A Content-Security-Policy** in the injected header forbids scripts, plugins, frames and connections. The browser step then runs with no network, as above.
 
-The injected header carries `<base href="file:///<folder of the .md>/">`, so relative image links resolve against the Markdown file's folder. It also carries a small print stylesheet (margins, readable type, code blocks, tables) and the job's paper size as an `@page` rule, under the same rules as HTML above. The Pandoc and browser steps share one timeout budget. Pandoc is located on `PATH`, in `/opt/homebrew/bin` or `/usr/local/bin` on macOS, and in `%LOCALAPPDATA%\Pandoc` or `%ProgramFiles%\Pandoc` on Windows. TeX math is passed through as text.
+The injected header carries `<base href="file:///<folder of the .md>/">`, so relative image links resolve against the Markdown file's folder. It also carries a small print stylesheet (margins, readable type, code blocks, tables) and the job's paper size as an `@page` rule, under the same rules as HTML above. The Pandoc and browser steps share one timeout budget. Besides a bundled copy and `PATH`, Pandoc is looked for in `/opt/homebrew/bin` and `/usr/local/bin` on macOS, and in `%LOCALAPPDATA%\Pandoc` and `%ProgramFiles%\Pandoc` on Windows. TeX math is passed through as text.
 
 ## Out of scope (deferred to v2+ or never)
 
