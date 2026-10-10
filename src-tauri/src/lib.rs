@@ -19,10 +19,12 @@ pub mod logging;
 pub mod platform;
 pub mod profiles;
 pub mod queue;
+pub mod render;
 pub mod settings;
 pub mod shell_menu;
 pub mod update;
 pub mod util;
+pub mod worker;
 
 use tauri::Manager;
 
@@ -322,6 +324,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::diag::open_external,
             ipc::diag::log_frontend_error,
             ipc::notify::notify_native,
+            ipc::deps_install::install_dependency,
             ipc::printers::list_printers,
             ipc::printers::default_printer,
             ipc::printers::discover_printers,

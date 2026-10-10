@@ -89,6 +89,18 @@ async notifyNative(title: string, body: string) : Promise<Result<boolean, IpcErr
 }
 },
 /**
+ * Install the dependency `id` (its serialized
+ * [`crate::engine::deps::Dependency`] id) the way the user agreed to.
+ */
+async installDependency(id: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("install_dependency", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * List every printer the OS spooler knows about, with capabilities.
  */
 async listPrinters() : Promise<Result<Printer[], IpcError>> {

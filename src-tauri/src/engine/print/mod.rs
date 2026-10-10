@@ -27,6 +27,8 @@ use crate::queue::job::{Duplex, JobSettings, PaperSize};
 use super::EngineError;
 
 pub mod cups;
+#[cfg(windows)]
+pub mod devmode_swap;
 pub mod sumatra;
 pub mod windows;
 

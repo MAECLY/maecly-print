@@ -7,9 +7,16 @@
 use pluryprint_lib::cli::{self, Startup};
 
 fn main() {
+    let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    // A hidden worker (`pluryprint --worker <kind> …`, D10) is decided first,
+    // before single-instance, the updater, the tray or any menu: it is never a
+    // second launch to forward and never shows anything.
+    if let Some(code) = pluryprint_lib::worker::dispatch(&argv) {
+        cli::exit_process(code);
+    }
     // GUI or headless is decided here, from argv alone, before any Tauri
     // machinery exists: `pluryprint print …` must never create a window.
-    match cli::startup(std::env::args_os()) {
+    match cli::startup(argv) {
         Startup::Exit(code) => cli::exit_process(code),
         Startup::Gui { selection, handoff } => pluryprint_lib::run_with(selection, handoff),
     }
