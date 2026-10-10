@@ -1,7 +1,7 @@
 {
   "name": "Pluryprint · MAECLY",
   "short_name": "Pluryprint",
-  "description": "Select 5, 50 or 500 files and print them all. Free (GPL-3.0) batch printing for Windows and macOS. Pre-alpha.",
+  "description": "Select 5, 50 or 500 files and print them all. Free (AGPL-3.0) batch printing for Windows and macOS. Pre-alpha.",
   "lang": "en",
   "dir": "ltr",
   "start_url": "/en/",
