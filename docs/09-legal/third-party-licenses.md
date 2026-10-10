@@ -180,7 +180,7 @@ If we ever bundle Pandoc (GPLv2-or-later) or another GPL'd binary, the same comp
 
 ## External components (subprocess invocation)
 
-These are tools we shell out to with `std::process::Command`. We never bundle them; they must be installed by the user separately (the app probes for them and reports what is missing — `engine::deps`, FR-058). CUPS `lp` (macOS/Linux), LibreOffice, and macOS `sips` and `textutil` are all invoked as separate processes, each with an argument vector and never through a shell. **Per the [FSF's guidance](https://www.gnu.org/licenses/gpl-faq.html#GPLPlugins) and [Mere Aggregation FAQ](https://www.gnu.org/licenses/gpl-faq.en.html#MereAggregation), subprocess invocation does not create a combined work, so the subprocess's license does not infect ours.**
+These are tools we shell out to with `std::process::Command`. We never bundle them. CUPS `lp` (macOS/Linux) and macOS `sips` and `textutil` are part of the operating system: the app runs `sips` and `textutil` from `/usr/bin` and `lp` from `PATH`, and does not probe for any of them. LibreOffice is the one the user installs separately (or lets the app install through the system package manager after consent, D13); the app probes for it and reports when it is missing (`engine::deps`, FR-058). All of them are invoked as separate processes, each with an argument vector and never through a shell. **Per the [FSF's guidance](https://www.gnu.org/licenses/gpl-faq.html#GPLPlugins) and [Mere Aggregation FAQ](https://www.gnu.org/licenses/gpl-faq.en.html#MereAggregation), subprocess invocation does not create a combined work, so the subprocess's license does not infect ours.**
 
 Quoting the FSF directly:
 
@@ -207,8 +207,8 @@ This is the legal foundation for using LibreOffice (MPL 2.0) in an AGPL-3.0 proj
 
 - **Used for:** nothing since round 3: Markdown converts in-process (`pulldown-cmark`). The dependency id stays only so an old `queue.json` that names it still loads.
 - **License:** [GPLv2-or-later](https://www.gnu.org/licenses/gpl-2.0.html). Pandoc itself is GPL.
-- **Embedded?** No. Subprocess only.
-- **Compatibility:** GPLv2-or-later can be used under GPLv3, which section 13 lets be combined with the AGPL-3.0. Subprocess invocation makes this moot.
+- **Embedded?** No, and no longer invoked.
+- **Compatibility:** GPLv2-or-later can be used under GPLv3, which section 13 lets be combined with the AGPL-3.0. With nothing invoked, this is moot.
 
 ### CUPS `lp` (Apache 2.0, system component)
 
