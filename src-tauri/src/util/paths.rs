@@ -189,6 +189,41 @@ mod tests {
         assert!(direct.is_absolute());
     }
 
+    /// FR-100 / FR-113: the locations the requirements document are the ones
+    /// `ProjectDirs` really resolves to on this OS. Spelled through the same
+    /// constants, so the assertion is about the *shape*, not the brand.
+    #[test]
+    fn fr_100_fr_113_dirs_have_the_documented_shape() {
+        #[cfg(target_os = "macos")]
+        {
+            let bundle = format!("Library/Application Support/{QUALIFIER}.{ORG}.{APP}");
+            assert!(config_dir().ends_with(&bundle), "{:?}", config_dir());
+            assert!(data_dir().ends_with(&bundle), "{:?}", data_dir());
+            assert!(
+                cache_dir().ends_with(format!("Library/Caches/{QUALIFIER}.{ORG}.{APP}")),
+                "{:?}",
+                cache_dir()
+            );
+            assert!(
+                log_dir().ends_with(format!("Library/Logs/{APP}")),
+                "{:?}",
+                log_dir()
+            );
+        }
+        #[cfg(windows)]
+        {
+            let roaming = std::path::PathBuf::from(std::env::var_os("APPDATA").unwrap());
+            let local = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap());
+            assert_eq!(config_dir(), roaming.join(ORG).join(APP).join("config"));
+            assert_eq!(data_dir(), local.join(ORG).join(APP).join("data"));
+            assert_eq!(cache_dir(), local.join(ORG).join(APP).join("cache"));
+            assert_eq!(
+                log_dir(),
+                local.join(ORG).join(APP).join("data").join("logs")
+            );
+        }
+    }
+
     #[test]
     fn dirs_have_app_segment() {
         // All resolved dirs should contain the literal "MaeclyPrint" segment somewhere.
