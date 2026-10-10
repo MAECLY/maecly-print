@@ -1,6 +1,6 @@
 # Security Model
 
-> **TL;DR** — Pluryprint signs its release artifacts, runs without admin privileges, isolates the high-risk shell-extension code in a tiny Rust COM DLL, keeps the webview's Rust-facing surface closed, and ships with telemetry **off** by default (and, in this version, inert). The only outbound network destination in the shipped app is **`api.github.com`**, for a read-only update *check* — there is no in-app updater and no `updates.maecly.com`.
+> **TL;DR** — Pluryprint signs its **update** artifacts with its own minisign key (installers carry no Apple or Microsoft certificate, [ADR-0011](../adr/0011-release-channel.md)), runs without admin privileges, isolates the high-risk shell-extension code in a tiny Rust COM DLL, prints untrusted documents in worker processes with no network and no file-share access, keeps the webview's Rust-facing surface closed, and ships with telemetry **off** by default (and, in this version, inert). The only outbound network destination of its own is **`github.com`**, for the update manifest of the user's channel and, on request, the signed update it names — there is no `updates.maecly.com`.
 
 ## 1. Threat model
 
@@ -10,17 +10,19 @@ We start by being explicit about what we are defending against and what is out o
 
 | Threat                                                         | What we do about it                                                  |
 | -------------------------------------------------------------- | -------------------------------------------------------------------- |
-| Malicious update binary served by a compromised host           | **Structurally out of reach today**: the app never downloads or executes an update. The update path fetches release *metadata* only and hands the user a link; installation is a manual, signature-checked OS operation. |
-| Modified installer downloaded from a tampered mirror           | Authenticode (Win EV cert) and Apple Developer ID notarization       |
-| Hostile response from `api.github.com` (or a MITM on it)       | The response is parsed into at most three strings (tag, URL, notes) and never executed. A `200` that does not parse is an error, not "up to date". The link the user is offered is re-checked against the HTTPS allow-list before `open_external` will open it. |
+| Malicious update binary served by a compromised host           | An update is downloaded only on the user's request and installed only when its minisign signature matches the public key compiled into the app; `release.yml` verifies every signature before a draft is published (§2.3). |
+| Modified installer downloaded from a tampered mirror           | Download from the GitHub release only; every release lists `SHA256SUMS`. No Authenticode or Developer ID signature today (ADR-0011), so the OS cannot check it |
+| Hostile update manifest from `github.com` (or a MITM on it)       | The check parses it into two strings (version, notes) and never executes it; an install refuses any artifact whose minisign signature does not match the compiled-in key. A `200` that does not parse is an error, not "up to date". The link the user is offered is re-checked against the HTTPS allow-list before `open_external` will open it. |
 | Malicious context-menu invocation tricking the user into running arbitrary code | Shell DLL only handles paths; main exe validates each path before processing |
 | Webview compromise (XSS in a render path) escalating to arbitrary IPC calls | Closed command set (`collect_commands!`, no dynamic surface) + CSP + no remote content loaded |
 | Local user without admin rights wanting to install / use the app | Install to `%LOCALAPPDATA%`, register COM in HKCU, no service required |
 | File-content exfiltration via logs                             | Logs never include file content; paths only at INFO+ when explicitly enabled |
 | User wanting to audit network behavior                         | Single outbound endpoint by default; everything else is opt-in        |
-| Supply-chain attack on a Rust crate                            | `cargo audit` in CI, pinned `Cargo.lock`, deny unmaintained crates    |
+| Supply-chain attack on a Rust crate                            | Pinned `Cargo.lock`, `--locked` builds, Dependabot; no `cargo audit` workflow yet (NFR-065) |
 | Supply-chain attack on an npm package                          | `pnpm audit`, lockfile-only installs in CI, dependency review on bumps |
 | Privilege-escalation exploit in a converter (e.g., LibreOffice CVE) | Converters spawned as the current user, killed at timeout, never as SYSTEM |
+| A document that leaks the user's IP or NTLM credentials when printed (remote picture, `\\host\share` link, tracking pixel) | Render and SVG workers refuse every request outside the document's folder; LibreOffice's profile blocks linked resources and points HTTP at a dead proxy (§3.4) |
+| A hostile file that crashes a parser | SVG and HTML/Markdown/text are parsed and rendered in worker processes; a crash ends the worker, not the app |
 
 ### 1.2 Out of scope
 
@@ -32,7 +34,9 @@ We start by being explicit about what we are defending against and what is out o
 
 ## 2. Code signing
 
-### 2.1 Windows: EV cert + Authenticode
+> **Status: §2.1 and §2.2 are not in use.** [ADR-0011](../adr/0011-release-channel.md) releases without OS certificates: the Windows installers are unsigned (SmartScreen warns; the release notes explain **More info → Run anyway**), the macOS bundles are signed ad hoc and not notarized (the notes give the `xattr` step), and every release attaches `SHA256SUMS`. What *is* signed is every update artifact (§2.3). §2.1/§2.2 are the plan for when certificates are bought; [code-signing.md](../07-build-and-release/code-signing.md) has the same status note.
+
+### 2.1 Windows: EV cert + Authenticode (planned)
 
 From day 1 (`v0.1.0` GA), all release artifacts are signed with an **Extended Validation** code-signing certificate. We use Sectigo or DigiCert depending on price; both produce certs that count toward Microsoft SmartScreen reputation immediately, removing the "Unknown publisher" warning.
 
@@ -47,7 +51,7 @@ Signing happens in the GitHub Actions release workflow on a Windows runner with 
 
 Cost is ~$300/year for an EV cert. For nightly builds we sign with a self-signed cert (the user gets a SmartScreen warning; nightly users accept this).
 
-### 2.2 macOS: Developer ID + notarization (M5+)
+### 2.2 macOS: Developer ID + notarization (planned)
 
 From the first macOS release:
 
@@ -63,9 +67,10 @@ See [`auto-updater.md`](./auto-updater.md) for the full flow. The security-relev
 
 - **The in-app updater installs only signed artifacts, and only on request.** `tauri-plugin-updater` downloads the artifact named by `latest.json` and verifies its minisign signature against the public key compiled in from `tauri.conf.json` (`plugins.updater.pubkey`) before a byte reaches the disk. A tampered artifact fails with `UpdateSignatureInvalid`. Install runs only after an explicit user action (About → Install now, `update install`), a major version needs a second confirmation, and release builds refuse non-`https` endpoints. The private key exists only offline and in the release secret `TAURI_SIGNING_PRIVATE_KEY` ([ADR-0008](../adr/0008-installer-nsis-per-user.md)).
 - **Residual risk.** The manifest itself is not signed. Without `requireSignedVersion` (off until the Tauri CLI records the version in signatures), whoever can serve `latest.json` over the GitHub TLS endpoint could pair a newer version number with an older, genuinely signed artifact, which is a downgrade, not code execution. A leaked private key is the critical case: rotate it and ship the new public key in a release signed with the old one.
-- The update *check* is a read-only `GET` to `api.github.com` for release metadata. The only thing it can influence is a version string, a URL and a markdown blob shown to the user.
+- The update *check* is a read-only `GET` of the same `latest.json` the installer uses, from `github.com` release assets. The only thing it can influence is a version string and a markdown blob shown to the user; the link shown is built from the version (`…/releases/tag/vX.Y.Z`).
+- `release.yml` signs every updater artifact on a tag build, then verifies each signature against the public key compiled into the app, and checks that a tampered copy fails, before it finishes the draft. The private key is read only from the `TAURI_SIGNING_PRIVATE_KEY` GitHub secret.
 - The URL is not opened automatically. Opening it goes through `open_external`, which enforces HTTPS and an exact-host allow-list (`github.com`, `maecly.com`, `*.maecly.com`; no userinfo, no port, no lookalike suffixes).
-- Integrity of the artifact the user then installs rests on the **installer signature** — Authenticode on Windows, Developer ID + notarization on macOS (§2.1/§2.2) — verified by the OS, not by us.
+- A first install (not an update) has no OS-verified signature today (§2 status). Its integrity rests on GitHub's TLS and the `SHA256SUMS` attached to the release, which the user can check by hand.
 
 Artifacts are minisign-signed; the manifest is not (see the residual risk above). Key rotation: generate a new pair, ship a release signed with the **old** key that carries the **new** public key, then sign everything after it with the new key.
 
@@ -128,7 +133,7 @@ We never `loadUrl()` remote content. The webview only loads the bundled SPA.
 
 In this version the only conversion that runs is **image → PDF, and it runs in-process** in pure Rust (`engine/convert/image.rs`, the `image` + `lopdf` crates). No external converter is spawned, so the converter-CVE row in §1.1 is currently vacuous — a property worth keeping in mind when the Office/HTML/Markdown converters land.
 
-Processes the engine *does* spawn today are the **printing** hops — `lp` on macOS/Linux, `SumatraPDF.exe` on Windows — via `std::process::Command`:
+Processes the engine spawns for **printing** are — `lp` on macOS/Linux, `SumatraPDF.exe` on Windows — via `std::process::Command`:
 
 - As the current user, never elevated.
 - Bounded by a hard timeout enforced with the `wait-timeout` crate, so a hung child cannot wedge the queue; a timeout is reported as a print failure (exit code 9 on the CLI).
@@ -137,11 +142,16 @@ Processes the engine *does* spawn today are the **printing** hops — `lp` on ma
 
 The image decoder is hardened against decompression bombs independently of any subprocess boundary: `image::Limits` caps decoded dimensions, and the emitted page is clamped to the 14,400 pt (200 in) PDF page ceiling.
 
-The converters (LibreOffice, Chromium-class browser, Pandoc, `sips`) are a far larger attack surface than `lp`. They all go through `engine::convert::process::run_bounded`:
+The converters are a far larger attack surface than `lp`, because they parse documents someone else may have written. Since round 3 ([ADR-0012](../adr/0012-system-web-view-renderer.md)) they are LibreOffice (Office, OpenDocument, RTF on Windows), `sips` and `textutil` on macOS, and two **workers** of Pluryprint's own executable: `--worker render-pdf` (HTML, Markdown, text, RTF on macOS, through WebView2/WKWebView) and `--worker svg` (`usvg` + `svg2pdf`). All of them go through `engine::convert::process` (`run_bounded` / `run_until`):
 
-- each gets a **dedicated scratch folder** in the OS temp directory. It holds LibreOffice's throwaway `-env:UserInstallation` profile and the browser's private `--user-data-dir`, and it is removed on every exit path. The browser profile is seeded so that Edge does not try an empty-password logon for the user, which on Windows counts as a failed logon toward account lockout (see [print-engine.md](print-engine.md));
-- each runs under a **deadline and the job's cancel flag**, and on either the **whole process tree** is killed (process group on Unix, `taskkill /T` on Windows);
-- LibreOffice works on a private copy of the input, so a hostile file name never reaches its command line. The browser keeps its sandbox (no `--no-sandbox`).
+- each gets a **dedicated scratch folder** in the OS temp directory. It holds LibreOffice's throwaway `-env:UserInstallation` profile, the staged page and the web view's private profile, and it is removed on every exit path. Every Chromium-based profile (the render worker's WebView2, the hidden browser fallback, the app's own `EBWebView`) is seeded so that it does not try an empty-password logon for the user, which on Windows counts as a failed logon toward account lockout (see [print-engine.md](print-engine.md));
+- each runs under a **deadline and the job's cancel flag**, and on either the **whole process tree** is killed (process group on Unix, `taskkill /T` on Windows). A parser that panics or a page that wedges the web view takes the worker down, not the app;
+- **no network and no file share**: the render worker turns scripts off and refuses every request that is not the page's own folder or a `data:` URI (on Windows the folder is served from a private `https` origin, so no `file://host/share` or `//host` reference ever opens SMB/WebDAV and hands out the user's NTLM credentials); the SVG converter loads `<image>` only from the drawing's folder; LibreOffice's profile is seeded to block linked resources, never update links, disable macros and OLE/DDE, and send its own HTTP to a dead proxy;
+- LibreOffice and `textutil` work on a private copy of the input, so a hostile file name never reaches their command line. The hidden browser fallback keeps its sandbox (no `--no-sandbox`).
+
+**Encrypted PDFs.** A user's PDF password is passed to `lopdf` in-process, held in a buffer zeroed on drop, kept in the dispatcher's memory only while the job needs it, and never written to `queue.json`, a log, a command line or an environment block (FR-059). The CLI takes it from a file or a pipe, never from `argv`. A PDF whose permissions forbid printing is refused, never stripped.
+
+**Installing a missing dependency** (`install_dependency`, decision D13) runs `winget` or `brew` only after the user confirmed the exact command shown, with an argument vector, no shell, no console window and a 30-minute bound; Store and web options open with the OS handler.
 
 **Still a gap:** environment minimization. Converters inherit the app's environment.
 
@@ -152,8 +162,8 @@ The converters (LibreOffice, Chromium-class browser, Pandoc, `sips`) are a far l
 Installation:
 
 - The bundler is Tauri's **NSIS** target with `installMode: "currentUser"` (`tauri.conf.json`), i.e. a per-user install under `%LOCALAPPDATA%` — not Inno Setup.
-- Sparse MSIX is registered via `Add-AppxPackage -Register -ExternalLocation`, which is per-user.
-- Registry entries (fallback shell ext) live in `HKCU\Software\Classes\*\shell\Pluryprint`.
+- The Explorer command is registered per user: the COM class under `HKCU\Software\Classes\CLSID\{B269B8DC-…}` and the `ExplorerCommandHandler` verbs under `HKCU\Software\Classes\*\shell\Pluryprint` and `Directory\shell\Pluryprint` ([ADR-0013](../adr/0013-explorer-command-per-user-verb.md)). The sparse MSIX package, also per user, is not built yet.
+- The one install that asks for elevation is LibreOffice's own MSI, when the user chooses to install it from the dependency dialog; the dialog says so before anything runs.
 - No services, no scheduled tasks, no drivers.
 
 Operation:
@@ -167,7 +177,7 @@ The one exception is **uninstalling the WebView2 Runtime** — but we don't ship
 
 - App installs to `/Applications` (user can drag-drop without admin if not present).
 - All state in `~/Library/Application Support/com.Maecly.Pluryprint/` and friends.
-- Finder Sync Extension requires the user to enable it in System Settings — explicit consent.
+- The Finder integration is an `NSServices` entry inside the app bundle (no Finder Sync extension), so there is nothing extra to enable or sign.
 
 ### 4.3 Enterprise policy (`policy.json`)
 
@@ -206,21 +216,23 @@ Policy is read **at page load** (each time the Printers screen mounts). There is
 
 ## 5. Network egress audit
 
-Pluryprint makes exactly **two** possible requests, both to GitHub's public API, both unauthenticated `GET`s, and the second only on one branch:
+On its own, Pluryprint makes exactly **one** request, an unauthenticated `GET` of the update manifest of the user's channel:
 
 ```
-GET https://api.github.com/repos/<owner>/<repo>/releases/latest
-GET https://api.github.com/repos/<owner>/<repo>            # only if the first returned 404
+GET https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json          # stable
+GET https://github.com/MAECLY/maecly-print/releases/download/channel-beta/latest.json    # beta, nightly
 ```
 
-`<owner>/<repo>` is compiled in from the crate's `repository` field; it is not configurable at runtime. Headers are `User-Agent: Pluryprint/<version>`, `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`. The request bodies are empty and carry no identifier of any kind. The client is `ureq` with a 10-second timeout; a system proxy is honoured from `HTTPS_PROXY`/`HTTP_PROXY` (either case) when set.
+The URLs are compiled in; only `PLURYPRINT_UPDATE_ENDPOINT` (for local testing; release builds require `https`) replaces them. Headers are `User-Agent: Pluryprint/<version>` and `Accept: application/json`. The request bodies are empty and carry no identifier of any kind. The client is `ureq` with a 10-second timeout; a system proxy is honoured from `HTTPS_PROXY`/`HTTP_PROXY` (either case) when set.
 
 Frequency: at most once per 24 h automatically (30 s after launch, off the main thread), plus whenever the user explicitly asks. Disabling `[updater].check_on_startup` removes the automatic one entirely — and the check is skipped *before* any socket is opened, which is asserted by test.
 
 That is everything. The app:
 
 - Does not phone home with usage stats. **This version has no telemetry transmitter at all** — the two consent flags in `[telemetry]` are recorded and never read by any sending code (documented on `TelemetryCfg` itself).
-- Does not download or install updates.
+- Does not download or install updates unless the user asks (**Install now**, `update install`); the download then goes to the artifact the same manifest names, on GitHub, and is verified before it is installed.
+- Does not install converters on its own: winget, Homebrew, the Microsoft Store or the browser make their own requests only after the user confirmed the dependency dialog.
+- Lets no printed document reach the network or a file share (§3.4).
 - Does not load fonts, scripts or styles from CDNs — the CSP forbids it and the one webfont is bundled.
 - Does not check for updates of converters.
 - Does not communicate with printer manufacturers' clouds.
@@ -295,7 +307,7 @@ A `SECURITY.md` at the repo root documents:
 - A 90-day coordinated disclosure window by default.
 - Acknowledgement targets: 72 h.
 - A hall-of-fame credit list for reporters.
-- Scope: this repo and the published binaries. Out of scope: the SumatraPDF / LibreOffice / Pandoc projects (report upstream) and GitHub's own infrastructure.
+- Scope: this repo and the published binaries. Out of scope: the SumatraPDF / LibreOffice / WebView2 / WebKit projects (report upstream) and GitHub's own infrastructure.
 
 Critical issues are patched out-of-cycle and pushed to the `stable` channel within 48 h.
 
@@ -313,8 +325,8 @@ Before tagging a release, the maintainer verifies:
 - [ ] `cargo audit` clean.
 - [ ] `cargo deny check` clean.
 - [ ] `pnpm audit --audit-level high` clean.
-- [ ] All artifacts signed (Authenticode / Apple Developer ID).
-- [ ] The bundled SumatraPDF matches the pinned version **and checksum** in `scripts/fetch-sumatrapdf.*`, for the installer's architecture (x64 or ARM64), and its licence files (`LICENSE.txt`, `COPYING.BSD.txt`, `AUTHORS.txt`, fetched from the pinned upstream commit) and `SOURCE.txt` sit next to the executable, with the GPL-3.0 text also in `LICENSES/GPL-3.0.txt` (GPL-3.0 §6 obligation — see [`../09-legal/third-party-licenses.md`](../09-legal/third-party-licenses.md)).
+- [ ] Every updater artifact signed and verified by `release.yml` (minisign); `SHA256SUMS` attached. (Authenticode / Apple Developer ID: not used, ADR-0011.)
+- [ ] The bundled SumatraPDF matches the pinned version **and checksum** in `scripts/fetch-sumatrapdf.*`, for the installer's architecture (x64 or ARM64), and its licence files (`LICENSE.txt`, `COPYING.BSD.txt`, `AUTHORS.txt`, fetched from the pinned upstream commit), `SOURCE.txt` and the written offer `SOURCE-OFFER.txt` sit next to the executable, with the GPL-3.0 text also in `LICENSES/GPL-3.0.txt` (GPL-3.0 §6 obligation — see [`../09-legal/third-party-licenses.md`](../09-legal/third-party-licenses.md)).
 - [ ] CSP unchanged (or change reviewed).
 - [ ] Capability allowlist unchanged (or change reviewed).
 - [ ] No new outbound URLs added without privacy-doc update.
