@@ -2103,7 +2103,27 @@ export type UpdateChannel =
  * it is strictly newer than `current`, and `url`/`notes` are populated only
  * when an update is available (so the UI has a link and changelog to show).
  */
-export type UpdateCheck = { current: string; latest: string | null; available: boolean; url: string | null; notes: string | null; 
+export type UpdateCheck = { 
+/**
+ * The running app's version.
+ */
+current: string; 
+/**
+ * Tag of the newest published release, when one was found.
+ */
+latest: string | null; 
+/**
+ * Whether `latest` is strictly newer than `current`.
+ */
+available: boolean; 
+/**
+ * Release page to open, set only when an update is available.
+ */
+url: string | null; 
+/**
+ * Release notes (markdown), set only when an update is available.
+ */
+notes: string | null; 
 /**
  * RFC 3339 timestamp of when the check ran.
  */

@@ -48,10 +48,15 @@ pub struct ReleaseInfo {
 /// when an update is available (so the UI has a link and changelog to show).
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 pub struct UpdateCheck {
+    /// The running app's version.
     pub current: String,
+    /// Tag of the newest published release, when one was found.
     pub latest: Option<String>,
+    /// Whether `latest` is strictly newer than `current`.
     pub available: bool,
+    /// Release page to open, set only when an update is available.
     pub url: Option<String>,
+    /// Release notes (markdown), set only when an update is available.
     pub notes: Option<String>,
     /// RFC 3339 timestamp of when the check ran.
     pub checked_at: String,
