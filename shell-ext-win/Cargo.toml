@@ -46,6 +46,8 @@ windows = { version = "0.58", features = [
   "Win32_System_Registry",
   # SFGAO_FLAGS / SFGAO_FOLDER for the "is this a folder" probe.
   "Win32_System_SystemServices",
+  # GetUserDefaultUILanguage: the menu's labels before the app wrote its cache.
+  "Win32_Globalization",
   "Win32_UI_Shell",
   "Win32_UI_Shell_Common",
   "Win32_UI_WindowsAndMessaging",

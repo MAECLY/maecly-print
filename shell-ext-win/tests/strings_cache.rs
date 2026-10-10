@@ -112,6 +112,47 @@ fn fr_002_the_count_is_pluralized_and_substituted() {
     assert!(!spanish.print_title(23).contains("{count}"));
 }
 
+/// FR-093: before the app ever ran there is no cache, and the menu speaks
+/// the Windows display language; its labels are the app's own catalog
+/// (`shellMenu` in `src/i18n/locales/<lang>/common.json`), so the menu does
+/// not change wording once the app writes the cache.
+#[test]
+fn fr_093_the_menu_without_a_cache_follows_the_windows_language() {
+    use shell_ext_win::strings::{language_of_langid, Labels};
+
+    // LANGIDs: es-ES, es-MX, es-419 → Spanish; en-US, fr-FR, de-DE → English.
+    for id in [0x0c0a, 0x080a, 0x580a] {
+        assert_eq!(language_of_langid(id), "es", "{id:#06x}");
+    }
+    for id in [0x0409, 0x040c, 0x0407, 0] {
+        assert_eq!(language_of_langid(id), "en", "{id:#06x}");
+    }
+    assert_eq!(Strings::defaults_for("es-ES").labels, Labels::spanish());
+    assert_eq!(Strings::defaults_for("es").lang, "es");
+    assert_eq!(Strings::defaults_for("fr-FR"), Strings::defaults());
+    assert!(Strings::defaults_for("es").profiles.is_empty());
+
+    let catalog = |lang: &str| -> serde_json::Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../src/i18n/locales")
+            .join(lang)
+            .join("common.json");
+        let raw = std::fs::read_to_string(&path).unwrap();
+        serde_json::from_str::<serde_json::Value>(&raw).unwrap()["shellMenu"].clone()
+    };
+    for (lang, labels) in [("en", Labels::default()), ("es", Labels::spanish())] {
+        let c = catalog(lang);
+        let s = |k: &str| c[k].as_str().unwrap().replace("{{", "{").replace("}}", "}");
+        assert_eq!(labels.print_one, s("print_one"), "{lang}");
+        assert_eq!(labels.print_many, s("print_other"), "{lang}");
+        assert_eq!(labels.print_with_profile, s("printWithProfile"), "{lang}");
+        assert_eq!(labels.configure, s("configure"), "{lang}");
+        assert_eq!(labels.queue, s("queue"), "{lang}");
+        assert_eq!(labels.tooltip, s("tooltip"), "{lang}");
+        assert_eq!(labels.root, "Pluryprint");
+    }
+}
+
 #[test]
 fn fr_002_a_cache_with_no_profiles_has_no_dangling_separator() {
     let menu = strings::parse(&cache_json(0)).unwrap().menu(1);
@@ -142,7 +183,7 @@ fn fr_002_an_unusable_cache_is_ignored_rather_than_trusted() {
 fn fr_002_a_missing_cache_falls_back_to_the_built_in_menu() {
     let dir = tempfile::tempdir().unwrap();
     let loaded = strings::load_from_dir(dir.path());
-    assert_eq!(loaded, Strings::defaults());
+    assert_eq!(loaded, Strings::os_defaults());
     assert!(!loaded.menu(1).is_empty());
 }
 
@@ -155,7 +196,7 @@ fn fr_002_an_oversized_cache_is_not_read() {
     bloated.push_str(&" ".repeat(MAX_CACHE_BYTES as usize + 1));
     std::fs::write(dir.path().join(CACHE_FILE), bloated).unwrap();
 
-    assert_eq!(strings::load_from_dir(dir.path()), Strings::defaults());
+    assert_eq!(strings::load_from_dir(dir.path()), Strings::os_defaults());
 }
 
 #[test]

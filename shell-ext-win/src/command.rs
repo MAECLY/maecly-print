@@ -62,13 +62,13 @@ impl Shared {
     }
 
     /// The labels to draw with: the cache if it has been read, otherwise the
-    /// compiled-in English defaults. Deliberately does **not** load: this is
+    /// compiled-in defaults in the Windows display language. Deliberately does **not** load: this is
     /// the accessor the drawing path uses.
     pub(crate) fn strings(&self) -> &Strings {
         static DEFAULTS: OnceLock<Strings> = OnceLock::new();
         self.strings
             .get()
-            .unwrap_or_else(|| DEFAULTS.get_or_init(Strings::defaults))
+            .unwrap_or_else(|| DEFAULTS.get_or_init(Strings::os_defaults))
     }
 }
 

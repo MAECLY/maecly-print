@@ -6,8 +6,9 @@
 //! already-localized cache (`<data_local_dir>/shell-menu.json`) whenever the
 //! profile list or the UI language changes, and this module turns it into the
 //! flat list of entries the handler enumerates. A missing, stale, oversized or
-//! corrupt cache is not an error — it degrades to the built-in English
-//! defaults, which is always a usable menu.
+//! corrupt cache is not an error — it degrades to the built-in labels in the
+//! Windows display language (English or Spanish), which is always a usable
+//! menu.
 //!
 //! Two hard limits from the platform shape everything here:
 //!
@@ -115,6 +116,47 @@ impl Default for Labels {
     }
 }
 
+impl Labels {
+    /// The Spanish labels: `shellMenu` in `src/i18n/locales/es/common.json`,
+    /// the catalog the app writes the cache from (a test keeps them equal).
+    pub fn spanish() -> Self {
+        Self {
+            root: "Pluryprint".into(),
+            print_one: "Imprimir 1 archivo".into(),
+            print_many: "Imprimir {count} archivos".into(),
+            print_with_profile: "Imprimir con \u{ab}{name}\u{bb}".into(),
+            configure: "Configurar el trabajo de impresi\u{f3}n\u{2026}".into(),
+            queue: "A\u{f1}adir a la cola de impresi\u{f3}n".into(),
+            tooltip: "Imprime por lotes los archivos seleccionados con Pluryprint".into(),
+        }
+    }
+}
+
+/// The language subtag of the Windows display language (`GetUserDefaultUILanguage`),
+/// or `en` where it cannot be asked. Cheap: no I/O, safe on the drawing path.
+pub fn os_ui_language() -> &'static str {
+    #[cfg(windows)]
+    {
+        // SAFETY: no arguments, no preconditions.
+        let langid = unsafe { windows::Win32::Globalization::GetUserDefaultUILanguage() };
+        language_of_langid(langid)
+    }
+    #[cfg(not(windows))]
+    {
+        "en"
+    }
+}
+
+/// The language subtag of a Windows `LANGID` for the languages the menu has
+/// labels in: its primary language (the low 10 bits) `LANG_SPANISH` (0x0a)
+/// is `es`, anything else `en`. Pure.
+pub fn language_of_langid(langid: u16) -> &'static str {
+    match langid & 0x3ff {
+        0x0a => "es",
+        _ => "en",
+    }
+}
+
 /// Everything the handler needs to draw its menu.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(default)]
@@ -139,6 +181,31 @@ impl Strings {
             labels: Labels::default(),
             profiles: Vec::new(),
         }
+    }
+
+    /// The built-in menu, with no profiles, in `lang` (a language subtag or a
+    /// BCP-47 tag: `es`, `es-ES`); English for any language without labels.
+    pub fn defaults_for(lang: &str) -> Self {
+        let primary = lang
+            .split(['-', '_'])
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        match primary.as_str() {
+            "es" => Self {
+                lang: "es".into(),
+                labels: Labels::spanish(),
+                ..Self::defaults()
+            },
+            _ => Self::defaults(),
+        }
+    }
+
+    /// The built-in menu in the Windows display language: what the menu shows
+    /// before the app ever ran (no cache yet), or when the cache is unusable.
+    /// The app writes the cache in its own language as soon as it starts.
+    pub fn os_defaults() -> Self {
+        Self::defaults_for(os_ui_language())
     }
 
     /// Title of the "print now with the default profile" entry for a selection
@@ -219,7 +286,8 @@ pub fn parse(raw: &str) -> Option<Strings> {
     Some(strings)
 }
 
-/// Read the cache from `dir`, falling back to the defaults on any problem.
+/// Read the cache from `dir`, falling back to the defaults in the Windows
+/// display language ([`Strings::os_defaults`]) on any problem.
 ///
 /// The size check happens before the read, so a huge or truncated file costs a
 /// `stat` and nothing more. This is the only disk access on the menu-building
@@ -230,7 +298,7 @@ pub fn load_from_dir(dir: &Path) -> Strings {
         .ok()
         .as_deref()
         .and_then(parse)
-        .unwrap_or_else(Strings::defaults)
+        .unwrap_or_else(Strings::os_defaults)
 }
 
 fn read_capped(path: &Path) -> io::Result<String> {
@@ -253,6 +321,6 @@ pub fn cache_dir() -> io::Result<PathBuf> {
 pub fn load() -> Strings {
     match cache_dir() {
         Ok(dir) => load_from_dir(&dir),
-        Err(_) => Strings::defaults(),
+        Err(_) => Strings::os_defaults(),
     }
 }
