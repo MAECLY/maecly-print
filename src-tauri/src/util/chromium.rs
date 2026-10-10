@@ -27,9 +27,17 @@
 //! seeded `EBWebView`, 0 per start (1 without). (Headless Edge was the HTML
 //! converter then; that browser fallback was removed in round 6, ADR-0012,
 //! and the render worker's WebView2 is seeded the same way.) Nothing else in
-//! the file is touched, and the profile is either private to this app (the
-//! render worker's throwaway directory, the app's own `EBWebView`) — never
-//! the user's browser.
+//! the file is touched. The profiles stamped are the app's own (the render
+//! worker's throwaway directory, the app's `EBWebView`) plus, since round 7,
+//! any folder this process' environment points WebView2 at
+//! ([`extra_profiles_from_env`]: a `--user-data-dir` in
+//! `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` and its `EBWebView` sub-folder,
+//! and `WEBVIEW2_USER_DATA_FOLDER`'s `EBWebView`). Those are whatever the
+//! environment names — normally the Edge WebDriver's scoped temp profile —
+//! so they are not private to the app: each is created if missing and its
+//! `Local State` replaced atomically (by a minimal one when the old file
+//! cannot be read or parsed). The app never looks for or stamps the user's
+//! own browser profile.
 
 use std::path::Path;
 
