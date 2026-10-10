@@ -51,9 +51,11 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `time` | 0.3 | MIT / Apache-2.0 | RFC 3339 timestamps | Yes |
 | `windows` *(Windows targets only)* | 0.58 | MIT / Apache-2.0 | winspool + GDI `DeviceCapabilities`, PrintTicket ↔ DEVMODE, console attach, policy registry/owner checks | Yes |
 | `webview2-com` *(Windows targets only)* | 0.38 | MIT | WebView2 `PrintToPdf` in the render worker (FR-055) | Yes |
+| `windows-core` *(Windows targets only)* | 0.61 | MIT / Apache-2.0 | COM base types (`HSTRING`, `BOOL`, `Interface`) of the line `webview2-com` is generated against | Yes |
 | `objc2` *(macOS only)* | 0.6 | MIT | Objective-C runtime for the NSServices provider | Yes |
 | `objc2-app-kit`, `objc2-foundation` *(macOS only)* | 0.3 | MIT | AppKit/Foundation bindings (feature-narrowed) | Yes |
 | `objc2-web-kit` *(macOS only)* | 0.3 | Zlib / Apache-2.0 / MIT | WKWebView printing in the render worker (FR-055) | Yes |
+| `block2` *(macOS only)* | 0.6 | MIT | Objective-C blocks for WebKit's completion handlers in the render worker (FR-055) | Yes |
 
 ### Rust — `shell-ext-win` (the Windows Explorer handler, a separate `cdylib`)
 
