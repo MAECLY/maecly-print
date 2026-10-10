@@ -158,7 +158,7 @@ tauri-plugin-updater = "~2.13"
 tokio = { version = "1.41", features = ["test-util"] }
 # Decodes the updater public key in tauri.conf.json in a config test. Already
 # in the graph through tauri-plugin-updater; tests only.
-base64 = "0.22"
+base64 = "0.23"
 
 # --- macOS Finder integration (NSServices provider, FR-001) ---
 # Objective-C runtime access for the "Print with Pluryprint" service declared
