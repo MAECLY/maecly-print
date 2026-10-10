@@ -1,6 +1,19 @@
 # Code Signing
 
-> **TL;DR.** Windows binaries are signed with an Extended Validation (EV) certificate (~$300/year) for instant SmartScreen reputation; macOS uses Apple Developer ID Application certs ($99/year, mandatory) plus Apple notarization. Private keys live in HSMs or in CI secrets behind tight access controls. Self-signed certs are used only for nightly builds.
+> **TL;DR.** **Not in use:** releases carry no Authenticode or Developer ID signature (ADR-0011); updates are signed with Pluryprint's own minisign key, see the status section below. The design for when certificates exist: Windows binaries are signed with an Extended Validation (EV) certificate (~$300/year) for instant SmartScreen reputation; macOS uses Apple Developer ID Application certs ($99/year, mandatory) plus Apple notarization. Private keys live in HSMs or in CI secrets behind tight access controls. Self-signed certs are used only for nightly builds.
+
+## Status: no OS code signing (ADR-0011)
+
+**Nothing described below the next heading is in use.** [ADR-0011](../adr/0011-release-channel.md) (2026-10-10) releases Pluryprint the way Versorium is released, without Apple or Microsoft certificates:
+
+| What | How it is done today |
+|---|---|
+| Windows installers | **Not Authenticode-signed.** SmartScreen shows "Windows protected your PC"; the release notes (English and Spanish) say to choose **More info → Run anyway**. The installer is per user and asks for no administrator rights. |
+| macOS bundles | **Signed ad hoc** (`bundle.macOS.signingIdentity: "-"` in `tauri.conf.json`), which Apple silicon needs to run the app at all. Not notarized: ad hoc signatures cannot be. The release notes give the `xattr -rd com.apple.quarantine` step that Gatekeeper requires. |
+| Updates | Every updater artifact is signed with Pluryprint's own **minisign** key (`TAURI_SIGNING_PRIVATE_KEY`, a GitHub secret); the app verifies it against the public key compiled in (`plugins.updater.pubkey`) and refuses anything else. `release.yml` verifies every signature, and that a tampered copy fails, before the draft is finished. |
+| Integrity of downloads | `SHA256SUMS` is attached to every release. |
+
+The full procedure is the runbook [releasing.md](./releasing.md). The rest of this document is the certificate-based design, kept for the day certificates are bought (it would also unblock the signed sparse package of [shell-extensions.md §2.5](../04-architecture/shell-extensions.md)). Treat its statements as a plan, not a description.
 
 This document covers code signing across both platforms: cert types, costs, procurement, signing tools, CI integration, and common pitfalls. It complements the OS-specific build documentation in [installer-windows.md](./installer-windows.md) and [installer-macos.md](./installer-macos.md).
 

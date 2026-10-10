@@ -1,6 +1,19 @@
 # Installer (macOS)
 
-> **TL;DR.** macOS distribution is a Universal binary `.app` bundle, packaged into both a `.pkg` (via `pkgbuild` + `productbuild`) and a `.dmg` (via `create-dmg`). Both artifacts are codesigned with an Apple Developer ID Application certificate and notarized through `xcrun notarytool`. Targets macOS 13+ on Apple Silicon and Intel.
+> **TL;DR.** **Today:** releases ship an ad-hoc-signed `.dmg` per architecture (Apple silicon, Intel), not notarized, for macOS 13+ (see the status section). **The design below, for when a Developer ID exists:** macOS distribution is a Universal binary `.app` bundle, packaged into both a `.pkg` (via `pkgbuild` + `productbuild`) and a `.dmg` (via `create-dmg`). Both artifacts are codesigned with an Apple Developer ID Application certificate and notarized through `xcrun notarytool`. Targets macOS 13+ on Apple Silicon and Intel.
+
+## Status: what ships today
+
+The design below (Universal binary, `.pkg`, Developer ID, notarization) is **not what releases produce**. What does:
+
+| Design in this document | What `release.yml` builds |
+|---|---|
+| One Universal `.app` (`lipo`) | Two builds, `aarch64-apple-darwin` and `x86_64-apple-darwin`, published as separate `Pluryprint_X.Y.Z_apple_silicon.dmg` and `Pluryprint_X.Y.Z_apple_intel.dmg`, each with its `.app.tar.gz` updater archive and `.sig` |
+| `.pkg` + `.dmg` | `.dmg` only (Tauri's `app,dmg` bundles) |
+| Developer ID + notarization | Ad hoc signature (`signingIdentity: "-"`), no notarization ([ADR-0011](../adr/0011-release-channel.md)); the release notes give the `xattr -rd com.apple.quarantine` step Gatekeeper needs |
+| macOS 13+ | Unchanged: `bundle.macOS.minimumSystemVersion` is `13.0` |
+
+The right-click integration is the in-bundle `NSServices` declaration (*Services › Print with Pluryprint*), not a Finder Sync extension; see [shell-extensions.md §3](../04-architecture/shell-extensions.md). The runbook is [releasing.md](./releasing.md). Read the rest of this document as the plan for a Developer ID build.
 
 This document covers the M5 macOS port. Code signing and notarization details that overlap with Windows are in [code-signing.md](./code-signing.md); this file focuses on the bundle structure, the installer scripts, and the macOS-specific quirks.
 

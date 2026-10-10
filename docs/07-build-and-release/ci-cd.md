@@ -158,12 +158,12 @@ Everything in this section is **unimplemented**. It is recorded as design intent
 
 | Missing | Status |
 |---|---|
-| `.github/workflows/nightly.yml` | Not written. There are no nightly builds and no nightly channel. |
+| `.github/workflows/nightly.yml` | Not written. There are no nightly builds: the app's **nightly** channel setting follows the beta manifest (FR-085). |
 | OS code signing | No Authenticode certificate, no Apple Developer ID, no notarization, no stapling (decision D2). macOS bundles are signed ad hoc. Update artifacts **are** signed, by `release.yml`. |
 | A release that has run | `release.yml` exists but has never run: `TAURI_SIGNING_PRIVATE_KEY` is not set, and the repository is private until the first stable release. |
 | Artifact publication outside GitHub (Cloudflare R2, own domain) | Not planned for now: releases and manifests live on GitHub Releases ([ADR-0011](../adr/0011-release-channel.md)). |
 | `installers/windows/build.ps1`, `installers/macos/*.sh` | The `installers/` tree contains only `.gitkeep` files. |
-| `scripts/sign-*.ps1`, `scripts/upload-to-r2.sh`, `scripts/update-manifest.sh`, `scripts/build-mac-universal.sh`, `scripts/setup-apple-certs.sh`, `scripts/verify-windows-signatures.ps1` | None exist. `scripts/` holds `fetch-sumatrapdf.ps1` and `fetch-sumatrapdf.sh` and nothing else. |
+| `scripts/sign-*.ps1`, `scripts/upload-to-r2.sh`, `scripts/update-manifest.sh`, `scripts/build-mac-universal.sh`, `scripts/setup-apple-certs.sh`, `scripts/verify-windows-signatures.ps1` | None exist. What `scripts/` does hold for releases: `fetch-sumatrapdf.{ps1,sh}`, `build-shell-ext.ps1`, `bump-version.sh`, `licenses/generate-notices.sh` and `release/release_tools.py` (the manifest and signature helper `release.yml` runs). |
 | Universal macOS binary | Not built: `release.yml` builds Apple silicon and Intel as separate downloads (Versorium's layout). `ci.yml` builds macOS only for the runner's architecture. |
 | `cargo audit` / `pnpm audit` (NFR-065) | No scheduled dependency-audit workflow. Dependabot (`.github/dependabot.yml`) is the only dependency automation. |
 | `gitleaks` secret scanning (NFR-027) | Not configured. |
