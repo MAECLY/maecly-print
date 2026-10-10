@@ -23,6 +23,7 @@ import {
   type TranslationKey,
 } from '@/i18n';
 import type { JobError } from '@/ipc/bindings';
+import { remediationKey } from '@/lib/deps';
 import { sentenceParams } from '@/lib/ipcError';
 
 /** Optional display-name lookup for the `printer` param (an OS queue id). */
@@ -43,7 +44,13 @@ export function localizeJobError(
   const keys: ['queue' | 'common', string][] = [];
   if (error.reason) {
     if (error.code === 'dependency_missing') {
-      keys.push(['common', `deps.${error.reason}.remediation`]);
+      keys.push([
+        'common',
+        remediationKey(
+          error.reason,
+          opts.locale ? { locale: opts.locale } : {},
+        ),
+      ]);
     }
     keys.push(['queue', `jobErrors.reasons.${error.code}.${error.reason}`]);
   }

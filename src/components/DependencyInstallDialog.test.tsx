@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import { toast } from 'sonner';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -53,7 +54,20 @@ const noProgress: InstallProgressSource = () => Promise.resolve(() => {});
 
 afterEach(() => {
   useSettingsStore.setState({ settings: fixtureAppSettings });
+  vi.restoreAllMocks();
 });
+
+/** A runner that resolves only when the test says so. */
+function pendingRun() {
+  let finish: (o: InstallOutcome) => void = () => {};
+  const run = vi.fn(
+    () =>
+      new Promise<InstallOutcome>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  return { run, finish: (o: InstallOutcome) => finish(o) };
+}
 
 describe('DependencyInstallDialog', () => {
   it('FR-058: shows the exact command, the UAC prompt and the size before anything runs', () => {
@@ -222,4 +236,92 @@ describe('DependencyInstallDialog', () => {
     expect(screen.getByRole('button', { name: 'Instalar' })).toBeEnabled();
     expect(screen.queryByText(/administrator permission/)).toBeNull();
   });
+
+  it('FR-058: a running install can be stopped, and says it was stopped in the UI language', async () => {
+    const user = userEvent.setup();
+    const { run, finish } = pendingRun();
+    const cancel = vi.fn(() => {
+      finish({ status: 'cancelled', exit_code: null, report: office([]) });
+      return Promise.resolve(true);
+    });
+    render(
+      <DependencyInstallDialog
+        report={office([WINGET, WEB])}
+        onClose={() => {}}
+        onResolved={() => {}}
+        run={run}
+        cancel={cancel}
+        progress={noProgress}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Install' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Stop installation' }),
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByText(/You stopped the installation/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Install' })).toBeEnabled();
+  });
+
+  it('FR-058: a running install can be sent to the background, and its end is announced', async () => {
+    const user = userEvent.setup();
+    const { run, finish } = pendingRun();
+    const onClose = vi.fn();
+    const onResolved = vi.fn();
+    const success = vi.spyOn(toast, 'success').mockReturnValue('id');
+    const { unmount } = render(
+      <DependencyInstallDialog
+        report={office([WINGET, WEB])}
+        onClose={onClose}
+        onResolved={onResolved}
+        run={run}
+        progress={noProgress}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Install' }));
+    // Nothing is disabled while it runs: the user can leave.
+    await user.click(
+      await screen.findByRole('button', { name: 'Run in background' }),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(2);
+    unmount();
+
+    const fresh = { ...office([]), found: true, blocks: [] };
+    finish({ status: 'installed', exit_code: 0, report: fresh });
+    await waitFor(() => expect(onResolved).toHaveBeenCalledWith(fresh));
+    expect(success).toHaveBeenCalledWith('Install LibreOffice', {
+      description:
+        'LibreOffice is installed. The files that needed it can print now.',
+    });
+  });
+
+  it.each([
+    [{ status: 'timed-out', exit_code: null }, /took too long and was stopped/],
+    [{ status: 'failed', exit_code: null }, /stopped without saying why/],
+    [{ status: 'failed', exit_code: 1603 }, /code 1603/],
+  ] as const)(
+    'FR-058: the result %o is a sentence, never "code —" nor an English line',
+    async (end, text) => {
+      const user = userEvent.setup();
+      const run = vi.fn(() =>
+        Promise.resolve<InstallOutcome>({ ...end, report: office([]) }),
+      );
+      render(
+        <DependencyInstallDialog
+          report={office([WINGET, WEB])}
+          onClose={() => {}}
+          onResolved={() => {}}
+          run={run}
+          progress={noProgress}
+        />,
+      );
+      await user.click(screen.getByRole('button', { name: 'Install' }));
+      expect(await screen.findByRole('status')).toHaveTextContent(text);
+      expect(screen.getByRole('status')).not.toHaveTextContent('—');
+    },
+  );
 });

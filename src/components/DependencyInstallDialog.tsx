@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 import { ModalOverlay } from '@/components/Modal';
 import { useModalFocus } from '@/components/useModal';
@@ -12,6 +13,7 @@ import {
   type InstallMethod,
   type InstallOutcome,
 } from '@/ipc/bindings';
+import { remediationKey } from '@/lib/deps';
 import { unwrap } from '@/lib/ipc';
 import { errorMessage } from '@/lib/ipcError';
 
@@ -21,6 +23,9 @@ export type InstallRunner = (
   method: InstallMethod,
 ) => Promise<InstallOutcome>;
 
+/** Stop the running install; resolves to whether one was running. */
+export type InstallCanceller = () => Promise<boolean>;
+
 /** Subscribe to an install's output lines; resolves to the unsubscribe. */
 export type InstallProgressSource = (
   onLine: (id: Dependency, line: string) => void,
@@ -29,6 +34,9 @@ export type InstallProgressSource = (
 const realRunner: InstallRunner = (id, method) =>
   // The dialog's Install button is the consent (D13).
   unwrap(commands.installDependency(id, method, true));
+
+const realCancel: InstallCanceller = () =>
+  unwrap(commands.cancelDependencyInstall());
 
 const realProgress: InstallProgressSource = (onLine) =>
   events.dependencyInstallProgress.listen(({ payload }) =>
@@ -47,18 +55,25 @@ const RUNS_A_COMMAND: InstallMethod[] = ['winget', 'winget-store', 'brew-cask'];
  * whether it costs money and roughly how big it is; nothing happens until the
  * user presses Install. A command's output is shown as it runs; afterwards
  * the dependency is probed again and `onResolved` receives the fresh report.
+ *
+ * A running install never holds the screen hostage: "Stop installation"
+ * kills it (and everything it started), and closing the dialog — the button,
+ * Escape or the backdrop — lets it carry on in the background, with a toast
+ * saying how it ended.
  */
 export function DependencyInstallDialog({
   report,
   onClose,
   onResolved,
   run = realRunner,
+  cancel = realCancel,
   progress = realProgress,
 }: {
   report: DependencyReport;
   onClose: () => void;
   onResolved: (report: DependencyReport) => void;
   run?: InstallRunner;
+  cancel?: InstallCanceller;
   progress?: InstallProgressSource;
 }) {
   const t = useT('printJob');
@@ -76,10 +91,18 @@ export function DependencyInstallDialog({
   const [lines, setLines] = useState<string[]>([]);
   const [outcome, setOutcome] = useState<InstallOutcome | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [stopping, setStopping] = useState(false);
+  /** False once the dialog is gone: the install then reports by toast. */
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
-  const close = () => {
-    if (!running) onClose();
-  };
+  // Closing never blocks: a running install carries on in the background.
+  const close = () => onClose();
   useModalFocus(dialogRef, { onEscape: close });
 
   useEffect(() => {
@@ -104,23 +127,6 @@ export function DependencyInstallDialog({
   const option = options[selected];
   const runsCommand = option ? RUNS_A_COMMAND.includes(option.method) : false;
 
-  const start = async () => {
-    if (!option || !option.available) return;
-    setRunning(true);
-    setFailure(null);
-    setOutcome(null);
-    setLines([]);
-    try {
-      const result = await run(report.id, option.method);
-      setOutcome(result);
-      onResolved(result.report);
-    } catch (e) {
-      setFailure(errorMessage(e));
-    } finally {
-      setRunning(false);
-    }
-  };
-
   const resultText = (o: InstallOutcome): string => {
     switch (o.status) {
       case 'installed':
@@ -129,10 +135,59 @@ export function DependencyInstallDialog({
         return t('install.result.notDetected', { name: report.name });
       case 'opened':
         return t('install.result.opened');
+      case 'timed-out':
+        return t('install.result.timedOut');
+      case 'cancelled':
+        return t('install.result.cancelled');
       case 'failed':
-        return t('install.result.failed', {
-          code: o.exit_code ?? '—',
-        });
+        // No exit code means the OS gave none: say so instead of "code —".
+        return o.exit_code == null
+          ? t('install.result.failedNoCode')
+          : t('install.result.failed', { code: o.exit_code });
+    }
+  };
+
+  /** How an install that ended after the dialog closed is announced. */
+  const announce = (o: InstallOutcome) => {
+    const title = t('install.title', { name: report.name });
+    const description = resultText(o);
+    if (o.status === 'installed') toast.success(title, { description });
+    else if (o.status === 'cancelled') toast.message(title, { description });
+    else toast.warning(title, { description });
+  };
+
+  const start = async () => {
+    if (!option || !option.available) return;
+    setRunning(true);
+    setStopping(false);
+    setFailure(null);
+    setOutcome(null);
+    setLines([]);
+    try {
+      const result = await run(report.id, option.method);
+      if (mounted.current) setOutcome(result);
+      else announce(result);
+      onResolved(result.report);
+    } catch (e) {
+      if (mounted.current) setFailure(errorMessage(e));
+      else toast.error(errorMessage(e));
+    } finally {
+      if (mounted.current) {
+        setRunning(false);
+        setStopping(false);
+      }
+    }
+  };
+
+  const stop = async () => {
+    setStopping(true);
+    try {
+      await cancel();
+    } catch (e) {
+      if (mounted.current) {
+        setStopping(false);
+        setFailure(errorMessage(e));
+      }
     }
   };
 
@@ -169,7 +224,7 @@ export function DependencyInstallDialog({
             marginBottom: 12,
           }}
         >
-          {tc(`deps.${report.id}.remediation`)}
+          {tc(remediationKey(report.id))}
         </div>
 
         <fieldset
@@ -267,6 +322,18 @@ export function DependencyInstallDialog({
           </pre>
         )}
 
+        {running && (
+          <div
+            style={{
+              fontSize: 11.5,
+              color: 'var(--mp-textMuted)',
+              marginBottom: 12,
+            }}
+          >
+            {stopping ? t('install.stopping') : t('install.backgroundHint')}
+          </div>
+        )}
+
         {outcome && (
           <div role="status" style={{ fontSize: 12.5, marginBottom: 12 }}>
             {resultText(outcome)}
@@ -286,15 +353,26 @@ export function DependencyInstallDialog({
         )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <MPButton
-            variant="ghost"
-            size="sm"
-            onClick={close}
-            disabled={running}
-          >
-            {outcome ? tc('actions.close') : tc('actions.cancel')}
-          </MPButton>
-          {outcome?.status !== 'installed' && (
+          {running ? (
+            <>
+              <MPButton
+                variant="danger"
+                size="sm"
+                onClick={() => void stop()}
+                disabled={stopping}
+              >
+                {t('install.stop')}
+              </MPButton>
+              <MPButton variant="ghost" size="sm" onClick={close}>
+                {t('install.background')}
+              </MPButton>
+            </>
+          ) : (
+            <MPButton variant="ghost" size="sm" onClick={close}>
+              {outcome ? tc('actions.close') : tc('actions.cancel')}
+            </MPButton>
+          )}
+          {!running && outcome?.status !== 'installed' && (
             <MPButton
               variant="primary"
               size="sm"
