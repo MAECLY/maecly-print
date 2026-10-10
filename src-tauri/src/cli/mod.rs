@@ -330,6 +330,9 @@ fn execute(cli: Cli) -> i32 {
     }
     crate::util::legacy::log_report(&migration);
     drop(migration_guard);
+    // FR-093: a CLI run can be the first one too: the profile names it lists
+    // and the menu cache it writes follow the Windows display language.
+    crate::settings::locale::settle_first_run();
     // Put back a printer default a killed print left swapped (D16).
     #[cfg(windows)]
     crate::engine::print::devmode_swap::recover_stale_journals();

@@ -15,6 +15,7 @@ use specta::Type;
 
 use crate::util::paths;
 
+pub mod locale;
 pub mod policy;
 
 pub use policy::PrinterPolicy;

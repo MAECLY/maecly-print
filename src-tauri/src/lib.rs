@@ -68,6 +68,10 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
         eprintln!("logging init failed: {e}");
     }
     util::legacy::log_report(&migration);
+    // FR-093: a first run takes the Windows display language now, so the
+    // Explorer menu cache written below and the built-in profile names speak
+    // it before the window has detected anything (settings::locale).
+    settings::locale::settle_first_run();
     // Release builds abort on panic and the Windows GUI has no console: the
     // hook is the only way a crash leaves a trace (NFR-033). Installed right
     // after the log directory exists, before anything that can panic.
