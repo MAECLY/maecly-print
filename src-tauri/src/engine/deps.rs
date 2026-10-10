@@ -87,18 +87,30 @@ pub enum Dependency {
     SumatraPdf,
     /// Office → PDF converter (`soffice --headless --convert-to pdf`).
     LibreOffice,
-    /// HTML → PDF converter: Edge or Chrome, whichever is installed.
+    /// Edge or Chrome: only the hidden `html_renderer = "browser"` fallback
+    /// (D15) uses it; HTML, Markdown and text print through the system web
+    /// view by default, so it is not in [`ALL`] and blocks nothing.
     Chromium,
-    /// Markdown → PDF converter.
+    /// No longer used: Markdown converts in-process (FR-056). Kept so a
+    /// `queue.json` that names it still loads, and its reason stays valid.
     Pandoc,
+    /// The *HEIF Image Extensions* WIC decoder from the Microsoft Store
+    /// (Windows only): without it no HEIC/HEIF photo decodes.
+    HeifCodec,
+    /// The *HEVC Video Extensions* decoder from the Microsoft Store (Windows
+    /// only, paid unless the PC maker preinstalled it): HEIC photos are HEVC
+    /// inside.
+    HevcCodec,
 }
 
-/// Every dependency, in the order the UI should list them.
+/// Every dependency the running app can need, in the order the UI should
+/// list them. Edge/Chrome and Pandoc left this list with the system web view
+/// renderer (FR-055/056, D15).
 pub const ALL: &[Dependency] = &[
     Dependency::SumatraPdf,
     Dependency::LibreOffice,
-    Dependency::Chromium,
-    Dependency::Pandoc,
+    Dependency::HeifCodec,
+    Dependency::HevcCodec,
 ];
 
 /// Which step of the search order produced the hit. Shown in diagnostics so
@@ -238,8 +250,11 @@ pub struct Spec {
     /// The name we print in messages, spelled the way the vendor spells it.
     pub name: &'static str,
     /// Executable file names to look for, most preferred first. Empty when the
-    /// dependency does not apply to this OS.
+    /// dependency does not apply to this OS, or is a codec (below).
     pub executables: &'static [&'static str],
+    /// A system codec rather than a program: found by asking the OS
+    /// ([`codec_present`]) instead of looking for an executable.
+    pub codec: bool,
     /// The subdirectory a bundled copy lives in, under the app's resource
     /// directory (see `bundle.resources` in `tauri.conf.json`).
     pub bundle_subdir: &'static str,
@@ -250,6 +265,9 @@ pub struct Spec {
     /// "`<name>` is missing — …". Stated in the present tense about the build
     /// they are running, never about the design target.
     pub effect: &'static str,
+    /// How the user can install it from Pluryprint (FR-058, D13), best first.
+    /// Every one runs only after the user's explicit consent.
+    pub install: &'static [InstallRecipe],
 }
 
 impl Spec {
@@ -257,29 +275,291 @@ impl Spec {
     /// is never reported as missing: SumatraPDF is irrelevant on macOS, and
     /// saying "SumatraPDF is missing" there would be a false alarm.
     pub fn applicable(&self) -> bool {
-        !self.executables.is_empty()
+        !self.executables.is_empty() || self.codec
     }
 
     /// The remediation message shown when this dependency is missing. Names the
-    /// dependency and states the effect, per FR-058.
+    /// dependency and states the effect, per FR-058. English: the UI shows the
+    /// translated `common:deps.<id>.remediation` instead.
     pub fn remediation(&self) -> String {
         format!("{} is missing — {}", self.name, self.effect)
     }
 }
 
-/// What a missing browser blocks: HTML directly, and Markdown, whose Pandoc
-/// output is printed by the same browser.
-const CHROMIUM_BLOCKS: &[&str] = &["html", "htm", "md", "markdown"];
+/// How a dependency can be installed (FR-058, D13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "kebab-case")]
+pub enum InstallMethod {
+    /// `winget install` from the community repository (Windows).
+    Winget,
+    /// `winget install` from the Microsoft Store source (Windows, free apps).
+    WingetStore,
+    /// The app's page in the Microsoft Store app (Windows).
+    Store,
+    /// `brew install --cask` (macOS, Homebrew).
+    BrewCask,
+    /// The vendor's download page in the browser: always possible.
+    Web,
+}
 
-/// What a missing LibreOffice blocks: the Office route, plus plain text, which
-/// the text route's interim converter still hands to LibreOffice (FR-057's
-/// native decoder replaces it; `txt` leaves this list with it).
-const LIBREOFFICE_BLOCKS: &[&str] = &[
-    "docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf", "txt",
+/// One way to install a dependency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InstallRecipe {
+    /// How.
+    pub method: InstallMethod,
+    /// What: the winget id, the Store product id, the cask, or the URL.
+    pub target: &'static str,
+    /// Whether the installer asks for administrator rights (a UAC prompt):
+    /// LibreOffice's MSI installs for every user.
+    pub needs_admin: bool,
+    /// Whether it costs money (HEVC Video Extensions).
+    pub paid: bool,
+    /// Approximate download size in megabytes, when known.
+    pub approx_mb: Option<u32>,
+}
+
+impl InstallRecipe {
+    const fn new(method: InstallMethod, target: &'static str) -> Self {
+        Self {
+            method,
+            target,
+            needs_admin: false,
+            paid: false,
+            approx_mb: None,
+        }
+    }
+    const fn admin(mut self) -> Self {
+        self.needs_admin = true;
+        self
+    }
+    const fn paid(mut self) -> Self {
+        self.paid = true;
+        self
+    }
+    const fn mb(mut self, mb: u32) -> Self {
+        self.approx_mb = Some(mb);
+        self
+    }
+
+    /// The program this recipe runs (`winget`, `brew`), or `None` when it
+    /// opens a page instead.
+    pub fn tool(&self) -> Option<InstallTool> {
+        match self.method {
+            InstallMethod::Winget | InstallMethod::WingetStore => Some(InstallTool::Winget),
+            InstallMethod::BrewCask => Some(InstallTool::Brew),
+            InstallMethod::Store | InstallMethod::Web => None,
+        }
+    }
+
+    /// The arguments after the program, for a recipe that runs one. Never a
+    /// shell string: each element is one argument. Pure.
+    pub fn args(&self) -> Vec<String> {
+        let common = |source: &str| {
+            vec![
+                "install".to_string(),
+                "--id".to_string(),
+                self.target.to_string(),
+                "--exact".to_string(),
+                "--source".to_string(),
+                source.to_string(),
+                "--accept-package-agreements".to_string(),
+                "--accept-source-agreements".to_string(),
+                "--disable-interactivity".to_string(),
+            ]
+        };
+        match self.method {
+            InstallMethod::Winget => common("winget"),
+            InstallMethod::WingetStore => common("msstore"),
+            InstallMethod::BrewCask => vec![
+                "install".to_string(),
+                "--cask".to_string(),
+                self.target.to_string(),
+            ],
+            InstallMethod::Store | InstallMethod::Web => Vec::new(),
+        }
+    }
+
+    /// The URL a recipe that opens a page opens. Pure.
+    pub fn url(&self) -> Option<String> {
+        match self.method {
+            InstallMethod::Store => {
+                Some(format!("ms-windows-store://pdp/?ProductId={}", self.target))
+            }
+            InstallMethod::Web => Some(self.target.to_string()),
+            _ => None,
+        }
+    }
+}
+
+/// A program an install recipe runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallTool {
+    /// Windows Package Manager.
+    Winget,
+    /// Homebrew.
+    Brew,
+}
+
+impl InstallTool {
+    /// The executable names to look for.
+    pub fn executables(self) -> &'static [&'static str] {
+        match self {
+            InstallTool::Winget => &["winget.exe"],
+            InstallTool::Brew => &["brew"],
+        }
+    }
+
+    /// Where it lives when it is not on `PATH`: winget is an app execution
+    /// alias under `%LOCALAPPDATA%\Microsoft\WindowsApps`; Homebrew is in
+    /// `/opt/homebrew/bin` (Apple silicon) or `/usr/local/bin` (Intel), which
+    /// an app started from the Finder does not have on its `PATH`.
+    pub fn install_dirs(self, env: &dyn Fn(&str) -> Option<String>) -> Vec<PathBuf> {
+        match self {
+            InstallTool::Winget => env("LOCALAPPDATA")
+                .map(|root| vec![PathBuf::from(root).join("Microsoft").join("WindowsApps")])
+                .unwrap_or_default(),
+            InstallTool::Brew => vec![
+                PathBuf::from("/opt/homebrew/bin"),
+                PathBuf::from("/usr/local/bin"),
+            ],
+        }
+    }
+}
+
+/// Find `tool` on this machine. `None` when it is not installed: the UI then
+/// offers the web page instead (no winget on some Windows 10 or LTSC
+/// installs, no Homebrew on most Macs).
+pub fn locate_tool(tool: InstallTool) -> Option<PathBuf> {
+    let env = |name: &str| std::env::var(name).ok();
+    resolve(&Probe {
+        bundled_dirs: &[],
+        configured: None,
+        path_dirs: &path_dirs(&env),
+        install_dirs: &tool.install_dirs(&env),
+        executables: tool.executables(),
+        exists: is_file,
+    })
+    .path()
+    .map(Path::to_path_buf)
+}
+
+/// One way to install a dependency, as shipped to the UI: what will run (or
+/// open), and what the user must know before agreeing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct InstallOption {
+    /// How.
+    pub method: InstallMethod,
+    /// The exact command that will run (`winget install --id … --exact …`),
+    /// or the address that will open. Shown verbatim in the consent dialog.
+    pub command: String,
+    /// Whether Windows will ask for administrator rights (UAC).
+    pub needs_admin: bool,
+    /// Whether it costs money.
+    pub paid: bool,
+    /// Approximate download size in megabytes, when known.
+    pub approx_mb: Option<u32>,
+    /// Whether it can run on this machine now (`winget`/`brew` found).
+    pub available: bool,
+}
+
+/// The install options for `recipes`, with `available` from `has_tool`. Pure.
+pub fn install_options(
+    recipes: &[InstallRecipe],
+    has_tool: &dyn Fn(InstallTool) -> bool,
+) -> Vec<InstallOption> {
+    recipes
+        .iter()
+        .map(|recipe| {
+            let (command, available) = match recipe.tool() {
+                Some(tool) => {
+                    let program = match tool {
+                        InstallTool::Winget => "winget",
+                        InstallTool::Brew => "brew",
+                    };
+                    let mut words = vec![program.to_string()];
+                    words.extend(recipe.args());
+                    (words.join(" "), has_tool(tool))
+                }
+                None => (recipe.url().unwrap_or_default(), true),
+            };
+            InstallOption {
+                method: recipe.method,
+                command,
+                needs_admin: recipe.needs_admin,
+                paid: recipe.paid,
+                approx_mb: recipe.approx_mb,
+                available,
+            }
+        })
+        .collect()
+}
+
+/// What a missing LibreOffice blocks on Windows: the Office route, RTF
+/// included. Plain text no longer needs it (FR-057).
+const LIBREOFFICE_BLOCKS_WINDOWS: &[&str] = &[
+    "docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf",
 ];
+
+/// On macOS RTF goes through the system's `textutil` (FR-057).
+const LIBREOFFICE_BLOCKS_MACOS: &[&str] = &[
+    "docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp",
+];
+
+const SUMATRA_INSTALL: &[InstallRecipe] = &[
+    InstallRecipe::new(InstallMethod::Winget, "SumatraPDF.SumatraPDF").mb(10),
+    InstallRecipe::new(
+        InstallMethod::Web,
+        "https://www.sumatrapdfreader.org/download-free-pdf-viewer",
+    ),
+];
+
+const LIBREOFFICE_INSTALL_WINDOWS: &[InstallRecipe] = &[
+    InstallRecipe::new(InstallMethod::Winget, "TheDocumentFoundation.LibreOffice")
+        .admin()
+        .mb(350),
+    InstallRecipe::new(
+        InstallMethod::Web,
+        "https://www.libreoffice.org/download/download-libreoffice/",
+    ),
+];
+
+const LIBREOFFICE_INSTALL_MACOS: &[InstallRecipe] = &[
+    InstallRecipe::new(InstallMethod::BrewCask, "libreoffice").mb(800),
+    InstallRecipe::new(
+        InstallMethod::Web,
+        "https://www.libreoffice.org/download/download-libreoffice/",
+    ),
+];
+
+/// HEIF Image Extensions: free, in the Store, installable by winget.
+const HEIF_INSTALL: &[InstallRecipe] = &[
+    InstallRecipe::new(InstallMethod::WingetStore, "9PMMSR1CGPWG").mb(5),
+    InstallRecipe::new(InstallMethod::Store, "9PMMSR1CGPWG"),
+    InstallRecipe::new(
+        InstallMethod::Web,
+        "https://apps.microsoft.com/detail/9PMMSR1CGPWG",
+    ),
+];
+
+/// HEVC Video Extensions: paid, so only the Store can sell it (winget cannot
+/// buy anything).
+const HEVC_INSTALL: &[InstallRecipe] = &[
+    InstallRecipe::new(InstallMethod::Store, "9NMZLZ57R3T7").paid(),
+    InstallRecipe::new(
+        InstallMethod::Web,
+        "https://apps.microsoft.com/detail/9NMZLZ57R3T7",
+    )
+    .paid(),
+];
+
+const BROWSER_INSTALL: &[InstallRecipe] = &[InstallRecipe::new(
+    InstallMethod::Web,
+    "https://www.microsoft.com/edge",
+)];
 
 /// The facts about `dep` on `os`.
 pub fn spec(dep: Dependency, os: Os) -> Spec {
+    let windows = os == Os::Windows;
     match dep {
         Dependency::SumatraPdf => Spec {
             id: dep,
@@ -290,6 +570,7 @@ pub fn spec(dep: Dependency, os: Os) -> Spec {
                 Os::Windows => &["SumatraPDF.exe"],
                 _ => &[],
             },
+            codec: false,
             bundle_subdir: "sumatrapdf",
             // The final printer for *every* format on Windows, so a missing
             // copy blocks the whole supported list — this is the one dependency
@@ -297,6 +578,7 @@ pub fn spec(dep: Dependency, os: Os) -> Spec {
             blocks: crate::engine::SUPPORTED_EXTS,
             effect: "no file can be printed on Windows until it is installed. \
                      Install SumatraPDF, or place SumatraPDF.exe next to Pluryprint.exe",
+            install: if windows { SUMATRA_INSTALL } else { &[] },
         },
         Dependency::LibreOffice => Spec {
             id: dep,
@@ -305,17 +587,25 @@ pub fn spec(dep: Dependency, os: Os) -> Spec {
                 Os::Windows => &["soffice.exe"],
                 _ => &["soffice"],
             },
+            codec: false,
             bundle_subdir: "libreoffice",
-            blocks: LIBREOFFICE_BLOCKS,
-            effect: "Office, OpenDocument, TXT and RTF files cannot be printed until \
+            blocks: match os {
+                Os::MacOs => LIBREOFFICE_BLOCKS_MACOS,
+                _ => LIBREOFFICE_BLOCKS_WINDOWS,
+            },
+            effect: "Office, OpenDocument and RTF files cannot be printed until \
                      it is installed. Download it free from https://www.libreoffice.org/download",
+            install: match os {
+                Os::Windows => LIBREOFFICE_INSTALL_WINDOWS,
+                Os::MacOs => LIBREOFFICE_INSTALL_MACOS,
+                Os::Linux => &[],
+            },
         },
         Dependency::Chromium => Spec {
             id: dep,
             name: "Microsoft Edge or Google Chrome",
             executables: match os {
-                // Edge first: it ships with Windows, so it is the copy the
-                // architecture calls the recommended one.
+                // Edge first: it ships with Windows.
                 Os::Windows => &["msedge.exe", "chrome.exe"],
                 Os::MacOs => &["Microsoft Edge", "Google Chrome", "Chromium"],
                 Os::Linux => &[
@@ -325,11 +615,15 @@ pub fn spec(dep: Dependency, os: Os) -> Spec {
                     "microsoft-edge",
                 ],
             },
+            codec: false,
             bundle_subdir: "chromium",
-            blocks: CHROMIUM_BLOCKS,
-            effect: "HTML and Markdown files cannot be printed until one is installed. \
-                     Install Microsoft Edge (https://www.microsoft.com/edge) or \
-                     Google Chrome (https://www.google.com/chrome)",
+            // Only the hidden browser fallback needs it (D15).
+            blocks: &[],
+            effect: "HTML and Markdown files cannot be printed with the browser \
+                     renderer until one is installed. Install Microsoft Edge \
+                     (https://www.microsoft.com/edge) or Google Chrome \
+                     (https://www.google.com/chrome)",
+            install: BROWSER_INSTALL,
         },
         Dependency::Pandoc => Spec {
             id: dep,
@@ -338,11 +632,121 @@ pub fn spec(dep: Dependency, os: Os) -> Spec {
                 Os::Windows => &["pandoc.exe"],
                 _ => &["pandoc"],
             },
+            codec: false,
             bundle_subdir: "pandoc",
-            blocks: crate::engine::convert::MARKDOWN_EXTS,
-            effect: "Markdown files cannot be printed until it is installed. \
-                     Download it from https://pandoc.org/installing.html",
+            // Markdown converts in-process now (FR-056).
+            blocks: &[],
+            effect: "Pluryprint no longer needs it",
+            install: &[],
         },
+        Dependency::HeifCodec => Spec {
+            id: dep,
+            name: "HEIF Image Extensions",
+            executables: &[],
+            codec: windows,
+            bundle_subdir: "",
+            blocks: if windows { &["heic", "heif"] } else { &[] },
+            effect: "HEIC/HEIF photos cannot be printed until it is installed. \
+                     Get it free from the Microsoft Store",
+            install: if windows { HEIF_INSTALL } else { &[] },
+        },
+        Dependency::HevcCodec => Spec {
+            id: dep,
+            name: "HEVC Video Extensions",
+            executables: &[],
+            codec: windows,
+            bundle_subdir: "",
+            blocks: if windows { &["heic"] } else { &[] },
+            effect: "HEIC photos cannot be printed until it is installed. \
+                     Get it from the Microsoft Store (it may be paid)",
+            install: if windows { HEVC_INSTALL } else { &[] },
+        },
+    }
+}
+
+/// Whether the system codec `dep` is installed. Windows asks WIC (HEIF) and
+/// Media Foundation (HEVC); if the question itself fails the answer is "yes",
+/// so a broken probe never raises a false alarm. `false` for a dependency
+/// that is not a codec, and everywhere but Windows.
+pub fn codec_present(dep: Dependency) -> bool {
+    #[cfg(windows)]
+    {
+        match dep {
+            Dependency::HeifCodec => codec_probe::wic_decodes("heic"),
+            Dependency::HevcCodec => crate::engine::convert::heif::hevc_decoder_available(),
+            _ => false,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = dep;
+        false
+    }
+}
+
+#[cfg(windows)]
+mod codec_probe {
+    use windows::core::Interface;
+    use windows::Win32::Graphics::Imaging::{
+        CLSID_WICImagingFactory, IWICBitmapCodecInfo, IWICImagingFactory,
+        WICComponentEnumerateDefault, WICDecoder,
+    };
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
+        COINIT_MULTITHREADED,
+    };
+
+    /// Whether a WIC decoder claims the file extension `ext` (no dot).
+    pub fn wic_decodes(ext: &str) -> bool {
+        let wanted = format!(".{}", ext.to_ascii_lowercase());
+        // SAFETY: COM is initialised for this thread and balanced below; every
+        // pointer handed to WIC is a live local.
+        unsafe {
+            let initialised = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+            let answer = (|| -> windows::core::Result<bool> {
+                let factory: IWICImagingFactory =
+                    CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)?;
+                let components = factory.CreateComponentEnumerator(
+                    WICDecoder.0 as u32,
+                    WICComponentEnumerateDefault.0 as u32,
+                )?;
+                loop {
+                    let mut item = [None];
+                    let mut fetched = 0u32;
+                    if components.Next(&mut item, Some(&mut fetched)).is_err() || fetched == 0 {
+                        return Ok(false);
+                    }
+                    let Some(unknown) = item[0].take() else {
+                        return Ok(false);
+                    };
+                    let Ok(info) = unknown.cast::<IWICBitmapCodecInfo>() else {
+                        continue;
+                    };
+                    let mut len = 0u32;
+                    let _ = info.GetFileExtensions(&mut [], &mut len);
+                    if len == 0 {
+                        continue;
+                    }
+                    let mut buf = vec![0u16; len as usize];
+                    if info.GetFileExtensions(&mut buf, &mut len).is_err() {
+                        continue;
+                    }
+                    let list = String::from_utf16_lossy(&buf[..(len as usize).saturating_sub(1)]);
+                    if list
+                        .to_ascii_lowercase()
+                        .split(',')
+                        .any(|e| e.trim() == wanted)
+                    {
+                        return Ok(true);
+                    }
+                }
+            })()
+            .unwrap_or(true);
+            if initialised {
+                CoUninitialize();
+            }
+            answer
+        }
     }
 }
 
@@ -452,6 +856,8 @@ pub fn install_dirs(dep: Dependency, os: Os, env: &dyn Fn(&str) -> Option<String
         (_, Os::Linux) => dirs.push(PathBuf::from("/usr/bin")),
         // SumatraPDF does not exist off Windows.
         (Dependency::SumatraPdf, _) => {}
+        // Codecs are asked of the OS, not looked for on disk.
+        (Dependency::HeifCodec | Dependency::HevcCodec, _) => {}
     }
 
     dirs
@@ -482,8 +888,12 @@ pub struct DependencyReport {
     /// the engine currently supports.
     pub blocks: Vec<String>,
     /// FR-058's remediation message. `Some` only when the dependency is
-    /// applicable and missing.
+    /// applicable and missing. English; the UI shows the translated
+    /// `common:deps.<id>.remediation`.
     pub remediation: Option<String>,
+    /// How the user can install it from Pluryprint, best first (D13). Empty
+    /// when it is present or not applicable.
+    pub install: Vec<InstallOption>,
 }
 
 /// Look for `dep` on the real machine: assembles the four candidate lists from
@@ -496,6 +906,16 @@ pub fn resolve_on_host(dep: Dependency, os: Os, configured: Option<&Path>) -> Re
     // Nothing to look for: skip the filesystem entirely.
     if !spec.applicable() {
         return Resolution::Missing;
+    }
+    if spec.codec {
+        return if codec_present(dep) {
+            Resolution::Found {
+                path: PathBuf::new(),
+                found_in: FoundIn::Installed,
+            }
+        } else {
+            Resolution::Missing
+        };
     }
 
     let env = |name: &str| std::env::var(name).ok();
@@ -515,7 +935,11 @@ pub fn resolve_on_host(dep: Dependency, os: Os, configured: Option<&Path>) -> Re
 
 /// Status of one dependency on the real machine, ready for the wire.
 pub fn report(dep: Dependency, os: Os, configured: Option<&Path>) -> DependencyReport {
-    from_resolution(&spec(dep, os), &resolve_on_host(dep, os, configured))
+    from_resolution_with(
+        &spec(dep, os),
+        &resolve_on_host(dep, os, configured),
+        &|tool| locate_tool(tool).is_some(),
+    )
 }
 
 /// Build the wire report from an already-computed [`Resolution`]. Pure, so the
@@ -526,6 +950,16 @@ pub fn report(dep: Dependency, os: Os, configured: Option<&Path>) -> DependencyR
 /// loudest possible false alarm — "SumatraPDF is missing" on a Mac, where the
 /// engine prints through CUPS and would not have used it either way.
 pub fn from_resolution(spec: &Spec, resolution: &Resolution) -> DependencyReport {
+    from_resolution_with(spec, resolution, &|_| false)
+}
+
+/// [`from_resolution`] with the install tools `has_tool` says are present.
+/// Pure.
+pub fn from_resolution_with(
+    spec: &Spec,
+    resolution: &Resolution,
+    has_tool: &dyn Fn(InstallTool) -> bool,
+) -> DependencyReport {
     if !spec.applicable() {
         return DependencyReport {
             id: spec.id,
@@ -536,6 +970,7 @@ pub fn from_resolution(spec: &Spec, resolution: &Resolution) -> DependencyReport
             found_in: None,
             blocks: Vec::new(),
             remediation: None,
+            install: Vec::new(),
         };
     }
 
@@ -545,7 +980,11 @@ pub fn from_resolution(spec: &Spec, resolution: &Resolution) -> DependencyReport
         name: spec.name.to_string(),
         applicable: spec.applicable(),
         found,
-        path: resolution.path().map(|p| p.to_string_lossy().into_owned()),
+        // A codec has no file of its own to point at.
+        path: resolution
+            .path()
+            .filter(|_| !spec.codec)
+            .map(|p| p.to_string_lossy().into_owned()),
         found_in: match resolution {
             Resolution::Found { found_in, .. } => Some(*found_in),
             Resolution::Missing => None,
@@ -559,6 +998,11 @@ pub fn from_resolution(spec: &Spec, resolution: &Resolution) -> DependencyReport
             None
         } else {
             Some(spec.remediation())
+        },
+        install: if found {
+            Vec::new()
+        } else {
+            install_options(spec.install, has_tool)
         },
     }
 }
@@ -663,10 +1107,9 @@ mod tests {
     fn fr_058_missing_converters_name_what_they_block_and_how_to_install() {
         let cases = [
             (Dependency::LibreOffice, "docx", "libreoffice.org"),
-            (Dependency::LibreOffice, "txt", "libreoffice.org"),
-            (Dependency::Chromium, "html", "Microsoft Edge"),
-            (Dependency::Chromium, "md", "Google Chrome"),
-            (Dependency::Pandoc, "md", "pandoc.org"),
+            (Dependency::LibreOffice, "rtf", "libreoffice.org"),
+            (Dependency::HeifCodec, "heic", "Microsoft Store"),
+            (Dependency::HevcCodec, "heic", "Microsoft Store"),
         ];
         for (dep, ext, hint) in cases {
             let report = from_resolution(&spec(dep, Os::Windows), &Resolution::Missing);
@@ -679,6 +1122,136 @@ mod tests {
             assert!(text.contains(hint), "{dep:?}: {text}");
             assert!(!text.contains("changes nothing"), "stale text: {text}");
         }
+    }
+
+    /// FR-055/056/057: HTML, Markdown and text print through the system web
+    /// view, so neither a browser nor Pandoc is a dependency any more, and
+    /// LibreOffice no longer gates plain text (nor RTF on macOS).
+    #[test]
+    fn fr_058_chromium_pandoc_not_required() {
+        assert!(!ALL.contains(&Dependency::Chromium));
+        assert!(!ALL.contains(&Dependency::Pandoc));
+        for os in [Os::Windows, Os::MacOs, Os::Linux] {
+            for dep in ALL {
+                let blocks = spec(*dep, os).blocks;
+                if *dep == Dependency::SumatraPdf {
+                    continue; // the printer itself, on Windows
+                }
+                for ext in ["html", "htm", "md", "markdown", "txt"] {
+                    assert!(!blocks.contains(&ext), "{dep:?} blocks {ext} on {os:?}");
+                }
+            }
+            for dep in [Dependency::Chromium, Dependency::Pandoc] {
+                assert!(spec(dep, os).blocks.is_empty(), "{dep:?} on {os:?}");
+            }
+        }
+        assert!(!spec(Dependency::LibreOffice, Os::MacOs)
+            .blocks
+            .contains(&"rtf"));
+        assert!(spec(Dependency::LibreOffice, Os::Windows)
+            .blocks
+            .contains(&"rtf"));
+    }
+
+    /// The codecs are Windows-only, asked of the OS, and never a false alarm
+    /// elsewhere.
+    #[test]
+    fn fr_058_codecs_apply_on_windows_only() {
+        for dep in [Dependency::HeifCodec, Dependency::HevcCodec] {
+            assert!(spec(dep, Os::Windows).applicable());
+            assert!(spec(dep, Os::Windows).codec);
+            for os in [Os::MacOs, Os::Linux] {
+                let report = from_resolution(&spec(dep, os), &Resolution::Missing);
+                assert!(!report.applicable && report.remediation.is_none(), "{os:?}");
+                assert!(report.install.is_empty());
+            }
+        }
+    }
+
+    /// D13: every missing dependency offers at least one install option, the
+    /// last one always the vendor's page, which never needs a tool.
+    #[test]
+    fn fr_058_every_missing_dependency_offers_an_install_and_a_web_fallback() {
+        for (os, deps) in [
+            (
+                Os::Windows,
+                &[
+                    Dependency::SumatraPdf,
+                    Dependency::LibreOffice,
+                    Dependency::HeifCodec,
+                    Dependency::HevcCodec,
+                ][..],
+            ),
+            (Os::MacOs, &[Dependency::LibreOffice][..]),
+        ] {
+            for dep in deps {
+                let report = from_resolution(&spec(*dep, os), &Resolution::Missing);
+                let last = report.install.last().unwrap_or_else(|| panic!("{dep:?}"));
+                assert_eq!(last.method, InstallMethod::Web, "{dep:?} on {os:?}");
+                assert!(last.available);
+                assert!(last.command.starts_with("https://"), "{}", last.command);
+            }
+        }
+    }
+
+    #[test]
+    fn fr_058_winget_absent_falls_back_web() {
+        let spec = spec(Dependency::LibreOffice, Os::Windows);
+        let without = from_resolution_with(&spec, &Resolution::Missing, &|_| false);
+        let with = from_resolution_with(&spec, &Resolution::Missing, &|t| t == InstallTool::Winget);
+        let winget = |r: &DependencyReport| {
+            r.install
+                .iter()
+                .find(|o| o.method == InstallMethod::Winget)
+                .cloned()
+                .unwrap()
+        };
+        assert!(!winget(&without).available);
+        assert!(winget(&with).available);
+        assert!(without
+            .install
+            .iter()
+            .any(|o| o.method == InstallMethod::Web && o.available));
+    }
+
+    /// The consent dialog shows exactly what will run: the argument vector,
+    /// never a shell string, with LibreOffice's UAC prompt and HEVC's price
+    /// flagged.
+    #[test]
+    fn fr_058_install_commands_are_exact_argv() {
+        let office = &spec(Dependency::LibreOffice, Os::Windows).install[0];
+        assert_eq!(
+            office.args(),
+            [
+                "install",
+                "--id",
+                "TheDocumentFoundation.LibreOffice",
+                "--exact",
+                "--source",
+                "winget",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+                "--disable-interactivity",
+            ]
+        );
+        assert!(office.needs_admin);
+        let heif = &spec(Dependency::HeifCodec, Os::Windows).install[0];
+        assert_eq!(heif.method, InstallMethod::WingetStore);
+        assert!(heif.args().contains(&"msstore".to_string()));
+        assert!(!heif.paid);
+        let hevc = spec(Dependency::HevcCodec, Os::Windows).install;
+        assert!(
+            hevc.iter().all(|r| r.paid && r.tool().is_none()),
+            "winget cannot buy"
+        );
+        assert_eq!(
+            hevc[0].url().unwrap(),
+            "ms-windows-store://pdp/?ProductId=9NMZLZ57R3T7"
+        );
+        let cask = &spec(Dependency::LibreOffice, Os::MacOs).install[0];
+        assert_eq!(cask.args(), ["install", "--cask", "libreoffice"]);
+        let options = install_options(&[*cask], &|_| true);
+        assert_eq!(options[0].command, "brew install --cask libreoffice");
     }
 
     #[test]

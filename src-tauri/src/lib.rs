@@ -383,6 +383,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .events(tauri_specta::collect_events![
             ipc::events::QueueUpdated,
             ipc::events::JobProgressEvent,
+            ipc::deps_install::DependencyInstallProgress,
             ipc::update::UpdateAvailable,
             update::install::UpdateDownloadProgress,
             cli::pending::SelectionForwarded

@@ -89,12 +89,12 @@ async notifyNative(title: string, body: string) : Promise<Result<boolean, IpcErr
 }
 },
 /**
- * Install the dependency `id` (its serialized
- * [`crate::engine::deps::Dependency`] id) the way the user agreed to.
+ * Install the dependency `id` the way the user agreed to (`method`), after
+ * the consent dialog (`consent` must be `true`). See the module docs.
  */
-async installDependency(id: string) : Promise<Result<null, IpcError>> {
+async installDependency(id: Dependency, method: InstallMethod, consent: boolean) : Promise<Result<InstallOutcome, IpcError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("install_dependency", { id }) };
+    return { status: "ok", data: await TAURI_INVOKE("install_dependency", { id, method, consent }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -659,12 +659,14 @@ async takePendingSelections() : Promise<Result<Selection[], IpcError>> {
 
 
 export const events = __makeEvents__<{
+dependencyInstallProgress: DependencyInstallProgress,
 jobProgressEvent: JobProgressEvent,
 queueUpdated: QueueUpdated,
 selectionForwarded: SelectionForwarded,
 updateAvailable: UpdateAvailable,
 updateDownloadProgress: UpdateDownloadProgress
 }>({
+dependencyInstallProgress: "dependency-install-progress",
 jobProgressEvent: "job-progress-event",
 queueUpdated: "queue-updated",
 selectionForwarded: "selection-forwarded",
@@ -891,13 +893,39 @@ export type Dependency =
  */
 "libre-office" | 
 /**
- * HTML → PDF converter: Edge or Chrome, whichever is installed.
+ * Edge or Chrome: only the hidden `html_renderer = "browser"` fallback
+ * (D15) uses it; HTML, Markdown and text print through the system web
+ * view by default, so it is not in [`ALL`] and blocks nothing.
  */
 "chromium" | 
 /**
- * Markdown → PDF converter.
+ * No longer used: Markdown converts in-process (FR-056). Kept so a
+ * `queue.json` that names it still loads, and its reason stays valid.
  */
-"pandoc"
+"pandoc" | 
+/**
+ * The *HEIF Image Extensions* WIC decoder from the Microsoft Store
+ * (Windows only): without it no HEIC/HEIF photo decodes.
+ */
+"heif-codec" | 
+/**
+ * The *HEVC Video Extensions* decoder from the Microsoft Store (Windows
+ * only, paid unless the PC maker preinstalled it): HEIC photos are HEVC
+ * inside.
+ */
+"hevc-codec"
+/**
+ * One line of an install's output, as it happens (FR-058).
+ */
+export type DependencyInstallProgress = { 
+/**
+ * The dependency being installed.
+ */
+id: Dependency; 
+/**
+ * One line of the installer's output.
+ */
+line: string }
 /**
  * One dependency's status, as shipped to the UI.
  */
@@ -935,9 +963,15 @@ found_in: FoundIn | null;
 blocks: string[]; 
 /**
  * FR-058's remediation message. `Some` only when the dependency is
- * applicable and missing.
+ * applicable and missing. English; the UI shows the translated
+ * `common:deps.<id>.remediation`.
  */
-remediation: string | null }
+remediation: string | null; 
+/**
+ * How the user can install it from Pluryprint, best first (D13). Empty
+ * when it is present or not applicable.
+ */
+install: InstallOption[] }
 /**
  * A printer found on the network that is not (necessarily) installed yet.
  */
@@ -1198,6 +1232,97 @@ message: string;
  * The JS stack and/or React component stack, when there is one.
  */
 stack: string | null }
+/**
+ * How a dependency can be installed (FR-058, D13).
+ */
+export type InstallMethod = 
+/**
+ * `winget install` from the community repository (Windows).
+ */
+"winget" | 
+/**
+ * `winget install` from the Microsoft Store source (Windows, free apps).
+ */
+"winget-store" | 
+/**
+ * The app's page in the Microsoft Store app (Windows).
+ */
+"store" | 
+/**
+ * `brew install --cask` (macOS, Homebrew).
+ */
+"brew-cask" | 
+/**
+ * The vendor's download page in the browser: always possible.
+ */
+"web"
+/**
+ * One way to install a dependency, as shipped to the UI: what will run (or
+ * open), and what the user must know before agreeing.
+ */
+export type InstallOption = { 
+/**
+ * How.
+ */
+method: InstallMethod; 
+/**
+ * The exact command that will run (`winget install --id … --exact …`),
+ * or the address that will open. Shown verbatim in the consent dialog.
+ */
+command: string; 
+/**
+ * Whether Windows will ask for administrator rights (UAC).
+ */
+needs_admin: boolean; 
+/**
+ * Whether it costs money.
+ */
+paid: boolean; 
+/**
+ * Approximate download size in megabytes, when known.
+ */
+approx_mb: number | null; 
+/**
+ * Whether it can run on this machine now (`winget`/`brew` found).
+ */
+available: boolean }
+/**
+ * The result of [`install_dependency`].
+ */
+export type InstallOutcome = { 
+/**
+ * How it ended.
+ */
+status: InstallStatus; 
+/**
+ * The command's exit code, when one ran.
+ */
+exit_code: number | null; 
+/**
+ * The dependency probed again after the install.
+ */
+report: DependencyReport }
+/**
+ * How an install ended.
+ */
+export type InstallStatus = 
+/**
+ * The command succeeded and the dependency is found now.
+ */
+"installed" | 
+/**
+ * The command succeeded but the dependency is still not found (a
+ * restart of Pluryprint, or of Windows, may be needed).
+ */
+"not-detected" | 
+/**
+ * The command failed; `exit_code` says how. The web page remains.
+ */
+"failed" | 
+/**
+ * A Store or web page was opened; the user finishes there.
+ */
+"opened"
 export type IpcError = { 
 /**
  * Stable error family. Never renamed.

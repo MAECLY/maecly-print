@@ -117,6 +117,20 @@ pub const IPC_REASONS: &[ReasonSpec<IpcErrorCode>] = &[
         &["confirmed", "version"],
     ),
     (IpcErrorCode::InvalidRequest, "reserved_id", &[]),
+    // --- Dependency installation (FR-058, D13) ---
+    (
+        IpcErrorCode::InvalidRequest,
+        "install_consent_required",
+        &[],
+    ),
+    (IpcErrorCode::InvalidRequest, "install_not_offered", &[]),
+    (
+        IpcErrorCode::InvalidRequest,
+        "install_tool_missing",
+        &["tool"],
+    ),
+    (IpcErrorCode::InvalidRequest, "install_in_progress", &[]),
+    (IpcErrorCode::Internal, "install_start_failed", &["tool"]),
     // --- Invalid request: submission, settings, page ranges, paths ---
     (IpcErrorCode::InvalidRequest, "no_files", &[]),
     (IpcErrorCode::InvalidRequest, "not_a_file", &["name"]),

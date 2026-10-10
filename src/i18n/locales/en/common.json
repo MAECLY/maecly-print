@@ -85,6 +85,7 @@
       "Internal": {
         "open_logs_failed": "Could not open the logs folder.",
         "open_link_failed": "Could not open the link in your browser.",
+        "install_start_failed": "{{tool}} could not be started.",
         "config_corrupt": "config.toml could not be read. Fix or remove it; your settings were not changed.",
         "profiles_corrupt": "profiles.toml could not be read. Fix or remove it; nothing was changed.",
         "profiles_invalid_entries": "profiles.toml has duplicate or invalid entries. Fix or remove it; nothing was changed.",
@@ -116,6 +117,10 @@
         "major_update_unconfirmed": "{{version}} is a major update from {{current}}; it is only installed after you confirm it.",
         "major_update_changed": "You confirmed {{confirmed}}, but the update available now is {{version}}. Check for updates again and confirm that version.",
         "reserved_id": "Profile ids starting with “builtin-” are reserved.",
+        "install_consent_required": "Nothing was installed: installing needs your confirmation.",
+        "install_not_offered": "That way of installing is not available for this component here.",
+        "install_tool_missing": "{{tool}} is not installed on this computer. Use the download page instead.",
+        "install_in_progress": "Another component is being installed. Wait for it to finish.",
         "no_files": "No files were selected to print.",
         "not_a_file": "“{{name}}” is not a file.",
         "file_too_large": "“{{name}}” is larger than the {{limit}} MB limit.",

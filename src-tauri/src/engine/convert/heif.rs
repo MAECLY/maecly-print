@@ -231,6 +231,10 @@ pub fn convert(
     }
 }
 
+/// Whether an HEVC decoder is installed (the FR-058 dependency report asks).
+#[cfg(windows)]
+pub use wic::hevc_decoder_available;
+
 /// Windows Imaging Component decoding.
 #[cfg(windows)]
 mod wic {
