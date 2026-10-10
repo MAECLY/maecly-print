@@ -73,35 +73,148 @@
 ; folders on its first launch (src-tauri/src/util/legacy.rs). The MaeclyPrint
 ; uninstaller only deletes app data when its "delete app data" box is ticked,
 ; which a silent run never does.
+;
+; Two kinds of old install exist:
+;
+; - Per user (the NSIS setup, HKCU). Removed silently. Its folder comes from
+;   the default value of HKCU\Software\Maecly\MaeclyPrint, which Tauri writes
+;   without quotes (the Uninstall key's InstallLocation is quoted, and `_?=`
+;   must not be). `_?=` makes the uninstaller run in place, so ExecWait really
+;   waits for it; without it the uninstaller copies itself to %TEMP% and
+;   returns at once. If the uninstaller fails, its registration is left alone
+;   so the old install can still be removed from "Apps & features".
+; - Per machine (the WiX MSI that builds made before c1466b4, under Program
+;   Files and HKLM). This installer runs without elevation, so it cannot
+;   remove that install by itself: it asks, and msiexec then requests
+;   administrator approval (UAC). A silent run, a "No" or a declined UAC
+;   prompt leave the MSI install in place, and the setup says so in its log.
 
 !define PLURY_LEGACY_PRODUCT "MaeclyPrint"
+!define PLURY_LEGACY_PUBLISHER "Maecly"
+!define PLURY_LEGACY_EXE "maeclyprint.exe"
 !define PLURY_LEGACY_UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PLURY_LEGACY_PRODUCT}"
+!define PLURY_LEGACY_PRODUCTKEY "Software\${PLURY_LEGACY_PUBLISHER}\${PLURY_LEGACY_PRODUCT}"
+!define PLURY_UNINSTROOT "Software\Microsoft\Windows\CurrentVersion\Uninstall"
+
+; Drop one pair of surrounding double quotes from VAR, if it has them.
+!macro PLURY_UNQUOTE VAR
+  StrCpy $9 ${VAR} 1
+  ${If} $9 == '"'
+    StrCpy ${VAR} ${VAR} "" 1
+    StrCpy $9 ${VAR} 1 -1
+    ${If} $9 == '"'
+      StrCpy ${VAR} ${VAR} -1
+    ${EndIf}
+  ${EndIf}
+!macroend
 
 !macro NSIS_HOOK_PREINSTALL
+  Push $R0
+  Push $R1
+  Push $R2
+  Push $R3
+  Push $R4
+  Push $R5
+  Push $9
+
+  ; --- Per-user MaeclyPrint (HKCU) -------------------------------------------
   ReadRegStr $R0 HKCU "${PLURY_LEGACY_UNINSTKEY}" "UninstallString"
-  ReadRegStr $R1 HKCU "${PLURY_LEGACY_UNINSTKEY}" "InstallLocation"
-  ${If} $R0 != ""
-    DetailPrint "Removing the previous ${PLURY_LEGACY_PRODUCT} install"
-    ${If} $R1 != ""
-      ; _?= runs the uninstaller in place, so ExecWait really waits for it.
-      ExecWait '$R0 /S _?=$R1' $R2
-      Delete "$R1\uninstall.exe"
-      RMDir "$R1"
-    ${Else}
-      ExecWait '$R0 /S' $R2
-    ${EndIf}
-    DetailPrint "${PLURY_LEGACY_PRODUCT} uninstaller exited with $R2"
+  ; The folder, unquoted: Tauri's own reinstall path reads the same value.
+  ReadRegStr $R1 HKCU "${PLURY_LEGACY_PRODUCTKEY}" ""
+  ${If} $R1 == ""
+    ReadRegStr $R1 HKCU "${PLURY_LEGACY_UNINSTKEY}" "InstallLocation"
+    !insertmacro PLURY_UNQUOTE $R1
+  ${EndIf}
+  ${If} $R1 == ""
+  ${AndIf} $R0 != ""
+    ; Last resort: the folder that holds the uninstaller.
+    StrCpy $R1 $R0
+    !insertmacro PLURY_UNQUOTE $R1
+    ${GetParent} $R1 $R1
   ${EndIf}
 
-  ; Whatever registration the old install (or a developer following the old
-  ; shell-ext-win README) left behind, whether or not an uninstaller ran.
-  DeleteRegKey HKCU "${PLURY_LEGACY_UNINSTKEY}"
-  DeleteRegKey HKCU "Software\Maecly\${PLURY_LEGACY_PRODUCT}"
-  DeleteRegKey HKCU "Software\Classes\*\shell\${PLURY_LEGACY_PRODUCT}"
-  DeleteRegKey HKCU "Software\Classes\Directory\shell\${PLURY_LEGACY_PRODUCT}"
-  DeleteRegKey HKCU "Software\Classes\AllFileSystemObjects\shellex\ContextMenuHandlers\${PLURY_LEGACY_PRODUCT}"
-  Delete "$SMPROGRAMS\${PLURY_LEGACY_PRODUCT}.lnk"
-  Delete "$DESKTOP\${PLURY_LEGACY_PRODUCT}.lnk"
+  ; $R3: 1 when the old registration may be cleaned up.
+  StrCpy $R3 1
+  ${If} $R0 != ""
+    ${If} $R1 == ""
+      DetailPrint "Cannot tell where ${PLURY_LEGACY_PRODUCT} is installed; leaving it in place"
+      StrCpy $R3 0
+    ${ElseIf} ${FileExists} "$R1\uninstall.exe"
+      DetailPrint "Removing the previous ${PLURY_LEGACY_PRODUCT} install in $R1"
+      ClearErrors
+      ExecWait '"$R1\uninstall.exe" /S _?=$R1' $R2
+      ${If} ${Errors}
+        StrCpy $R2 "not started"
+      ${EndIf}
+      DetailPrint "${PLURY_LEGACY_PRODUCT} uninstaller exited with $R2"
+      ${If} $R2 == 0
+      ${AndIfNot} ${FileExists} "$R1\${PLURY_LEGACY_EXE}"
+        ; Run in place, the uninstaller cannot delete itself or its folder.
+        Delete "$R1\uninstall.exe"
+        RMDir "$R1"
+      ${Else}
+        DetailPrint "${PLURY_LEGACY_PRODUCT} was not removed; it stays in Apps & features"
+        StrCpy $R3 0
+      ${EndIf}
+    ${Else}
+      ; Registered, but its uninstaller is gone: only the registration is left.
+      DetailPrint "${PLURY_LEGACY_PRODUCT} uninstaller not found in $R1; removing its stale registration"
+    ${EndIf}
+  ${EndIf}
+
+  ${If} $R3 = 1
+    ; Whatever registration the old install (or a developer following the old
+    ; shell-ext-win README) left behind, whether or not an uninstaller ran.
+    DeleteRegKey HKCU "${PLURY_LEGACY_UNINSTKEY}"
+    DeleteRegKey HKCU "${PLURY_LEGACY_PRODUCTKEY}"
+    DeleteRegKey /ifempty HKCU "Software\${PLURY_LEGACY_PUBLISHER}"
+    DeleteRegKey HKCU "Software\Classes\*\shell\${PLURY_LEGACY_PRODUCT}"
+    DeleteRegKey HKCU "Software\Classes\Directory\shell\${PLURY_LEGACY_PRODUCT}"
+    DeleteRegKey HKCU "Software\Classes\AllFileSystemObjects\shellex\ContextMenuHandlers\${PLURY_LEGACY_PRODUCT}"
+    Delete "$SMPROGRAMS\${PLURY_LEGACY_PRODUCT}.lnk"
+    Delete "$DESKTOP\${PLURY_LEGACY_PRODUCT}.lnk"
+  ${EndIf}
+
+  ; --- Per-machine MaeclyPrint (WiX MSI, HKLM) -------------------------------
+  ; A WiX install is keyed by its product code, so look for it by name, the
+  ; way Tauri's own PageReinstall looks for a WiX install of this product.
+  StrCpy $R4 0
+  plury_hklm_loop:
+    EnumRegKey $R5 HKLM "${PLURY_UNINSTROOT}" $R4
+    StrCmp $R5 "" plury_hklm_done
+    IntOp $R4 $R4 + 1
+    ReadRegStr $R0 HKLM "${PLURY_UNINSTROOT}\$R5" "DisplayName"
+    ReadRegStr $R1 HKLM "${PLURY_UNINSTROOT}\$R5" "Publisher"
+    ; StrCmp ignores case: early builds published as "maecly".
+    StrCmp "$R0|$R1" "${PLURY_LEGACY_PRODUCT}|${PLURY_LEGACY_PUBLISHER}" 0 plury_hklm_loop
+    ReadRegStr $R0 HKLM "${PLURY_UNINSTROOT}\$R5" "UninstallString"
+    ${StrLoc} $R2 $R0 "msiexec" ">"
+    ${If} $R2 == ""
+      DetailPrint "A per-machine ${PLURY_LEGACY_PRODUCT} install ($R5) was found but is not an MSI; remove it from Apps & features"
+      Goto plury_hklm_done
+    ${EndIf}
+    DetailPrint "Found a per-machine ${PLURY_LEGACY_PRODUCT} install ($R5)"
+    MessageBox MB_YESNO|MB_ICONQUESTION "${PLURY_LEGACY_PRODUCT} is also installed for all users of this computer. Remove it now? Windows will ask for administrator approval.$\n$\nYour settings, profiles and queue are kept either way." /SD IDNO IDYES plury_hklm_remove
+    DetailPrint "Left the per-machine ${PLURY_LEGACY_PRODUCT} install in place; remove it from Apps & features"
+    Goto plury_hklm_done
+  plury_hklm_remove:
+    ClearErrors
+    ; msiexec runs unelevated and asks for consent itself.
+    ExecWait 'msiexec.exe /x $R5 /passive /norestart' $R2
+    ${If} ${Errors}
+      StrCpy $R2 "not started"
+    ${EndIf}
+    ; 0: removed. 3010: removed, restart pending. 1602: the user declined.
+    DetailPrint "${PLURY_LEGACY_PRODUCT} (per machine) uninstall exited with $R2"
+  plury_hklm_done:
+
+  Pop $9
+  Pop $R5
+  Pop $R4
+  Pop $R3
+  Pop $R2
+  Pop $R1
+  Pop $R0
 !macroend
 
 ; ---- End of the MaeclyPrint takeover ---------------------------------------
