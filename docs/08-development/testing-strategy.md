@@ -161,10 +161,10 @@ Verification would be page count + text layer (deterministic, fast), with an opt
 
 ### Subprocess fixtures — not applicable yet
 
-CI installs **no** converters yet. The converters that shell out (LibreOffice, `sips`, the render worker, and the headless browser of the hidden fallback) are covered at three levels:
+CI installs **no** converters yet. The converters that shell out (LibreOffice, `sips`, and the render worker) are covered at three levels:
 
 - **Fake binaries** (`external_tests::fakes`, Unix only): `/bin/sh` scripts standing in for `soffice`, the browser, the render worker and `sips`. They pin the argument vector that is actually spawned, the "exit 0 but no PDF" failure, the timeout kill of the whole process tree, the browser profile seeding, scratch-folder cleanup, and that HTML and Markdown go to the worker rather than a browser or Pandoc. They need nothing installed.
-- **Real tools** (`external_tests::fr_05x_real_*`): convert fixtures generated in-test (an RTF, a DOCX made by LibreOffice, an HTML page through the browser fallback, and on macOS a HEIC made by `sips`), plus a LibreOffice document and an HTML page that must not reach a local listener. Each test locates its tool with the engine's own resolver and **returns early with a `SKIPPED` note** when the tool is absent, instead of using `#[ignore]`. A developer machine with the tools runs them on every `cargo test`, and a bare CI runner stays green.
+- **Real tools** (`external_tests::fr_05x_real_*`): convert fixtures generated in-test (an RTF, a DOCX made by LibreOffice, and on macOS a HEIC made by `sips`), plus a LibreOffice document that must not reach a local listener. Each test locates its tool with the engine's own resolver and **returns early with a `SKIPPED` note** when the tool is absent, instead of using `#[ignore]`. A developer machine with the tools runs them on every `cargo test`, and a bare CI runner stays green.
 
 - **The real workers** (`tests/render_worker.rs`, `tests/svg_worker.rs`): the built binary's `--worker render-pdf` and `--worker svg`, with pagination, paper sizes, relative images, a hostile page, Markdown, UTF-16 text, RTF and parallel workers. They need only the OS web view.
 

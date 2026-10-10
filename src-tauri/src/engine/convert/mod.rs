@@ -10,9 +10,9 @@
 //! | [`Route::Passthrough`] | `pdf` | none — header, `%%EOF` and page check, printed in place |
 //! | [`Route::Image`] | [`IMAGE_EXTS`] | in-process [`image`] crate |
 //! | [`Route::Heif`] | [`heif::HEIF_EXTS`] | OS decoder: `sips` (macOS) / WIC (Windows) |
-//! | [`Route::Svg`] | [`svg::SVG_EXTS`] | in-process `usvg` + `svg2pdf` (FR-052a) |
+//! | [`Route::Svg`] | [`svg::SVG_EXTS`] | `usvg` + `svg2pdf` in the SVG worker, under a hard memory cap (FR-052a) |
 //! | [`Route::Office`] | [`office::OFFICE_EXTS`] | LibreOffice headless (`textutil` for RTF on macOS) |
-//! | [`Route::Html`] | [`html::HTML_EXTS`] | the system web view (render worker), browser fallback |
+//! | [`Route::Html`] | [`html::HTML_EXTS`] | the system web view (render worker) |
 //! | [`Route::Markdown`] | [`markdown::MARKDOWN_EXTS`] | Markdown → HTML → the HTML route |
 //! | [`Route::Text`] | [`text::TEXT_EXTS`] | decoded text → HTML → the HTML route |
 //!

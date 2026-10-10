@@ -9,7 +9,7 @@
 //!   discarded ones with a reason (FR-005/FR-059).
 //! - [`convert`] — turn a supported input file into a printable PDF (PDFs pass
 //!   through; images are rasterised in-process; HEIC goes through the OS
-//!   decoder; documents through LibreOffice, a headless browser or Pandoc).
+//!   decoder; documents through LibreOffice or the system web view).
 //! - [`print`] — translate [`crate::queue::job::JobSettings`] into the
 //!   SumatraPDF (Windows) / CUPS `lp` (Unix) invocation and spool it.
 //! - [`deps`] — locate the external programs the pipeline shells out to

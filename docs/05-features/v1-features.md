@@ -31,7 +31,7 @@ All of these shipped ahead of v0.2 (FR-052..FR-057). See [supported-formats.md](
 
 The Settings page gains a **Dependencies** panel showing the status of every external dependency (✓ Found / ✗ Missing) with install options and a refresh button.
 
-Partly delivered already: the probe itself exists (`engine::deps`, reported through `app_info`) and covers SumatraPDF, LibreOffice and, on Windows, the HEIF and HEVC Store codecs; Edge/Chrome only matter for the hidden browser fallback, and Pandoc and ImageMagick are not used. It surfaces on the **Print Job** screen, where only the dependencies that actually gate a file the user added are shown, with remediation text and an **Install…** consent dialog (winget, Homebrew, the Store or the download page). What v0.2 still owes is the always-on Settings panel with a refresh button.
+Partly delivered already: the probe itself exists (`engine::deps`, reported through `app_info`) and covers SumatraPDF, LibreOffice and, on Windows, the HEIF and HEVC Store codecs; Edge/Chrome, Pandoc and ImageMagick are not used. It surfaces on the **Print Job** screen, where only the dependencies that actually gate a file the user added are shown, with remediation text and an **Install…** consent dialog (winget, Homebrew, the Store or the download page). What v0.2 still owes is the always-on Settings panel with a refresh button.
 
 ### New print settings
 
