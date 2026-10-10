@@ -18,7 +18,12 @@ import {
   MPTopBar,
 } from '@/components/ui';
 import { useLocale, useT } from '@/i18n/I18nProvider';
-import { cliPrintCommand, cliProgram, formatFinished } from '@/lib/format';
+import {
+  cliCommandForDisplay,
+  cliPrintCommand,
+  cliProgram,
+  formatFinished,
+} from '@/lib/format';
 import { fetchAppInfo, isTauri, openLogsFolder } from '@/lib/ipc';
 import { findProfileIn } from '@/lib/profiles';
 import { useProfilesStore } from '@/stores/profilesStore';
@@ -53,6 +58,7 @@ function CardButton({
   onClick: () => void;
   style?: CSSProperties;
   children: ReactNode;
+  title?: string | undefined;
   'aria-label'?: string;
   'aria-expanded'?: boolean;
   'aria-controls'?: string;
@@ -166,6 +172,7 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
     os: cliOs,
     profile: defaultProfile.name,
   });
+  const cliCommandShown = cliCommandForDisplay(cliCommand, exe.path);
 
   // Twenty-five extensions do not fit on a drop zone; the copy names the
   // families instead (pinned against `PRINTABLE_EXTENSIONS` by the tests).
@@ -454,13 +461,20 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr 1fr',
+            // minmax(0, 1fr): a long unbreakable line (the CLI command) must
+            // not widen its column past a third.
+            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
             gap: 10,
             marginBottom: 24,
           }}
         >
           {quickActions.map((q) => (
-            <CardButton key={q.id} onClick={q.run} style={{ padding: 14 }}>
+            <CardButton
+              key={q.id}
+              onClick={q.run}
+              title={q.id === 'cli' ? cliCommand : undefined}
+              style={{ padding: 14, minWidth: 0 }}
+            >
               <div
                 style={{
                   display: 'flex',
@@ -495,7 +509,7 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {cliCommand}
+                  {cliCommandShown}
                 </div>
               )}
               {q.id === 'cli' && (

@@ -119,6 +119,25 @@ export function cliPrintCommand({
 }
 
 /**
+ * The same command for display: the folder of the executable is folded into
+ * `…`, so a long install path does not stretch the Home card. The full
+ * command (what is copied) stays in the card's tooltip.
+ */
+export function cliCommandForDisplay(
+  command: string,
+  executable: string | null | undefined,
+): string {
+  if (!executable) return command;
+  const cut = Math.max(
+    executable.lastIndexOf('/'),
+    executable.lastIndexOf('\\'),
+  );
+  if (cut <= 0) return command;
+  const folder = executable.slice(0, cut + 1);
+  return command.replace(folder, `…${executable[cut]}`);
+}
+
+/**
  * Pluralize a count by appending "s" when not 1.
  */
 export function pluralize(n: number, singular: string, plural?: string) {

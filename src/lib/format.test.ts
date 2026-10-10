@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  cliCommandForDisplay,
   cliPrintCommand,
   cliProgram,
   distinguishingFolders,
@@ -151,5 +152,40 @@ describe('distinguishingFolders', () => {
     ]);
     expect(out.get('C:\\2024\\Invoices\\INV.pdf')).toBe('2024/Invoices');
     expect(out.get('C:\\2025\\Invoices\\inv.pdf')).toBe('2025/Invoices');
+  });
+});
+
+describe('cliCommandForDisplay', () => {
+  it('folds the executable folder into an ellipsis, keeping the quotes', () => {
+    const exe = '/Applications/Pluryprint App.app/Contents/MacOS/pluryprint';
+    const full = cliPrintCommand({
+      executable: exe,
+      os: 'macos',
+      profile: 'Quick',
+    });
+    expect(cliCommandForDisplay(full, exe)).toBe(
+      "'…/pluryprint' print --files '*.pdf' --profile Quick",
+    );
+  });
+
+  it('works with Windows paths and the console program next to the app', () => {
+    const exe = 'C:\\Program Files\\Pluryprint\\pluryprint.exe';
+    const full = cliPrintCommand({
+      executable: exe,
+      os: 'windows',
+      profile: 'Quick',
+    });
+    expect(cliCommandForDisplay(full, exe)).toBe(
+      "& '…\\pluryprint-cli.exe' print --files '*.pdf' --profile Quick",
+    );
+  });
+
+  it('leaves the command alone when there is no executable', () => {
+    const full = cliPrintCommand({
+      executable: null,
+      os: 'macos',
+      profile: 'Quick',
+    });
+    expect(cliCommandForDisplay(full, null)).toBe(full);
   });
 });
