@@ -22,25 +22,26 @@ The primary landing is in Spanish; the English page mirrors it section for secti
 - Printers: lists system printers with live status, capabilities and supply levels; finds network printers through mDNS/Bonjour or adds one by IP address (IPP/IPPS; WSD is not supported yet); set default and test page; choose which printers the app shows; send each file type to a different printer; reassign or forget a missing printer; an organisation can lock the default printer through `policy.json`.
 - Command line: on macOS the app binary itself, on Windows a separate console executable shipped next to the app (the app is a GUI program, so shells would not wait for it or see its exit code). It has the subcommands `print`, `printers`, `profiles`, `queue` and `update`, with `--help` on each, `--json` output and fixed exit codes. A command-line run opens no window. The command is not added to PATH yet, and its final name may change before the first release.
 - Right-click on macOS: Finder → Services → "Print with Pluryprint", or with the default profile. Built into the app; there is no extension to enable.
-- Right-click on Windows: an Explorer submenu (print N files, up to 8 "print with <profile>" rows, configure the print job, add to the queue) is written and tested in CI, with no file-count limit. No installer registers it yet, so normal users do not see it. There is no Windows 10 fallback yet.
+- Right-click on Windows: an Explorer submenu (print N files, up to 8 "print with <profile>" rows, configure the print job, add to the queue), with no file-count limit. The per-user installer registers it, so it appears on Windows 10 and, on Windows 11, in the classic menu ("Show more options", Shift+F10). A top-level entry in the Windows 11 menu needs a sparse MSIX package signed with a trusted certificate, which does not exist yet. The entry does not appear when Explorer itself runs elevated (UAC turned off).
 - Updates: the app checks GitHub at startup (after 30 s, at most once a day) and from About, and offers Install now (signature-verified, per-user, no admin), Remind me later or Skip this version. It never updates by itself. No update feed is published yet, so in practice nothing updates today.
 - App: seven screens (Home, Print Job, Queue, Printers, Profiles, Settings, About); English and Spanish interface (some backend messages are English only); light, dark and system themes; keyboard shortcuts; native notifications; drag and drop; folders with or without subfolders.
 - Privacy: no account and no telemetry. The only network traffic is the update check and an update download the user starts.
 
 ## Platforms
 
-- Windows 10 and 11, x64: built in CI. Planned installer: per-user NSIS, no administrator rights.
+- Windows 10 and 11, x64: built in CI. Installer: per-user NSIS, no administrator rights; it bundles SumatraPDF and registers the Explorer menu.
 - macOS, Apple silicon: built and tested in CI. .app and .dmg. No universal binary, so Intel Macs are not supported.
-- Windows ARM64: targeted (it is checked to compile), no binary.
+- Windows ARM64: targeted (it is checked to compile in CI, and the installer was tested by hand on Windows 11 on ARM), no published binary.
 - Linux: out of scope for now.
 - Nothing is code-signed, so Windows SmartScreen and macOS Gatekeeper will warn once a build exists.
 
 ## Limits
 
 - No public release, no download and no public repository yet.
-- Office, OpenDocument, TXT and RTF need LibreOffice; HTML needs Edge, Chrome or Chromium; Markdown needs Pandoc plus one of those browsers; Windows HEIC needs the Store codecs; Windows printing needs SumatraPDF (found on the system, not bundled yet).
+- Office, OpenDocument, TXT and RTF need LibreOffice; HTML needs Edge, Chrome or Chromium; Markdown needs Pandoc plus one of those browsers; Windows HEIC needs the Store codecs; Windows printing needs SumatraPDF (the installer bundles it).
 - On Windows, print quality is stored in the profile but not sent to the printer (SumatraPDF has no quality setting); the app says so. The paper tray is sent on both platforms.
 - There is a configurable maximum file size; there is no limit on the number of files.
+- On Windows 11 the Explorer entry is only in the classic menu ("Show more options"), not the top-level menu.
 - Not built: N-up, watermarks, separator pages, hot folders, Windows service mode, plugin API, file-list import.
 
 ## Compared with alternatives
