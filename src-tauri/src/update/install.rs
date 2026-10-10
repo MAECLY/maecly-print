@@ -575,6 +575,20 @@ mod tests {
             updater.get("dangerousInsecureTransportProtocol").is_none(),
             "release builds must keep refusing plain-http endpoints"
         );
+        // The manifest is not signed; only the version inside the artifact's
+        // signature ties `version` to the file it points at. Without this a
+        // tampered latest.json could pair a new number with an older release.
+        assert_eq!(updater["requireSignedVersion"], true);
+        assert!(
+            updater.get("allowDowngrades").is_none(),
+            "an update must be newer than the running version"
+        );
+        // ...and the plugin reads it under that name: a misspelt key would be
+        // silently ignored and leave the check off.
+        let parsed: tauri_plugin_updater::Config =
+            serde_json::from_value(updater.clone()).expect("the plugin accepts its config");
+        assert!(parsed.require_signed_version);
+        assert!(!parsed.allow_downgrades);
     }
 
     /// ADR-0008: the per-user NSIS setup is the only Windows installer. With
