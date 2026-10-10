@@ -353,14 +353,56 @@ fn nfr_security_commented_head_and_share_refs_render_safely() {
          </body></html>",
     )
     .unwrap();
+    // A marker picture of an odd size, planted wherever a share reference
+    // could be mis-resolved to: if any of them is printed, a share
+    // reference was followed.
+    let mut planted = vec![
+        dir.path().join("127.0.0.1").join("share").join("x.png"),
+        dir.path().join("127.0.0.1").join("s").join("x.png"),
+        dir.path().join("share").join("x.png"),
+        dir.path().join("s").join("x.png"),
+        dir.path().join("x.png"),
+    ];
+    // Off Windows a backslash is an ordinary file name character, so the
+    // reference's literal spelling can name a file in the folder too.
+    let backslashed: &[&str] = if cfg!(windows) {
+        &[]
+    } else {
+        &["\\127.0.0.1\\share\\x.png", "\\\\127.0.0.1\\s\\x.png"]
+    };
+    planted.extend(backslashed.iter().map(|name| dir.path().join(name)));
+    for path in &planted {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        marker_png(path);
+    }
     let pdf = convert(&html, &PageSetup::default()).unwrap();
     assert_eq!(pages(&pdf), 1);
-    // A refused image prints no more than a missing one: compare with a page
-    // of two missing local images. Not equal: WebView2 draws its
-    // broken-image icon for both, but the WebKit of the macOS 26 runners
-    // draws one for a missing file and nothing for a refused load (left 0,
-    // right 1), while on macOS 27 the two counts match. A share image that did
-    // load would add an image the control page cannot have.
+    // The marker is recognisable in a PDF when it does load.
+    let sanity = dir.path().join("sanity.html");
+    std::fs::write(
+        &sanity,
+        "<!doctype html><html><head><title>t</title></head><body>\
+         <p>ok</p><img src=\"x.png\"></body></html>",
+    )
+    .unwrap();
+    let sanity_pdf = convert(&sanity, &PageSetup::default()).unwrap();
+    assert!(
+        image_sizes(&sanity_pdf).contains(&MARKER_SIZE),
+        "a loaded marker is found by its size: {:?}",
+        image_sizes(&sanity_pdf)
+    );
+    assert!(
+        !image_sizes(&pdf).contains(&MARKER_SIZE),
+        "no share reference reaches a planted picture: {:?}",
+        image_sizes(&pdf)
+    );
+    // Whatever stops a share reference, it prints at most what a missing
+    // picture prints. Which layer stops it decides whether the web view
+    // draws its broken-image glyph: WebView2 draws one for every refusal,
+    // WebKit draws one for a 403/404 from the worker's scheme handler and
+    // none for a load its content rule list blocks, and which of the two
+    // stops `/\host\share` differs between WebKit releases (macOS 26 vs
+    // 27). So this is an upper bound, not an equality.
     let control = dir.path().join("control.html");
     std::fs::write(
         &control,
@@ -369,11 +411,38 @@ fn nfr_security_commented_head_and_share_refs_render_safely() {
     )
     .unwrap();
     let control_pdf = convert(&control, &PageSetup::default()).unwrap();
-    let (refused, missing) = (images(&pdf), images(&control_pdf));
     assert!(
-        refused <= missing,
-        "no share image is loaded: {refused} images, a page of missing ones has {missing}"
+        images(&pdf) <= images(&control_pdf),
+        "no share image is loaded: {} images, a page of missing ones has {}",
+        images(&pdf),
+        images(&control_pdf)
     );
+}
+
+/// The odd pixel size of [`marker_png`], which no broken-image glyph has.
+const MARKER_SIZE: (i64, i64) = (37, 23);
+
+fn marker_png(path: &Path) {
+    let (w, h) = MARKER_SIZE;
+    let img = image::RgbImage::from_pixel(w as u32, h as u32, image::Rgb([20, 160, 220]));
+    img.save_with_format(path, image::ImageFormat::Png).unwrap();
+}
+
+/// The pixel size of every image in a PDF.
+fn image_sizes(pdf: &Path) -> Vec<(i64, i64)> {
+    let doc = lopdf::Document::load(pdf).unwrap();
+    doc.objects
+        .values()
+        .filter_map(|o| o.as_stream().ok())
+        .filter(|s| {
+            s.dict.get(b"Subtype").ok().and_then(|v| v.as_name().ok()) == Some(b"Image".as_slice())
+        })
+        .filter_map(|s| {
+            let w = s.dict.get(b"Width").ok()?.as_i64().ok()?;
+            let h = s.dict.get(b"Height").ok()?.as_i64().ok()?;
+            Some((w, h))
+        })
+        .collect()
 }
 
 /// D10: the worker runs as its own process and exits; it never forwards to
