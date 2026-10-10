@@ -137,11 +137,15 @@
       "interrupted_by_shutdown": "MaeclyPrint was closed while this job was in progress."
     },
     "reasons": {
+      "conversion_timeout": {
+        "converter": "The converter did not finish in time and was stopped: {{detail}}"
+      },
       "print_timeout": {
         "spooler": "Sending the job to the printer took longer than {{secs}} s and was stopped."
       },
       "printer_unavailable": {
-        "no_printer": "No printer is configured. Choose a printer first."
+        "no_printer": "No printer is configured. Choose a printer first.",
+        "ambiguous": "Several printers are named “{{printer}}” ({{candidates}}). Choose one on the Printers screen or remove the duplicate."
       },
       "unsupported_setting": {
         "duplex": "The driver for “{{printer}}” cannot print two-sided.",

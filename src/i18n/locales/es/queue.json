@@ -137,11 +137,15 @@
       "interrupted_by_shutdown": "MaeclyPrint se cerró mientras este trabajo estaba en curso."
     },
     "reasons": {
+      "conversion_timeout": {
+        "converter": "El conversor no terminó a tiempo y se detuvo: {{detail}}"
+      },
       "print_timeout": {
         "spooler": "El envío del trabajo a la impresora tardó más de {{secs}} s y se detuvo."
       },
       "printer_unavailable": {
-        "no_printer": "No hay ninguna impresora configurada. Elige una impresora primero."
+        "no_printer": "No hay ninguna impresora configurada. Elige una impresora primero.",
+        "ambiguous": "Hay varias impresoras llamadas «{{printer}}» ({{candidates}}). Elige una en la pantalla Impresoras o elimina la duplicada."
       },
       "unsupported_setting": {
         "duplex": "El controlador de «{{printer}}» no puede imprimir a doble cara.",

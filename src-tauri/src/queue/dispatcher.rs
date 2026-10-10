@@ -1998,6 +1998,13 @@ fn record_print_failure(job: &mut Job, e: PrintError, post: &mut Post) {
         PrintError::PrinterMissing { printer } | PrintError::PrinterDisabled { printer } => {
             error.with_param("printer", printer)
         }
+        PrintError::PrinterAmbiguous {
+            printer,
+            candidates,
+        } => error
+            .with_reason("ambiguous")
+            .with_param("printer", printer)
+            .with_param("candidates", candidates.join(", ")),
         PrintError::NoPrinter => error.with_reason("no_printer"),
         PrintError::Engine(_) => error,
     });
@@ -2174,6 +2181,11 @@ fn to_job_error(e: &EngineError) -> JobError {
         | EngineError::PrintFailed(d)
         | EngineError::DependencyMissing(d)
         | EngineError::UnsupportedFormat(d) => error.with_param("detail", d),
+        // The converter's own bound fired: its message names the tool and the
+        // limit, so it is the detail (the dispatcher's own timer sets `secs`).
+        EngineError::ConversionTimedOut(d) => {
+            error.with_reason("converter").with_param("detail", d)
+        }
         EngineError::UnsupportedSetting { setting, printer } => {
             let error = error.with_param("printer", printer);
             if setting == "duplex" {
@@ -4541,6 +4553,19 @@ mod tests {
         assert_eq!(params(&e), [("detail", "bad zip")]);
         // The English detail is kept for logs and the CLI.
         assert_eq!(e.message, "conversion failed: bad zip");
+
+        let e = to_job_error(&EngineError::ConversionTimedOut(
+            "LibreOffice did not finish within 9s and was stopped".into(),
+        ));
+        assert_eq!(e.code, "conversion_timeout");
+        assert_eq!(e.reason.as_deref(), Some("converter"));
+        assert_eq!(
+            params(&e),
+            [(
+                "detail",
+                "LibreOffice did not finish within 9s and was stopped"
+            )]
+        );
     }
 
     #[test]
@@ -4565,6 +4590,15 @@ mod tests {
                 "printer_unavailable",
                 Some("no_printer"),
                 vec![],
+            ),
+            (
+                PrintError::PrinterAmbiguous {
+                    printer: "Office".into(),
+                    candidates: vec!["Office_A".into(), "Office_B".into()],
+                },
+                "printer_unavailable",
+                Some("ambiguous"),
+                vec![("candidates", "Office_A, Office_B"), ("printer", "Office")],
             ),
             (
                 PrintError::PrinterDisabled {
