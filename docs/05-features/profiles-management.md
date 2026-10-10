@@ -1,10 +1,10 @@
 # Profiles Management
 
-> **TL;DR** — The **Profiles** screen: a master-detail view of every print profile MaeclyPrint knows about — three immutable built-ins plus any number of user-created customs — with an inline editor for the customs. You can create, clone, rename, edit, delete (with a 5-second undo), and mark exactly one profile as the app default. Built-ins are read-only but cloneable. Customs live in `profiles.toml`; the default lives in `config.toml`.
+> **TL;DR** — The **Profiles** screen: a master-detail view of every print profile MaeclyPrint knows about — three immutable built-ins plus any number of user-created customs — with an inline editor for the customs. You can create, clone, rename, edit, delete (with a 5-second undo), export any profile to a TOML file and import profiles from one, and mark exactly one profile as the app default. Built-ins are read-only but cloneable. Customs live in `profiles.toml`; the default lives in `config.toml`.
 
 This document is the source of truth for the **content and behavior** of the Profiles screen (`src/screens/ProfilesScreen.tsx` + `src/screens/profiles/ProfileEditor.tsx`). The persistence and validation live in the [data model](../04-architecture/data-model.md#3-profilestoml--print-profiles) (`profiles::*`) and the [IPC & CLI contract](../04-architecture/ipc-and-cli.md); the wire shapes are generated into `src/ipc/bindings.ts`.
 
-The screen is the GUI counterpart to the `list_profiles` / `save_profile` / `delete_profile` / `set_default_profile` IPC commands. It is one of the primary navigation destinations, sitting between **Queue** and **Settings** in the sidebar. A profile is a reusable bundle of print settings the user picks in the [Print Job](./print-job.md) dialog; it is a *starting point*, and the per-invocation overrides on the Print Job screen win over it (FR-040/041).
+The screen is the GUI counterpart to the `list_profiles` / `get_profile` / `save_profile` / `delete_profile` / `set_default_profile` / `export_profile` / `import_profiles` IPC commands, and the headless `maeclyprint profiles` CLI drives the same cores (see [ipc-and-cli.md](../04-architecture/ipc-and-cli.md)). It is one of the primary navigation destinations, sitting between **Queue** and **Settings** in the sidebar. A profile is a reusable bundle of print settings the user picks in the [Print Job](./print-job.md) dialog; it is a *starting point*, and the per-invocation overrides on the Print Job screen win over it (FR-040/041).
 
 ## Screen layout
 
@@ -26,7 +26,7 @@ A master-detail split, mirroring the Printers screen: a fixed list of profiles o
 └──────────────────┴───────────────────────────────────────────────────────────────┘
 ```
 
-- **Top bar** — title `Profiles`, subtitle `Saved combinations of printer + settings`, and one action: **New profile** (enabled only when the backend list is `ready`).
+- **Top bar** — title `Profiles`, subtitle `Saved combinations of printer + settings`, and two actions: **Import** and **New profile** (both enabled only when the backend list is `ready`).
 - **Master list (280 px)** — one row per profile: a lock glyph for built-ins (a sliders glyph for customs), the name, a `default` badge on the current default, and a `{color} · {simplex|duplex} · {paper}` sub-line. Built-ins always come first, in the canonical order **Quick → Duplex BW → Photo Color**, then the customs sorted case-insensitively by name.
 - **Detail pane** — a header (name, `built-in` / `unsaved` / `default` badges, id, and the action buttons) followed by either a **read-only field table** (a selected built-in) or the **inline editor** (a custom, a new draft, or a clone).
 
@@ -44,12 +44,13 @@ Each profile is the wire [`Profile`] shape, translated to the display-cased `UiP
 | `color_mode`  | `color \| monochrome`                    | `color`         | UI vocabulary `color`.                                       |
 | `duplex`      | `off \| long-edge \| short-edge`         | `long-edge`     | Profile vocabulary (distinct from the engine's `none/long/short`). |
 | `copies`      | number `1..=999`                         | `1`             | Validated client-side and server-side.                      |
-| `paper_size`  | `a4 \| letter \| legal \| a3`            | `a4`            | Re-cased to `A4`/`Letter`/… for display.                    |
+| `paper_size`  | string                                   | `a4`            | The classic four travel as `a4`/`letter`/`legal`/`a3` and are re-cased to `A4`/`Letter`/… for display. Any other printer paper name (`A6`, `4x6`) or `auto` is stored verbatim (`PaperSize` in `queue/job.rs`); the CLI (`profiles create --paper`) and an import can set one, the editor offers only the classic four. |
 | `orientation` | `auto \| portrait \| landscape`          | `auto`          |                                                             |
 | `scaling`     | `fit \| shrink \| none`                  | `fit`           | `none` = actual size (100 %).                               |
 | `page_range`  | string \| absent                         | `1-5,10`        | Engine grammar; **absent means all pages** (no `"all"` sentinel). |
 | `quality`     | `draft \| normal \| high`                | `normal`        |                                                             |
 | `tray`        | string                                   | `auto`          | Free-text tray name, or `auto`.                             |
+| `collate`     | boolean                                  | `true`          | Whole sets (1-2-3 1-2-3) vs. grouped pages. Defaults to `true`, so a profile saved before the field existed loads. Not in the editor; set by the CLI (`--collate` / `--no-collate`) and kept by every save. |
 
 ### The three built-ins (FR-021)
 
@@ -86,8 +87,17 @@ Built-ins render a read-only field table with a **Clone** button. Customs (and d
 | **Cancel**       | editor          | Discards the draft / edits (resets the working copy to the stored values).                      |
 | **Make default** | custom/built-in detail | Marks the profile the app default via `set_default_profile`; disabled when it already is. |
 | **Delete**       | custom detail   | Confirmation dialog, then `delete_profile`; shows a **5-second Undo** toast (NFR-032).           |
+| **Export**       | any profile's detail | Save dialog suggesting `<name>.maecly-profile.toml`, then `export_profile`; toasts `Exported "{name}"`. Disabled while the editor holds unsaved changes. |
+| **Import**       | top bar         | Open dialog for one `.toml` file, then `import_profiles`; toasts `Imported N profiles` and selects the first one imported. Asks before discarding unsaved edits. |
 
 **Delete + Undo (NFR-032).** Delete asks for confirmation, then removes the profile and offers a 5-second `Undo` toast. Undo re-saves the exact snapshot: because `save_profile` preserves an unknown non-empty id (see [upsert semantics](#ipc-mapping)), the restored profile comes back with **the same id**, so any reference to it survives the round-trip. Deleting the profile currently selected in the master list moves the selection to the app default.
+
+## Import & export (FR-024)
+
+- **Format.** An export is the same versioned document as `profiles.toml` (`schema_version` plus one `[[profile]]` table), holding the profile's settings only: the computed `builtin` / `default` flags are not part of the on-disk shape, so a file can never carry "I am the default" onto another machine. Built-ins can be exported too. The write is atomic (FR-026). Because the shapes match, several exports concatenated by hand import in one step.
+- **Import is untrusted input.** The file is capped at **1 MiB** (`MAX_IMPORT_BYTES`), parsed and checked *before* `profiles.toml` is opened: a newer `schema_version` is refused, an empty document is refused, and **one invalid entry rejects the whole document**, so a rejected import never leaves a partial merge.
+- **Collision policy — additive only.** Every imported profile gets a **fresh UUID v7** (ids from another machine mean nothing here, and a `builtin-*` id could otherwise squat a reserved slot), so an import can never overwrite a custom or touch a built-in. A name that collides case-insensitively — with a built-in, an existing custom or an earlier entry of the same file — is renamed `"{name} 2"`, `"{name} 3"`…, the same scheme as Clone, shortening the base so the result still fits 100 characters. Importing the same file twice yields two profiles.
+- Import, like save, delete and set-default, refreshes the context-menu cache (`shell-menu.json`) so the new profiles are offered at once. Import/export is not available from the CLI.
 
 ## Persistence & edge states
 
@@ -104,7 +114,7 @@ Built-ins render a read-only field table with a **Clone** button. Customs (and d
 
 ## Default profile resolution
 
-Exactly one profile is the app default (FR-022). The single source of truth is `config.toml`'s `[engine].default_profile` (a profile **id**, not a name). `set_default_profile` validates the id names a known profile and writes it under the config lock. `list_profiles` computes each row's `default` flag from it. When a job runs without an explicit profile choice, App resolves the effective profile as **explicit choice ?? app default ?? Quick**, and a Print Job selection that points at a since-deleted custom silently falls back to the default (`App.tsx`).
+Exactly one profile is the app default (FR-022). The single source of truth is `config.toml`'s `[engine].default_profile` (a profile **id**, not a name). `set_default_profile` validates the id names a known profile and writes it under the config lock. `list_profiles` computes each row's `default` flag from it. When a job runs without an explicit profile choice, App resolves the effective profile as **explicit choice ?? app default ?? Quick**, and a Print Job selection that points at a since-deleted custom falls back to the default once the list is authoritative (`App.tsx`). A **context-menu** selection is different: it names a profile the user picked in Explorer or Finder, so App re-reads `profiles.toml` before resolving it (the CLI may have created it after the window loaded its list) and, when nothing matches by id or name, prints and queues nothing — an error toast names the profile and the files open on the Print Job screen ([context-menu-actions.md](./context-menu-actions.md#how-the-app-handles-each-action-implementation)).
 
 ## Per-platform notes
 
@@ -119,23 +129,24 @@ Profiles are OS-neutral: `profiles.toml` and the default id are plain config fil
 | Save / Create / Clone / Undo   | `save_profile(p) => Profile`                  | **Upsert**: empty id → create (fresh UUID v7); unknown non-empty id → create *preserving that id* (undo); known custom id → update; built-in id → rejected. Returns the saved profile. |
 | Delete                         | `delete_profile(id) => void`                  | Rejects a built-in and the current default; `ProfileNotFound` for an unknown id. |
 | Make default                   | `set_default_profile(id) => void`             | Writes `config.toml` `[engine].default_profile`; id must name a known profile. |
+| Export                         | `export_profile(id, path) => void`            | Writes the stored profile (built-in or custom) as a one-profile TOML document; `ProfileNotFound` for an unknown id. |
+| Import                         | `import_profiles(path) => Profile[]`          | Adds every profile in the document with fresh ids and de-duplicated names; returns them. Size cap, schema check and all-or-nothing validation as above. |
 
 The store follows a **reload-after-write** model: each mutation calls its command, then re-fetches the whole list, so the server's computed flags are always authoritative and the UI never drifts on a mis-guessed optimistic update. See [ipc-and-cli.md § profiles](../04-architecture/ipc-and-cli.md).
 
 ## Implementation status
 
 - **M0** — front-end only; profiles were local presets in `src/lib/profiles.ts` (superseded).
-- **M1 (current)** — **profiles are real, persisted, and end-to-end.** Rust: `src-tauri/src/profiles/mod.rs` (built-ins, validation, upsert/delete, atomic I/O) + `src-tauri/src/ipc/profiles.rs` (the five commands, locking, corrupt-file policy). Frontend: `profilesStore.ts`, `ProfilesScreen.tsx`, `ProfileEditor.tsx`, and the `toUiProfile` / `toWireProfile` adapters. Integration coverage lives in `src-tauri/tests/profile_roundtrip.rs` (FR-020/021/022/026/027). The `src/lib/profiles.ts` built-ins remain only as the offline fallback and mirror the Rust `builtins()` exactly.
+- **M1 (current)** — **profiles are real, persisted, and end-to-end.** Rust: `src-tauri/src/profiles/mod.rs` (built-ins, validation, upsert/delete, atomic I/O) + `src-tauri/src/ipc/profiles.rs` (the seven commands, locking, corrupt-file policy). Frontend: `profilesStore.ts`, `ProfilesScreen.tsx`, `ProfileEditor.tsx`, and the `toUiProfile` / `toWireProfile` adapters. Integration coverage lives in `src-tauri/tests/profile_roundtrip.rs` (FR-020/021/022/026/027). The `src/lib/profiles.ts` built-ins remain only as the offline fallback and mirror the Rust `builtins()` exactly.
 - **Follow-ups**
-  - **Import / export** profiles as TOML for sharing across machines (FR-024, targeted for v1.0).
   - **Profile-specific keyboard shortcuts** from the GUI (FR-025).
-  - **`submenu-cache.json`** — the M2 shell extension reads profile names from a cached file refreshed on profile change ([context-menu-actions.md](./context-menu-actions.md)); the refresh hook lands with M2.
-  - **Hot-reload / env overrides** — `notify`-based reloading and `MAECLYPRINT_*` env overrides of the config files are deferred; today the files are read on demand under a mutex.
+  - **Hot-reload / env overrides** — `notify`-based reloading and `MAECLYPRINT_*` env overrides of the config files are deferred. The backend reads the files on demand under a mutex, so it never holds a stale copy; the window's list is re-read after each of its own writes, when an editor opens on a saved custom, and before a context-menu selection is resolved, but a change made elsewhere (the CLI, a hand edit) is not pushed to an open Profiles screen.
+  - **Non-classic paper sizes in the editor** — a profile can store any printer paper name (CLI, import), but the editor's Paper select offers only A4 / Letter / Legal / A3.
+- **Done since M1** — import/export (FR-024, above); the context-menu label cache `shell-menu.json` (`src-tauri/src/shell_menu.rs`), rewritten by every profile mutation from the GUI or the CLI ([context-menu-actions.md](./context-menu-actions.md#localization)).
 
 ## Open questions for v1+
 
 - Should a profile carry a per-format converter override (e.g. force Pandoc for `.docx`), landing alongside the M3 multi-format work?
-- Should import/export be a single bundle (all customs) or per-profile files, and how should id/name collisions on import be resolved?
 - Should "Make default" be reachable from the Print Job profile dropdown, not just this screen?
 
 These are tracked as design discussions, not commitments.
