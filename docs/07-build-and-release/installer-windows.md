@@ -42,6 +42,15 @@ What the hooks register, all under `HKCU\Software\Classes`:
 | `CLSID\{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}\InprocServer32` | `(Default)` = `<install dir>\shell_ext_win.dll`, `ThreadingModel` = `Apartment` |
 | `*\shell\MaeclyPrint` and `Directory\shell\MaeclyPrint` | `ExplorerCommandHandler` = the CLSID, `MultiSelectModel` = `Player`, `Icon` = `maeclyprint.exe,0` |
 
+### Verified on Windows 11 ARM64 (24H2, 2026-10-10)
+
+With UAC **enabled** and the installer run from a non-elevated, medium-integrity session (`whoami /groups` = *Medium Mandatory Level*, not an administrator token):
+
+- `MaeclyPrint_0.0.1_arm64-setup.exe /S` exits 0 in about 7 s with no elevation; files land in `%LOCALAPPDATA%\MaeclyPrint\` (`maeclyprint.exe`, `maeclyprint-cli.exe`, `shell_ext_win.dll`, `uninstall.exe`, `resources\sumatrapdf\` with the ARM64 `SumatraPDF.exe` and its licence files); the CLSID and verbs exist under HKCU and nothing under HKLM. `uninstall.exe /S` exits 0 and removes the keys.
+- The classic context menu that Explorer builds for a `.pdf` (`IContextMenu` from the file's folder) lists **MaeclyPrint**, and its sub-command *Print 1 file* put the file into the paused default queue as a job named `e2e-sample.pdf`.
+
+One limit found on the way: when Explorer itself runs **elevated** (UAC turned off, as on the test VM by default), Windows ignores per-user COM registrations for shell extensions, so the HKCU-registered handler is never created and the entry does not appear. That is the documented behaviour for elevated processes, not something a per-user installer can change. Machines with UAC on, the Windows default, are not affected.
+
 That is the Windows 10 verb shape from `shell-ext-win/README.md`: the menu entry appears on Windows 10 and in the Windows 11 classic menu (*Show more options*, Shift+F10), for any number of selected items. Uninstall deletes the three keys. The Windows 11 top-level entry needs a sparse package signed with a trusted certificate, and waits for the code-signing certificate (ADR-0008, Risks).
 
 ## What actually ships today
