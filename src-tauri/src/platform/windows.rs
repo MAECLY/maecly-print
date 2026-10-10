@@ -136,6 +136,8 @@ fn for_each_printer(mut f: impl FnMut(&PRINTER_INFO_2W)) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Every printer the Windows spooler enumerates (local and connected), with
+/// the capabilities its driver reports.
 pub fn list_printers() -> anyhow::Result<Vec<Printer>> {
     let default = default_printer().unwrap_or(None);
     let mut out = Vec::new();
@@ -151,6 +153,7 @@ fn installed_names_and_ports() -> anyhow::Result<Vec<(String, String)>> {
     Ok(out)
 }
 
+/// The name of the Windows default printer, or `None` when none is set.
 pub fn default_printer() -> anyhow::Result<Option<String>> {
     let mut len = 0u32;
     // First call sizes the buffer; ERROR_FILE_NOT_FOUND means "no default".

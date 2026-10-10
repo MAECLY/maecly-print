@@ -15,8 +15,10 @@ use std::net::IpAddr;
 use crate::ipc::printers::DiscoveredPrinter;
 use crate::platform::infer_kind;
 
-/// The two service types a network printer advertises IPP on.
+/// The plain-IPP service type a network printer advertises (see also
+/// [`IPPS_SERVICE`]).
 pub const IPP_SERVICE: &str = "_ipp._tcp.local.";
+/// The secure (IPP over TLS) counterpart of [`IPP_SERVICE`].
 pub const IPPS_SERVICE: &str = "_ipps._tcp.local.";
 
 /// One resolved service instance, decoupled from any mDNS library's types.
@@ -28,7 +30,9 @@ pub struct Resolved {
     pub service_type: String,
     /// SRV target host, e.g. `EPSON1A2B3C.local.`.
     pub host: String,
+    /// SRV port the IPP service listens on.
     pub port: u16,
+    /// Addresses the host resolved to (A/AAAA records).
     pub addresses: Vec<IpAddr>,
     /// TXT `rp` (resource path), without a leading slash.
     pub rp: Option<String>,

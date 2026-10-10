@@ -263,6 +263,8 @@ fn lpadmin_args(queue: &str, uri: &str, display: &str) -> anyhow::Result<Vec<Str
     ])
 }
 
+/// Every installed CUPS queue with its options, capabilities and pending-job
+/// count. An empty CUPS setup is `Ok(vec![])`, not an error.
 pub fn list_printers() -> anyhow::Result<Vec<Printer>> {
     let names = queue_names();
     if names.is_empty() {
@@ -277,6 +279,8 @@ pub fn list_printers() -> anyhow::Result<Vec<Printer>> {
         .collect())
 }
 
+/// The name of the CUPS default queue, or `None` when no default is set (or
+/// `lpstat -d` names something that is not an installed queue).
 pub fn default_printer() -> anyhow::Result<Option<String>> {
     let names = queue_names();
     let out = lc_run("lpstat", &["-d"]).unwrap_or_default();
@@ -345,6 +349,9 @@ fn classify_ippfind(
     anyhow::bail!("{msg}");
 }
 
+/// Scan the local network for IPP/IPPS printers via `ippfind` (about four
+/// seconds). An empty network is `Ok(vec![])`; a scan that could not run is
+/// an error so the UI can say so instead of showing "no printers found".
 pub fn discover_printers() -> anyhow::Result<Vec<DiscoveredPrinter>> {
     // `-T 4` bounds the scan. `-x printf …` prints one tab-separated record
     // per service: URI, the TXT `UUID`, the Bonjour service name and the TXT

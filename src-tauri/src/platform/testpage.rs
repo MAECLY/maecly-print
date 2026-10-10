@@ -14,7 +14,9 @@ use printpdf::*;
 
 /// What to render on the page (the printer plus the app's default settings).
 pub struct TestPageInfo {
+    /// Queue name of the printer the page is being printed on.
     pub printer: String,
+    /// The configured paper size, or `None` for the printer's default media.
     pub paper: Option<String>,
     /// The configured tray override for this printer, or `None` for "printer
     /// default". Whether it is *printed* depends on [`TRAY_IS_APPLIED`]: the
