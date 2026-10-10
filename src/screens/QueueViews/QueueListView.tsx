@@ -3,6 +3,7 @@ import { useT, type TFunction } from '@/i18n/I18nProvider';
 import { useQueueStore } from '@/stores/queueStore';
 import type { UiQueueJobView } from '@/lib/ipc';
 import type { ConfirmState } from '@/components/ConfirmDialog';
+import { needsPassword } from '@/lib/pdfPassword';
 
 import { useJobLabels } from './useJobLabels';
 
@@ -10,6 +11,8 @@ interface QueueListViewProps {
   jobs: UiQueueJobView[];
   /** Request an in-app confirmation (used for cancelling an in-flight job). */
   onConfirm: (state: ConfirmState) => void;
+  /** Ask for the password of a job's encrypted PDF (FR-059). */
+  onEnterPassword: (job: UiQueueJobView) => void;
 }
 
 const TERMINAL = new Set(['done', 'failed', 'cancelled']);
@@ -94,6 +97,7 @@ interface RowProps {
   onResume: () => void;
   onRetry: () => void;
   onCancel: () => void;
+  onEnterPassword: () => void;
   /** A command for this job is still in flight: no second click (NFR-033). */
   busy: boolean;
 }
@@ -106,6 +110,7 @@ function Row({
   onResume,
   onRetry,
   onCancel,
+  onEnterPassword,
   busy,
 }: RowProps) {
   const terminal = TERMINAL.has(j.status);
@@ -198,7 +203,16 @@ function Row({
             onClick={onPause}
           />
         )}
-        {j.status === 'paused' && (
+        {needsPassword(j.status, j.errorInfo) && (
+          <MPIconButton
+            icon="lock"
+            size={24}
+            label={t('password.rowAction', { file: j.file })}
+            disabled={busy}
+            onClick={onEnterPassword}
+          />
+        )}
+        {j.status === 'paused' && !needsPassword(j.status, j.errorInfo) && (
           <MPIconButton
             icon="play"
             size={24}
@@ -230,7 +244,11 @@ function Row({
   );
 }
 
-export function QueueListView({ jobs, onConfirm }: QueueListViewProps) {
+export function QueueListView({
+  jobs,
+  onConfirm,
+  onEnterPassword,
+}: QueueListViewProps) {
   const t = useT('queue');
   const pauseJob = useQueueStore((s) => s.pauseJob);
   const resumeJob = useQueueStore((s) => s.resumeJob);
@@ -314,6 +332,7 @@ export function QueueListView({ jobs, onConfirm }: QueueListViewProps) {
                   onResume={() => void resumeJob(j.id)}
                   onRetry={() => void retryJob(j.id)}
                   onCancel={() => requestCancel(j)}
+                  onEnterPassword={() => onEnterPassword(j)}
                   busy={pendingIds.includes(j.id)}
                 />
               ))}

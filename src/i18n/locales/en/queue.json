@@ -192,5 +192,19 @@
         "unsupported_encryption": "This PDF uses a type of encryption Pluryprint cannot open."
       }
     }
+  },
+  "password": {
+    "rowAction": "Enter the password of {{file}}",
+    "title": "This PDF needs a password",
+    "body": "“{{file}}” is protected. Enter its password to print it. Pluryprint uses it only for this job: it is not saved anywhere and is forgotten when the job ends.",
+    "label": "PDF password",
+    "applyToBatch_one": "Also try it on the other protected PDF of this batch",
+    "applyToBatch_other": "Also try it on the other {{count}} protected PDFs of this batch",
+    "submit": "Unlock and print",
+    "checking": "Checking the password…",
+    "incorrect": "That password does not open this PDF. Check it and try again.",
+    "empty": "Enter the password first.",
+    "later": "Not now",
+    "cancelJob": "Cancel this job"
   }
 }

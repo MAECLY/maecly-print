@@ -39,6 +39,8 @@ interface MPInputProps {
    */
   min?: number | undefined;
   max?: number | undefined;
+  /** Native `autocomplete` (e.g. `off` for a one-off secret). */
+  autoComplete?: string | undefined;
 }
 
 const SIZES = {
@@ -67,6 +69,7 @@ export function MPInput({
   'aria-describedby': ariaDescribedBy,
   min,
   max,
+  autoComplete,
 }: MPInputProps) {
   const sizes = SIZES[size];
   const [focus, setFocus] = useState(false);
@@ -117,6 +120,7 @@ export function MPInput({
         {...(error ? { 'aria-invalid': true } : {})}
         {...(min !== undefined ? { min } : {})}
         {...(max !== undefined ? { max } : {})}
+        {...(autoComplete !== undefined ? { autoComplete } : {})}
         onFocus={() => setFocus(true)}
         onBlur={() => setFocus(false)}
         className={mono ? 'mp-mono' : ''}

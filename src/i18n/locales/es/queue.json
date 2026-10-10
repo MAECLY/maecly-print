@@ -192,5 +192,19 @@
         "unsupported_encryption": "Este PDF usa un tipo de cifrado que Pluryprint no puede abrir."
       }
     }
+  },
+  "password": {
+    "rowAction": "Escribe la contraseña de {{file}}",
+    "title": "Este PDF necesita una contraseña",
+    "body": "«{{file}}» está protegido. Escribe su contraseña para imprimirlo. Pluryprint solo la usa para este trabajo: no se guarda en ningún sitio y se olvida al terminar el trabajo.",
+    "label": "Contraseña del PDF",
+    "applyToBatch_one": "Probarla también con el otro PDF protegido de este lote",
+    "applyToBatch_other": "Probarla también con los otros {{count}} PDF protegidos de este lote",
+    "submit": "Desbloquear e imprimir",
+    "checking": "Comprobando la contraseña…",
+    "incorrect": "Esa contraseña no abre este PDF. Revísala y vuelve a intentarlo.",
+    "empty": "Escribe antes la contraseña.",
+    "later": "Ahora no",
+    "cancelJob": "Cancelar este trabajo"
   }
 }

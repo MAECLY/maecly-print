@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 import { ConfirmDialog, type ConfirmState } from '@/components/ConfirmDialog';
+import { PdfPasswordDialog } from '@/components/PdfPasswordDialog';
 import { Icon } from '@/components/Icon';
 import { MPButton, MPSegmented, MPTopBar } from '@/components/ui';
 import { useT } from '@/i18n/I18nProvider';
@@ -88,6 +89,11 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
   const undoClearDone = useQueueStore((s) => s.undoClearDone);
   const cancelAll = useQueueStore((s) => s.cancelAll);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  /** The job whose PDF password is being asked for (FR-059). */
+  const [passwordFor, setPasswordFor] = useState<{
+    id: string;
+    file: string;
+  } | null>(null);
 
   const subtitle =
     view === 'board'
@@ -261,7 +267,13 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
       />
     );
   } else if (view === 'list') {
-    body = <QueueListView jobs={uiJobs} onConfirm={setConfirm} />;
+    body = (
+      <QueueListView
+        jobs={uiJobs}
+        onConfirm={setConfirm}
+        onEnterPassword={(j) => setPasswordFor({ id: j.id, file: j.file })}
+      />
+    );
   } else if (view === 'board') {
     body = <QueueBoardView jobs={uiJobs} />;
   } else {
@@ -283,6 +295,14 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
         {body}
         {confirm && (
           <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} />
+        )}
+        {passwordFor && (
+          <PdfPasswordDialog
+            key={passwordFor.id}
+            jobId={passwordFor.id}
+            file={passwordFor.file}
+            onClose={() => setPasswordFor(null)}
+          />
         )}
       </div>
     </>

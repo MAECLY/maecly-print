@@ -344,6 +344,20 @@ export async function resumeJob(id: string): Promise<void> {
   await unwrap(commands.resumeJob(id));
 }
 
+/**
+ * FR-059: hand a paused protected PDF the password the user typed and resume
+ * it (with `applyToBatch`, the batch's other protected PDFs too). The backend
+ * keeps it in memory only, for that job.
+ */
+export async function supplyPdfPassword(
+  id: string,
+  password: string,
+  applyToBatch: boolean,
+): Promise<void> {
+  if (!isTauri()) throw noHost();
+  await unwrap(commands.jobSupplyPassword(id, password, applyToBatch));
+}
+
 /** Retry a single failed job from the start. */
 export async function retryJob(id: string): Promise<void> {
   if (!isTauri()) throw noHost();
