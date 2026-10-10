@@ -19,10 +19,22 @@
 //! animation, and its XML parser (`roxmltree`) has no external entities, so
 //! XXE cannot read a file. Its default `<image>` resolver, though, opens any
 //! absolute path; [`local_only`] replaces it: only files inside the SVG's own
-//! folder load, never a UNC share (which would leak NTLM credentials over SMB
-//! on Windows), a `file://host/` URL or a `../` outside it. Text uses the
-//! system fonts, loaded only when the drawing has text. An `.svgz` is
-//! inflated with a cap ([`SVG_MAX_BYTES`]).
+//! folder load, never a share (which would leak NTLM credentials over SMB
+//! on Windows), a `file://host/` URL or a `../` outside it. Whether a
+//! reference is a share is decided by the one shared predicate,
+//! [`super::local_ref`], on the decoded href and again on the resolved path
+//! before it is opened. Text uses the system fonts, loaded only when the
+//! drawing has text.
+//!
+//! **Resource caps.** The document is read with a bounded reader, and an
+//! `.svgz` is inflated through one too, so neither a huge file nor a gzip
+//! bomb is ever held past [`SVG_MAX_BYTES`]. The text is handed to usvg's XML
+//! parser directly (never to `usvg::Tree::from_data`, which would inflate a
+//! second, nested gzip layer without any cap) with a node limit
+//! ([`MAX_NODES`]), after [`entity_expansion`] has checked that the
+//! document's internal entities cannot blow it up past the same byte cap (a
+//! "billion laughs" made of few, large entities, which the parser's own
+//! reference-count guard lets through).
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -43,6 +55,10 @@ const SVG_DPI: f32 = 96.0;
 
 /// Largest page side, in points (the image route's ceiling, 200 in).
 const MAX_PAGE_PT: f32 = 14_400.0;
+
+/// Most XML nodes (elements and text) a drawing may have; usvg itself refuses
+/// more than a million elements, after `<use>` expansion.
+const MAX_NODES: u32 = 1_000_000;
 
 /// Convert the SVG at `input` into a one-page PDF at `output`.
 pub fn convert(
@@ -194,9 +210,7 @@ fn render(input: &Path) -> Result<Vec<u8>, EngineError> {
             (usvg::ImageHrefResolver::default_string_resolver())(&path.to_string_lossy(), o)
         }),
     };
-    let tree = usvg::Tree::from_data(&data, &opt).map_err(|e| {
-        EngineError::ConversionFailed(Failure::new("svg_invalid", format!("not a valid SVG: {e}")))
-    })?;
+    let tree = parse_tree(&data, &opt)?;
 
     let size = tree.size();
     let page = svg2pdf::PageOptions {
@@ -255,16 +269,143 @@ fn read_svg(input: &Path) -> Result<Vec<u8>, EngineError> {
         raw
     };
     if data.len() as u64 > SVG_MAX_BYTES {
-        let limit = format!("{} MB", SVG_MAX_BYTES / (1024 * 1024));
-        return Err(EngineError::ConversionFailed(
-            Failure::new(
-                "svg_too_large",
-                format!("the SVG is larger than {limit} once decompressed"),
-            )
-            .param("limit", limit),
+        return Err(too_large(
+            "the SVG is larger than the limit once decompressed",
         ));
     }
     Ok(data)
+}
+
+/// `svg_too_large`, with the limit in MB as its `limit` param (the sentence
+/// adds the unit).
+fn too_large(why: &str) -> EngineError {
+    let limit = (SVG_MAX_BYTES / (1024 * 1024)).to_string();
+    EngineError::ConversionFailed(
+        Failure::new("svg_too_large", format!("{why} ({limit} MB)")).param("limit", limit),
+    )
+}
+
+/// Parse the (already inflated) document into a usvg tree, within the
+/// resource caps of the module docs.
+fn parse_tree(data: &[u8], opt: &usvg::Options) -> Result<usvg::Tree, EngineError> {
+    let invalid = |why: String| EngineError::ConversionFailed(Failure::new("svg_invalid", why));
+    // A gzip stream inside the gzip stream: usvg would inflate it again with
+    // no cap. No real SVGZ is compressed twice.
+    if data.starts_with(&[0x1f, 0x8b]) {
+        return Err(invalid("a compressed SVG inside a compressed SVG".into()));
+    }
+    let text =
+        std::str::from_utf8(data).map_err(|_| invalid("not a valid SVG: not UTF-8 text".into()))?;
+    if entity_expansion(text) > SVG_MAX_BYTES {
+        return Err(too_large("the SVG's entities expand past the limit"));
+    }
+    let xml_opt = usvg::roxmltree::ParsingOptions {
+        allow_dtd: true,
+        nodes_limit: MAX_NODES,
+    };
+    let doc =
+        usvg::roxmltree::Document::parse_with_options(text, xml_opt).map_err(|e| match e {
+            usvg::roxmltree::Error::NodesLimitReached => too_large("the SVG has too many elements"),
+            e => invalid(format!("not a valid SVG: {e}")),
+        })?;
+    usvg::Tree::from_xmltree(&doc, opt).map_err(|e| match e {
+        usvg::Error::ElementsLimitReached => too_large("the SVG has too many elements"),
+        e => invalid(format!("not a valid SVG: {e}")),
+    })
+}
+
+/// An upper bound of how many bytes `text` becomes once its general entities
+/// are expanded: the text itself plus, for every `&name;` reference anywhere
+/// in it, the expanded size of every `<!ENTITY name "value">` declared
+/// anywhere in it (the largest, when a name is declared twice). Scanning the
+/// whole text rather than parsing the DOCTYPE keeps it an over-estimate that
+/// a crafted DTD cannot hide a declaration from. A self-referencing entity
+/// counts as unbounded; character and predefined references count as
+/// written. Pure; saturating.
+pub(crate) fn entity_expansion(text: &str) -> u64 {
+    use std::collections::HashMap;
+    let base = text.len() as u64;
+    let entities = entity_declarations(text);
+    if entities.is_empty() {
+        return base;
+    }
+    fn size_of<'a>(
+        name: &'a str,
+        entities: &HashMap<&'a str, Vec<&'a str>>,
+        sizes: &mut HashMap<&'a str, u64>,
+        depth: u32,
+    ) -> u64 {
+        if let Some(&n) = sizes.get(name) {
+            return n;
+        }
+        let Some(values) = entities.get(name) else {
+            return 0;
+        };
+        if depth > 16 {
+            return u64::MAX;
+        }
+        // In progress: a loop back to this entity reads as unbounded.
+        sizes.insert(name, u64::MAX);
+        let mut largest = 0u64;
+        for value in values {
+            let mut total = value.len() as u64;
+            for r in references(value) {
+                total = total.saturating_add(size_of(r, entities, sizes, depth + 1));
+            }
+            largest = largest.max(total);
+        }
+        sizes.insert(name, largest);
+        largest
+    }
+    let mut sizes = HashMap::new();
+    let mut total = base;
+    for r in references(text) {
+        total = total.saturating_add(size_of(r, &entities, &mut sizes, 0));
+        if total > SVG_MAX_BYTES {
+            break;
+        }
+    }
+    total
+}
+
+/// The `&name;` references in `s` (not `&#...;` character references).
+fn references(s: &str) -> impl Iterator<Item = &str> {
+    s.split('&').skip(1).filter_map(|after| {
+        let end = after.find(';')?;
+        let name = &after[..end];
+        let valid = !name.is_empty()
+            && !name.starts_with('#')
+            && name
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | ':' | '-' | '.'));
+        valid.then_some(name)
+    })
+}
+
+/// Every `<!ENTITY name "value">` (or `'value'`) declared anywhere in
+/// `text`, by name. Parameter (`%`) and external (`SYSTEM`/`PUBLIC`)
+/// entities are skipped: neither is expanded into the drawing.
+fn entity_declarations(text: &str) -> std::collections::HashMap<&str, Vec<&str>> {
+    let mut entities: std::collections::HashMap<&str, Vec<&str>> = Default::default();
+    let mut rest = text;
+    while let Some(at) = rest.find("<!ENTITY") {
+        rest = rest[at + "<!ENTITY".len()..].trim_start();
+        if rest.starts_with('%') {
+            continue;
+        }
+        let name_end = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
+        let name = &rest[..name_end];
+        let after = rest[name_end..].trim_start();
+        let Some(quote) = after.chars().next().filter(|c| matches!(c, '"' | '\'')) else {
+            continue;
+        };
+        let Some(len) = after[1..].find(quote) else {
+            break;
+        };
+        entities.entry(name).or_default().push(&after[1..1 + len]);
+        rest = &after[1 + len..];
+    }
+    entities
 }
 
 /// Whether the drawing may need fonts (`<text>`), so fonts are only loaded
@@ -290,85 +431,66 @@ fn convert_failed(why: &str) -> EngineError {
     EngineError::ConversionFailed(Failure::new("svg_convert_failed", why))
 }
 
-/// What an `<image href>` names, before touching the disk. Pure.
-#[derive(Debug, PartialEq, Eq)]
-enum Href {
-    /// A path to resolve against the SVG's folder (relative or absolute).
-    Path(PathBuf),
-    /// Refused outright: a URL, a UNC share, `file://host/`.
-    Refused,
-}
-
-/// Classify `href` (path rules of Windows when `windows`). Pure.
-fn classify_href(href: &str, windows: bool) -> Href {
-    let href = href.trim();
-    if href.is_empty() {
-        return Href::Refused;
-    }
-    // UNC shares: `\\host\share`, `//host/share` (and the `\\?\UNC\` form).
-    if href.starts_with("\\\\") || href.starts_with("//") {
-        return Href::Refused;
-    }
-    if let Some(rest) = strip_prefix_ignore_case(href, "file:") {
-        // `file:///C:/x` and `file:///x` are local; `file://host/x` is not.
-        let Some(path) = rest.strip_prefix("///") else {
-            return Href::Refused;
-        };
-        let decoded = percent_encoding::percent_decode_str(path)
-            .decode_utf8_lossy()
-            .into_owned();
-        let looks_like_drive = decoded.as_bytes().get(1) == Some(&b':');
-        let path = if windows && looks_like_drive {
-            decoded
-        } else {
-            format!("/{decoded}")
-        };
-        return classify_href(&path, windows);
-    }
-    // Any other scheme (`http:`, `https:`, `ftp:`, `smb:`...). A Windows
-    // drive letter (`C:\`) is a path, not a scheme.
-    if let Some((scheme, _)) = href.split_once(':') {
-        let is_drive =
-            windows && scheme.len() == 1 && scheme.chars().all(|c| c.is_ascii_alphabetic());
-        let is_scheme = !scheme.is_empty()
-            && scheme
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c));
-        if is_scheme && !is_drive {
-            return Href::Refused;
-        }
-    }
-    Href::Path(PathBuf::from(href))
-}
-
-fn strip_prefix_ignore_case<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
-    let head = s.get(..prefix.len())?;
-    head.eq_ignore_ascii_case(prefix)
-        .then(|| &s[prefix.len()..])
-}
-
 /// The local file an `<image href>` may load: one that exists inside `dir`
 /// (the SVG's own folder, canonical) once symlinks and `..` are resolved.
 /// `None` for everything else, which then simply does not draw.
+///
+/// The href must be local by [`super::local_ref`] (decoded, slashes
+/// normalised), and the path it resolves to is checked again by the same
+/// predicate *before* it is opened: `canonicalize` on a share would already
+/// have connected to it.
 pub(crate) fn local_only(href: &str, dir: &Path) -> Option<PathBuf> {
-    let Href::Path(path) = classify_href(href, cfg!(windows)) else {
+    use super::local_ref::{self, RefClass};
+    if local_ref::classify(href) != RefClass::Local {
         tracing::debug!(event = "svg_resource_refused", reason = "not_local");
         return None;
-    };
+    }
     if dir.as_os_str().is_empty() {
         return None;
     }
-    let candidate = if path.is_absolute() {
+    let path = href_path(href, cfg!(windows));
+    let candidate = if path.is_absolute() || path.has_root() {
         path
     } else {
         dir.join(path)
     };
+    if !local_ref::may_open(&candidate, dir) {
+        tracing::debug!(event = "svg_resource_refused", reason = "not_local");
+        return None;
+    }
     let real = candidate.canonicalize().ok()?;
     if real.starts_with(dir) && real.is_file() {
         Some(real)
     } else {
         tracing::debug!(event = "svg_resource_refused", reason = "outside_folder");
         None
+    }
+}
+
+/// The path a local href names (path rules of Windows when `windows`): the
+/// decoded path of a host-less `file:` URL (`file:///C:/x` → `C:/x` on
+/// Windows, `/x` elsewhere), else the href as written. Pure.
+fn href_path(href: &str, windows: bool) -> PathBuf {
+    let href = href.trim();
+    let is_file_url = href
+        .get(..5)
+        .is_some_and(|head| head.eq_ignore_ascii_case("file:"));
+    if !is_file_url {
+        return PathBuf::from(href);
+    }
+    let rest = &href[5..];
+    let rest = match rest.get(..11) {
+        Some(head) if head.eq_ignore_ascii_case("//localhost") => &rest[11..],
+        _ => rest,
+    };
+    let decoded = percent_encoding::percent_decode_str(rest.trim_start_matches('/'))
+        .decode_utf8_lossy()
+        .into_owned();
+    let is_drive = decoded.as_bytes().get(1) == Some(&b':');
+    if windows && is_drive {
+        PathBuf::from(decoded)
+    } else {
+        PathBuf::from(format!("/{decoded}"))
     }
 }
 
@@ -496,9 +618,113 @@ mod tests {
         let err = convert_file(&bomb).unwrap_err();
         assert!(
             matches!(&err, EngineError::ConversionFailed(f)
-                if f.reason == Some("svg_too_large") && f.params["limit"] == "64 MB"),
+                if f.reason == Some("svg_too_large") && f.params["limit"] == "64"),
             "{err:?}"
         );
+    }
+
+    /// NFR (security): a gzip stream inside the gzip stream is refused, never
+    /// handed to usvg's own (uncapped) inflater. The inner layer here is a
+    /// 100 MiB bomb that survives the outer cap at a few hundred KiB.
+    #[test]
+    fn nfr_security_svgz_nested_gzip_bomb_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut big = b"<svg xmlns=\"http://www.w3.org/2000/svg\">".to_vec();
+        big.resize(100 * 1024 * 1024, b' ');
+        let inner = gzip(&big);
+        assert!((inner.len() as u64) < SVG_MAX_BYTES, "inner fits the cap");
+        let nested = write(dir.path(), "nested.svgz", &gzip(&inner));
+        let err = convert_file(&nested).unwrap_err();
+        assert!(
+            matches!(&err, EngineError::ConversionFailed(f) if f.reason == Some("svg_invalid")),
+            "{err:?}"
+        );
+    }
+
+    /// NFR (security): a small plain SVG whose entities expand past the cap
+    /// (few large entities, which the XML parser's own reference-count guard
+    /// lets through) is `svg_too_large`, refused before parsing.
+    #[test]
+    fn nfr_security_svg_entity_expansion_is_capped() {
+        let dir = tempfile::tempdir().unwrap();
+        let chunk = "x".repeat(1024 * 1024);
+        let refs = "&a;".repeat(200);
+        let doc = format!(
+            "<?xml version=\"1.0\"?>\n<!DOCTYPE svg [ <!ENTITY a \"{chunk}\"> ]>\n\
+             <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><text>{refs}</text></svg>"
+        );
+        assert!(entity_expansion(&doc) > SVG_MAX_BYTES);
+        let path = write(dir.path(), "laughs.svg", doc.as_bytes());
+        let err = convert_file(&path).unwrap_err();
+        assert!(
+            matches!(&err, EngineError::ConversionFailed(f) if f.reason == Some("svg_too_large")),
+            "{err:?}"
+        );
+
+        // Nested and looping entities are bounded too; a plain drawing and
+        // the usual Illustrator namespace entities cost nothing extra.
+        let nested = "<!DOCTYPE s [<!ENTITY a \"xxxxxxxxxx\"><!ENTITY b \"&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;\">\
+                      <!ENTITY c \"&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;\"><!ENTITY d \"&c;&c;&c;&c;&c;&c;&c;&c;&c;&c;\">\
+                      <!ENTITY e \"&d;&d;&d;&d;&d;&d;&d;&d;&d;&d;\"><!ENTITY f \"&e;&e;&e;&e;&e;&e;&e;&e;&e;&e;\">\
+                      <!ENTITY g \"&f;&f;&f;&f;&f;&f;&f;&f;&f;&f;\"><!ENTITY h \"&g;&g;&g;&g;&g;&g;&g;&g;&g;&g;\">]><s>&h;&h;</s>";
+        assert!(entity_expansion(nested) > SVG_MAX_BYTES);
+        let looped = "<!DOCTYPE s [<!ENTITY a \"&b;\"><!ENTITY b \"&a;\">]><s>&a;</s>";
+        assert!(entity_expansion(looped) > SVG_MAX_BYTES);
+        assert_eq!(
+            entity_expansion(std::str::from_utf8(RECT).unwrap()),
+            RECT.len() as u64
+        );
+        let ns = "<!DOCTYPE svg [<!ENTITY ns_svg \"http://www.w3.org/2000/svg\">]><svg xmlns=\"&ns_svg;\"/>";
+        assert!(entity_expansion(ns) < 200);
+    }
+
+    /// NFR (security): too many elements is `svg_too_large`, not a parse of
+    /// unbounded size.
+    #[test]
+    fn nfr_security_svg_node_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut doc =
+            String::from("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\">");
+        doc.push_str(&"<g/>".repeat(MAX_NODES as usize + 10));
+        doc.push_str("</svg>");
+        let path = write(dir.path(), "many.svg", doc.as_bytes());
+        let err = convert_file(&path).unwrap_err();
+        assert!(
+            matches!(&err, EngineError::ConversionFailed(f) if f.reason == Some("svg_too_large")),
+            "{err:?}"
+        );
+    }
+
+    /// NFR (security): the `<image>` resolver refuses every share spelling
+    /// (mixed slashes, escapes, `\\?\UNC\`, devices, `file://host/`) before
+    /// anything is opened, and refuses a resolved path on a share too.
+    #[test]
+    fn nfr_security_svg_image_share_bypass_vectors() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().canonicalize().unwrap();
+        for href in [
+            r"\\attacker\share\x.png",
+            "//attacker/share/x.png",
+            r"/\attacker\share\x.png",
+            r"\/attacker/share/x.png",
+            r"\\?\UNC\attacker\share\x.png",
+            r"\\.\pipe\x",
+            r"\??\UNC\attacker\share\x.png",
+            "file://attacker/share/x.png",
+            "file:////attacker/share/x.png",
+            "file:///%5C%5Cattacker%5Cshare%5Cx.png",
+            "%5C%5Cattacker%5Cshare%5Cx.png",
+            "http://example.com/x.png",
+            "smb://host/x.png",
+            "",
+        ] {
+            assert!(local_only(href, &dir).is_none(), "{href}");
+        }
+        // The predicate is applied to the resolved path as well.
+        assert!(!super::super::local_ref::may_open(
+            Path::new(r"\\attacker\share\x.png"),
+            &dir
+        ));
     }
 
     /// A tiny 2 × 2 PNG for `<image>` tests.
@@ -536,34 +762,23 @@ mod tests {
     /// network never load; the drawing still converts without them.
     #[test]
     fn nfr_security_svg_local_only_table() {
-        // Pure classification, both path flavours.
-        for (href, windows) in [
-            (r"\\attacker\share\x.png", true),
-            ("//attacker/share/x.png", false),
-            ("file://attacker/share/x.png", false),
-            ("FILE://attacker/x.png", true),
-            ("http://example.com/x.png", false),
-            ("https://example.com/x.png", true),
-            ("smb://host/x.png", false),
-            ("", false),
-        ] {
-            assert_eq!(classify_href(href, windows), Href::Refused, "{href}");
-        }
+        // How a local href becomes a path, both path flavours.
+        assert_eq!(href_path("img/a.png", false), PathBuf::from("img/a.png"));
         assert_eq!(
-            classify_href("img/a.png", false),
-            Href::Path("img/a.png".into())
+            href_path(r"C:\pics\a.png", true),
+            PathBuf::from(r"C:\pics\a.png")
         );
         assert_eq!(
-            classify_href(r"C:\pics\a.png", true),
-            Href::Path(r"C:\pics\a.png".into())
+            href_path("file:///C:/pics/a%20b.png", true),
+            PathBuf::from("C:/pics/a b.png")
         );
         assert_eq!(
-            classify_href("file:///C:/pics/a%20b.png", true),
-            Href::Path("C:/pics/a b.png".into())
+            href_path("file:///tmp/a.png", false),
+            PathBuf::from("/tmp/a.png")
         );
         assert_eq!(
-            classify_href("file:///tmp/a.png", false),
-            Href::Path("/tmp/a.png".into())
+            href_path("FILE://localhost/tmp/a.png", false),
+            PathBuf::from("/tmp/a.png")
         );
 
         // On disk: inside the folder only, symlinks and `..` resolved.
@@ -667,7 +882,7 @@ mod tests {
     /// with a reason of another route is ignored.
     #[test]
     fn worker_failure_line_round_trips() {
-        let failure = Failure::new("svg_too_large", "too big").param("limit", "64 MB");
+        let failure = Failure::new("svg_too_large", "too big").param("limit", "64");
         let stderr = format!("some noise\n{}\n", report_failure(&failure));
         assert_eq!(parse_failure(&stderr), Some(failure));
         assert_eq!(
