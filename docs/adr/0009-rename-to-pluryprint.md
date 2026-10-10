@@ -41,12 +41,15 @@ We rename the product to **Pluryprint** ("plural print": many files, one action)
 
 **Upgrading an existing install.** We migrate instead of starting fresh:
 
-- On every launch, before logging starts, the GUI and the CLI move what is still in the MaeclyPrint folders into the Pluryprint ones (`src-tauri/src/util/legacy.rs`). It moves entry by entry, merges folders present on both sides, **never overwrites**, and logs each move and each entry it had to leave. Old `maeclyprint-<date>.jsonl` logs are renamed to `pluryprint-`. It does nothing while a MaeclyPrint app holds its `instance.lock`, and `PLURYPRINT_SKIP_MIGRATION=1` turns it off. Once a file has moved it is gone from the old folder, so the step is idempotent.
-- Machine policies are read from the MaeclyPrint locations after the Pluryprint ones, with the same trust checks and a warning: a user process cannot move what an admin deployed.
+- On launch, before logging starts, the GUI and the CLI move what is still in the MaeclyPrint folders into the Pluryprint ones (`src-tauri/src/util/legacy.rs`). It moves entry by entry, merges folders present on both sides, **never overwrites what the user has**, and logs each move and each entry it had to leave. A file that holds only first-run defaults is set aside as `<name>.first-run.bak` for the old one: a first launch deferred by a running MaeclyPrint writes such files before the migration can run. Old `maeclyprint-<date>.jsonl` logs are renamed to `pluryprint-`. A copy across volumes is written to a temporary and renamed into place, so a failed copy leaves nothing behind.
+- The move runs under three locks: its own `migration.lock` (one process at a time; the GUI keeps it until it holds its instance lock), Pluryprint's `instance.lock` (a running Pluryprint defers it) and MaeclyPrint's `instance.lock`, held for the whole move. A lock that cannot be checked counts as held. `PLURYPRINT_SKIP_MIGRATION=1` turns the step off.
+- A run without failures writes `legacy-migration.done`; later launches skip the step, so entries it had to leave are reported once.
+- The new bundle identifier gives the packaged webview an empty storage, so `config.toml` now carries the first-run flags (`[app].locale_detected`, `[app].onboarding_complete`) that used to live there; an upgrade sets them. Theme and density were already in `config.toml`.
+- Machine policies are read from the MaeclyPrint locations after every Pluryprint one (registry or file), with the same trust checks and a warning: a user process cannot move what an admin deployed.
 - `MAECLYPRINT_*` variables are read when the `PLURYPRINT_*` one is unset, with one warning per variable.
 - `maeclyprint:*` `localStorage` keys move to `pluryprint:*` before the first paint (useful in `pnpm dev` and the browser preview; see Negative below for the packaged app).
 - Profile files exported as `.maecly-profile.toml` still import: the importer reads any `.toml`.
-- The NSIS installer's `NSIS_HOOK_PREINSTALL` (`src-tauri/windows/installer-hooks.nsh`) runs the MaeclyPrint uninstaller silently, which keeps user data, and then deletes any registration left behind: the Uninstall key, `HKCU\Software\Maecly\MaeclyPrint`, the `*\shell\MaeclyPrint` and `Directory\shell\MaeclyPrint` verbs, and the shortcuts.
+- The NSIS installer's `NSIS_HOOK_PREINSTALL` (`src-tauri/windows/installer-hooks.nsh`) runs the per-user MaeclyPrint uninstaller silently and in place (`_?=` with the unquoted folder from `HKCU\Software\Maecly\MaeclyPrint`), which keeps user data. Only when it succeeds does the hook delete any registration left behind: the Uninstall key, `HKCU\Software\Maecly\MaeclyPrint`, the `*\shell\MaeclyPrint` and `Directory\shell\MaeclyPrint` verbs, and the shortcuts. A per-machine MaeclyPrint MSI (built before `c1466b4`) needs elevation to remove: the hook offers it, and `msiexec` asks for administrator approval; a silent install leaves it in place.
 
 ## Alternatives Considered
 
@@ -70,7 +73,7 @@ We rename the product to **Pluryprint** ("plural print": many files, one action)
 
 ### Negative
 
-- The new bundle identifier gives the packaged app a new webview storage folder. Appearance, the "onboarding done" flag and the detected-language flag kept in `localStorage` start fresh once: onboarding shows again and the theme follows the saved setting only after the backend loads. The settings themselves live in `config.toml`, which migrates.
+- The new bundle identifier gives the packaged app a new webview storage folder, so what `localStorage` cached starts empty once. The settings and the first-run flags live in `config.toml`, which migrates (the upgrade sets the flags), so onboarding does not show again and a chosen language is kept; the theme and density follow the saved setting once the backend loads, after a first paint with the defaults.
 - The single-instance lock is derived from the identifier, so an old MaeclyPrint and a new Pluryprint can run at the same time until the old one is uninstalled. The data migration waits while the old app runs.
 - On macOS, an in-place update from MaeclyPrint swaps the new bundle into the old `/Applications/MaeclyPrint.app` path. The Finder Services cache keeps the old "Print with MaeclyPrint" entry until it refreshes (log out, or `/System/Library/CoreServices/pbs -update`).
 - Old names stay in the code on purpose (`util/legacy.rs`, `settings/policy.rs`, `shell-ext-win/build.rs`, `src/lib/legacyStorage.ts`, `src-tauri/windows/installer-hooks.nsh`). They can be removed once no supported version can upgrade from a MaeclyPrint build.
@@ -78,4 +81,4 @@ We rename the product to **Pluryprint** ("plural print": many files, one action)
 ### Risks / Open Questions
 
 - The NSIS hook could only be reviewed, not run, on the macOS development machine. Verify it on the Windows VM with a MaeclyPrint build installed before the first Pluryprint release.
-- If a user's new folder already has a file of the same name (for example after running a Pluryprint pre-release), the MaeclyPrint copy is left in place and logged, not merged. That is the safe choice, but the user may have to pick by hand.
+- If a user's new folder already has a file of the same name that holds more than first-run defaults (for example after using a Pluryprint pre-release), the MaeclyPrint copy is left in place and logged once, not merged. That is the safe choice, but the user may have to pick by hand.
