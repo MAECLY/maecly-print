@@ -28,7 +28,7 @@ A single scrolling column: an identity header, the update-check action and its r
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Identity header** — the app icon, `MaeclyPrint`, and a version line `{version} · build {build_date} · {channel} channel` (channel from the settings store). Outside the Tauri host it degrades to `0.0.1-dev · standalone web preview`.
+- **Identity header** — the app icon, `MaeclyPrint`, and a version line `{version} · build {build_date} · {channel} channel` (channel from the settings store). Outside the Tauri host (or until `app_info` answers) there is no version to show, so the line reads `— · standalone web preview` (`UNKNOWN_VERSION`); no frontend version literal exists to go stale.
 - **Update check** — the primary **Check for updates** button (a spinner while checking), followed by a result card once a check runs.
 - **Components / File locations / Links** — described below. User-facing copy names no implementation language or milestone: the paths section is titled *File locations*.
 
@@ -58,6 +58,11 @@ If the call fails (the expected case in the standalone Vite dev server, which ha
 | No releases published (GitHub `404`)     | Treated as a **valid up-to-date state** (`latest: null`, `available: false`) — the up-to-date card. |
 | Network / rate-limit / offline           | Error card with the short user-facing message and a **Retry** button.                       |
 
+The result card is one state of a single machine (the `update` state in `AboutScreen.tsx`): `idle` → `checking` → `done` / `error`, plus `deferred`, `skipped`, `installing`, `installed` and `installError`. Each replaces the card in place inside an `aria-live="polite"` region, so the change is announced (NFR-044).
+
+- **Remind me later** (`deferred`, FR-084) — session-scoped on purpose: the card is replaced by the line *Reminder postponed. Check again whenever you like.* Nothing is persisted, so the next launch-time check (or a manual one) offers the release again.
+- **Skip this version** (`skipped`, FR-084) — persisted; see below. Offered only when the check named a version.
+
 ### Install now (FR-082, FR-083, FR-084, FR-087)
 
 **Install now** calls `install_update`, which downloads the artifact that `latest.json` names for this platform, verifies its minisign signature against the key in `tauri.conf.json`, and installs it per-user ([ADR-0008](../adr/0008-installer-nsis-per-user.md)). The card shows **Downloading and verifying {version}…** with a percentage from the `update-download-progress` event, then one of:
@@ -69,9 +74,9 @@ If the call fails (the expected case in the standalone Vite dev server, which ha
 | Bad signature (`UpdateSignatureInvalid`) | "The downloaded update failed its signature check and was not installed. Nothing on this computer was changed…", with **Open logs folder** and **Release notes**. |
 | Nothing installable (`installed: null`) or any other failure | The reason, with the same two buttons. |
 
-**FR-087:** when `latest` is a major jump from `current` (`1.x` → `2.x`), Install now first opens a `ConfirmDialog` ("Install a major update?"). Only confirming it passes `allowMajor: true`, and the backend refuses a major install without it.
+**FR-087:** when `latest` is a major jump from `current` (`1.x` → `2.x`), Install now first opens a `ConfirmDialog` ("Install a major update?"). Only confirming it passes `allowMajor: true` together with the confirmed version, and the backend refuses a major install without it; if the manifest has meanwhile moved to a *different* major version, it refuses with `major_update_changed` instead of installing on a confirmation that was not for it.
 
-**Skip this version** persists the tag (`set_skipped_update_version`) and the screen opens on "Skipping {version}" with **Undo**. `get_update_state` drops a skip that is at or below the running version, so the line goes away once the user has moved past it.
+**Skip this version** persists the tag (`set_skipped_update_version`) in `update-state.json` and shows *Skipping {version}. A newer release will still be offered.* with **Undo**. The screen opens on that line on every later visit (`get_update_state` on mount), and the launch-time check stays silent about that release; a *newer* one prompts again (version-aware compare, not string compare). **Undo** clears the skip (`set_skipped_update_version(null)`) and re-runs the check. `get_update_state` drops a skip that is at or below the running version, so the line goes away once the user has moved past it.
 
 Rate-limit (`403`/`429`) and transport failures map to friendly strings (`GitHub rate limit reached — try again later`, `could not reach github.com — check your connection`); an unparseable version on either side never spuriously prompts an update. `url` and `notes` are populated only when an update is actually available.
 
@@ -99,9 +104,9 @@ A row of buttons, each opening an allow-listed external URL through `open_extern
 | **License GPL-3.0** | `open_external(LICENSE_URL)` — `…/blob/main/LICENSE`                 |
 | **Documentation**   | `open_external(DOCS_URL)` — `…/tree/main/docs`                       |
 | **Report an issue** | `report_issue("")` — opens a prefilled GitHub new-issue page         |
-| repository (inline) | `open_external(REPO_URL)` — `github.com/maecly/maeclyprint`          |
+| repository (footer) | `open_external(REPO_URL)` — `github.com/MAECLY/maecly-print`         |
 
-`report_issue` seeds the issue body with the app version, build date, and OS/arch (percent-encoded so newlines and `#` survive), followed by the user's text. `open_external` is restricted to an **HTTPS allow-list**: exactly `github.com`, `maecly.com`, or any `*.maecly.com` subdomain — a bare host, no `userinfo@` and no `:port`, so `https://github.com@evil.example` or `https://github.com.evil.com` are rejected. Any other URL returns `InvalidRequest` rather than opening. All the URLs above live under `github.com/maecly`, which the allow-list permits.
+`report_issue` seeds the issue body with the app version, build date, and OS/arch (percent-encoded so newlines and `#` survive), followed by the user's text. `open_external` is restricted to an **HTTPS allow-list**: exactly `github.com`, `maecly.com`, or any `*.maecly.com` subdomain — a bare host, no `userinfo@` and no `:port`, so `https://github.com@evil.example` or `https://github.com.evil.com` are rejected. Any other URL returns `InvalidRequest` rather than opening. All the URLs above live under `github.com/MAECLY/maecly-print` (`src/lib/repo.ts`), which the allow-list permits. `REPO_URL` must match the crate's `repository` in `src-tauri/Cargo.toml` (what Rust reads for the update check and the issue URL); `AboutScreen.test.tsx` fails if they drift apart. The footer under the links reads *MaeclyPrint is free software licensed under GPL-3.0. No telemetry, no cloud, no account. Source at* followed by the repository link.
 
 ## Per-platform notes
 
@@ -109,7 +114,7 @@ The screen is platform-neutral. The three shell-outs (`open_logs_folder`, `open_
 
 ## Edge & empty states
 
-- **No Tauri host (standalone preview)** — every backend-backed control is disabled; the version line falls back to `0.0.1-dev · standalone web preview`; an `IPC unavailable` card explains that `pnpm tauri dev` is needed for the real bridge.
+- **No Tauri host (standalone preview)** — every backend-backed control is disabled; the version line falls back to `— · standalone web preview`; an `IPC unavailable` card explains that `pnpm tauri dev` is needed for the real bridge.
 - **Update check before it runs** — no card at all (`idle`); the card appears only after a check.
 - **A release with no notes** — the update-available card still shows; `notes` is simply absent (`body` tolerated as missing/empty upstream).
 
@@ -119,7 +124,7 @@ The screen is platform-neutral. The three shell-outs (`open_logs_folder`, `open_
 | ----------------------- | ------------------------------------ | ------------------------------------------------------------ |
 | Identity + paths        | `app_info() => AppInfo`              | Version, build date, config/data/log dirs, os, arch.          |
 | Check for updates       | `check_for_updates() => UpdateCheck` | Read-only GitHub `releases/latest`; 404 = up-to-date. |
-| Install now / Restart   | `install_update(allowMajor) => UpdateInstallResult`, `restart_app()` | Signed download + per-user install; `update-download-progress` events. |
+| Install now / Restart   | `install_update(allowMajor, confirmedVersion) => UpdateInstallResult`, `restart_app()` | Signed download + per-user install; `update-download-progress` events. |
 | Skip / Undo             | `get_update_state()`, `set_skipped_update_version(v)` | Persisted in `update-state.json`; stale skips are pruned. |
 | Open logs folder        | `open_logs_folder() => void`         | Creates the dir, reveals it in the OS file browser.           |
 | Release notes / License / Docs / repo | `open_external(url) => void`  | HTTPS allow-list (github.com / maecly.com / *.maecly.com).    |
@@ -130,7 +135,7 @@ See [ipc-and-cli.md § diagnostics/update](../04-architecture/ipc-and-cli.md) fo
 ## Implementation status
 
 - **M0** — front-end only; version and paths were placeholders (superseded).
-- **M1 (current)** — **the About surface is real.** Rust: `src-tauri/src/ipc/diag.rs` (`app_info`, `open_logs_folder`, `report_issue`, `open_external`) + `src-tauri/src/update/mod.rs` / `src-tauri/src/ipc/update.rs` (`check_for_updates`). Frontend: `AboutScreen.tsx`, `src/lib/repo.ts`. The update logic is almost entirely pure functions (`repo_slug` / `parse_release` / `is_newer` / `evaluate`) with co-located tests; only `fetch_latest` touches the network. Frontend coverage: `src/screens/AboutScreen.test.tsx` (FR-110).
+- **M1 (current)** — **the About surface is real.** Rust: `src-tauri/src/ipc/diag.rs` (`app_info`, `open_logs_folder`, `report_issue`, `open_external`) + `src-tauri/src/update/mod.rs` / `src-tauri/src/ipc/update.rs` (`check_for_updates`, `install_update`, `get_update_state`, `set_skipped_update_version`, `restart_app`). Frontend: `AboutScreen.tsx`, `src/lib/repo.ts`. The update logic is almost entirely pure functions (`repo_slug` / `parse_release` / `is_newer` / `evaluate`) with co-located tests; only `fetch_latest` touches the network. Frontend coverage: `src/screens/AboutScreen.test.tsx` (FR-110).
 - **Follow-ups**
   - **Release pipeline** — install works end to end against a signed `latest.json`, but no workflow publishes one yet.
   - **Channel feeds (beta/nightly)** — the configured channel is read but every check hits `releases/latest`; per-channel feeds land with the updater.
@@ -139,6 +144,6 @@ See [ipc-and-cli.md § diagnostics/update](../04-architecture/ipc-and-cli.md) fo
 ## Open questions for v1+
 
 - Should the update card also render the release notes markdown inline, or keep linking out to the release page?
-- Should a background startup check (Settings → *Check on startup*) surface its result here too? Today it raises a toast only, and About finds the same release again on demand; the launch-time result itself is not kept.
+- Should a background startup check (Settings → *Check on startup*: 30 s after launch, at most once per 24 h) surface its result here too? Today it raises a toast only, and About finds the same release again on demand; the launch-time result itself is not kept.
 
 These are tracked as design discussions, not commitments.
