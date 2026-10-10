@@ -8,15 +8,17 @@
 | ---- | ------------------------------------------------------------------------------ | -------- | ---------- |
 | 0001 | [Stack: Tauri 2 + Rust + React (TypeScript)](./0001-stack-tauri-rust-react.md) | Accepted | 2026-05-03 |
 | 0002 | [License: GPLv3](./0002-license-gplv3.md)                                       | Superseded by ADR-0010 | 2026-05-03 |
-| 0003 | [Hybrid print-engine strategy](./0003-hybrid-print-engine-strategy.md)          | Accepted | 2026-05-03 |
+| 0003 | [Hybrid print-engine strategy](./0003-hybrid-print-engine-strategy.md)          | Accepted; HTML/Markdown/text converters superseded by ADR-0012 | 2026-05-03 |
 | 0004 | [Auto-updater: Tauri Updater plugin](./0004-auto-updater-tauri-builtin.md)      | Accepted | 2026-05-03 |
-| 0005 | [Shell extension: Sparse MSIX + IExplorerCommand](./0005-shell-extension-sparse-msix.md) | Accepted | 2026-05-03 |
+| 0005 | [Shell extension: Sparse MSIX + IExplorerCommand](./0005-shell-extension-sparse-msix.md) | Superseded by ADR-0013 | 2026-05-03 |
 | 0006 | [Installer: Inno Setup (+ Sparse MSIX for shell ext)](./0006-installer-inno-setup.md) | Superseded by ADR-0008 | 2026-05-03 |
 | 0007 | [Windows-first, macOS-second roadmap](./0007-windows-first-mac-second.md)       | Accepted | 2026-05-03 |
 | 0008 | [Installer: per-user NSIS with signed updater artifacts](./0008-installer-nsis-per-user.md) | Accepted | 2026-10-09 |
 | 0009 | [Rename the product from MaeclyPrint to Pluryprint](./0009-rename-to-pluryprint.md) | Accepted | 2026-10-09 |
 | 0010 | [Relicense to AGPL-3.0](./0010-relicense-to-agpl-3.0.md)                        | Accepted | 2026-10-09 |
 | 0011 | [Release channel on GitHub Releases, beta manifest, no OS code signing](./0011-release-channel.md) | Accepted | 2026-10-10 |
+| 0012 | [The system web view renders HTML, Markdown and text, in a worker process](./0012-system-web-view-renderer.md) | Accepted | 2026-10-10 |
+| 0013 | [The Explorer command ships as a per-user registry verb](./0013-explorer-command-per-user-verb.md) | Accepted | 2026-10-10 |
 
 ## Format
 

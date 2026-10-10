@@ -1,8 +1,10 @@
 # ADR-0005: Shell extension — Sparse MSIX + IExplorerCommand
 
+> Superseded by [ADR-0013](./0013-explorer-command-per-user-verb.md): the Rust `IExplorerCommand` DLL ships as a per-user registry verb, and the sparse package waits for a code-signing certificate.
+
 ## Status
 
-Accepted
+Superseded by ADR-0013
 
 ## Date
 
