@@ -296,6 +296,51 @@ fn fr_001_the_handoff_directory_matches_the_apps_rule() {
     );
 }
 
+/// The test above resolves the app's rule with *this* crate's `directories`,
+/// so it only proves agreement while both crates use the same release line.
+/// Keep them in lockstep: a bump on one side alone could move one producer or
+/// consumer of the handoff directory without any test noticing.
+#[test]
+fn fr_001_both_crates_resolve_paths_with_the_same_directories_release() {
+    let requirement = |manifest: &str| {
+        let line = manifest
+            .lines()
+            .find(|l| l.trim_start().starts_with("directories = "))
+            .expect("the manifest declares `directories`");
+        line.trim().to_owned()
+    };
+    assert_eq!(
+        requirement(&app_source("Cargo.toml")),
+        requirement(&app_source("../src-tauri/Cargo.toml")),
+    );
+}
+
+/// The handoff directory, byte for byte, as 0.0.1 resolved it. Literals on
+/// purpose: a `directories` upgrade that moved `data_local_dir` would move the
+/// app's side too, and the rule-derived test above would still pass.
+#[test]
+fn fr_001_the_handoff_directory_is_pinned_byte_for_byte() {
+    let dir = handoff::handoff_dir()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    #[cfg(windows)]
+    {
+        let local = std::env::var("LOCALAPPDATA").expect("LOCALAPPDATA is set");
+        assert_eq!(dir, format!(r"{local}\Maecly\Pluryprint\data\handoff"));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").expect("HOME is set");
+        assert_eq!(
+            dir,
+            format!("{home}/Library/Application Support/com.Maecly.Pluryprint/handoff")
+        );
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let _ = dir;
+}
+
 /// A drift detector, not a style check: the only automated link between the two
 /// schemas is reading the consumer's source and confirming the names and limits
 /// it declares are still the ones written here.
