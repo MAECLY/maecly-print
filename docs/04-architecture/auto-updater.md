@@ -1,6 +1,6 @@
 # Update Check and Install
 
-> **TL;DR** — Two steps. The **check** asks the GitHub Releases API (`https://api.github.com/repos/<owner>/<repo>/releases/latest`) whether a newer tag exists and compares it to the running version with semver precedence. The **install** runs only when the user asks for it (About → **Install now**, or `pluryprint update install`): `tauri-plugin-updater` downloads the artifact named by `latest.json`, verifies its minisign signature against the public key in `tauri.conf.json`, and installs it per-user (§10, [ADR-0008](../adr/0008-installer-nsis-per-user.md)). `updates.maecly.com` does not exist and is not contacted.
+> **TL;DR** — Two steps, one manifest. The **check** reads the updater manifest (`latest.json`) of the user's channel from GitHub Releases — stable: `releases/latest/download/latest.json`; beta and nightly: the `channel-beta` release's copy — and compares its `version` to the running one with semver precedence. The **install** runs only when the user asks for it (About → **Install now**, or `pluryprint update install`): `tauri-plugin-updater` downloads the artifact named by that same manifest, verifies its minisign signature against the public key in `tauri.conf.json`, and installs it per-user (§10, [ADR-0008](../adr/0008-installer-nsis-per-user.md), [ADR-0011](../adr/0011-release-channel.md)). The GitHub REST API and `updates.maecly.com` are not contacted.
 
 ## 0. Status and scope
 
@@ -15,55 +15,54 @@
 | Install / replace the running binary      | ✅            | `install_update` IPC command, `pluryprint update install [--yes]` |
 | Signature verification (minisign/Ed25519) | ✅            | `tauri-plugin-updater`, against `plugins.updater.pubkey` |
 | Major version needs explicit opt-in (FR-087) | ✅         | `update::install::is_major_bump` + `allowMajor` / `--yes` |
-| Separate `beta` / `nightly` release feeds | ❌            | the preference is stored; every check hits `releases/latest` |
-| A release pipeline that publishes signed artifacts | ❌   | no `release.yml` yet |
+| Stable and beta feeds (FR-085)            | ✅            | `update::install::default_endpoint`; nightly follows beta (no nightly builds) |
+| A release pipeline that publishes signed artifacts | ✅ (not yet run) | `.github/workflows/release.yml`, `release-channels.yml`; see [releasing.md](../07-build-and-release/releasing.md) |
 
 §1–§7 describe the check. §10 describes the install.
 
-## 1. Why a read-only check
+## 1. One source of truth
 
-The check is deliberately the smallest thing that answers the only question a user actually asks — "am I running the current version?" — without owning a release CDN, a signing key, or an in-process binary-replacement path. Distribution is GitHub Releases; the user follows the link and installs the artifact the same way they installed the app.
+The check answers the only question a user actually asks — "am I running the current version?" — from the **same file the installer uses**. Reading the updater manifest rather than the GitHub REST API means the version the About screen announces is the version `update install` installs, the beta channel works for both, there is no anonymous 60-requests-an-hour limit, and nothing asks `api.github.com` about a repository that is private until the first stable release.
 
-Everything except the one network call is a pure function with co-located tests (`repo_slug` / `parse_release` / `is_newer` / `evaluate` / `interpret_response` / `interpret_repo_probe` / `due_for_check` / `should_check_on_startup` / `should_notify`). `fetch_latest` is the only part that touches the network and is kept tiny so the rest is reasoned about — and tested — entirely offline.
+Everything except the one network call is a pure function with co-located tests (`parse_manifest` / `interpret_manifest_response` / `is_newer` / `evaluate` / `due_for_check` / `should_check_on_startup` / `should_notify`). `fetch_manifest` is the only part that touches the network and is kept tiny so the rest is reasoned about — and tested — entirely offline.
 
 ## 2. The request
 
 ```
-GET https://api.github.com/repos/{owner}/{repo}/releases/latest
+GET https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json          # stable
+GET https://github.com/MAECLY/maecly-print/releases/download/channel-beta/latest.json    # beta, nightly
 User-Agent: Pluryprint/<version>
-Accept: application/vnd.github+json
-X-GitHub-Api-Version: 2022-11-28
+Accept: application/json
 ```
 
-- `{owner}/{repo}` is parsed at compile time from the crate's `repository` URL (`CARGO_PKG_REPOSITORY`) by `repo_slug()`. A URL that is not a recognizable `https://github.com/<owner>/<repo>` yields "repository not configured" rather than a bogus API path.
-- The client is **`ureq`** (blocking, 10-second timeout). There is no `reqwest` and no async runtime in the update path.
+- The channel comes from `updater.channel` (`update::install::default_endpoint`). `PLURYPRINT_UPDATE_ENDPOINT` replaces it for local end-to-end testing (release builds still require `https`), and then drives the check, the launch-time check and the install alike (`fetch_configured_latest`).
+- The client is **`ureq`** (blocking, 10-second timeout). There is no `reqwest` and no async runtime in the check.
 - A system proxy is honoured from the standard environment variables — the first of `HTTPS_PROXY` / `https_proxy` / `HTTP_PROXY` / `http_proxy` that parses. `ureq` does not read these itself, so `build_agent()` wires them explicitly. Only HTTP `CONNECT` proxies are supported (the `socks-proxy` feature is off), so a `socks://` value fails to parse and is skipped — the connection is then direct.
 - **No request body, no identifiers, no telemetry.** GitHub sees a plain unauthenticated GET.
 
 ### 2.1 Status → outcome
 
-`interpret_response(status, body)` owns the whole mapping, so the decision table is unit-tested without a network:
+`interpret_manifest_response(status, body, page)` owns the whole mapping, so the decision table is unit-tested without a network:
 
 | Status | Outcome |
 | ------ | ------- |
-| `200` + parseable release | `Ok(Some(ReleaseInfo))` |
-| `200` + unparseable body  | **Error.** Reporting "you're up to date" off an unreadable payload would be a lie. |
-| `404`                     | `Ok(None)` — no releases published yet |
-| `403` / `429`             | Error: "GitHub rate limit reached — try again later" |
-| anything else             | Error: "github.com returned an unexpected status (N)" |
-| transport failure         | Error: "could not reach github.com — check your connection" |
-
-**The 404 probe.** GitHub answers `404` both for "this repo has no releases" and for "this repo does not exist", so a wrong `repository` slug would otherwise render as a reassuring "You're up to date" forever. On that one branch only, a second request probes `GET /repos/{owner}/{repo}`; `interpret_repo_probe` turns a `404` there into a hard "the configured repository was not found — this build's repository URL is wrong", and treats every other status (including a rate-limited `403`) as inconclusive, i.e. "the repo exists, it just has no releases yet". The happy path stays a single request.
+| `200` + a manifest with a `version` | `Ok(Some(ReleaseInfo))` |
+| `200` + unparseable body or no version | **Error** (`bad_response`). Reporting "you're up to date" off an unreadable payload would be a lie. |
+| `404`                     | `Ok(None)` — nothing published on this channel yet. While the repository is private, every anonymous request lands here too. |
+| `403` / `429`             | Error (`rate_limited`): "the update server is limiting requests — try again later" |
+| anything else             | Error (`bad_status`, with the status) |
+| transport failure         | Error (`offline`): "could not reach the update server — check your connection" |
 
 ### 2.2 Parsed payload
 
-Only three fields are read from the release JSON:
+Only two fields are read from the manifest:
 
-| Field       | Required | Used for |
-| ----------- | -------- | -------- |
-| `tag_name`  | yes      | The version compared against the running one |
-| `html_url`  | no       | The link shown when an update is available |
-| `body`      | no       | Release notes (markdown) shown in the prompt |
+| Field     | Required | Used for |
+| --------- | -------- | -------- |
+| `version` | yes      | The version compared against the running one |
+| `notes`   | no       | Release notes shown in the prompt |
+
+The link shown with an available update is the release page built from the version (`release_page`: `…/releases/tag/vX.Y.Z`), the tag `release.yml` creates.
 
 ## 3. Version comparison
 
@@ -123,7 +122,7 @@ The state is stamped whenever a check **completed**, including one that found no
 | Surface | How |
 | ------- | --- |
 | React (About screen) | `commands.checkForUpdates()`, `commands.getUpdateState()`, `commands.setSkippedUpdateVersion(v)`; passive notification via the `update-available` event |
-| CLI | `pluryprint update check [--json]` — the same `evaluate()` over the same feed |
+| CLI | `pluryprint update check [--json]` — the same `evaluate()` over the same manifest |
 | CLI | `pluryprint update channel [stable\|beta\|nightly]` — reads/writes `updater.channel` in `config.toml` |
 | React (About screen) | `commands.installUpdate(allowMajor)`, `commands.restartApp()`; progress via the `update-download-progress` event |
 | CLI | `pluryprint update install [--yes]` — the same install core; exit 11 on failure, 12 when the prompt is declined; on Windows refused (exit 1) while the app is open, and the result printed at installer hand-off (see [ipc-and-cli.md](./ipc-and-cli.md#update-install)) |
@@ -140,17 +139,24 @@ check_on_startup = true
 
 Those are the only two `[updater]` keys `settings::UpdaterCfg` defines. There is no `startup_delay_seconds` and no `include_prerelease`; the delay is the `STARTUP_CHECK_DELAY` constant.
 
-**The channel is recorded but not yet honoured.** Every check hits `releases/latest` regardless of the value, because there are no separate beta/nightly feeds. This is stated on the type itself (`UpdaterCfg`'s doc comment) so a reader of the generated bindings sees it too.
+**The channel picks the manifest** (FR-085, [ADR-0011](../adr/0011-release-channel.md)):
+
+| Channel | Manifest | Receives |
+| --- | --- | --- |
+| `stable` (default) | `releases/latest/download/latest.json` | Final releases only |
+| `beta` | the `latest.json` asset of the fixed `channel-beta` prerelease | Every prerelease **and** every stable release: `release-channels.yml` moves that manifest forward on every publish, so a beta user is offered the stable release of the same version (FR-086) |
+| `nightly` | same as beta | No nightly builds are published |
+
+Switching back to stable never offers an older version (semver precedence decides, §3). There is no confirmation when switching to a lower channel; the Settings note says what each channel receives.
 
 ## 7. Failure modes
 
 | Failure | Handling |
 | ------- | -------- |
-| DNS / connection failure | "could not reach github.com — check your connection". Automatic check: silent (`None`). Manual check: shown as `UpdateCheckFailed`; CLI exits 10. |
-| `403` / `429` rate limit | "GitHub rate limit reached — try again later". Same silent/loud split. |
+| DNS / connection failure | `offline`. Automatic check: silent (`None`). Manual check: shown as `UpdateCheckFailed`; CLI exits 10. |
+| `403` / `429` | `rate_limited`. Same silent/loud split. |
 | `200` with an unreadable body | Error, never "up to date". |
-| `404` on `releases/latest`, repo exists | Normal state: no releases yet, `available = false`. |
-| `404` on `releases/latest`, repo missing | Hard error naming the misconfiguration. |
+| `404` on the manifest | Nothing published on this channel (or the repository is still private): `available = false`. |
 | Unparseable running version or tag | Logged; treated as "not newer". |
 | Corrupt `update-state.json` | Logged and ignored; degrades to "check again". |
 
@@ -164,8 +170,8 @@ There is no backoff ladder: the 24 h throttle *is* the rate limiter for the auto
 
 `src-tauri/src/update/install.rs` holds the policy, as pure functions with tests. The plugin does the download, signature check and platform install.
 
-1. **Find.** `find_update` builds an updater for the endpoint from `resolve_endpoint`: `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json`, or `PLURYPRINT_UPDATE_ENDPOINT` when it is set (local end-to-end testing; release builds still refuse plain `http`). When the variable is set, the *check* (`update check`, About, the launch-time check) reads the same manifest instead of the GitHub releases API, so a test server drives every step (`update::fetch_configured_latest`). Without it, a `404` from a private or deleted repository is reported as `repo_missing` ("the releases could not be reached"), not as a broken build. No newer version gives `installed: null`.
-2. **Gate.** `install` refuses a major jump (`is_major_bump`) unless `allow_major` is set, which only the About confirmation dialog or the CLI's `--yes` / typed "yes" provide (FR-087). The confirmation is bound to its version (`check_confirmation`): the About screen asks about the release the GitHub API named and passes that version along, and `install` reads the manifest again, so a major jump to any *other* version (a newer major published in between, or a manifest that differs from the API) is refused with `major_update_changed` until the user confirms it. A typed "yes" in the CLI pins the version the prompt named; `--yes` is a blanket opt-in. Minor and patch updates are not compared. It refuses a binary that is not inside an installed `.app` bundle on macOS (`check_installable_location`), so a dev build never replaces its build directory. One install runs at a time per process.
+1. **Find.** `find_update` builds an updater for the endpoint from `resolve_endpoint` (release builds refuse plain `http`). The endpoint is the channel's manifest (§6), the same one the check reads, or `PLURYPRINT_UPDATE_ENDPOINT` when it is set. A manifest that cannot be downloaded is `download_failed`; one that offers nothing for this platform is `no_platform_update` (`classify_error`). No newer version gives `installed: null`.
+2. **Gate.** `install` refuses a major jump (`is_major_bump`) unless `allow_major` is set, which only the About confirmation dialog or the CLI's `--yes` / typed "yes" provide (FR-087). The confirmation is bound to its version (`check_confirmation`): the About screen asks about the release the check named and passes that version along, and `install` reads the manifest again, so a major jump to any *other* version (a newer major published in between) is refused with `major_update_changed` until the user confirms it. A typed "yes" in the CLI pins the version the prompt named; `--yes` is a blanket opt-in. Minor and patch updates are not compared. It refuses a binary that is not inside an installed `.app` bundle on macOS (`check_installable_location`), so a dev build never replaces its build directory. One install runs at a time per process.
 3. **Download and verify.** `Update::download` streams the artifact (progress goes out as `update-download-progress`) and verifies the minisign signature against `plugins.updater.pubkey` before returning any bytes. Every signature failure maps to `IpcError::UpdateSignatureInvalid`, whose message says the update was **not** installed and nothing changed (`classify_error`).
 4. **Install.** Windows runs the per-user NSIS setup passively, and the app exits so the installer can restart it. macOS swaps the `.app` in place and returns `restart_required: true`, and About offers **Restart now** (`restart_app`).
 
@@ -179,3 +185,4 @@ Signing, the `latest.json` format and the CI setup are in [ci-cd.md § Updater s
 - [`ipc-and-cli.md`](./ipc-and-cli.md) — `UpdateCheck` / `UpdateState` wire types, the `update-available` event, and the `update` subcommand.
 - [`../09-legal/privacy.md`](../09-legal/privacy.md) — what this one network call means for privacy.
 - ADR [`0004-auto-updater-tauri-builtin`](../adr/0004-auto-updater-tauri-builtin.md) — the superseded-in-practice decision (see §8).
+- ADR [`0011-release-channel`](../adr/0011-release-channel.md) — the channels and the manifest per channel.
