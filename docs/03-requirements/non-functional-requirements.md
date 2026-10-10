@@ -81,7 +81,7 @@ Each NFR has a stable ID (`NFR-XXX`), a measurable target, and a verification me
 | ID | Requirement | Target | Verification |
 |---|---|---|---|
 | NFR-060 | Test coverage MUST be ≥70% for Rust code, ≥60% for TS code | **Gated in CI**, but with `cargo llvm-cov --fail-under-lines 70` (not tarpaulin) and Vitest thresholds currently set at 55/55/65/75 — below the 60% target, as a regression gate. Measured: Rust 80.4% lines, TS 61.4% lines. | CI gate |
-| NFR-061 | All public Rust functions MUST have rustdoc with at least a one-line summary | **The lint is NOT enabled.** `#![deny(missing_docs)]` appears in neither `src-tauri/src/lib.rs` nor `shell-ext-win/src/lib.rs`. In practice the tree is documented well above the bar, but nothing enforces it — a new undocumented `pub` item compiles clean. | Code review only |
+| NFR-061 | All public Rust functions MUST have rustdoc with at least a one-line summary | **Enforced.** `#![deny(missing_docs)]` is set in both `src-tauri/src/lib.rs` and `shell-ext-win/src/lib.rs`, so every reachable `pub` item — functions, types, fields, variants, constants, modules — needs a doc comment or the crate does not compile. Checked on macOS and on the Windows target (the `cfg(windows)` code). | Compiler (every CI build) |
 | NFR-062 | Documentation in this `docs/` folder MUST stay in sync with code; PRs that modify behavior MUST update affected docs | Reviewer checklist | Code review |
 | NFR-063 | The CI MUST be green for a PR to be merged (no override without maintainer approval and reason in commit) | Branch protection rule | GitHub settings |
 | NFR-064 | Build MUST be reproducible: same source + same toolchain version → byte-identical binary | `cargo build --locked --release` is reproducible | Quarterly verification |
@@ -138,6 +138,7 @@ Verified against the tree. Only NFRs whose status is non-obvious or has recently
 | **NFR-043** | Accessible names asserted across the primitives (`Checkbox`, `Select`, `Switch`, `Input`, `Kbd` — including a spoken alternative for glyph-only keys) and at screen level: Print Job copies/page range/option groups, the add-by-IP fields, every profile-editor field (named by its caption, described by its error, `aria-invalid`), the Settings engine fields, and per-job queue actions ("Cancel report.pdf"). |
 | **NFR-044** | Semantics rather than styling: `ConfirmDialog`, the add-printer dialog and the tour are labelled `role="dialog"` + `aria-modal`; `Switch`, `Checkbox` and `Kbd` expose their native semantics; `<html lang>` follows the UI locale; loading/empty notices and the About update result are live regions; Home's recent rows include the job status in their name. Screen-reader smoke testing remains manual. |
 | **NFR-045** | State is never carried by colour alone: `Segmented` exposes selection through `aria-checked`, `Checkbox` reports indeterminate as `mixed`, Board cards print their status, and the selected printer/profile rows carry `aria-current`. Token contrast (text ≥4.5:1, control outlines ≥3:1, text on accent ≥4.5:1, both themes) is asserted by `src/styles/tokens.test.ts`. |
+| **NFR-061** | **Newly met.** `#![deny(missing_docs)]` in `src-tauri/src/lib.rs` and `shell-ext-win/src/lib.rs`: an undocumented public item is a compile error, so the bar is held by every `cargo build`/`clippy`/`test` in CI rather than by review. Doc comments on `specta`-exported types also flow into `src/ipc/bindings.ts` as JSDoc. |
 | **NFR-071** | `src-tauri/src/platform/{windows.rs, cups.rs, macos/}`. |
 | **NFR-081** | `logging::Policy` — daily + size roll, swept at startup and on every roll by `retain_days` (14) and `retain_files` (7), whichever bites first. |
 
@@ -153,7 +154,6 @@ Verified against the tree. Only NFRs whose status is non-obvious or has recently
 | **NFR-050** | Neither the ESLint rule nor the (non-existent) Rust attribute is in place; externalisation is enforced by review. |
 | **NFR-051, NFR-052, NFR-053** | See the inline notes: no ICU, no gendered forms, adding a language touches code, no expansion testing. |
 | **NFR-060** | Gated, but with `cargo llvm-cov` rather than tarpaulin, and the TS thresholds sit below the 60% target as a regression gate. |
-| **NFR-061** | **`#![deny(missing_docs)]` is not enabled in either crate.** This is the requirement most likely to be assumed satisfied because the tree reads as though it were. It is not enforced; a new undocumented `pub` item compiles clean. Enabling it is a small, self-contained change. |
 | **NFR-064** | No reproducibility verification. |
 | **NFR-065** | No `cargo audit` / `pnpm audit` workflow. |
 | **NFR-070** | Only native architectures are built in CI; no universal macOS binary. |
