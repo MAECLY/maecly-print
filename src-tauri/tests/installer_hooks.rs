@@ -153,7 +153,9 @@ fn fr_001_uninstall_removes_what_install_wrote() {
             "uninstall must delete {key}"
         );
     }
-    assert!(un.contains("Delete /REBOOTOK \"$INSTDIR\\${PLURYPRINT_SHELLEXT_DLL}\""));
+    // Explorer may still hold the DLL: parked and deleted at the next logon.
+    assert!(un
+        .contains("!insertmacro PLURY_REMOVE_OR_PARK \"$INSTDIR\" \"${PLURYPRINT_SHELLEXT_DLL}\""));
 
     // SumatraPDF writes SumatraPDF-settings.txt next to itself when it
     // prints; Tauri's uninstaller only removes what it installed, so without
@@ -166,7 +168,7 @@ fn fr_001_uninstall_removes_what_install_wrote() {
         .find("!insertmacro PLURY_REMOVE_SUMATRA_SETTINGS \"$INSTDIR\"")
         .expect("uninstall removes the SumatraPDF settings");
     let rmdir = post
-        .find("RMDir /REBOOTOK \"$INSTDIR\"")
+        .find("RMDir \"$INSTDIR\"")
         .expect("uninstall removes the install folder");
     assert!(settings < rmdir, "the settings go before the folder");
 }

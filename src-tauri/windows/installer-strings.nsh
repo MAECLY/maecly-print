@@ -25,6 +25,9 @@ LangString PLURY_NOT_STARTED ${PLURY_LANG_ES} "no se inici${U+00F3}"
 LangString PLURY_PARK_LATE ${PLURY_LANG_EN} "Could not move this file aside; it stays until Explorer lets go of it:"
 LangString PLURY_PARK_LATE ${PLURY_LANG_ES} "No se pudo apartar este archivo; se queda hasta que el Explorador lo libere:"
 
+LangString PLURY_PARKED ${PLURY_LANG_EN} "In use by Explorer; moved aside and deleted at your next sign-in:"
+LangString PLURY_PARKED ${PLURY_LANG_ES} "En uso por el Explorador; se ha apartado y se borrar${U+00E1} la pr${U+00F3}xima vez que inicies sesi${U+00F3}n:"
+
 LangString PLURY_LEGACY_UNKNOWN_DIR ${PLURY_LANG_EN} "Cannot tell where ${PLURY_LEGACY_PRODUCT} is installed; leaving it in place"
 LangString PLURY_LEGACY_UNKNOWN_DIR ${PLURY_LANG_ES} "No se sabe d${U+00F3}nde est${U+00E1} instalado ${PLURY_LEGACY_PRODUCT}; se deja como est${U+00E1}"
 

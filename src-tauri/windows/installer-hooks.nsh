@@ -61,23 +61,87 @@
   !endif
 !endif
 
-; Explorer keeps the DLL loaded once a menu has been shown, and a loaded DLL
-; cannot be overwritten, but it can be renamed. Move the old copy aside under a
-; free name and let Windows delete it at the next restart.
+; ---- Files Explorer still holds ---------------------------------------------
+;
+; Explorer keeps the context-menu DLL loaded once a menu has been shown. A
+; loaded DLL cannot be deleted or overwritten, and this per-user (unelevated)
+; setup cannot have it deleted at the next restart either: Delete /REBOOTOK
+; and RMDir /REBOOTOK go through MoveFileEx(MOVEFILE_DELAY_UNTIL_REBOOT),
+; which writes HKLM PendingFileRenameOperations and needs administrator
+; rights. What a per-user process can do:
+;
+; - rename the loaded file within its volume (Explorer keeps its mapping);
+;   it goes to $TEMP\pluryprint-shellext-<N>.dll, so the install folder can
+;   be removed now, or, if that fails, next to itself as <file>.old<N>;
+; - delete the parked copy at the next logon, when no Explorer has loaded it
+;   (the verb and the CLSID are gone by then, or point at the new copy),
+;   through a value under HKCU\...\RunOnce, which needs no elevation.
+;
+; Each RunOnce value names one parked file and runs
+; "$SYSDIR\cmd.exe" /d /c del /f /q "<parked file>", plus rmdir "<DIR>" when
+; the file stayed in DIR (rmdir without /s only removes an empty folder, so a
+; reinstall made before that logon is never touched). Command lines stay far
+; below RunOnce's 260-character limit.
+!define PLURY_RUNONCE_KEY "Software\Microsoft\Windows\CurrentVersion\RunOnce"
+
+; Delete DIR\NAME now, or park it and have it deleted at the next logon.
+; Saves and restores the registers it uses ($R7, $R8, $R9).
+!macro PLURY_REMOVE_OR_PARK DIR NAME
+  Push $R7
+  Push $R8
+  Push $R9
+  Delete "${DIR}\${NAME}"
+  ${If} ${FileExists} "${DIR}\${NAME}"
+    ; $R7: where it went. $R8: the RunOnce value's command.
+    StrCpy $R7 ""
+    ${For} $R9 1 99
+      ${IfNot} ${FileExists} "$TEMP\pluryprint-shellext-$R9.dll"
+        ClearErrors
+        Rename "${DIR}\${NAME}" "$TEMP\pluryprint-shellext-$R9.dll"
+        ${IfNot} ${Errors}
+          StrCpy $R7 "$TEMP\pluryprint-shellext-$R9.dll"
+          StrCpy $R8 '"$SYSDIR\cmd.exe" /d /c del /f /q "$R7"'
+        ${EndIf}
+        ${ExitFor}
+      ${EndIf}
+    ${Next}
+    ${If} $R7 == ""
+      ${For} $R9 1 99
+        ${IfNot} ${FileExists} "${DIR}\${NAME}.old$R9"
+          ClearErrors
+          Rename "${DIR}\${NAME}" "${DIR}\${NAME}.old$R9"
+          ${IfNot} ${Errors}
+            StrCpy $R7 "${DIR}\${NAME}.old$R9"
+            StrCpy $R8 '"$SYSDIR\cmd.exe" /d /c del /f /q "$R7" & rmdir "${DIR}"'
+          ${EndIf}
+          ${ExitFor}
+        ${EndIf}
+      ${Next}
+    ${EndIf}
+    ${If} $R7 == ""
+      DetailPrint "$(PLURY_PARK_LATE) ${DIR}\${NAME}"
+    ${Else}
+      WriteRegStr HKCU "${PLURY_RUNONCE_KEY}" "Pluryprint cleanup $R7" $R8
+      DetailPrint "$(PLURY_PARKED) $R7"
+    ${EndIf}
+  ${EndIf}
+  Pop $R9
+  Pop $R8
+  Pop $R7
+!macroend
+
+; Have FILE deleted, and then DIR removed if it is empty, at the next logon:
+; for a file that is still in use (not a DLL, so it cannot be renamed while
+; running, as an uninstaller that just exited).
+!macro PLURY_DELETE_AT_LOGON FILE DIR
+  WriteRegStr HKCU "${PLURY_RUNONCE_KEY}" "Pluryprint cleanup ${FILE}" '"$SYSDIR\cmd.exe" /d /c del /f /q "${FILE}" & rmdir "${DIR}"'
+!macroend
+
+; Copies of the DLL an earlier update or uninstall parked next to it, and the
+; DLL itself when Explorer holds it (an update replaces it right after).
 !macro PLURYPRINT_MOVE_LOADED_DLL_ASIDE
   Delete "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old*"
-  IfFileExists "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}" 0 pluryprint_dll_free
-  StrCpy $R9 0
-  pluryprint_dll_next:
-    IntOp $R9 $R9 + 1
-    IntCmp $R9 100 pluryprint_dll_free 0 pluryprint_dll_free
-    IfFileExists "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old$R9" pluryprint_dll_next 0
-    ClearErrors
-    Rename "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}" "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old$R9"
-    IfErrors 0 +2
-      Goto pluryprint_dll_free
-    Delete /REBOOTOK "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old$R9"
-  pluryprint_dll_free:
+  !insertmacro PLURY_REMOVE_OR_PARK "$INSTDIR" "${PLURYPRINT_SHELLEXT_DLL}"
 !macroend
 
 !macro PLURYPRINT_REGISTER_VERB CLASS
@@ -150,26 +214,10 @@
 !macroend
 
 ; Explorer keeps the old context-menu DLL loaded once its menu has been shown,
-; so the old uninstaller cannot delete it, and a per-user process cannot have
-; it deleted at the next restart either (that needs HKLM). A loaded DLL can
-; still be moved within the volume: park it next to ours as
-; shell_ext_win.dll.old<N>, which the next update or uninstall deletes
-; (PLURYPRINT_MOVE_LOADED_DLL_ASIDE, NSIS_HOOK_POSTUNINSTALL). Uses $R5.
+; so the old uninstaller cannot delete it: park it and have it deleted at the
+; next logon (PLURY_REMOVE_OR_PARK above).
 !macro PLURY_PARK_LEGACY_DLL DIR
-  Delete "${DIR}\${PLURYPRINT_SHELLEXT_DLL}"
-  IfFileExists "${DIR}\${PLURYPRINT_SHELLEXT_DLL}" 0 plury_park_done
-  CreateDirectory "$INSTDIR"
-  StrCpy $R5 0
-  plury_park_next:
-    IntOp $R5 $R5 + 1
-    IntCmp $R5 100 plury_park_late 0 plury_park_late
-    IfFileExists "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old$R5" plury_park_next 0
-    ClearErrors
-    Rename "${DIR}\${PLURYPRINT_SHELLEXT_DLL}" "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old$R5"
-    IfErrors 0 plury_park_done
-  plury_park_late:
-    DetailPrint "$(PLURY_PARK_LATE) ${DIR}\${PLURYPRINT_SHELLEXT_DLL}"
-  plury_park_done:
+  !insertmacro PLURY_REMOVE_OR_PARK "${DIR}" "${PLURYPRINT_SHELLEXT_DLL}"
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
@@ -221,7 +269,7 @@
         ; Run in place, the uninstaller cannot delete itself or its folder.
         ; Windows also keeps its image locked for a moment after ExecWait
         ; returns, so the first Delete fails: retry for up to 5 s, then
-        ; leave it to the next restart.
+        ; leave it to the next logon (PLURY_DELETE_AT_LOGON).
         StrCpy $R4 0
         plury_unexe_retry:
           ClearErrors
@@ -232,14 +280,15 @@
           Sleep 100
           Goto plury_unexe_retry
         plury_unexe_late:
-          Delete /REBOOTOK "$R1\uninstall.exe"
+          !insertmacro PLURY_DELETE_AT_LOGON "$R1\uninstall.exe" "$R1"
         plury_unexe_done:
         ; SumatraPDF runs portable and writes its settings next to itself.
         ; The old uninstaller does not know that file, so without this its
         ; folders, and the install folder, would stay behind.
         !insertmacro PLURY_REMOVE_SUMATRA_SETTINGS "$R1"
         !insertmacro PLURY_PARK_LEGACY_DLL "$R1"
-        RMDir /REBOOTOK "$R1"
+        ; Empty unless something above is waiting for the next logon.
+        RMDir "$R1"
       ${Else}
         DetailPrint "$(PLURY_LEGACY_KEPT)"
         StrCpy $R3 0
@@ -376,11 +425,14 @@
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
-  ; Still loaded by Explorer: removed at the next restart instead.
-  Delete /REBOOTOK "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}"
-  Delete /REBOOTOK "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old*"
+  ; Still loaded by Explorer: parked and deleted at the next logon instead
+  ; (PLURY_REMOVE_OR_PARK). Copies an earlier update parked go too, unless
+  ; Explorer still holds one of them as well.
+  Delete "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old*"
+  !insertmacro PLURY_REMOVE_OR_PARK "$INSTDIR" "${PLURYPRINT_SHELLEXT_DLL}"
   !insertmacro PLURY_REMOVE_SUMATRA_SETTINGS "$INSTDIR"
-  RMDir /REBOOTOK "$INSTDIR"
+  ; Empty now, unless a parked copy stayed in it until the next logon.
+  RMDir "$INSTDIR"
 
   ; "Delete the application data" (Tauri's checkbox) only removes
   ; %APPDATA% and %LOCALAPPDATA%\<identifier>, which hold the web view's

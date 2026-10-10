@@ -106,7 +106,7 @@ fn nsis_hook_keeps_the_registration_when_the_old_uninstaller_fails() {
 /// The old uninstaller runs in place, so it is left behind, and Windows keeps
 /// its image locked for a moment after `ExecWait` returns: a single `Delete`
 /// failed on Windows 11 and left `%LOCALAPPDATA%\MaeclyPrint\uninstall.exe`
-/// on disk. The hook retries, then falls back to deleting it at restart.
+/// on disk. The hook retries, then has it deleted at the next logon.
 #[test]
 fn nsis_hook_retries_deleting_the_in_place_uninstaller() {
     let nsh = read("windows/installer-hooks.nsh");
@@ -124,7 +124,7 @@ fn nsis_hook_retries_deleting_the_in_place_uninstaller() {
     let delete = pos(r#"Delete "$R1\uninstall.exe""#);
     let check = pos("IfErrors 0 plury_unexe_done");
     let back = pos("Goto plury_unexe_retry");
-    let fallback = pos(r#"Delete /REBOOTOK "$R1\uninstall.exe""#);
+    let fallback = pos(r#"!insertmacro PLURY_DELETE_AT_LOGON "$R1\uninstall.exe" "$R1""#);
     let done = pos("plury_unexe_done:");
     assert!(exec < retry && retry < delete && delete < check && check < back);
     assert!(
@@ -142,7 +142,7 @@ fn nsis_hook_retries_deleting_the_in_place_uninstaller() {
         "the retry is bounded"
     );
     assert!(back < fallback && fallback < done);
-    let rmdir = pos(r#"RMDir /REBOOTOK "$R1""#);
+    let rmdir = pos(r#"RMDir "$R1""#);
     assert!(done < rmdir, "the folder goes once the uninstaller is gone");
 }
 
@@ -159,7 +159,7 @@ fn nsis_hook_removes_sumatra_settings_from_the_old_install_folder() {
         .expect("the takeover removes the SumatraPDF settings");
     let rmdir = code
         .iter()
-        .position(|l| *l == r#"RMDir /REBOOTOK "$R1""#)
+        .position(|l| *l == r#"RMDir "$R1""#)
         .expect("the old folder is removed");
     assert!(take < rmdir);
     let body = nsh
@@ -184,8 +184,8 @@ fn nsis_hook_removes_sumatra_settings_from_the_old_install_folder() {
 
 /// Explorer keeps the old context-menu DLL loaded once its menu was shown, so
 /// the old uninstaller cannot delete it and the old folder stayed behind with
-/// it. The takeover moves it next to the new DLL under the `.old<N>` names
-/// that the next update and the uninstaller already clean up.
+/// it. The takeover parks it with the same macro the uninstaller uses, which
+/// works unelevated (PLURY_REMOVE_OR_PARK, checked below).
 #[test]
 fn nsis_hook_parks_a_loaded_legacy_dll_where_it_gets_cleaned_up() {
     let nsh = read("windows/installer-hooks.nsh");
@@ -200,7 +200,7 @@ fn nsis_hook_parks_a_loaded_legacy_dll_where_it_gets_cleaned_up() {
         .expect("after the old uninstaller ran");
     let rmdir = code
         .iter()
-        .position(|l| *l == r#"RMDir /REBOOTOK "$R1""#)
+        .position(|l| *l == r#"RMDir "$R1""#)
         .expect("the old folder is removed");
     assert!(ran < park && park < rmdir);
 
@@ -209,32 +209,101 @@ fn nsis_hook_parks_a_loaded_legacy_dll_where_it_gets_cleaned_up() {
         .nth(1)
         .and_then(|rest| rest.split("!macroend").next())
         .expect("macro body");
-    let body = nsis_code(body);
-    let rename = body
-        .iter()
-        .find(|l| l.starts_with("Rename "))
-        .expect("the DLL is moved, which works while it is loaded");
     assert_eq!(
-        *rename,
-        r#"Rename "${DIR}\${PLURYPRINT_SHELLEXT_DLL}" "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old$R5""#
+        nsis_code(body),
+        [r#"!insertmacro PLURY_REMOVE_OR_PARK "${DIR}" "${PLURYPRINT_SHELLEXT_DLL}""#]
     );
+}
+
+/// NFR-020: a per-user setup cannot schedule a delete for the next restart
+/// (`Delete /REBOOTOK` writes HKLM `PendingFileRenameOperations`), so the DLL
+/// Explorer holds is renamed away (which works while it is loaded) and an
+/// HKCU `RunOnce` value deletes it at the next logon.
+#[test]
+fn nfr_020_a_loaded_dll_is_parked_and_deleted_at_the_next_logon() {
+    let nsh = read("windows/installer-hooks.nsh");
+    let code = nsis_code(&nsh);
     assert!(
-        body.iter()
-            .any(|l| l.starts_with("IntCmp $R5 ") && l.contains("plury_park_late")),
-        "the search for a free name is bounded"
+        !code.iter().any(|l| l.contains("/REBOOTOK")),
+        "nothing may rely on /REBOOTOK in a per-user setup"
     );
+    let body = nsh
+        .split("!macro PLURY_REMOVE_OR_PARK DIR NAME")
+        .nth(1)
+        .and_then(|rest| rest.split("!macroend").next())
+        .expect("macro body");
+    let body = nsis_code(body);
+    let pos = |needle: &str| {
+        body.iter()
+            .position(|l| *l == needle)
+            .unwrap_or_else(|| panic!("missing `{needle}`"))
+    };
+    let delete = pos(r#"Delete "${DIR}\${NAME}""#);
+    let to_temp = pos(r#"Rename "${DIR}\${NAME}" "$TEMP\pluryprint-shellext-$R9.dll""#);
+    let in_place = pos(r#"Rename "${DIR}\${NAME}" "${DIR}\${NAME}.old$R9""#);
+    let runonce = pos(r#"WriteRegStr HKCU "${PLURY_RUNONCE_KEY}" "Pluryprint cleanup $R7" $R8"#);
+    assert!(delete < to_temp && to_temp < in_place && in_place < runonce);
+    // A parked file from an earlier run is never overwritten, and the search
+    // for a free name is bounded.
+    for (free, rename) in [
+        (
+            r#"${IfNot} ${FileExists} "$TEMP\pluryprint-shellext-$R9.dll""#,
+            to_temp,
+        ),
+        (
+            r#"${IfNot} ${FileExists} "${DIR}\${NAME}.old$R9""#,
+            in_place,
+        ),
+    ] {
+        assert!(pos(free) < rename, "{free}");
+    }
+    assert_eq!(body.iter().filter(|l| **l == "${For} $R9 1 99").count(), 2);
+    // The logon command: the system cmd.exe by full path, a plain delete,
+    // and an rmdir (empty folders only) when the copy stayed in DIR.
+    assert!(body.contains(&r#"StrCpy $R8 '"$SYSDIR\cmd.exe" /d /c del /f /q "$R7"'"#));
     assert!(
-        body.iter()
-            .any(|l| l.starts_with("IfFileExists \"$INSTDIR\\${PLURYPRINT_SHELLEXT_DLL}.old$R5\"")),
-        "a parked DLL from an earlier run is never overwritten"
+        body.contains(&r#"StrCpy $R8 '"$SYSDIR\cmd.exe" /d /c del /f /q "$R7" & rmdir "${DIR}"'"#)
     );
-    // The `.old<N>` files are the ones the existing cleanup deletes.
+    assert!(!body
+        .iter()
+        .any(|l| l.contains("rmdir /s") || l.contains("RMDir /r")));
+    assert!(code.contains(
+        &r#"!define PLURY_RUNONCE_KEY "Software\Microsoft\Windows\CurrentVersion\RunOnce""#
+    ));
+    // The registers it uses are its own.
+    for r in ["$R7", "$R8", "$R9"] {
+        assert!(body.contains(&format!("Push {r}").as_str()), "{r}");
+        assert!(body.contains(&format!("Pop {r}").as_str()), "{r}");
+    }
+    // Update, uninstall and takeover all go through it.
+    for user in [
+        r#"!insertmacro PLURY_REMOVE_OR_PARK "$INSTDIR" "${PLURYPRINT_SHELLEXT_DLL}""#,
+        r#"!insertmacro PLURY_REMOVE_OR_PARK "${DIR}" "${PLURYPRINT_SHELLEXT_DLL}""#,
+    ] {
+        assert!(code.contains(&user), "{user}");
+    }
+    // Copies parked next to the DLL by an older version are cleared by the
+    // next install and by the uninstaller.
     let cleanup = r#"Delete "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old*""#;
-    let un_cleanup = r#"Delete /REBOOTOK "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old*""#;
-    assert!(code.contains(&cleanup), "the next install clears them");
-    assert!(code.contains(&un_cleanup), "the uninstaller clears them");
-    // $R5 is saved and restored around the hook.
-    assert!(code.contains(&"Push $R5") && code.contains(&"Pop $R5"));
+    assert_eq!(code.iter().filter(|l| **l == cleanup).count(), 2);
+}
+
+/// The in-place legacy uninstaller that stays locked is deleted at the next
+/// logon the same way, with its folder if that is then empty.
+#[test]
+fn nfr_020_delete_at_logon_is_per_user() {
+    let nsh = read("windows/installer-hooks.nsh");
+    let body = nsh
+        .split("!macro PLURY_DELETE_AT_LOGON FILE DIR")
+        .nth(1)
+        .and_then(|rest| rest.split("!macroend").next())
+        .expect("macro body");
+    assert_eq!(
+        nsis_code(body),
+        [
+            r#"WriteRegStr HKCU "${PLURY_RUNONCE_KEY}" "Pluryprint cleanup ${FILE}" '"$SYSDIR\cmd.exe" /d /c del /f /q "${FILE}" & rmdir "${DIR}"'"#
+        ]
+    );
 }
 
 /// A per-machine MSI install from before c1466b4 is found by name and offered
