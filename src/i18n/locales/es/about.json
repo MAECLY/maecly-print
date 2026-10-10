@@ -1,5 +1,6 @@
 {
   "title": "Acerca de",
+  "byline": "por Maecly",
   "tagline": "Impresión por lotes de código abierto para Windows y Mac. Sin límite de 15 archivos, sin necesidad de Adobe, sin licencia de 149 $.",
   "version": {
     "line": "{{version}} · compilación {{buildDate}}",

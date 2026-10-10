@@ -1,5 +1,6 @@
 {
   "title": "About",
+  "byline": "by Maecly",
   "tagline": "Open source batch printing for Windows and Mac. No 15-file limit, no Adobe required, no $149 license fee.",
   "version": {
     "line": "{{version}} · build {{buildDate}}",

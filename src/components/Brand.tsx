@@ -131,7 +131,7 @@ export function MPWordmark({ size = 16, showGlyph = true }: MPWordmarkProps) {
           color: 'var(--mp-text)',
         }}
       >
-        Maecly<span style={{ color: 'var(--mp-accent)' }}>Print</span>
+        Plury<span style={{ color: 'var(--mp-accent)' }}>print</span>
       </span>
     </span>
   );

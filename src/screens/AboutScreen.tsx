@@ -389,7 +389,17 @@ export function AboutScreen() {
                 letterSpacing: '-0.01em',
               }}
             >
-              Pluryprint
+              Pluryprint{' '}
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 400,
+                  letterSpacing: 0,
+                  color: 'var(--mp-textMuted)',
+                }}
+              >
+                {t('byline')}
+              </span>
             </div>
             <div
               className="mp-mono"

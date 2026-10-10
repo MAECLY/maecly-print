@@ -186,6 +186,17 @@ describe('AboutScreen', () => {
     });
   });
 
+  it('names the product with its maker: Pluryprint by Maecly', async () => {
+    mockAbout();
+    renderAbout();
+
+    expect(await waitForAppInfo()).toBeInTheDocument();
+    expect(screen.getByText('by Maecly')).toBeInTheDocument();
+    expect(screen.getByText('by Maecly').parentElement).toHaveTextContent(
+      /^Pluryprint by Maecly$/,
+    );
+  });
+
   it('renders the standalone fallback version line and disables update actions outside Tauri', async () => {
     // No mockIPC → not a Tauri host: fetchAppInfo rejects, actions are disabled.
     renderAbout();
