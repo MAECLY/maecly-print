@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI: Dependabot no longer proposes `lopdf` minor or major releases on their own; `lopdf` moves together with `printpdf`, which is still built on 0.44.
 - The repository is now `github.com/MAECLY/pluryprint` (it was `MAECLY/maecly-print`). Update checks, About links and issue reports use the new address; 0.0.1 keeps updating through GitHub's redirect from the old one.
 
+### Fixed
+
+- Windows uninstaller: uninstalling (also with `uninstall.exe /S`) now removes `HKCU\Software\Maecly\Pluryprint` (the remembered install folder and installer language) and the app window's WebView2 profile, `%LOCALAPPDATA%\com.maecly.pluryprint\EBWebView`, which 0.0.1 left behind. An update keeps both, and your settings, profiles and queue stay unless you tick **Delete the application data**, as before.
+- Windows installer: the uninstall entry now has a silent uninstall command (`QuietUninstallString`) and the Pluryprint home page (`URLInfoAbout`, `URLUpdateInfo`, `HelpLink`), and the setup's file properties name its company (Maecly).
+
 ### Security
 
 - Updates are now bound to their version. Every update artifact is signed for the release it belongs to (`tauri signer sign --app-version`), and the app refuses an update whose signature names another version, or none, than the update manifest announces (`requireSignedVersion`). A tampered manifest can no longer offer an older, genuinely signed release under a newer version number. The release workflow checks every signature before the draft is finished.

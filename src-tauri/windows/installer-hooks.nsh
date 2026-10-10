@@ -29,6 +29,22 @@
 !define PLURYPRINT_DATA_ORG "Maecly"
 !define PLURYPRINT_DATA_APP "Pluryprint"
 
+; ---- Names Tauri's template defines ----------------------------------------
+;
+; The hooks below use four names the template defines right after it includes
+; this file, so they exist when a hook is inserted, not yet here:
+; UNINSTKEY (Software\Microsoft\Windows\CurrentVersion\Uninstall\<productName>),
+; MANUKEY (Software\<publisher>), MANUPRODUCTKEY (MANUKEY\<productName>) and
+; BUNDLEID (the bundle identifier). PLURY_REQUIRE_TAURI_NAMES stops the build
+; if a template stops defining one, instead of writing to a key named after
+; the literal text.
+!macro PLURY_REQUIRE_TAURI_NAMES
+  !ifndef UNINSTKEY | MANUKEY | MANUPRODUCTKEY | BUNDLEID
+    !error "Tauri's NSIS template no longer defines UNINSTKEY, MANUKEY, MANUPRODUCTKEY or BUNDLEID: check the uninstall key and the install-path key it uses"
+  !endif
+!macroend
+
+
 ; The DLL ships for BOTH Windows architectures, as bundle resources
 ; (src-tauri/resources/shellext/<arch>/, see the README there), and the one
 ; registered is chosen by the operating system's native architecture, never by
@@ -190,6 +206,23 @@
 
 ; Every message below, in English and Spanish (FR-093).
 !include "${__FILEDIR__}\installer-strings.nsh"
+
+; ---- Version information of the setup .exe ---------------------------------
+;
+; Tauri's template sets ProductName, FileDescription, LegalCopyright,
+; FileVersion and ProductVersion, but no CompanyName, so the setup's
+; Properties > Details showed an empty company (bundle.publisher only becomes
+; the Uninstall key's Publisher and the HKCU\Software\<publisher> key). This
+; file is included before the template defines MANUFACTURER, so the name is
+; spelled out here; tests/installer_hooks.rs checks it equals
+; bundle.publisher in tauri.conf.json. It comes after the language strings
+; on purpose: without /LANG, VIAddVersionKey files a key under the language a
+; LangString last named, and the template's own keys, which follow this file,
+; land there too. Placed before the strings, the company would sit alone in
+; the version block of another language (tests/bundle_identity.rs compiles
+; it with -WX, where that is a warning, hence an error).
+!define PLURYPRINT_COMPANY "Maecly"
+VIAddVersionKey "CompanyName" "${PLURYPRINT_COMPANY}"
 
 ; Drop one pair of surrounding double quotes from VAR, if it has them.
 !macro PLURY_UNQUOTE VAR
@@ -387,10 +420,9 @@
   ; it with MUI_UNGETLANGUAGE, but only MUI_LANGDLL_DISPLAY writes it, which
   ; runs only with displayLanguageSelector (off: the setup takes the Windows
   ; display language). Without the value the uninstaller of a two-language
-  ; build opened with an "Installer Language" dialog. Tauri's uninstaller
-  ; deletes the value itself, with the rest of that key, when "Delete the
-  ; application data" is ticked; otherwise it stays, like the install path
-  ; Tauri keeps there, for the next setup. Checked on the Windows 11 VM: an
+  ; build opened with an "Installer Language" dialog. The post-uninstall hook
+  ; deletes the value, with the rest of that key, on every uninstall that is
+  ; not part of an update. Checked on the Windows 11 VM: an
   ; es-ES display language gives a Spanish setup and uninstaller, en-US
   ; English ones, and neither asks.
   !ifdef MUI_LANGDLL_REGISTRY_KEY & MUI_LANGDLL_REGISTRY_VALUENAME
@@ -398,6 +430,14 @@
   !else
     !error "Tauri's NSIS template no longer defines MUI_LANGDLL_REGISTRY_KEY/VALUENAME: check how the uninstaller picks its language"
   !endif
+
+  ; "Apps & features" and package managers (winget) read the silent
+  ; uninstall command from QuietUninstallString; Tauri writes UninstallString
+  ; only. URLInfoAbout, URLUpdateInfo and HelpLink come from bundle.homepage,
+  ; which Tauri writes itself. The key goes with the rest of Tauri's Uninstall
+  ; key when the app is uninstalled.
+  !insertmacro PLURY_REQUIRE_TAURI_NAMES
+  WriteRegStr HKCU "${UNINSTKEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
 
   Push $R8
   !insertmacro PLURYPRINT_MOVE_LOADED_DLL_ASIDE
@@ -450,6 +490,31 @@
   !insertmacro PLURY_REMOVE_SUMATRA_SETTINGS "$INSTDIR"
   ; Empty now, unless a parked copy stayed in it until the next logon.
   RMDir "$INSTDIR"
+
+  ; What Tauri's uninstaller leaves unless "Delete the application data" is
+  ; ticked, which a silent run never is: HKCU\Software\<publisher>\<product>
+  ; (the install path and "Installer Language") and the main window's web view
+  ; profile, %LOCALAPPDATA%\<identifier>\EBWebView. Neither is user data: the
+  ; next setup asks for a folder again, the language comes from Windows, and
+  ; the profile only holds a cache of the appearance settings, which live in
+  ; config.toml (src/lib/theme.ts). The real user data, under
+  ; %APPDATA% and %LOCALAPPDATA%\Maecly\Pluryprint, is handled below.
+  ;
+  ; Never on an update. tauri-plugin-updater runs the new setup with /UPDATE,
+  ; and Tauri's template passes /UPDATE on to the uninstaller whenever an
+  ; update runs it; both set $UpdateMode to 1 from that flag ($UpdateMode is
+  ; 0 otherwise). An update keeps the key (the new setup reads the install
+  ; path from it) and the profile.
+  !insertmacro PLURY_REQUIRE_TAURI_NAMES
+  SetShellVarContext current
+  ${If} $UpdateMode <> 1
+    DeleteRegKey HKCU "${MANUPRODUCTKEY}"
+    ; Software\<publisher> only if nothing else of the publisher's is left.
+    DeleteRegKey /ifempty HKCU "${MANUKEY}"
+    RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView"
+    ; The identifier folder only if the profile was all it held.
+    RMDir "$LOCALAPPDATA\${BUNDLEID}"
+  ${EndIf}
 
   ; "Delete the application data" (Tauri's checkbox) only removes
   ; %APPDATA% and %LOCALAPPDATA%\<identifier>, which hold the web view's
