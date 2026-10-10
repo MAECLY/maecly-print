@@ -637,6 +637,9 @@ pub fn spool_with(
             tracing::error!(event = "devmode_swap_restore_failed", printer = %printer, error = %e);
         }
     }
+    // Releases the printer's lock: the next job's swap need not wait for
+    // this SumatraPDF to finish rendering.
+    drop(quality_swap);
 
     let remaining = timeout.map(|t| t.saturating_sub(started.elapsed()));
     let status = super::wait_with_timeout(&mut child, remaining).map_err(|e| match e {
@@ -645,7 +648,6 @@ pub fn spool_with(
         },
         other => other,
     })?;
-    drop(quality_swap);
 
     if !status.success() {
         let (log, tail) = read_log(&log_path);
