@@ -48,8 +48,12 @@
 //! - Every `http(s)`/`ws` request goes to a dead proxy on loopback and no host
 //!   name resolves ([`SANDBOX_ARGS`]); the staged page's CSP forbids script.
 //!   The browser loads the page from `file:`, so unlike the system renderer it
-//!   cannot keep a `file://host/…` sub-resource off a file share: that is one
-//!   more reason it is only a fallback.
+//!   cannot keep a `file://host/…` or `//host/…` sub-resource off a file share
+//!   by itself. The page is therefore rewritten first ([`guard_browser_page`]):
+//!   every reference the shared predicate ([`super::local_ref`]) calls a share
+//!   is removed, and a local stylesheet that names one refuses the page
+//!   (`share_reference_refused`). Still one more reason it is only a fallback:
+//!   an external SVG `<use>` document's own references are not inspected.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -163,7 +167,8 @@ pub fn render_document(
             if !base.ends_with('/') {
                 base.push('/');
             }
-            let page = stage_page(html, &base, setup, work)?;
+            let html = guard_browser_page(html, &base)?;
+            let page = stage_page(&html, &base, setup, work)?;
             let browser = super::locate(crate::engine::deps::Dependency::Chromium)?;
             convert_with(&browser, &page, output, work, cancel, timeout)
         }
@@ -183,23 +188,36 @@ pub fn worker_exe() -> Result<PathBuf, EngineError> {
             format!("cannot locate Pluryprint to start the page renderer: {e}"),
         ))
     })?;
-    Ok(worker_exe_for(&me))
+    worker_exe_for(&me)
 }
 
-/// [`worker_exe`] for a given running executable. Pure.
-pub fn worker_exe_for(me: &Path) -> PathBuf {
+/// [`worker_exe`] for a given running executable. From the console CLI the
+/// worker is the app next to it, which must be there: without it the job
+/// fails with `render_worker_missing` (the app has to be reinstalled), not
+/// with a dependency the remediation screen cannot name or install.
+pub fn worker_exe_for(me: &Path) -> Result<PathBuf, EngineError> {
     let stem = me
         .file_stem()
         .map(|s| s.to_string_lossy().to_ascii_lowercase());
-    if stem.as_deref() == Some("pluryprint-cli") {
-        let gui = if cfg!(windows) {
-            "pluryprint.exe"
-        } else {
-            "pluryprint"
-        };
-        me.with_file_name(gui)
+    if stem.as_deref() != Some("pluryprint-cli") {
+        return Ok(me.to_path_buf());
+    }
+    let gui = if cfg!(windows) {
+        "pluryprint.exe"
     } else {
-        me.to_path_buf()
+        "pluryprint"
+    };
+    let sibling = me.with_file_name(gui);
+    if sibling.is_file() {
+        Ok(sibling)
+    } else {
+        Err(EngineError::ConversionFailed(Failure::new(
+            "render_worker_missing",
+            format!(
+                "the page renderer is the Pluryprint app, which is not next to the CLI at {}",
+                sibling.display()
+            ),
+        )))
     }
 }
 
@@ -249,6 +267,10 @@ pub(crate) fn render_system_with(
         output: produced.clone(),
         data_dir: work.path().join("webview"),
         paper_in: setup.css_size.as_deref().and_then(paper_inches),
+        // The worker's own watchdog: the same limit as the engine's, so a
+        // worker left alone (a dead parent) still ends; none when the
+        // setting is 0.
+        timeout_secs: timeout.map(|t| t.as_secs().max(1)),
     };
     let mut cmd = Command::new(exe);
     cmd.arg(crate::worker::WORKER_FLAG)
@@ -259,6 +281,12 @@ pub(crate) fn render_system_with(
     match run_until(cmd, RENDERER_LABEL, cancel, timeout, &log, None) {
         Ok(()) => {}
         Err(EngineError::ConversionFailed(failure)) => {
+            // The worker gave up on its own watchdog: a timeout, terminal
+            // like the engine's own, never a render failure to retry.
+            let full = std::fs::read_to_string(&log).unwrap_or_default();
+            if full.contains(crate::render::TIMEOUT_MARKER) {
+                return Err(super::process::timed_out_error(RENDERER_LABEL, timeout));
+            }
             let detail = super::process::log_tail(&log, 400);
             tracing::warn!(event = "render_worker_failed", detail = %detail, error = %failure.detail);
             return Err(EngineError::ConversionFailed(Failure::new(
@@ -353,17 +381,96 @@ pub fn convert_with(
     super::take_output(&produced, output, "The browser", &log)
 }
 
+/// Most stylesheets [`guard_browser_page`] reads for one page.
+const MAX_STYLESHEETS: usize = 64;
+
+/// Largest stylesheet [`guard_browser_page`] reads.
+const MAX_STYLESHEET_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Make `html` safe for the browser fallback, which loads the page from
+/// `file:` and so cannot keep a share reference off SMB the way the system
+/// renderer does (module docs): every share reference in the page is
+/// neutralised ([`super::html_scan::neutralize_share_refs`]), and the local
+/// stylesheets it loads (`<link>` and `@import`, recursively) are read: one
+/// that names a share refuses the page with `share_reference_refused`, since
+/// it cannot be rewritten in place. `base_url` is the document folder's
+/// `file:` URL.
+pub fn guard_browser_page(html: &[u8], base_url: &str) -> Result<Vec<u8>, EngineError> {
+    use super::{html_scan, local_ref};
+    let neutralized = html_scan::neutralize_share_refs(html);
+    if neutralized.removed > 0 {
+        tracing::info!(
+            event = "html_share_refs_removed",
+            count = neutralized.removed
+        );
+    }
+    let base = url::Url::parse(&effective_base(&neutralized.html, base_url)).ok();
+    let base_dir = url::Url::parse(base_url)
+        .ok()
+        .and_then(|u| u.to_file_path().ok());
+    let mut pending: Vec<(url::Url, String)> = base
+        .iter()
+        .flat_map(|b| {
+            html_scan::stylesheet_refs(&neutralized.html)
+                .into_iter()
+                .map(move |r| (b.clone(), r))
+        })
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    while let Some((from, reference)) = pending.pop() {
+        if seen.len() >= MAX_STYLESHEETS {
+            break;
+        }
+        if !local_ref::is_local_ref(&reference) {
+            continue;
+        }
+        let Ok(url) = from.join(reference.trim()) else {
+            continue;
+        };
+        let Ok(path) = url.to_file_path() else {
+            continue;
+        };
+        // A share is never opened, except the document's own folder when the
+        // user printed it from one.
+        let allowed = match base_dir.as_deref() {
+            Some(dir) => local_ref::may_open(&path, dir),
+            None => !local_ref::is_remote_path(&path),
+        };
+        if !allowed || !seen.insert(path.clone()) {
+            continue;
+        }
+        let small =
+            std::fs::metadata(&path).is_ok_and(|m| m.is_file() && m.len() <= MAX_STYLESHEET_BYTES);
+        let Some(css) = small.then(|| std::fs::read(&path).ok()).flatten() else {
+            continue;
+        };
+        if html_scan::css_has_share_ref(&String::from_utf8_lossy(&css)) {
+            tracing::warn!(event = "html_share_ref_in_stylesheet");
+            return Err(EngineError::ConversionFailed(Failure::new(
+                "share_reference_refused",
+                format!(
+                    "a stylesheet of the page refers to a network share: {}",
+                    path.display()
+                ),
+            )));
+        }
+        pending.extend(
+            html_scan::stylesheet_refs(&css)
+                .into_iter()
+                .map(|r| (url.clone(), r)),
+        );
+    }
+    Ok(neutralized.html)
+}
+
 /// The Content-Security-Policy every staged page carries: no script, plugin,
 /// frame, worker, form or connection; styles, images, fonts and media only
 /// from the page's own folder (a `file:` URL, or the renderer's private
-/// origins on Windows) or `data:`. Defence in depth: the renderer already
-/// turns scripts off and refuses every other request natively.
+/// origin on Windows) or `data:`. Defence in depth: the renderer already
+/// turns scripts off and refuses every other request natively. It is the
+/// first thing in the staged page, and on Windows also a response header.
 pub fn page_csp() -> String {
-    let hosts = format!(
-        "https://{} https://{}",
-        crate::render::DOC_HOST,
-        crate::render::STAGE_HOST
-    );
+    let hosts = format!("https://{}", crate::render::DOC_HOST);
     format!(
         "default-src file: data: 'unsafe-inline' {hosts}; script-src 'none'; \
          object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; \
@@ -393,35 +500,45 @@ fn stage_page(
     Ok(page)
 }
 
-/// Position just past the `>` of the first tag named `name` (ASCII,
-/// case-insensitive, `name` followed by whitespace, `/` or `>`), if any.
-fn after_tag(html: &[u8], name: &str) -> Option<usize> {
-    let lower: Vec<u8> = html.iter().map(u8::to_ascii_lowercase).collect();
-    let needle = format!("<{name}");
-    let mut from = 0;
-    while let Some(rel) = lower[from..]
-        .windows(needle.len())
-        .position(|w| w == needle.as_bytes())
-    {
-        let start = from + rel;
-        let next = lower.get(start + needle.len()).copied();
-        if matches!(next, Some(b'>' | b'/' | b' ' | b'\t' | b'\n' | b'\r')) {
-            let close = lower[start..].iter().position(|&b| b == b'>')?;
-            return Some(start + close + 1);
-        }
-        from = start + 1;
+/// The base the staged page resolves its references against: the page's own
+/// `<base href>` (its first real one, [`super::html_scan::own_base_href`])
+/// resolved against `base_href`, the document folder's URL, when it stays on
+/// that origin and is no share; else `base_href` itself. A relative
+/// `<base href="assets/">` therefore means the document's `assets` folder on
+/// every renderer, never the private stage folder the page is served from.
+/// Pure.
+pub fn effective_base(html: &[u8], base_href: &str) -> String {
+    let Some(own) = super::html_scan::own_base_href(html) else {
+        return base_href.to_string();
+    };
+    let Ok(ours) = url::Url::parse(base_href) else {
+        return base_href.to_string();
+    };
+    let Ok(resolved) = ours.join(own.trim()) else {
+        return base_href.to_string();
+    };
+    let same_origin = resolved.scheme() == ours.scheme()
+        && resolved.host_str() == ours.host_str()
+        && resolved.port() == ours.port();
+    if same_origin && !super::local_ref::is_share_ref(resolved.as_str()) {
+        resolved.to_string()
+    } else {
+        base_href.to_string()
     }
-    None
 }
 
-/// `html` with the renderer's head inserted at the start of its head: the
-/// [`page_csp`] meta, a `<base href>` (unless the page has its own), and the
-/// job's paper as `@page { size }` when `css_size` names one. Pure.
+/// `html` with the renderer's head inserted first: the [`page_csp`] meta, the
+/// `<base href>` of [`effective_base`], and the job's paper as
+/// `@page { size }` when `css_size` names one. Pure.
 ///
-/// The insertion point is just after `<head>`, else after `<html>`, else
-/// after the doctype, else the very start: never before the doctype, which
-/// would drop the page into quirks mode. A UTF-16 page (a byte-order mark) is
-/// re-encoded as UTF-8 with a BOM first, so ASCII can be spliced into it.
+/// The insertion point ([`super::html_scan::insertion_point`]) is just after
+/// a leading doctype, else the very start: never before the doctype (quirks
+/// mode), never inside a comment (a page that begins `<!-- <head> -->` used to
+/// get its policy spliced into the comment), and before any script or
+/// `<base>` of the page, so the policy covers the whole page and the injected
+/// base is the one that counts (the first `<base href>` wins). A UTF-16 page
+/// (a byte-order mark) is re-encoded as UTF-8 with a BOM first, so ASCII can
+/// be spliced into it.
 pub fn inject_head(html: &[u8], base_href: &str, css_size: Option<&str>) -> Vec<u8> {
     let transcoded;
     let html = match encoding_rs::Encoding::for_bom(html) {
@@ -444,9 +561,10 @@ pub fn inject_head(html: &[u8], base_href: &str, css_size: Option<&str>) -> Vec<
         "<meta http-equiv=\"Content-Security-Policy\" content=\"{}\">",
         escape(&page_csp())
     );
-    if after_tag(html, "base").is_none() {
-        snippet.push_str(&format!("<base href=\"{}\">", escape(base_href)));
-    }
+    snippet.push_str(&format!(
+        "<base href=\"{}\">",
+        escape(&effective_base(html, base_href))
+    ));
     if let Some(size) = css_size {
         let css: String = size
             .chars()
@@ -455,17 +573,7 @@ pub fn inject_head(html: &[u8], base_href: &str, css_size: Option<&str>) -> Vec<
         snippet.push_str(&format!("<style>@page {{ size: {css}; }}</style>"));
     }
 
-    let at = after_tag(html, "head")
-        .or_else(|| after_tag(html, "html"))
-        .or_else(|| after_tag(html, "!doctype"))
-        .unwrap_or_else(|| {
-            // Keep a UTF-8 BOM first.
-            if html.starts_with(&[0xEF, 0xBB, 0xBF]) {
-                3
-            } else {
-                0
-            }
-        });
+    let at = super::html_scan::insertion_point(html);
     let mut out = Vec::with_capacity(html.len() + snippet.len());
     out.extend_from_slice(&html[..at]);
     out.extend_from_slice(snippet.as_bytes());
@@ -542,18 +650,17 @@ mod tests {
     }
 
     #[test]
-    fn fr_055_the_head_is_injected_after_the_head_tag() {
+    fn fr_055_the_head_is_injected_right_after_the_doctype() {
         let html = b"<!DOCTYPE html><html lang=en><HEAD><title>x</title></head><body><header>h</header></body></html>";
         let out =
             String::from_utf8(inject_head(html, "file:///docs/", Some("210mm 297mm"))).unwrap();
-        let head_at = out.find("<HEAD>").unwrap() + "<HEAD>".len();
         assert!(
-            out[head_at..].starts_with("<meta http-equiv=\"Content-Security-Policy\""),
+            out.starts_with("<!DOCTYPE html><meta http-equiv=\"Content-Security-Policy\""),
             "{out}"
         );
         assert!(
             out.contains(
-                "<base href=\"file:///docs/\"><style>@page { size: 210mm 297mm; }</style><title>"
+                "<base href=\"file:///docs/\"><style>@page { size: 210mm 297mm; }</style><html lang=en>"
             ),
             "{out}"
         );
@@ -561,7 +668,7 @@ mod tests {
     }
 
     #[test]
-    fn fr_055_injection_keeps_the_doctype_first_and_an_own_base() {
+    fn fr_055_injection_keeps_the_doctype_first() {
         // No head or html tag: after the doctype, never before it.
         let out = String::from_utf8(inject_head(
             b"<!doctype html><p>hi",
@@ -570,10 +677,171 @@ mod tests {
         ))
         .unwrap();
         assert!(out.starts_with("<!doctype html><meta "), "{out}");
+        assert!(out.contains("size: 8.5in 11in"));
 
-        // The page's own <base> is respected.
+        // No paper: no @page rule at all.
+        let out = String::from_utf8(inject_head(b"<p>x", "file:///d/", None)).unwrap();
+        assert!(!out.contains("@page"), "{out}");
+        assert!(out.ends_with("<p>x"));
+    }
+
+    /// Security finding: a `<head>` (or `<base>`) written inside a comment
+    /// used to receive the policy, inside the comment, where it does
+    /// nothing. The policy now comes first, before any comment or script of
+    /// the page, and a commented-out `<base>` is not the page's.
+    #[test]
+    fn nfr_security_csp_is_never_spliced_into_a_comment() {
+        let page = b"<!-- <head> <base href='//evil/'> --><script>x()</script><html><head><title>t</title>";
+        let out = String::from_utf8(inject_head(page, "file:///d/", None)).unwrap();
+        assert!(
+            out.starts_with("<meta http-equiv=\"Content-Security-Policy\""),
+            "{out}"
+        );
+        assert!(
+            out.contains("<base href=\"file:///d/\"><!-- <head>"),
+            "{out}"
+        );
+
+        let page = b"<!DOCTYPE html><!-- <head> --><head><title>t</title>";
+        let out = String::from_utf8(inject_head(page, "file:///d/", None)).unwrap();
+        assert!(
+            out.starts_with("<!DOCTYPE html><meta http-equiv=\"Content-Security-Policy\""),
+            "{out}"
+        );
+        let csp_at = out.find("Content-Security-Policy").unwrap();
+        assert!(csp_at < out.find("<!--").unwrap(), "{out}");
+    }
+
+    /// The page's own relative `<base href>` means the document's folder on
+    /// every renderer (it used to resolve against the private stage folder on
+    /// Windows); an absolute, remote or share base is not followed.
+    #[test]
+    fn fr_055_a_relative_own_base_resolves_against_the_document_folder() {
+        let base = |page: &[u8], ours: &str| effective_base(page, ours);
+        let page = b"<html><head><base href=\"assets/\"></head>";
+        assert_eq!(base(page, "file:///docs/"), "file:///docs/assets/");
+        assert_eq!(
+            base(page, "https://doc.pluryprint.example/"),
+            "https://doc.pluryprint.example/assets/"
+        );
+        assert_eq!(
+            base(b"<base href='./'>", "https://doc.pluryprint.example/"),
+            "https://doc.pluryprint.example/"
+        );
+        for other in [
+            "<base href='https://x/'>",
+            "<base href='//host/share/'>",
+            "<base href='file://host/share/'>",
+            "<base href='\\\\host\\share\\'>",
+            "<base href='/\\host/share/'>",
+        ] {
+            assert_eq!(
+                base(other.as_bytes(), "file:///docs/"),
+                "file:///docs/",
+                "{other}"
+            );
+            assert_eq!(
+                base(other.as_bytes(), "https://doc.pluryprint.example/"),
+                "https://doc.pluryprint.example/",
+                "{other}"
+            );
+        }
+        // The injected base comes first, so it is the one the page uses.
+        let out =
+            String::from_utf8(inject_head(page, "https://doc.pluryprint.example/", None)).unwrap();
+        let ours = out
+            .find("<base href=\"https://doc.pluryprint.example/assets/\">")
+            .unwrap();
+        assert!(ours < out.find("<base href=\"assets/\">").unwrap(), "{out}");
+    }
+
+    /// Security finding: the browser fallback loads the page from `file:`,
+    /// so a share reference would reach SMB. The page is rewritten first, and
+    /// a local stylesheet that names a share refuses it.
+    #[test]
+    fn nfr_security_browser_fallback_never_hands_a_share_to_the_browser() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = format!("{}/", file_url(&dir.path().canonicalize().unwrap()));
+        let page =
+            br#"<img src="//host/x.png"><img src="file:///%5C%5Chost/y.png"><img src="ok.png">"#;
+        let out = String::from_utf8(guard_browser_page(page, &base).unwrap()).unwrap();
+        assert!(!out.contains("host"), "{out}");
+        assert!(out.contains("ok.png"), "{out}");
+
+        std::fs::write(dir.path().join("a.css"), "@import 'b.css';").unwrap();
+        std::fs::write(
+            dir.path().join("b.css"),
+            "@font-face { src: url(\\2f\\2fhost/f.woff) }",
+        )
+        .unwrap();
+        let page = br#"<link rel="stylesheet" href="a.css"><p>x"#;
+        let err = guard_browser_page(page, &base).unwrap_err();
+        assert!(
+            matches!(&err, EngineError::ConversionFailed(f) if f.reason == Some("share_reference_refused")),
+            "{err:?}"
+        );
+        std::fs::write(dir.path().join("b.css"), "p { color: red }").unwrap();
+        assert_eq!(guard_browser_page(page, &base).unwrap(), page.to_vec());
+    }
+
+    /// The worker's own watchdog is a timeout (terminal), never a render
+    /// failure the queue would retry; the worker gets the job's limit.
+    #[cfg(unix)]
+    #[test]
+    fn nfr_render_worker_timeout_is_terminal_with_reason() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("fake-worker.sh");
+        let args_log = dir.path().join("args.txt");
+        std::fs::write(
+            &fake,
+            format!(
+                "#!/bin/sh\necho \"$@\" > '{}'\necho '{}: the render did not finish within 7s' >&2\nexit 1\n",
+                args_log.display(),
+                crate::render::TIMEOUT_MARKER
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let work = WorkDir::new("timeout-test").unwrap();
+        let cancel = AtomicBool::new(false);
+        let err = render_system_with(
+            &fake,
+            b"<p>x",
+            dir.path(),
+            &dir.path().join("o.pdf"),
+            &work,
+            &cancel,
+            Some(Duration::from_secs(7)),
+            &PageSetup::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, EngineError::ConversionTimedOut(f) if f.reason == Some("tool_timed_out")),
+            "{err:?}"
+        );
+        let args = std::fs::read_to_string(&args_log).unwrap();
+        assert!(args.contains("--timeout-secs 7"), "{args}");
+
+        // No limit (the setting is 0): no watchdog argument at all.
+        let _ = render_system_with(
+            &fake,
+            b"<p>x",
+            dir.path(),
+            &dir.path().join("o.pdf"),
+            &work,
+            &cancel,
+            None,
+            &PageSetup::default(),
+        );
+        let args = std::fs::read_to_string(&args_log).unwrap();
+        assert!(!args.contains("--timeout-secs"), "{args}");
+    }
+
+    #[test]
+    fn fr_055_injection_paper_rule() {
         let out = String::from_utf8(inject_head(
-            b"<html><head><base href='https://x/'></head></html>",
+            b"<html><head></head></html>",
             "file:///d/",
             Some("4in 6in"),
         ))
@@ -596,7 +864,7 @@ mod tests {
         let out = inject_head(&page, "file:///d/", None);
         assert!(out.starts_with(&[0xEF, 0xBB, 0xBF]));
         let text = String::from_utf8(out[3..].to_vec()).unwrap();
-        assert!(text.contains("<head><meta http-equiv"), "{text}");
+        assert!(text.starts_with("<meta http-equiv"), "{text}");
         assert!(text.contains("Ñandú"));
     }
 
@@ -648,15 +916,37 @@ mod tests {
 
     #[test]
     fn nfr_worker_exe_is_the_app_even_from_the_console_cli() {
-        let dir = if cfg!(windows) { r"C:\P" } else { "/opt/p" };
-        let dir = Path::new(dir);
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         let (cli, gui) = if cfg!(windows) {
             ("pluryprint-cli.exe", "pluryprint.exe")
         } else {
             ("pluryprint-cli", "pluryprint")
         };
-        assert_eq!(worker_exe_for(&dir.join(cli)), dir.join(gui));
-        assert_eq!(worker_exe_for(&dir.join(gui)), dir.join(gui));
+        std::fs::write(dir.join(gui), b"app").unwrap();
+        assert_eq!(worker_exe_for(&dir.join(cli)).unwrap(), dir.join(gui));
+        assert_eq!(worker_exe_for(&dir.join(gui)).unwrap(), dir.join(gui));
+    }
+
+    /// The CLI without the app next to it fails with a registered reason the
+    /// queue can explain, not a reasonless "dependency missing" pause.
+    #[test]
+    fn nfr_render_worker_missing_is_a_registered_reason() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cli = if cfg!(windows) {
+            "pluryprint-cli.exe"
+        } else {
+            "pluryprint-cli"
+        };
+        let err = worker_exe_for(&tmp.path().join(cli)).unwrap_err();
+        assert!(
+            matches!(&err, EngineError::ConversionFailed(f) if f.reason == Some("render_worker_missing")),
+            "{err:?}"
+        );
+        assert!(crate::util::reasons::JOB_REASONS
+            .iter()
+            .any(|(code, reason, _)| *code == "conversion_failed"
+                && *reason == "render_worker_missing"));
     }
 
     #[test]

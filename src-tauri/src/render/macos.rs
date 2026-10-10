@@ -52,12 +52,22 @@ const LETTER_PT: (f64, f64) = (612.0, 792.0);
 /// page prints alike on both platforms.
 const MARGIN_PT: f64 = 28.8;
 
-/// How long loading may take before the worker gives up by itself. The
-/// engine's conversion timeout normally kills it earlier.
-const LOAD_LIMIT: Duration = Duration::from_secs(120);
+/// Time left until `deadline` (the job's conversion timeout, counted from
+/// the worker's start), or no limit when there is none.
+fn remaining(deadline: Option<Instant>) -> Duration {
+    deadline.map_or(Duration::MAX, |d| {
+        d.saturating_duration_since(Instant::now())
+    })
+}
 
-/// How long printing may take before the worker gives up by itself.
-const PRINT_LIMIT: Duration = Duration::from_secs(300);
+/// The error of a stage that ran past the conversion timeout: it carries
+/// [`super::TIMEOUT_MARKER`], so the engine reports a timeout.
+fn timed_out(stage: &str) -> String {
+    format!(
+        "{}: {stage} did not finish within the conversion timeout",
+        super::TIMEOUT_MARKER
+    )
+}
 
 /// The largest PDF a render may write. A page WebKit cannot paginate keeps
 /// producing pages; this stops it before it fills the disk.
@@ -125,6 +135,10 @@ fn compile_rules(
 /// Render `request` (see [`super::render`]).
 pub fn render(request: &RenderRequest) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("the renderer must run on the main thread")?;
+    // The job's conversion timeout bounds the whole render (none when the
+    // setting is 0); the watchdog also covers a main thread stuck in WebKit.
+    let deadline = request.limit().map(|limit| Instant::now() + limit);
+    super::start_watchdog(request.limit());
     let app = NSApplication::sharedApplication(mtm);
     // No Dock icon, no menu bar, never frontmost.
     app.setActivationPolicy(NSApplicationActivationPolicy::Prohibited);
@@ -193,14 +207,21 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
         );
     }
     // SAFETY: isLoading is a plain property read on the main thread.
-    let loaded = pump_until(LOAD_LIMIT, || unsafe { !webview.isLoading() });
+    let loaded = pump_until(remaining(deadline), || unsafe { !webview.isLoading() });
     if !loaded {
-        return Err("the page did not finish loading in time".into());
+        return Err(timed_out("loading the page"));
     }
     // Let layout settle (images decoded, fonts applied) before printing.
     pump_until(Duration::from_millis(150), || false);
 
-    let printed = print_to_file(mtm, &webview, &window, &request.output, width, height);
+    let printed = print_to_file(
+        mtm,
+        &webview,
+        &window,
+        &request.output,
+        (width, height),
+        deadline,
+    );
     window.close();
     printed?;
     match std::fs::metadata(&request.output) {
@@ -245,14 +266,14 @@ impl PrintDelegate {
 }
 
 /// Print the loaded `webview` (shown in `window`) into `output` on a
-/// `width` × `height` pt page.
+/// `width` × `height` pt page, by `deadline` when there is one.
 fn print_to_file(
     mtm: MainThreadMarker,
     webview: &WKWebView,
     window: &NSWindow,
     output: &Path,
-    width: f64,
-    height: f64,
+    (width, height): (f64, f64),
+    deadline: Option<Instant>,
 ) -> Result<(), String> {
     let _ = std::fs::remove_file(output);
     let info = NSPrintInfo::new();
@@ -296,7 +317,7 @@ fn print_to_file(
         );
     }
     let mut too_big = false;
-    let finished = pump_until(PRINT_LIMIT, || {
+    let finished = pump_until(remaining(deadline), || {
         if std::fs::metadata(output).is_ok_and(|m| m.len() > MAX_OUTPUT_BYTES) {
             too_big = true;
             return true;
@@ -310,6 +331,6 @@ fn print_to_file(
     match (finished, delegate.ivars().done.get()) {
         (true, Some(true)) => Ok(()),
         (true, _) => Err("the print operation failed".into()),
-        (false, _) => Err("printing did not finish in time".into()),
+        (false, _) => Err(timed_out("printing")),
     }
 }

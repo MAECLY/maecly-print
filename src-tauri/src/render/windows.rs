@@ -6,42 +6,44 @@
 //!    logon probe never runs (it records a failed Windows logon per start;
 //!    [`crate::util::chromium`]).
 //! 2. Before anything loads: scripts, dialogs, web messages, dev tools and
-//!    context menus off; the staged page's folder is mapped to
-//!    `https://`[`STAGE_HOST`] and the document's folder to
-//!    `https://`[`DOC_HOST`] (no CORS); every request goes through
+//!    context menus off; every request goes through
 //!    [`super::is_allowed_request`], which answers anything else with a 403
-//!    before it leaves the process; every navigation other than the page's
-//!    own is cancelled.
+//!    before it leaves the process, and every request to `https://`[`DOC_HOST`]
+//!    is answered by the worker itself ([`super::serve`]): the staged page at
+//!    [`super::page_url`] (with the page's Content-Security-Policy as a
+//!    response header too), and files inside the document's folder, streamed
+//!    from disk. Every navigation other than the page's own is cancelled.
 //! 3. When the page's navigation completes, `PrintToPdf` writes the PDF on
 //!    the job's paper with no header or footer, and the app exits.
 //!
-//! Serving the folders over a private `https` origin instead of `file:` is
-//! what keeps a page from reaching a file share (module docs of
-//! [`super`]): Chromium refuses `file:` sub-resources to a non-`file` page,
-//! so `file://host/share/x.png` is never opened, and a protocol-relative
+//! Serving over a private `https` origin instead of `file:` is what keeps a
+//! page from reaching a file share (module docs of [`super`]): Chromium
+//! refuses `file:` sub-resources to a non-`file` page, so
+//! `file://host/share/x.png` is never opened, and a protocol-relative
 //! `//host/x.png` becomes `https://host/x.png`, which the filter refuses.
+//! Serving the page and its folder from that *one* origin (instead of two
+//! folder mappings) is what lets same-folder web fonts and external SVG
+//! `<use>` load: both need the same origin, and a second origin with
+//! `DENY_CORS` refused them.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    ICoreWebView2, ICoreWebView2Environment, ICoreWebView2Environment6, ICoreWebView2_3,
-    ICoreWebView2_7, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS,
-    COREWEBVIEW2_WEB_ERROR_STATUS, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+    ICoreWebView2, ICoreWebView2Environment, ICoreWebView2Environment6,
+    ICoreWebView2WebResourceResponse, ICoreWebView2_7, COREWEBVIEW2_WEB_ERROR_STATUS,
+    COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
 };
 use webview2_com::{
     take_pwstr, NavigationCompletedEventHandler, NavigationStartingEventHandler,
     PrintToPdfCompletedHandler, WebResourceRequestedEventHandler,
 };
 use windows_core::{Interface, BOOL, HSTRING, PWSTR};
+use windows_webview::Win32::System::Com::{IStream, STGM_READ, STGM_SHARE_DENY_WRITE};
+use windows_webview::Win32::UI::Shell::SHCreateStreamOnFileEx;
 
-use super::{RenderRequest, DOC_HOST, STAGE_HOST};
-
-/// How long the whole render may take before the worker gives up by itself.
-/// The engine's conversion timeout normally kills it earlier.
-const RENDER_LIMIT: Duration = Duration::from_secs(300);
+use super::{RenderRequest, Served};
 
 /// Chromium switches for the worker's web view. The first group is what wry
 /// passes by default (replaced, not added to, when switches are given). The
@@ -91,18 +93,64 @@ fn finish(state: &Shared, app: &tauri::AppHandle, outcome: Result<(), String>) {
     std::process::exit(code);
 }
 
-/// The URL the staged page is loaded from.
-fn page_url(page: &Path) -> String {
-    let name = page
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "page.html".into());
-    const KEEP: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
-        .remove(b'.')
-        .remove(b'-')
-        .remove(b'_');
-    let encoded = percent_encoding::utf8_percent_encode(&name, KEEP);
-    format!("https://{STAGE_HOST}/{encoded}")
+/// The response to a request the worker answers itself ([`super::serve`]):
+/// the file streamed from disk with its content type (and the page's policy
+/// as a header for the staged page), or a bodiless 403/404.
+///
+/// # Safety
+/// WebView2 COM calls; run on the web view's UI thread.
+unsafe fn respond(
+    env: &ICoreWebView2Environment,
+    served: Served,
+) -> windows_core::Result<ICoreWebView2WebResourceResponse> {
+    let (path, headers) = match served {
+        Served::Page(path) => {
+            let headers = format!(
+                "Content-Type: text/html\nContent-Security-Policy: {}",
+                crate::engine::convert::html::page_csp()
+            );
+            (path, headers)
+        }
+        Served::File(path) => {
+            let headers = format!("Content-Type: {}", super::content_type(&path));
+            (path, headers)
+        }
+        Served::NotFound => {
+            return env.CreateWebResourceResponse(
+                None,
+                404,
+                &HSTRING::from("Not Found"),
+                &HSTRING::new(),
+            )
+        }
+        Served::Refused => {
+            return env.CreateWebResourceResponse(
+                None,
+                403,
+                &HSTRING::from("Blocked"),
+                &HSTRING::new(),
+            )
+        }
+    };
+    let stream: IStream = match SHCreateStreamOnFileEx(
+        &HSTRING::from(path.as_os_str()),
+        (STGM_READ | STGM_SHARE_DENY_WRITE).0,
+        0,
+        false,
+        None::<&IStream>,
+    ) {
+        Ok(stream) => stream,
+        Err(e) => {
+            trace(format_args!("cannot open {}: {e}", path.display()));
+            return env.CreateWebResourceResponse(
+                None,
+                404,
+                &HSTRING::from("Not Found"),
+                &HSTRING::new(),
+            );
+        }
+    };
+    env.CreateWebResourceResponse(&stream, 200, &HSTRING::from("OK"), &HSTRING::from(headers))
 }
 
 fn hr(context: &str) -> impl Fn(windows_core::Error) -> String + '_ {
@@ -126,22 +174,15 @@ fn trace(message: impl std::fmt::Display) {
 
 /// Render `request` (see [`super::render`]).
 pub fn render(request: &RenderRequest) -> Result<(), String> {
-    // A wedged web view must not keep the worker alive forever when the
-    // engine runs without a conversion timeout.
-    std::thread::spawn(|| {
-        std::thread::sleep(RENDER_LIMIT);
-        eprintln!("pluryprint worker render-pdf: the render did not finish in time");
-        std::process::exit(crate::worker::EXIT_FAILED);
-    });
+    // The job's conversion timeout bounds the whole render, also when the
+    // engine that started this worker is gone; the setting 0 means no limit.
+    // Running out prints the timeout marker, so the job ends as a timeout,
+    // not as a render failure the queue would retry.
+    super::start_watchdog(request.limit());
 
     let profile = request.data_dir.join("EBWebView");
     crate::util::chromium::suppress_blank_password_probe(&profile)
         .map_err(|e| format!("cannot prepare the web view folder: {e}"))?;
-    let stage_dir = request
-        .page
-        .parent()
-        .ok_or("the staged page has no folder")?
-        .to_path_buf();
 
     trace(format_args!("start, page {}", request.page.display()));
     let app = crate::render_worker_app().map_err(|e| format!("cannot start the web view: {e}"))?;
@@ -175,7 +216,6 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
                     pw.controller().CoreWebView2(),
                     pw.environment(),
                     &request,
-                    &stage_dir,
                     st.clone(),
                     h.clone(),
                 )
@@ -201,7 +241,6 @@ unsafe fn start(
     core: windows_core::Result<ICoreWebView2>,
     env: ICoreWebView2Environment,
     request: &RenderRequest,
-    stage_dir: &Path,
     state: Shared,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -217,29 +256,14 @@ unsafe fn start(
     let _ = settings.SetAreDefaultContextMenusEnabled(false);
     let _ = settings.SetIsStatusBarEnabled(false);
 
-    let core3: ICoreWebView2_3 = core
-        .cast()
-        .map_err(hr("WebView2 too old (no folder mapping)"))?;
-    core3
-        .SetVirtualHostNameToFolderMapping(
-            &HSTRING::from(STAGE_HOST),
-            &HSTRING::from(stage_dir.as_os_str()),
-            COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS,
-        )
-        .map_err(hr("mapping the page folder"))?;
-    core3
-        .SetVirtualHostNameToFolderMapping(
-            &HSTRING::from(DOC_HOST),
-            &HSTRING::from(request.base_dir.as_os_str()),
-            COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS,
-        )
-        .map_err(hr("mapping the document folder"))?;
-
     // Every request, whatever its kind, is checked; refused ones get a 403
-    // without ever reaching the network.
+    // without ever reaching the network, and the private origin is answered
+    // here, from the staged page and the document's folder only.
     core.AddWebResourceRequestedFilter(&HSTRING::from("*"), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)
         .map_err(hr("request filter"))?;
     let filter_env = env.clone();
+    let page = request.page.clone();
+    let base_dir = request.base_dir.clone();
     let mut token = 0i64;
     core.add_WebResourceRequested(
         &WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
@@ -249,14 +273,17 @@ unsafe fn start(
             request.Uri(&mut uri)?;
             let uri = take_pwstr(uri);
             let allowed = super::is_allowed_request(&uri);
-            trace(format_args!("request {uri} allowed={allowed}"));
-            if !allowed {
-                let response = filter_env.CreateWebResourceResponse(
-                    None,
-                    403,
-                    &HSTRING::from("Blocked"),
-                    &HSTRING::new(),
-                )?;
+            let lower = uri.trim().to_ascii_lowercase();
+            let local = lower.starts_with("data:") || lower == "about:blank";
+            let served = match (allowed, local) {
+                // `data:` and `about:blank` load as they are.
+                (true, true) => None,
+                (true, false) => Some(super::serve(&uri, &page, &base_dir)),
+                (false, _) => Some(Served::Refused),
+            };
+            trace(format_args!("request {uri} -> {served:?}"));
+            if let Some(served) = served {
+                let response = respond(&filter_env, served)?;
                 args.SetResponse(&response)?;
             }
             Ok(())
@@ -265,7 +292,7 @@ unsafe fn start(
     )
     .map_err(hr("request handler"))?;
 
-    let target = page_url(&request.page);
+    let target = super::page_url(&request.page);
     let nav_state = state.clone();
     let nav_target = target.clone();
     core.add_NavigationStarting(
@@ -399,13 +426,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fr_055_page_url_is_on_the_stage_origin_and_encoded() {
+    fn fr_055_page_url_is_on_the_document_origin_and_encoded() {
         assert_eq!(
-            page_url(Path::new(r"C:\w\stage\page.html")),
-            "https://stage.pluryprint.example/page.html"
+            super::super::page_url(Path::new(r"C:\w\stage\page.html")),
+            "https://doc.pluryprint.example/.pluryprint-stage/page.html"
         );
-        assert!(super::super::is_allowed_request(&page_url(Path::new(
-            r"C:\w\stage\a b.html"
-        ))));
+        let page = Path::new(r"C:\w\stage\a b.html");
+        let url = super::super::page_url(page);
+        assert!(super::super::is_allowed_request(&url));
+        assert_eq!(
+            super::super::serve(&url, page, Path::new(r"C:\docs")),
+            Served::Page(page.to_path_buf())
+        );
     }
 }

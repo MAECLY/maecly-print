@@ -524,7 +524,14 @@ pub fn stylesheet_refs(text: &[u8]) -> Vec<String> {
     while let Some(lt) = find(text, b"<", i) {
         i = lt + 1;
         if let Some(tag) = parse_tag(text, lt) {
-            if tag.name == "link" {
+            let is_stylesheet = tag
+                .attr("rel")
+                .is_some_and(|rel| rel.to_ascii_lowercase().contains("stylesheet"))
+                || tag.attr("href").is_some_and(|href| {
+                    let path = href.split(['?', '#']).next().unwrap_or_default();
+                    path.to_ascii_lowercase().ends_with(".css")
+                });
+            if tag.name == "link" && is_stylesheet {
                 if let Some(href) = tag.attr("href") {
                     out.push(href.to_string());
                 }

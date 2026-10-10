@@ -19,14 +19,24 @@
 //! - **no file share**: a reference such as `//host/x.png` or
 //!   `file://host/share/x.png` would make Windows open `\\host\share` over SMB
 //!   or WebDAV and hand the user's NTLM credentials to that host. On Windows
-//!   the page is therefore not loaded from `file:` at all: its folder is
-//!   mapped to a private `https` origin ([`DOC_HOST`]), from which Chromium
-//!   refuses every `file:` sub-resource, and a protocol-relative reference
-//!   resolves to `https:`, which the request filter refuses. On macOS a
-//!   `file:` URL with a host is refused by the rule list (and macOS does not
+//!   the page is therefore not loaded from `file:` at all: the worker serves
+//!   it, and the document's folder, itself on one private `https` origin
+//!   ([`DOC_HOST`], [`serve`]), from which Chromium refuses every `file:`
+//!   sub-resource, and a protocol-relative reference resolves to `https:`,
+//!   which the request filter refuses. Every path it serves is checked by the
+//!   shared share predicate ([`crate::engine::convert::local_ref`]). On macOS
+//!   a `file:` URL with a host is refused by the rule list (and macOS does not
 //!   mount shares for a web view anyway).
-//! - **only the page's folder readable**: WebView2 serves the mapped folder
-//!   and nothing else; WebKit gets read access to the base folder only.
+//! - **one origin**: the staged page and the document's folder share that
+//!   origin, so same-folder web fonts (CORS-mode requests) and external SVG
+//!   `<use>` (same-origin only) load as they do from the user's folder.
+//! - **only the page's folder readable**: the worker serves the staged page
+//!   and files inside the document's folder, nothing else; WebKit gets read
+//!   access to the base folder only.
+//! - **bounded**: the worker gives up by itself after the job's conversion
+//!   timeout ([`RenderRequest::timeout_secs`], none when the setting is 0),
+//!   printing [`TIMEOUT_MARKER`] so the engine reports a timeout (terminal),
+//!   not a render failure it would retry.
 //!
 //! The page size comes from the job ([`RenderRequest::paper_in`]) and is set
 //! natively on the print settings, so it does not depend on the page's CSS.
@@ -39,14 +49,19 @@ pub mod macos;
 #[cfg(windows)]
 pub mod windows;
 
-/// The private origin a page's own folder is served from on Windows. A
-/// reserved name (RFC 2606), so it can never be a real site; WebView2 maps it
-/// to the folder without any network or DNS.
+/// The private origin the staged page and its document's folder are served
+/// from on Windows. A reserved name (RFC 2606), so it can never be a real
+/// site; the worker answers every request to it itself ([`serve`]), without
+/// any network or DNS.
 pub const DOC_HOST: &str = "doc.pluryprint.example";
 
-/// The private origin the staged page itself is served from on Windows (the
-/// job's work folder for the page, separate from the document's folder).
-pub const STAGE_HOST: &str = "stage.pluryprint.example";
+/// The folder, on [`DOC_HOST`], the staged page is served under. A name no
+/// document folder is expected to have; the page wins over a file there.
+pub const STAGE_PATH: &str = "/.pluryprint-stage/";
+
+/// The line a render worker prints on stderr when it gave up because the
+/// conversion timeout passed, so the engine reports a timeout.
+pub const TIMEOUT_MARKER: &str = "pluryprint-render-timeout";
 
 /// What one render worker run does: print `page` to `output`.
 #[derive(Debug, Clone, PartialEq)]
@@ -65,6 +80,10 @@ pub struct RenderRequest {
     /// Paper width × height in inches, or `None` for the web view's default
     /// (US Letter) when the job's paper is `auto` or unknown.
     pub paper_in: Option<(f64, f64)>,
+    /// The job's conversion timeout, in seconds: the worker gives up by
+    /// itself once it passes. `None` (the setting is 0): no limit, the
+    /// job's cancel flag still stops it.
+    pub timeout_secs: Option<u64>,
 }
 
 const ARG_PAGE: &str = "--page";
@@ -72,6 +91,7 @@ const ARG_BASE: &str = "--base";
 const ARG_OUT: &str = "--out";
 const ARG_DATA: &str = "--data";
 const ARG_PAPER: &str = "--paper-in";
+const ARG_TIMEOUT: &str = "--timeout-secs";
 
 impl RenderRequest {
     /// The worker's argument vector for this request (after
@@ -92,7 +112,18 @@ impl RenderRequest {
             args.push(OsString::from(ARG_PAPER));
             args.push(OsString::from(format!("{w}x{h}")));
         }
+        if let Some(secs) = self.timeout_secs.filter(|s| *s > 0) {
+            args.push(OsString::from(ARG_TIMEOUT));
+            args.push(OsString::from(secs.to_string()));
+        }
         args
+    }
+
+    /// How long the worker may run before it gives up by itself.
+    pub fn limit(&self) -> Option<std::time::Duration> {
+        self.timeout_secs
+            .filter(|s| *s > 0)
+            .map(std::time::Duration::from_secs)
     }
 
     /// Parse the worker's arguments back into a request. Every path is
@@ -103,6 +134,7 @@ impl RenderRequest {
         let mut out = None;
         let mut data = None;
         let mut paper = None;
+        let mut timeout = None;
         let mut it = args.iter();
         while let Some(flag) = it.next() {
             let flag = flag.to_string_lossy();
@@ -116,6 +148,13 @@ impl RenderRequest {
                 ARG_OUT => out = Some(PathBuf::from(value)),
                 ARG_DATA => data = Some(PathBuf::from(value)),
                 ARG_PAPER => paper = Some(parse_paper(value)?),
+                ARG_TIMEOUT => {
+                    let secs = value
+                        .to_string_lossy()
+                        .parse::<u64>()
+                        .map_err(|_| format!("{ARG_TIMEOUT} must be a number of seconds"))?;
+                    timeout = (secs > 0).then_some(secs);
+                }
                 other => return Err(format!("unknown argument: {other}")),
             }
         }
@@ -126,8 +165,24 @@ impl RenderRequest {
             output: need(out, ARG_OUT)?,
             data_dir: need(data, ARG_DATA)?,
             paper_in: paper,
+            timeout_secs: timeout,
         })
     }
+}
+
+/// Start a thread that ends the worker once `limit` passes, printing
+/// [`TIMEOUT_MARKER`] first. No limit: no watchdog (the engine's cancel flag
+/// still kills the worker).
+pub fn start_watchdog(limit: Option<std::time::Duration>) {
+    let Some(limit) = limit else { return };
+    std::thread::spawn(move || {
+        std::thread::sleep(limit);
+        eprintln!(
+            "{TIMEOUT_MARKER}: the render did not finish within {}s",
+            limit.as_secs()
+        );
+        std::process::exit(crate::worker::EXIT_FAILED);
+    });
 }
 
 fn parse_paper(value: &OsStr) -> Result<(f64, f64), String> {
@@ -167,12 +222,131 @@ pub fn is_allowed_request(uri: &str) -> bool {
     if lower.starts_with("data:") || lower == "about:blank" {
         return true;
     }
-    [DOC_HOST, STAGE_HOST].iter().any(|host| {
-        let prefix = format!("https://{host}");
-        lower
-            .strip_prefix(&prefix)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
-    })
+    let prefix = format!("https://{DOC_HOST}");
+    lower
+        .strip_prefix(&prefix)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// The URL the staged `page` is loaded from on Windows: under
+/// [`STAGE_PATH`] on [`DOC_HOST`], the document folder's own origin. Pure.
+pub fn page_url(page: &Path) -> String {
+    let name = page
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "page.html".into());
+    const KEEP: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+        .remove(b'.')
+        .remove(b'-')
+        .remove(b'_');
+    let encoded = percent_encoding::utf8_percent_encode(&name, KEEP);
+    format!("https://{DOC_HOST}{STAGE_PATH}{encoded}")
+}
+
+/// What the Windows worker answers a request to [`DOC_HOST`] with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Served {
+    /// The staged page itself.
+    Page(PathBuf),
+    /// A file inside the document's folder (canonical path).
+    File(PathBuf),
+    /// Nothing there (or a folder): 404.
+    NotFound,
+    /// Not this origin, or a path that tries to leave the folder or reach a
+    /// share: 403.
+    Refused,
+}
+
+/// Map a request `uri` to what is served (module docs): the staged `page` at
+/// [`page_url`], otherwise a file inside `base_dir`, never a path that
+/// leaves it (`..`, an absolute or drive path, a stream name, a share by
+/// [`crate::engine::convert::local_ref`]). The query and fragment are
+/// ignored. Touches the disk only for a path that passed every check.
+pub fn serve(uri: &str, page: &Path, base_dir: &Path) -> Served {
+    use crate::engine::convert::local_ref;
+    let Ok(url) = url::Url::parse(uri.trim()) else {
+        return Served::Refused;
+    };
+    let same_origin = url.scheme() == "https"
+        && url.host_str() == Some(DOC_HOST)
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none();
+    if !same_origin {
+        return Served::Refused;
+    }
+    if url.path() == url::Url::parse(&page_url(page)).map_or(String::new(), |u| u.path().into()) {
+        return Served::Page(page.to_path_buf());
+    }
+    let Some(segments) = url.path_segments() else {
+        return Served::Refused;
+    };
+    let mut candidate = base_dir.to_path_buf();
+    for raw in segments {
+        let segment = percent_encoding::percent_decode_str(raw).decode_utf8_lossy();
+        if segment.is_empty() {
+            return Served::NotFound;
+        }
+        let bad = segment == "."
+            || segment == ".."
+            || segment
+                .chars()
+                .any(|c| matches!(c, '/' | '\\' | ':' | '\0') || c.is_control());
+        if bad {
+            return Served::Refused;
+        }
+        candidate.push(segment.as_ref());
+    }
+    if !local_ref::may_open(&candidate, base_dir) {
+        return Served::Refused;
+    }
+    let (Ok(real), Ok(root)) = (candidate.canonicalize(), base_dir.canonicalize()) else {
+        return Served::NotFound;
+    };
+    if !real.starts_with(&root) {
+        return Served::Refused;
+    }
+    if real.is_file() {
+        Served::File(real)
+    } else {
+        Served::NotFound
+    }
+}
+
+/// The `Content-Type` a served file is answered with, from its extension.
+/// Pure.
+pub fn content_type(path: &Path) -> &'static str {
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "js" | "mjs" => "text/javascript",
+        "json" => "application/json",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        "tif" | "tiff" => "image/tiff",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        "txt" | "md" => "text/plain",
+        "xml" => "application/xml",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "pdf" => "application/pdf",
+        _ => "application/octet-stream",
+    }
 }
 
 /// The content rule list (WebKit's JSON) that blocks every load except
@@ -251,6 +425,7 @@ mod tests {
             output: PathBuf::from("/w/out.pdf"),
             data_dir: PathBuf::from("/w/webview"),
             paper_in: paper,
+            timeout_secs: None,
         }
     }
 
@@ -260,6 +435,99 @@ mod tests {
             let r = req(paper);
             assert_eq!(RenderRequest::parse(&r.to_args()), Ok(r));
         }
+        for timeout in [None, Some(1), Some(3600)] {
+            let r = RenderRequest {
+                timeout_secs: timeout,
+                ..req(None)
+            };
+            assert_eq!(RenderRequest::parse(&r.to_args()), Ok(r.clone()));
+            assert_eq!(r.limit(), timeout.map(std::time::Duration::from_secs));
+        }
+    }
+
+    /// The worker's own limit is the job's conversion timeout; 0 means none.
+    #[test]
+    fn nfr_render_worker_honours_conversion_timeout_seconds() {
+        let zero = RenderRequest {
+            timeout_secs: Some(0),
+            ..req(None)
+        };
+        assert!(!zero
+            .to_args()
+            .iter()
+            .any(|a| a.to_str() == Some("--timeout-secs")));
+        assert_eq!(zero.limit(), None);
+        let mut args = req(None).to_args();
+        args.extend(["--timeout-secs".into(), "0".into()]);
+        assert_eq!(RenderRequest::parse(&args).unwrap().timeout_secs, None);
+        let mut args = req(None).to_args();
+        args.extend(["--timeout-secs".into(), "x".into()]);
+        assert!(RenderRequest::parse(&args).is_err());
+    }
+
+    /// Windows serves the staged page and the document's folder from one
+    /// origin; nothing outside the folder, and no share, is ever opened.
+    #[test]
+    fn fr_055_serve_maps_one_origin_to_the_page_and_the_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let doc = root.join("doc");
+        std::fs::create_dir_all(doc.join("fonts")).unwrap();
+        std::fs::write(doc.join("fonts").join("a b.woff2"), b"wOF2").unwrap();
+        std::fs::write(root.join("secret.txt"), b"x").unwrap();
+        let stage = root.join("stage");
+        std::fs::create_dir_all(&stage).unwrap();
+        let page = stage.join("page.html");
+        std::fs::write(&page, b"<p>").unwrap();
+
+        let url = page_url(&page);
+        assert_eq!(
+            url,
+            "https://doc.pluryprint.example/.pluryprint-stage/page.html"
+        );
+        assert!(is_allowed_request(&url));
+        assert_eq!(serve(&url, &page, &doc), Served::Page(page.clone()));
+        assert_eq!(
+            serve(
+                "https://doc.pluryprint.example/fonts/a%20b.woff2?v=1#x",
+                &page,
+                &doc
+            ),
+            Served::File(doc.join("fonts").join("a b.woff2"))
+        );
+        assert_eq!(
+            serve("https://DOC.pluryprint.example/missing.png", &page, &doc),
+            Served::NotFound
+        );
+        assert_eq!(
+            serve("https://doc.pluryprint.example/fonts", &page, &doc),
+            Served::NotFound
+        );
+        for uri in [
+            "https://doc.pluryprint.example/..%2fsecret.txt",
+            "https://doc.pluryprint.example/%2e%2e/secret.txt",
+            "https://doc.pluryprint.example/a%5c..%5c..%5csecret.txt",
+            "https://doc.pluryprint.example/C:%5Cx",
+            "https://doc.pluryprint.example/x.txt:stream",
+            "https://doc.pluryprint.example:444/x",
+            "https://u@doc.pluryprint.example/x",
+            "https://evil.example/x",
+            "http://doc.pluryprint.example/x",
+            "file:///etc/passwd",
+        ] {
+            let served = serve(uri, &page, &doc);
+            assert!(
+                matches!(served, Served::Refused | Served::NotFound),
+                "{uri}: {served:?}"
+            );
+            assert!(
+                !matches!(served, Served::File(ref p) if !p.starts_with(&doc)),
+                "{uri}"
+            );
+        }
+        assert_eq!(content_type(Path::new("a.WOFF2")), "font/woff2");
+        assert_eq!(content_type(Path::new("i.svg")), "image/svg+xml");
+        assert_eq!(content_type(Path::new("noext")), "application/octet-stream");
     }
 
     #[test]
@@ -294,6 +562,7 @@ mod tests {
             "https://doc.pluryprint.example.evil.com/x",
             "https://doc.pluryprint.example@evil.com/x",
             "https://evil.com/https://doc.pluryprint.example/",
+            "https://stage.pluryprint.example/page.html",
             "javascript:alert(1)",
             "blob:https://x/y",
         ] {
@@ -302,8 +571,8 @@ mod tests {
         for uri in [
             "https://doc.pluryprint.example/img/a.png",
             "https://DOC.pluryprint.example/a%20b.css",
-            "https://stage.pluryprint.example/page.html",
-            "https://stage.pluryprint.example",
+            "https://doc.pluryprint.example/.pluryprint-stage/page.html",
+            "https://doc.pluryprint.example",
             "data:image/png;base64,AAAA",
             "about:blank",
         ] {

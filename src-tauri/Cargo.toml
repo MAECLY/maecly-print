@@ -254,6 +254,15 @@ webview2-com = "0.38"
 # 0.38 is generated against; our own `windows` 0.58 types are not
 # interchangeable with them. Already in the tree through wry. MIT OR Apache-2.0.
 windows-core = "0.61"
+# FR-055: the render worker answers the web view's requests itself, streaming
+# the staged page and the document's files (`SHCreateStreamOnFileEx`), so both
+# share one origin. The `windows` line webview2-com 0.38 and wry are built on
+# (its `IStream` is the one `CreateWebResourceResponse` takes), with the
+# features wry already enables: nothing new is compiled. MIT OR Apache-2.0.
+windows-webview = { package = "windows", version = "0.61", default-features = false, features = [
+  "Win32_System_Com",
+  "Win32_UI_Shell",
+] }
 
 [features]
 # By default Tauri uses "custom-protocol" in release builds. Tauri's CLI passes this in.

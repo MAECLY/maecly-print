@@ -252,6 +252,128 @@ fn fr_057_rtf_macos_textutil() {
     assert_eq!(first_page_size(&pdf), (595, 842));
 }
 
+/// The content streams of every page, decompressed.
+fn page_content(pdf: &Path) -> String {
+    let doc = lopdf::Document::load(pdf).unwrap();
+    doc.get_pages()
+        .values()
+        .map(|id| {
+            String::from_utf8_lossy(&doc.get_page_content(*id).unwrap_or_default()).into_owned()
+        })
+        .collect()
+}
+
+/// A TrueType font that exists on this OS, to serve as a web font.
+fn some_font() -> Option<(PathBuf, &'static str)> {
+    let candidates: &[(&str, &str)] = if cfg!(windows) {
+        &[
+            (r"C:\Windows\Fonts\consola.ttf", "Consolas"),
+            (r"C:\Windows\Fonts\cour.ttf", "Courier"),
+        ]
+    } else {
+        &[
+            (
+                "/System/Library/Fonts/Supplemental/Courier New.ttf",
+                "CourierNew",
+            ),
+            (
+                "/System/Library/Fonts/Supplemental/Arial Black.ttf",
+                "Arial-Black",
+            ),
+        ]
+    };
+    candidates
+        .iter()
+        .map(|(p, n)| (PathBuf::from(p), *n))
+        .find(|(p, _)| p.is_file())
+}
+
+/// Round 4: same-folder web fonts and an external SVG `<use>` load (on
+/// Windows they used to come from a second, CORS-denied origin), and a page's
+/// own relative `<base href>` points into the document's folder, not into
+/// the private stage folder.
+#[test]
+fn fr_055_same_folder_fonts_use_and_relative_base_load() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("fonts")).unwrap();
+    std::fs::create_dir_all(dir.path().join("assets")).unwrap();
+    red_png(&dir.path().join("assets").join("red.png"));
+    std::fs::write(
+        dir.path().join("assets").join("icons.svg"),
+        "<svg xmlns=\"http://www.w3.org/2000/svg\"><symbol id=\"r\" viewBox=\"0 0 10 10\">\
+         <rect width=\"10\" height=\"10\" fill=\"#00ff00\"/></symbol></svg>",
+    )
+    .unwrap();
+    let font = some_font();
+    if let Some((path, _)) = &font {
+        std::fs::copy(path, dir.path().join("assets").join("face.ttf")).unwrap();
+    }
+    let html = dir.path().join("based.html");
+    std::fs::write(
+        &html,
+        "<!doctype html><html><head><meta charset=utf-8><base href=\"assets/\">\
+         <style>@font-face { font-family: PluryTest; src: url(face.ttf); }\
+         p { font-family: PluryTest; font-size: 20pt; }</style></head><body>\
+         <p>Web font text</p><img src=\"red.png\">\
+         <svg width=\"40\" height=\"40\"><use href=\"icons.svg#r\"/></svg></body></html>",
+    )
+    .unwrap();
+    let pdf = convert(&html, &PageSetup::default()).unwrap();
+    assert!(
+        images(&pdf) >= 1,
+        "the image under the page's own base loads"
+    );
+    // WebKit never loads an external `<use>` document for a page loaded from
+    // data with a `file:` base; WebView2, serving one origin, does.
+    if cfg!(windows) {
+        let content = page_content(&pdf);
+        assert!(
+            content.contains("0 1 0 rg"),
+            "the external <use> symbol is drawn: {content}"
+        );
+    }
+    if let Some((_, name)) = font {
+        let bytes = std::fs::read(&pdf).unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(
+            text.contains(name),
+            "the same-folder web font {name} is embedded"
+        );
+    }
+}
+
+/// Round 4 security finding: a `<head>` inside a leading comment no longer
+/// swallows the page's policy, and a share reference is never followed.
+#[test]
+fn nfr_security_commented_head_and_share_refs_render_safely() {
+    let dir = tempfile::tempdir().unwrap();
+    let html = dir.path().join("commented.html");
+    std::fs::write(
+        &html,
+        "<!-- <head> --><!doctype html><html><head><title>t</title></head><body>\
+         <p>ok</p><img src=\"/\\127.0.0.1\\share\\x.png\"><img src=\"file:///%5C%5C127.0.0.1%5Cs%5Cx.png\">\
+         </body></html>",
+    )
+    .unwrap();
+    let pdf = convert(&html, &PageSetup::default()).unwrap();
+    assert_eq!(pages(&pdf), 1);
+    // A refused image prints like a missing one (WebView2 draws its
+    // broken-image icon): compare with a page of two missing local images.
+    let control = dir.path().join("control.html");
+    std::fs::write(
+        &control,
+        "<!doctype html><html><head><title>t</title></head><body>\
+         <p>ok</p><img src=\"missing-1.png\"><img src=\"missing-2.png\"></body></html>",
+    )
+    .unwrap();
+    let control_pdf = convert(&control, &PageSetup::default()).unwrap();
+    assert_eq!(
+        images(&pdf),
+        images(&control_pdf),
+        "no share image is loaded"
+    );
+}
+
 /// D10: the worker runs as its own process and exits; it never forwards to
 /// a running instance or waits on one, and a second one in parallel works.
 #[test]
