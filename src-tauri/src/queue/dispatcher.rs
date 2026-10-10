@@ -353,6 +353,13 @@ pub(crate) trait JobTracker: Send + Sync + 'static {
     /// Ask the spooler once about `os_job_id` on `printer`. Must not block for
     /// long: the dispatcher owns the cadence and the overall budget.
     fn poll(&self, printer: &str, os_job_id: &str) -> Result<OsJobState, TrackError>;
+
+    /// Whether `os_job_id`, read back from `queue.json`, can still be told
+    /// apart from a job that later took the same id
+    /// ([`crate::engine::print::os_job_id_verifiable`]).
+    fn verifiable(&self, os_job_id: &str) -> bool {
+        crate::engine::print::os_job_id_verifiable(os_job_id)
+    }
 }
 
 /// Production [`JobTracker`] backed by [`crate::engine::print::job_state`].
@@ -713,8 +720,20 @@ impl Dispatcher {
     }
 
     /// Re-attach the print slot to a recovered, already spooled job.
+    ///
+    /// Only a spooler reference that can still be told apart from a job that
+    /// later took the same id is adopted ([`crate::engine::print::os_job_id_verifiable`]):
+    /// the Windows spooler reuses ids after a restart, and following (or, on
+    /// Cancel, deleting) somebody else's print is worse than not following
+    /// ours. One that cannot be checked ends as [`JobState::Unconfirmed`]: it
+    /// was handed to the spooler, so it is not sent again, and nobody can say
+    /// whether it printed.
+    ///
+    /// The adopted print keeps the budget it had: the print timeout counts
+    /// from when it was spooled (`spooled_at`), not from this launch.
     fn adopt_handed_off_print(&mut self) {
-        let mut adopt: Option<(String, String, String)> = None;
+        let mut adopt: Option<(String, String, String, Duration)> = None;
+        let mut post = Post::default();
         {
             let mut st = self.state.write().unwrap();
             for job in st.jobs.iter_mut() {
@@ -727,6 +746,9 @@ impl Dispatcher {
                     crate::queue::persist::is_handed_off(job),
                 );
                 match handed_off {
+                    (Some(_), Some(oid), true) if !self.tracker.verifiable(&oid) => {
+                        mark_unconfirmed(job, "not_verifiable", &mut post);
+                    }
                     (Some(printer), Some(oid), true) if adopt.is_none() => {
                         tracing::info!(
                             event = "job_tracking_resumed",
@@ -735,7 +757,7 @@ impl Dispatcher {
                             printer = %printer,
                             os_job_id = %oid,
                         );
-                        adopt = Some((job.id.clone(), printer, oid));
+                        adopt = Some((job.id.clone(), printer, oid, spooled_for(job)));
                     }
                     // `recover` leaves at most one; anything else cannot be
                     // followed, so it waits for the user like any interrupted
@@ -751,13 +773,16 @@ impl Dispatcher {
                 }
             }
         }
-        if let Some((id, printer, oid)) = adopt {
+        if let Some((id, printer, oid, spooled_for)) = adopt {
             let mut slot = PrintSlot::new(id.clone());
+            let now = tokio::time::Instant::now();
+            slot.started = now.checked_sub(spooled_for).unwrap_or(now);
             slot.printer = Some(printer);
             slot.os_job_id = Some(oid);
             self.print_slot = Some(slot);
             self.arm_track_timer(id, track_delay(0));
         }
+        self.apply_post(post);
     }
 
     fn handle(&mut self, cmd: Cmd) {
@@ -909,9 +934,10 @@ impl Dispatcher {
                         "job_printing",
                         "cannot pause a job that is already printing",
                     )),
-                    JobState::Done | JobState::Failed | JobState::Cancelled => {
-                        Err(job_finished(id))
-                    }
+                    JobState::Done
+                    | JobState::Unconfirmed
+                    | JobState::Failed
+                    | JobState::Cancelled => Err(job_finished(id)),
                 },
             }
         };
@@ -1372,8 +1398,9 @@ impl Dispatcher {
                                     );
                                     track = Some((ok.printer, oid));
                                 }
-                                // No id to follow: hand-off is all we can know.
-                                None => mark_done(job, "untracked", &mut post),
+                                // No id to follow: the hand-off is all we can
+                                // know, which is not a confirmed print.
+                                None => mark_unconfirmed(job, "untracked", &mut post),
                             }
                         }
                         Err(e) => record_print_failure(job, e, &mut post),
@@ -1585,8 +1612,10 @@ impl Dispatcher {
                         // a bar frozen at 0 %.
                         job.progress = Some(JobProgress::indeterminate("printing"));
                         job.error = None;
-                        // A re-print (resume, retry) is a new OS job.
+                        // A re-print (resume, retry) is a new OS job, with
+                        // its own print budget.
                         job.os_job_id = None;
+                        job.spooled_at = Some(now_rfc3339());
                         let f = JobLog::of(job);
                         tracing::info!(
                             event = "job_start_print",
@@ -1909,6 +1938,54 @@ fn mark_done(job: &mut Job, how: &str, post: &mut Post) {
     );
 }
 
+/// End a printing job as [`JobState::Unconfirmed`]: the spooler took it, but
+/// nothing confirmed that it printed. `reason` says why not (`left_queue`,
+/// `untracked`, `tracking_failed`, `not_verifiable`); it is stored with the
+/// job (`print_unconfirmed`) so the UI says so instead of "printed", and it
+/// is never retried automatically — paper may already have come out.
+fn mark_unconfirmed(job: &mut Job, reason: &str, post: &mut Post) {
+    job.state = JobState::Unconfirmed;
+    job.finished_at = Some(now_rfc3339());
+    job.progress = None;
+    job.error = Some(
+        JobError::new(
+            "print_unconfirmed",
+            "the job was handed to the system print queue, but it did not confirm that it printed",
+        )
+        .with_reason(reason),
+    );
+    if let Some(c) = job.cache_pdf.take() {
+        post.delete_cache.push(c);
+    }
+    let f = JobLog::of(job);
+    tracing::warn!(
+        event = "job_unconfirmed",
+        job_id = %job.id,
+        file = %f.file,
+        profile = %f.profile,
+        printer = %f.printer,
+        pages = f.pages,
+        status = %f.status,
+        started_at = %f.started_at,
+        finished_at = %f.finished_at,
+        reason = %reason
+    );
+}
+
+/// How long ago `job` was handed to the spooler, from its persisted
+/// `spooled_at` (else `started_at`, which is earlier, so the budget can only
+/// shrink). Zero when neither parses or the clock went backwards.
+fn spooled_for(job: &Job) -> Duration {
+    use time::format_description::well_known::Rfc3339;
+    job.spooled_at
+        .as_deref()
+        .or(job.started_at.as_deref())
+        .and_then(|t| time::OffsetDateTime::parse(t, &Rfc3339).ok())
+        .map(|then| time::OffsetDateTime::now_utc() - then)
+        .and_then(|d| Duration::try_from(d).ok())
+        .unwrap_or_default()
+}
+
 /// Apply one tracking answer to a `Printing` job. Returns `true` when the
 /// print is over (the slot can be released).
 fn settle_tracked(
@@ -1951,8 +2028,11 @@ fn settle_tracked(
             mark_done(job, "completed", post);
             true
         }
+        // It left the queue without the spooler saying it printed: deleted in
+        // the system queue, purged, or printed and removed before a poll saw
+        // it (Windows removes printed jobs). Not evidence of a print.
         Ok(OsJobState::Gone) => {
-            mark_done(job, "left_queue", post);
+            mark_unconfirmed(job, "left_queue", post);
             true
         }
         Ok(OsJobState::Canceled) => {
@@ -1981,12 +2061,12 @@ fn settle_tracked(
         // This host cannot follow jobs at all: the hand-off is all there is.
         Err(TrackError::Unavailable(e)) => {
             tracing::warn!(event = "job_tracking_unavailable", job_id = %job.id, reason = %e);
-            mark_done(job, "untracked", post);
+            mark_unconfirmed(job, "untracked", post);
             true
         }
         Err(TrackError::Transient(e)) if failures >= MAX_TRACK_FAILURES => {
             tracing::warn!(event = "job_tracking_failed", job_id = %job.id, reason = %e, failures);
-            mark_done(job, "unconfirmed", post);
+            mark_unconfirmed(job, "tracking_failed", post);
             true
         }
         Err(TrackError::Transient(_)) => false,
@@ -2631,6 +2711,8 @@ mod tests {
     struct FakeTracker {
         answers: Mutex<VecDeque<Result<OsJobState, TrackError>>>,
         polls: Mutex<Vec<(String, String)>>,
+        /// Ids that cannot be told apart from a reused one (a bare Windows id).
+        unverifiable: Mutex<HashSet<String>>,
     }
 
     impl FakeTracker {
@@ -2650,6 +2732,10 @@ mod tests {
                 .unwrap()
                 .pop_front()
                 .unwrap_or(Ok(OsJobState::Completed))
+        }
+
+        fn verifiable(&self, os_job_id: &str) -> bool {
+            !self.unverifiable.lock().unwrap().contains(os_job_id)
         }
     }
 
@@ -2709,6 +2795,11 @@ mod tests {
             }
         }
     }
+
+    /// Where a print the fake spooler took ends by default. The fake returns
+    /// no spooler id unless a test scripts one (`spool_with_ids`), and a print
+    /// nobody can follow is never reported as printed: it ends `Unconfirmed`.
+    const HANDED_OFF: JobState = JobState::Unconfirmed;
 
     // ---- Harness ---------------------------------------------------------
 
@@ -2851,7 +2942,7 @@ mod tests {
         h.submit(vec![j]);
         h.run_to_idle();
 
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).state, HANDED_OFF);
         assert!(h.job(&id).cache_pdf.is_none(), "cache_pdf cleared on Done");
         assert!(!cache_path.exists(), "cache file deleted on Done");
         assert!(h.job(&id).finished_at.is_some());
@@ -2877,7 +2968,7 @@ mod tests {
         h.run_to_idle();
 
         let job = h.job(&id);
-        assert_eq!(job.state, JobState::Done);
+        assert_eq!(job.state, HANDED_OFF);
         assert_eq!(job.pages, Some(3));
     }
 
@@ -2894,7 +2985,7 @@ mod tests {
         assert_eq!(h.job(&ids[2]).state, JobState::Queued);
 
         h.run_to_idle();
-        assert!(ids.iter().all(|id| h.job(id).state == JobState::Done));
+        assert!(ids.iter().all(|id| h.job(id).state == HANDED_OFF));
     }
 
     #[tokio::test]
@@ -2933,7 +3024,7 @@ mod tests {
         let id = j.id.clone();
         h.submit(vec![j]);
         h.run_to_idle();
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).state, HANDED_OFF);
         assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 1);
     }
 
@@ -3077,7 +3168,7 @@ mod tests {
         })
         .unwrap();
         h.run_to_idle();
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).state, HANDED_OFF);
         assert_eq!(h.runner.convert_calls.load(Ordering::Relaxed), 1);
     }
 
@@ -3102,7 +3193,7 @@ mod tests {
         assert!(Path::new(&cache).exists(), "cache retained for print retry");
 
         h.advance_and_settle(Duration::from_secs(1)).await;
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).state, HANDED_OFF);
         assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 2);
         assert_eq!(
             h.runner.convert_calls.load(Ordering::Relaxed),
@@ -3207,7 +3298,7 @@ mod tests {
         .unwrap();
         h.run_to_idle();
 
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).state, HANDED_OFF);
         assert_eq!(
             *h.runner.convert_passwords.lock().unwrap(),
             vec![None, Some("hunter2".to_string())]
@@ -3314,8 +3405,8 @@ mod tests {
         .await
         .unwrap();
         h.run_to_idle();
-        assert_eq!(h.job(&a_id).state, JobState::Done);
-        assert_eq!(h.job(&b_id).state, JobState::Done);
+        assert_eq!(h.job(&a_id).state, HANDED_OFF);
+        assert_eq!(h.job(&b_id).state, HANDED_OFF);
     }
 
     /// FR-092: an engine failure's stable reason and params reach the job
@@ -3425,7 +3516,7 @@ mod tests {
         assert!(r.is_ok());
         h.run_to_idle();
 
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).state, HANDED_OFF);
         assert_eq!(h.job(&id).attempts, 0, "shutdown resume resets attempts");
     }
 
@@ -3446,7 +3537,7 @@ mod tests {
         assert!(r.is_ok());
         // Should re-enter at Queued and run the full pipeline to Done.
         h.run_to_idle();
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).state, HANDED_OFF);
         assert_eq!(h.runner.convert_calls.load(Ordering::Relaxed), 1);
     }
 
@@ -3466,7 +3557,7 @@ mod tests {
         h.state.write().unwrap().queue_paused = false;
         h.d.schedule();
         h.run_to_idle();
-        assert!(h.jobs().iter().all(|j| j.state == JobState::Done));
+        assert!(h.jobs().iter().all(|j| j.state == HANDED_OFF));
     }
 
     #[tokio::test]
@@ -3614,7 +3705,7 @@ mod tests {
             .collect();
         assert!(states.contains(&JobState::Converting));
         assert!(states.contains(&JobState::Printing));
-        assert_eq!(*states.last().unwrap(), JobState::Done);
+        assert_eq!(*states.last().unwrap(), HANDED_OFF);
 
         // Progress was emitted for the conversion.
         assert!(!h.emit.progress.lock().unwrap().is_empty());
@@ -3625,7 +3716,7 @@ mod tests {
         assert!(snap
             .jobs
             .iter()
-            .any(|j| j.id == id && j.state == JobState::Done));
+            .any(|j| j.id == id && j.state == HANDED_OFF));
     }
 
     #[tokio::test]
@@ -3647,7 +3738,7 @@ mod tests {
             .await;
         assert!(r.is_ok());
         h.run_to_idle();
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).state, HANDED_OFF);
         assert_eq!(h.job(&id).attempts, 0);
     }
 
@@ -3957,10 +4048,10 @@ mod tests {
         let id = j.id.clone();
         h.submit(vec![j]);
         h.run_to_idle();
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).state, HANDED_OFF);
 
         h.advance_and_settle(Duration::from_secs(60)).await;
-        assert_eq!(h.job(&id).state, JobState::Done, "stale timer is a no-op");
+        assert_eq!(h.job(&id).state, HANDED_OFF, "stale timer is a no-op");
     }
 
     #[tokio::test]
@@ -4084,7 +4175,7 @@ mod tests {
         assert!(h.job(&ida).cache_pdf.is_none(), "cache released");
 
         // The queue moved on.
-        assert_eq!(h.job(&idb).state, JobState::Done);
+        assert_eq!(h.job(&idb).state, HANDED_OFF);
         assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 2);
 
         // The budget really reached the engine seam.
@@ -4170,7 +4261,7 @@ mod tests {
             "the dead pin is dropped so dispatch can resolve normally"
         );
         h.run_to_idle();
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).state, HANDED_OFF);
         assert_eq!(h.job(&id).printer_resolved.as_deref(), Some("FakePrinter"));
         assert_eq!(
             h.runner.convert_calls.load(Ordering::Relaxed),
@@ -4224,7 +4315,7 @@ mod tests {
         .expect("resume works once the printer is installed again");
         assert_eq!(h.job(&id).settings.printer.as_deref(), Some("Old Office"));
         h.run_to_idle();
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).state, HANDED_OFF);
     }
 
     /// A printer that is still installed but cannot be used as named — two
@@ -4461,7 +4552,7 @@ mod tests {
         .await
         .unwrap();
         h.run_to_idle();
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(h.job(&id).state, HANDED_OFF);
         assert_eq!(h.job(&id).printer_resolved.as_deref(), Some("Office"));
     }
 
@@ -4688,8 +4779,19 @@ mod tests {
         assert!(!cache.exists(), "deleted once the spool is over");
     }
 
+    /// The stored outcome of a print that was handed off but never confirmed.
+    fn assert_unconfirmed(job: &Job, reason: &str) {
+        assert_eq!(job.state, JobState::Unconfirmed, "never reported as Done");
+        let err = job.error.as_ref().expect("the outcome says why");
+        assert_eq!(err.code, "print_unconfirmed");
+        assert_eq!(err.reason.as_deref(), Some(reason));
+        assert!(job.finished_at.is_some());
+        assert!(job.cache_pdf.is_none());
+        assert_eq!(job.attempts, 0, "never re-sent automatically");
+    }
+
     #[tokio::test(start_paused = true)]
-    async fn tracking_that_this_host_cannot_do_finishes_on_hand_off() {
+    async fn fr_031_tracking_that_this_host_cannot_do_ends_unconfirmed_not_done() {
         let mut h = harness();
         spool_with_ids(&h, 1);
         h.tracker
@@ -4699,7 +4801,139 @@ mod tests {
         h.submit(vec![j]);
         h.run_to_idle();
         h.advance_and_settle(TRACK_BACKOFFS[0]).await;
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_unconfirmed(&h.job(&id), "untracked");
+    }
+
+    /// A spool that hands back no id to follow is a hand-off, not a print.
+    #[tokio::test]
+    async fn fr_031_a_print_with_no_spooler_id_ends_unconfirmed() {
+        let mut h = harness();
+        let j = make_job("a.pdf");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        assert_unconfirmed(&h.job(&id), "untracked");
+    }
+
+    /// A job that vanishes from the system queue (deleted there, purged, or
+    /// removed by Windows before a poll saw it print) is not a printed job,
+    /// and the slot moves on to the next one.
+    #[tokio::test(start_paused = true)]
+    async fn fr_031_a_job_that_left_the_queue_unreported_ends_unconfirmed() {
+        let mut h = harness();
+        spool_with_ids(&h, 2);
+        h.tracker
+            .script([Ok(OsJobState::Processing), Ok(OsJobState::Gone)]);
+        let a = make_job("a.pdf");
+        let b = make_job("b.pdf");
+        let (ida, idb) = (a.id.clone(), b.id.clone());
+        h.submit(vec![a, b]);
+        h.run_to_idle();
+        h.advance_and_settle(TRACK_BACKOFFS[0]).await;
+        assert_eq!(h.job(&ida).state, JobState::Printing);
+        h.advance_and_settle(TRACK_BACKOFFS[1]).await;
+        assert_unconfirmed(&h.job(&ida), "left_queue");
+        assert_eq!(h.job(&idb).state, JobState::Printing, "slot released");
+        assert!(
+            h.runner.cancelled_os.lock().unwrap().is_empty(),
+            "nothing to cancel"
+        );
+    }
+
+    /// FR-032 (Windows): an id read back from `queue.json` that cannot be told
+    /// apart from a job that later took the same id is not followed — its
+    /// state would be somebody else's, and Cancel would delete their print.
+    /// The job is not sent again either: it ends unconfirmed.
+    #[tokio::test(start_paused = true)]
+    async fn fr_032_an_unverifiable_spooler_id_is_not_adopted_after_a_restart() {
+        let mut h = harness();
+        let mut j = make_job("a.pdf");
+        j.state = JobState::Printing;
+        j.os_job_id = Some("12".to_string());
+        j.printer_resolved = Some("FakePrinter".to_string());
+        let id = j.id.clone();
+        h.tracker
+            .unverifiable
+            .lock()
+            .unwrap()
+            .insert("12".to_string());
+        let recovered = crate::queue::persist::recover(QueueSnapshot {
+            jobs: vec![j, make_job("b.pdf")],
+            ..QueueSnapshot::default()
+        });
+        h.state.write().unwrap().jobs = recovered.jobs;
+
+        h.d.bootstrap();
+        h.run_to_idle();
+        assert_unconfirmed(&h.job(&id), "not_verifiable");
+        h.advance_and_settle(TRACK_BACKOFFS[0]).await;
+        assert!(h.tracker.polls.lock().unwrap().is_empty(), "never polled");
+        assert!(h.runner.cancelled_os.lock().unwrap().is_empty());
+        assert_eq!(
+            h.runner.print_calls.load(Ordering::Relaxed),
+            1,
+            "only the other job is spooled; the recovered one is not re-sent"
+        );
+        // Nothing left to cancel: the finished job refuses.
+        let r = h
+            .request(|reply| Cmd::Cancel {
+                id: id.clone(),
+                reply,
+            })
+            .await;
+        assert!(r.is_err());
+        assert!(h.runner.cancelled_os.lock().unwrap().is_empty());
+    }
+
+    /// FR-034: relaunching the app does not hand a print stuck in the system
+    /// queue a fresh budget — it keeps counting from when it was spooled.
+    #[tokio::test(start_paused = true)]
+    async fn fr_034_an_adopted_print_keeps_the_budget_it_had_used() {
+        let mut h = harness_with_print_timeout(300);
+        let mut j = make_job("a.pdf");
+        j.state = JobState::Printing;
+        j.os_job_id = Some("P-7".to_string());
+        j.printer_resolved = Some("FakePrinter".to_string());
+        let spooled = time::OffsetDateTime::now_utc() - time::Duration::seconds(290);
+        j.spooled_at = Some(
+            spooled
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
+        );
+        let id = j.id.clone();
+        h.state.write().unwrap().jobs = vec![j];
+        h.tracker
+            .script(std::iter::repeat_n(Ok(OsJobState::Held), 50));
+
+        h.d.bootstrap();
+        h.run_to_idle();
+        for d in TRACK_BACKOFFS {
+            h.advance_and_settle(d).await;
+        }
+        let job = h.job(&id);
+        assert_eq!(
+            job.state,
+            JobState::Failed,
+            "15 s after relaunch, 305 s after spooling: over the 300 s budget"
+        );
+        assert_eq!(job.error.unwrap().code, "print_timeout");
+    }
+
+    /// A fresh spool stamps when it was handed off, so a later restart can
+    /// restore the budget it had used.
+    #[tokio::test]
+    async fn fr_034_a_spooled_job_records_when_it_was_spooled() {
+        let spawner = Arc::new(DeferredSpawner::default());
+        let mut h = harness_with(spawner.clone(), DispatcherLimits::default());
+        let j = make_job("a.pdf");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        assert!(h.job(&id).spooled_at.is_none(), "not spooled yet");
+        spawner.run_next(); // conversion
+        h.run_to_idle();
+        assert_eq!(h.job(&id).state, JobState::Printing);
+        assert!(h.job(&id).spooled_at.is_some());
     }
 
     #[tokio::test(start_paused = true)]
@@ -4720,7 +4954,7 @@ mod tests {
         }
         h.advance_and_settle(track_delay(MAX_TRACK_FAILURES - 1))
             .await;
-        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_unconfirmed(&h.job(&id), "tracking_failed");
     }
 
     // ---- Progress honesty -------------------------------------------------
@@ -4811,7 +5045,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn fr_035_job_records_carry_start_end_file_profile_printer_pages_status() {
         use tracing_subscriber::layer::SubscriberExt;
 
@@ -4825,10 +5059,14 @@ mod tests {
         j.settings.printer = Some("Office".to_string());
         let id = j.id.clone();
 
-        tracing::subscriber::with_default(subscriber, || {
-            h.submit(vec![j]);
-            h.run_to_idle();
-        });
+        // The spooler hands back an id and then reports the job completed:
+        // the one way a job is `Done`.
+        spool_with_ids(&h, 1);
+        let guard = tracing::subscriber::set_default(subscriber);
+        h.submit(vec![j]);
+        h.run_to_idle();
+        h.advance_and_settle(TRACK_BACKOFFS[0]).await;
+        drop(guard);
         assert_eq!(h.job(&id).state, JobState::Done);
 
         // NFR-082: the absolute path stays out of the default-level record.

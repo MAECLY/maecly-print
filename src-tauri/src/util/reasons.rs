@@ -221,6 +221,11 @@ pub const JOB_REASONS: &[ReasonSpec<&'static str>] = &[
     ("conversion_timeout", "converter", &["detail"]),
     ("conversion_timeout", "tool_timed_out", &["tool", "secs"]),
     ("print_timeout", "spooler", &["secs"]),
+    // Handed to the spooler, never confirmed printed (JobState::Unconfirmed).
+    ("print_unconfirmed", "left_queue", &[]),
+    ("print_unconfirmed", "untracked", &[]),
+    ("print_unconfirmed", "tracking_failed", &[]),
+    ("print_unconfirmed", "not_verifiable", &[]),
     ("printer_unavailable", "no_printer", &[]),
     (
         "printer_unavailable",

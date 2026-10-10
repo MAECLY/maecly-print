@@ -15,7 +15,7 @@ interface QueueListViewProps {
   onEnterPassword: (job: UiQueueJobView) => void;
 }
 
-const TERMINAL = new Set(['done', 'failed', 'cancelled']);
+const TERMINAL = new Set(['done', 'unconfirmed', 'failed', 'cancelled']);
 
 /**
  * A job's progress bar, honest about what the backend actually knows.
@@ -40,7 +40,9 @@ export function JobProgressBar({
       ? 'var(--mp-error)'
       : job.status === 'done'
         ? 'var(--mp-success)'
-        : 'var(--mp-accent)';
+        : job.status === 'unconfirmed'
+          ? 'var(--mp-warn)'
+          : 'var(--mp-accent)';
   const label = t('progress.label', { file: job.file });
   return (
     <div
@@ -263,7 +265,7 @@ export function QueueListView({
     ),
     pending: jobs.filter((j) => ['queued', 'paused'].includes(j.status)),
     done: jobs.filter((j) =>
-      ['done', 'failed', 'cancelled'].includes(j.status),
+      ['done', 'unconfirmed', 'failed', 'cancelled'].includes(j.status),
     ),
   };
 

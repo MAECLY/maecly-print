@@ -10,6 +10,7 @@ interface QueueTimelineViewProps {
 
 function tone(status: UiQueueJobView['status']): BadgeTone {
   if (status === 'done') return 'success';
+  if (status === 'unconfirmed') return 'warn';
   if (status === 'failed') return 'error';
   if (status === 'printing') return 'accent';
   return 'neutral';

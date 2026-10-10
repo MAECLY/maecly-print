@@ -97,7 +97,7 @@ const IMAGE = new Set([
   'svgz',
 ]);
 const MEDIA = { a4: 'A4', letter: 'Letter', legal: 'Legal', a3: 'A3' } as const;
-const TERMINAL: JobState[] = ['done', 'failed', 'cancelled'];
+const TERMINAL: JobState[] = ['done', 'unconfirmed', 'failed', 'cancelled'];
 
 const clone = <T>(v: T): T => structuredClone(v);
 

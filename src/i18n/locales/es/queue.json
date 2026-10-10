@@ -40,6 +40,7 @@
     "printing": "Imprimiendo",
     "paused": "En pausa",
     "done": "Terminado",
+    "unconfirmed": "Sin confirmar",
     "failed": "Fallido",
     "cancelled": "Cancelado"
   },
@@ -103,6 +104,8 @@
   "notify": {
     "batchDone_one": "Se imprimió correctamente {{done}} de {{total}} archivo",
     "batchDone_other": "Se imprimieron correctamente {{done}} de {{total}} archivos",
+    "batchUnconfirmed_one": "{{unconfirmed}} de {{total}} archivo se envió a la impresora sin confirmación de que se imprimiera",
+    "batchUnconfirmed_other": "{{unconfirmed}} de {{total}} archivos se enviaron a la impresora sin confirmación de que se imprimieran",
     "batchFailed_one": "No se pudo imprimir {{failed}} de {{total}} archivo",
     "batchFailed_other": "No se pudieron imprimir {{failed}} de {{total}} archivos",
     "batchFailedHint": "{{file}}: {{error}} — abre la carpeta de registros para ver la entrada completa del trabajo.",
@@ -130,6 +133,7 @@
       "unsupported_format": "Formato de archivo no compatible: {{detail}}",
       "cancelled": "Se canceló el trabajo.",
       "print_timeout": "La impresora no terminó en {{secs}} s. El trabajo sigue en la cola de impresión del sistema: revisa la impresora antes de reintentarlo.",
+      "print_unconfirmed": "Se envió a la impresora, pero la cola de impresión del sistema no confirmó que se imprimiera. Revisa la impresora antes de volver a imprimirlo.",
       "printer_unavailable": "La impresora «{{printer}}» no está instalada. Elige otra impresora.",
       "printer_disabled": "La impresora «{{printer}}» ya no se gestiona en Pluryprint. Restáurala en la pantalla Impresoras o elige otra impresora.",
       "os_cancelled": "El trabajo se canceló en la cola de impresión del sistema.",
@@ -144,6 +148,12 @@
       },
       "print_timeout": {
         "spooler": "El envío del trabajo a la impresora tardó más de {{secs}} s y se detuvo."
+      },
+      "print_unconfirmed": {
+        "left_queue": "El trabajo salió de la cola de impresión del sistema sin indicar que se imprimiera: puede que se imprimiera o que se borrara allí. Revisa la impresora antes de volver a imprimirlo.",
+        "untracked": "La cola de impresión del sistema aceptó el trabajo pero no permite seguirlo, así que no se sabe si se imprimió. Revisa la impresora antes de volver a imprimirlo.",
+        "tracking_failed": "La cola de impresión del sistema dejó de responder mientras se imprimía el trabajo, así que no se sabe si se imprimió. Revisa la impresora antes de volver a imprimirlo.",
+        "not_verifiable": "Pluryprint se cerró mientras este trabajo estaba en la cola de impresión del sistema y ya no puede distinguirlo de otros trabajos, así que no se sabe si se imprimió. Revisa la impresora antes de volver a imprimirlo."
       },
       "printer_unavailable": {
         "no_printer": "No hay ninguna impresora configurada. Elige una impresora primero.",

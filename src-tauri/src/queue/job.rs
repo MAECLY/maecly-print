@@ -43,6 +43,12 @@ pub enum JobState {
     Printing,
     /// The printer reported completion (terminal).
     Done,
+    /// Handed to the spooler, but nobody confirmed it printed (terminal): the
+    /// job left the system queue without reporting completion, the spooler
+    /// gave no id to follow, or it could not be read. Never shown as printed,
+    /// and not retried automatically — paper may already have come out.
+    /// Details in [`Job::error`].
+    Unconfirmed,
     /// Terminal error; details in [`Job::error`] (terminal).
     Failed,
     /// Transient stop — user paused it, or it was interrupted by shutdown.
@@ -53,15 +59,16 @@ pub enum JobState {
 
 impl JobState {
     /// `true` for states from which no further work happens: [`Done`],
-    /// [`Failed`], [`Cancelled`].
+    /// [`Unconfirmed`], [`Failed`], [`Cancelled`].
     ///
     /// [`Done`]: JobState::Done
+    /// [`Unconfirmed`]: JobState::Unconfirmed
     /// [`Failed`]: JobState::Failed
     /// [`Cancelled`]: JobState::Cancelled
     pub fn is_terminal(self) -> bool {
         matches!(
             self,
-            JobState::Done | JobState::Failed | JobState::Cancelled
+            JobState::Done | JobState::Unconfirmed | JobState::Failed | JobState::Cancelled
         )
     }
 
@@ -85,6 +92,7 @@ impl JobState {
             JobState::Converted => "converted",
             JobState::Printing => "printing",
             JobState::Done => "done",
+            JobState::Unconfirmed => "unconfirmed",
             JobState::Failed => "failed",
             JobState::Paused => "paused",
             JobState::Cancelled => "cancelled",
@@ -517,6 +525,12 @@ pub struct Job {
     /// identify the job. `#[serde(default)]` so an older `queue.json` loads.
     #[serde(default)]
     pub os_job_id: Option<String>,
+    /// RFC 3339 UTC timestamp of when this run was handed to the spooler. The
+    /// print timeout counts from here, also for a print the app adopts again
+    /// after a restart, so relaunching never grants a stuck print a fresh
+    /// budget. `#[serde(default)]` so an older `queue.json` loads.
+    #[serde(default)]
+    pub spooled_at: Option<String>,
     /// Number of times this job has been started (for retry/backoff, FR-034).
     pub attempts: u32,
     /// Why the job last failed or paused, when it did.
@@ -584,6 +598,7 @@ impl Job {
             profile_name,
             printer_resolved: None,
             os_job_id: None,
+            spooled_at: None,
             attempts: 0,
             error: None,
             progress: None,
@@ -677,6 +692,7 @@ pub fn can_transition(from: JobState, to: JobState) -> bool {
             | (Converted, Paused)
             | (Converted, Converted)
             | (Printing, Done)
+            | (Printing, Unconfirmed)
             | (Printing, Failed)
             | (Printing, Cancelled)
             | (Printing, Paused)
@@ -695,6 +711,7 @@ mod tests {
     #[test]
     fn terminal_and_active_predicates() {
         assert!(JobState::Done.is_terminal());
+        assert!(JobState::Unconfirmed.is_terminal());
         assert!(JobState::Failed.is_terminal());
         assert!(JobState::Cancelled.is_terminal());
         assert!(!JobState::Queued.is_terminal());
@@ -854,6 +871,7 @@ mod tests {
         assert!(can_transition(Converting, Queued)); // retry
         assert!(can_transition(Converted, Printing));
         assert!(can_transition(Printing, Done));
+        assert!(can_transition(Printing, Unconfirmed));
         assert!(can_transition(Printing, Paused));
         assert!(can_transition(Paused, Converted)); // resume
         assert!(can_transition(Paused, Queued)); // resume
@@ -866,6 +884,8 @@ mod tests {
         assert!(!can_transition(Queued, Done));
         assert!(!can_transition(Queued, Printing));
         assert!(!can_transition(Done, Queued)); // done is terminal
+        assert!(!can_transition(Unconfirmed, Queued)); // never re-sent by itself
+        assert!(!can_transition(Queued, Unconfirmed));
         assert!(!can_transition(Cancelled, Queued)); // cancelled is terminal
         assert!(!can_transition(Done, Printing));
         assert!(!can_transition(Converting, Printing)); // must pass through converted

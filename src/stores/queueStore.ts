@@ -159,7 +159,7 @@ interface QueueState {
   cancelAll: () => Promise<number | null>;
 }
 
-const TERMINAL = new Set(['done', 'failed', 'cancelled']);
+const TERMINAL = new Set(['done', 'unconfirmed', 'failed', 'cancelled']);
 
 /**
  * A paused job with one of these error codes did not stop because of the user:
@@ -350,6 +350,7 @@ function notifyBatchComplete(jobs: readonly Job[]): void {
   const total = jobs.length;
   if (total === 0) return;
   const done = jobs.filter((j) => j.state === 'done').length;
+  const unconfirmed = jobs.filter((j) => j.state === 'unconfirmed').length;
   const failed = jobs.filter((j) => j.state === 'failed');
   const cancelled = jobs.filter((j) => j.state === 'cancelled').length;
 
@@ -377,6 +378,18 @@ function notifyBatchComplete(jobs: readonly Job[]): void {
         },
       },
     });
+    return;
+  }
+  if (unconfirmed > 0) {
+    // Handed to the spooler, but nobody confirmed it printed: never announced
+    // as printed, and not an error either — the user checks the printer.
+    const summary = t('notify.batchUnconfirmed', {
+      count: total,
+      unconfirmed,
+      total,
+    });
+    toast.warning(summary);
+    notifyOs('Pluryprint', summary);
     return;
   }
   if (done === 0) {

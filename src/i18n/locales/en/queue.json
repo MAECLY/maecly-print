@@ -40,6 +40,7 @@
     "printing": "Printing",
     "paused": "Paused",
     "done": "Done",
+    "unconfirmed": "Not confirmed",
     "failed": "Failed",
     "cancelled": "Cancelled"
   },
@@ -103,6 +104,8 @@
   "notify": {
     "batchDone_one": "{{done}} of {{total}} file printed successfully",
     "batchDone_other": "{{done}} of {{total}} files printed successfully",
+    "batchUnconfirmed_one": "{{unconfirmed}} of {{total}} file was sent to the printer without confirmation that it printed",
+    "batchUnconfirmed_other": "{{unconfirmed}} of {{total}} files were sent to the printer without confirmation that they printed",
     "batchFailed_one": "{{failed}} of {{total}} file failed to print",
     "batchFailed_other": "{{failed}} of {{total}} files failed to print",
     "batchFailedHint": "{{file}}: {{error}} — open the logs folder for the full job log entry.",
@@ -130,6 +133,7 @@
       "unsupported_format": "Unsupported file format: {{detail}}",
       "cancelled": "The job was cancelled.",
       "print_timeout": "The printer did not finish within {{secs}} s. The job is still in the system print queue: check the printer before retrying.",
+      "print_unconfirmed": "Sent to the printer, but the system print queue did not confirm that it printed. Check the printer before printing it again.",
       "printer_unavailable": "Printer “{{printer}}” is not installed. Choose another printer.",
       "printer_disabled": "Printer “{{printer}}” was removed from Pluryprint. Restore it on the Printers screen, or choose another printer.",
       "os_cancelled": "The job was cancelled in the system print queue.",
@@ -144,6 +148,12 @@
       },
       "print_timeout": {
         "spooler": "Sending the job to the printer took longer than {{secs}} s and was stopped."
+      },
+      "print_unconfirmed": {
+        "left_queue": "The job left the system print queue without reporting that it printed: it may have printed, or been deleted there. Check the printer before printing it again.",
+        "untracked": "The system print queue accepted the job but gives no way to follow it, so whether it printed is unknown. Check the printer before printing it again.",
+        "tracking_failed": "The system print queue stopped answering while the job was printing, so whether it printed is unknown. Check the printer before printing it again.",
+        "not_verifiable": "Pluryprint was closed while this job was in the system print queue and cannot tell it apart from other jobs any more, so whether it printed is unknown. Check the printer before printing it again."
       },
       "printer_unavailable": {
         "no_printer": "No printer is configured. Choose a printer first.",

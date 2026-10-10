@@ -537,6 +537,38 @@ describe('queueStore — batch completion notifications', () => {
     expect(options.action.label).toBe('Open the logs folder');
   });
 
+  it('FR-031: a print nobody confirmed is never announced as printed', async () => {
+    mockQueue({ snapshot: running });
+    const success = vi.spyOn(toast, 'success').mockReturnValue('id');
+    const warning = vi.spyOn(toast, 'warning').mockReturnValue('id');
+    await useQueueStore.getState().init();
+
+    emitQueueUpdated(
+      snapshotOf([
+        mkJob({
+          id: 'a',
+          state: 'unconfirmed',
+          file_name: 'a.pdf',
+          error: {
+            code: 'print_unconfirmed',
+            reason: 'left_queue',
+            message: 'x',
+          },
+        }),
+        mkJob({ id: 'b', state: 'done', file_name: 'b.pdf' }),
+      ]),
+    );
+
+    expect(success).not.toHaveBeenCalled();
+    expect(warning).toHaveBeenCalledWith(
+      '1 of 2 files were sent to the printer without confirmation that they printed',
+    );
+    const ui = useQueueStore.getState().uiJobs.find((j) => j.id === 'a');
+    expect(ui?.status).toBe('unconfirmed');
+    expect(ui?.error).toContain('left the system print queue');
+    expect(useQueueStore.getState().counts.done).toBe(2);
+  });
+
   it('FR-070: an all-cancelled batch is reported as cancelled, not as printed', async () => {
     mockQueue({ snapshot: running });
     const plain = vi.spyOn(toast, 'message').mockReturnValue('id');

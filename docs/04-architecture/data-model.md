@@ -337,7 +337,7 @@ The file lives at `<data_dir>/queue.json` (`paths::data_dir()`); its wire shape 
 }
 ```
 
-Field notes: `input_ext` is the lowercased extension without a dot; `pages` is best-effort (PDFs parsed with `lopdf` when ≤ 100 MB, images always `1`, else `null`); `cache_pdf` is set only for converted inputs (a PDF prints in place, so it stays `null`); `printer_resolved` records the printer actually chosen once a job reaches `printing`/`done`; `os_job_id` is the spooler's id for the job once spooled (`Office-42` on CUPS, a spooler job number on Windows), `null` before that or when it could not be identified, and missing in files written before it existed; all timestamps are RFC 3339 UTC. The full TS shapes are in [ipc-and-cli.md § 2.2](./ipc-and-cli.md#22-type-definitions).
+Field notes: `input_ext` is the lowercased extension without a dot; `pages` is best-effort (PDFs parsed with `lopdf` when ≤ 100 MB, images always `1`, else `null`); `cache_pdf` is set only for converted inputs (a PDF prints in place, so it stays `null`); `printer_resolved` records the printer actually chosen once a job reaches `printing`/`done`; `os_job_id` is the spooler's id for the job once spooled (`Office-42` on CUPS; on Windows the spooler job number plus the spooler's submission stamp, `12@20261010T101500123`, because the Windows spooler reuses job numbers after a restart and only the stamp tells a job from a later one with the same number), `null` before that or when it could not be identified, and missing in files written before it existed; `spooled_at` is when the current run was handed to the spooler (the print timeout counts from it, also after a restart); all timestamps are RFC 3339 UTC. The full TS shapes are in [ipc-and-cli.md § 2.2](./ipc-and-cli.md#22-type-definitions).
 
 States (`state` enum, lowercase):
 
@@ -345,7 +345,8 @@ States (`state` enum, lowercase):
 - `converting` — a converter is producing the cache PDF.
 - `converted` — cache PDF ready, waiting for a free printer.
 - `printing` — handed to the OS spooler and not yet finished there (exactly one job prints at a time). `os_job_id` carries the spooler's id while the dispatcher follows it; `progress.phase` is `printing`, `held` (the OS queue is holding it) or `stopped` (the printer needs attention).
-- `done` — the OS job completed or left the queue (terminal); the cache PDF is deleted.
+- `done` — the spooler reported the OS job completed (terminal); the cache PDF is deleted.
+- `unconfirmed` — handed to the spooler, but nothing confirmed it printed (terminal): the job left the system queue without reporting completion (deleted or purged there, or a printed Windows job removed before a poll saw it), the spooler gave no id to follow, tracking kept failing, or, after a restart, a Windows id could not be told apart from a reused one. `error` is `print_unconfirmed` with the reason (`left_queue`, `untracked`, `tracking_failed`, `not_verifiable`). Never shown as printed and never re-sent automatically; the cache PDF is deleted.
 - `failed` — terminal error after retries; details in `error`.
 - `paused` — user-paused, interrupted by shutdown (before the spooler accepted it), or stopped on a user-fixable error (`unsupported_setting` / `dependency_missing` / `printer_unavailable` / `printer_disabled`); resumable, **not** auto-retried.
 - `cancelled` — user cancelled (terminal).
@@ -378,7 +379,7 @@ On launch the core loads `queue.json` and runs shutdown recovery before serving 
 
 **Corruption / forward-incompatibility.** A missing file loads as an empty queue with no side effects. An unreadable file, invalid JSON, or a `schema_version` greater than this build supports is renamed to `queue.json.bak` (best-effort), logged, and replaced with an empty queue — the file is taken whole or discarded whole, never partial-loaded.
 
-**History cap.** On every save the terminal (done/failed/cancelled) jobs are pruned to the 200 most-recent (ranked by `finished_at`, falling back to `submitted_at`); every non-terminal job is always kept, so the file cannot grow without bound.
+**History cap.** On every save the terminal (done/unconfirmed/failed/cancelled) jobs are pruned to the 200 most-recent (ranked by `finished_at`, falling back to `submitted_at`); every non-terminal job is always kept, so the file cannot grow without bound.
 
 ## 5. Logs — JSONL
 

@@ -16,6 +16,7 @@ const BACKEND_CODES = [
   'unsupported_format',
   'cancelled',
   'print_timeout',
+  'print_unconfirmed',
   'printer_unavailable',
   'printer_disabled',
   'os_cancelled',

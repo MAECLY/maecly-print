@@ -1333,6 +1333,13 @@ printer_resolved: string | null;
  */
 os_job_id?: string | null; 
 /**
+ * RFC 3339 UTC timestamp of when this run was handed to the spooler. The
+ * print timeout counts from here, also for a print the app adopts again
+ * after a restart, so relaunching never grants a stuck print a fresh
+ * budget. `#[serde(default)]` so an older `queue.json` loads.
+ */
+spooled_at?: string | null; 
+/**
  * Number of times this job has been started (for retry/backoff, FR-034).
  */
 attempts: number; 
@@ -1533,6 +1540,14 @@ export type JobState =
  * The printer reported completion (terminal).
  */
 "done" | 
+/**
+ * Handed to the spooler, but nobody confirmed it printed (terminal): the
+ * job left the system queue without reporting completion, the spooler
+ * gave no id to follow, or it could not be read. Never shown as printed,
+ * and not retried automatically — paper may already have come out.
+ * Details in [`Job::error`].
+ */
+"unconfirmed" | 
 /**
  * Terminal error; details in [`Job::error`] (terminal).
  */

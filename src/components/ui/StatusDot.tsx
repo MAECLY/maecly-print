@@ -7,6 +7,7 @@ type Status =
   | 'converted'
   | 'printing'
   | 'done'
+  | 'unconfirmed'
   | 'failed'
   | 'paused'
   | 'cancelled';
@@ -21,6 +22,8 @@ const CFG: Record<string, { c: string; pulse?: boolean }> = {
   converted: { c: 'var(--mp-info)' },
   printing: { c: 'var(--mp-accent)', pulse: true },
   done: { c: 'var(--mp-success)' },
+  // Sent, but nobody confirmed it printed: not a success, not a failure.
+  unconfirmed: { c: 'var(--mp-warn)' },
   failed: { c: 'var(--mp-error)' },
   paused: { c: 'var(--mp-warn)' },
   cancelled: { c: 'var(--mp-textDim)' },

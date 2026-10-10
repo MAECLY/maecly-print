@@ -35,7 +35,7 @@ export function QueueBoardView({ jobs }: QueueBoardViewProps) {
       key: 'done',
       label: t('board.done'),
       items: jobs.filter((j) =>
-        ['done', 'failed', 'cancelled'].includes(j.status),
+        ['done', 'unconfirmed', 'failed', 'cancelled'].includes(j.status),
       ),
     },
   ];

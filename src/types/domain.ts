@@ -21,6 +21,7 @@ export type JobState =
   | 'converted'
   | 'printing'
   | 'done'
+  | 'unconfirmed'
   | 'failed'
   | 'paused'
   | 'cancelled';

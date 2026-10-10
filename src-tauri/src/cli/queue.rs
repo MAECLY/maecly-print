@@ -250,16 +250,7 @@ fn render(snapshot: &QueueSnapshot) -> String {
 
 /// The wire spelling of a state, so human output and `--json` agree.
 fn state_name(state: JobState) -> &'static str {
-    match state {
-        JobState::Queued => "queued",
-        JobState::Converting => "converting",
-        JobState::Converted => "converted",
-        JobState::Printing => "printing",
-        JobState::Done => "done",
-        JobState::Failed => "failed",
-        JobState::Paused => "paused",
-        JobState::Cancelled => "cancelled",
-    }
+    state.as_str()
 }
 
 #[cfg(test)]
