@@ -94,7 +94,7 @@ cargo test --manifest-path src-tauri/Cargo.toml -- --ignored
 
 ### `build` — windows-latest, blocking, `needs: [frontend, backend]`
 
-`scripts/fetch-sumatrapdf.ps1 -Arch x64` and `scripts/build-shell-ext.ps1 -Arch x64` (the NSIS hooks refuse to build an installer without the DLL), `pnpm tauri build --debug`, then **Smoke launch (Windows)**, which is the strictest GUI assertion in the pipeline and *does* gate:
+`scripts/fetch-sumatrapdf.ps1 -Arch x64` and `scripts/build-shell-ext.ps1 -Arch all` (the NSIS hooks refuse to build a CI installer without both DLLs), `pnpm tauri build --debug`, then **Smoke launch (Windows)**, which is the strictest GUI assertion in the pipeline and *does* gate:
 
 - Starts the binary and polls the real log directory, `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\pluryprint-*.jsonl` (only files written after the launch), for **both** `app_started` and `main_window_resolved`, 60 s deadline. Overriding `APPDATA`/`LOCALAPPDATA` does not sandbox it — `directories` resolves known folders through `SHGetKnownFolderPath`, which ignores those variables — which is why an earlier version of this step could never pass.
 - Throws if either never appears; the process is killed in a `finally` block either way.

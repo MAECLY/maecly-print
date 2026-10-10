@@ -320,6 +320,9 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          # The Explorer DLL is built for both Windows architectures.
+          targets: x86_64-pc-windows-msvc,aarch64-pc-windows-msvc
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -338,20 +341,18 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # What the installer ships next to the app: SumatraPDF (with its licence
-      # and source offer) and the Explorer DLL. The NSIS hooks refuse to build
-      # an installer without the DLL.
+      # and source offer) and the Explorer DLLs. The NSIS hooks refuse to build
+      # an installer without them, and a CI build (CI=true) without both the
+      # x64 and the arm64 DLL.
       - name: Fetch SumatraPDF (x64)
         shell: powershell
         run: ./scripts/fetch-sumatrapdf.ps1 -Arch x64
 
-      - name: Build the Explorer extension (x64)
+      - name: Build the Explorer extension (x64 + ARM64)
         shell: pwsh
         env:
           PLURYPRINT_REQUIRE_RESOURCES: '1'
-        run: |
-          ./scripts/build-shell-ext.ps1 -Arch x64
-          New-Item -ItemType Directory -Force src-tauri/resources/shellext/x64 | Out-Null
-          Copy-Item shell-ext-win/target/x86_64-pc-windows-msvc/release/shell_ext_win.dll src-tauri/resources/shellext/x64/ -Force
+        run: ./scripts/build-shell-ext.ps1 -Arch all
 
       - name: Tauri build
         # Unsigned on purpose: CI has no updater key, and with
@@ -482,15 +483,7 @@ jobs:
         shell: pwsh
         env:
           PLURYPRINT_REQUIRE_RESOURCES: '1'
-        run: |
-          foreach ($a in @(@{ Arch = 'x64'; Triple = 'x86_64-pc-windows-msvc' }, @{ Arch = 'arm64'; Triple = 'aarch64-pc-windows-msvc' })) {
-            cargo build --release --manifest-path shell-ext-win/Cargo.toml --target $a.Triple
-            if ($LASTEXITCODE -ne 0) { throw "shell-ext-win $($a.Triple) failed" }
-            $dest = "src-tauri/resources/shellext/$($a.Arch)"
-            New-Item -ItemType Directory -Force $dest | Out-Null
-            Copy-Item "shell-ext-win/target/$($a.Triple)/release/shell_ext_win.dll" $dest -Force
-          }
-          ./scripts/build-shell-ext.ps1 -Arch ${{ matrix.arch }}
+        run: ./scripts/build-shell-ext.ps1 -Arch all
 
       - name: Tauri build (release, unsigned)
         run: pnpm tauri build --target ${{ matrix.target }} --bundles nsis --config src-tauri/tauri.ci.conf.json

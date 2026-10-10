@@ -271,7 +271,7 @@ fn nfr_027_releases_attach_the_corresponding_source() {
     // And the Windows builds really fetch SumatraPDF and the DLLs.
     let build = job(&release_yml(), "build");
     assert!(build.contains("./scripts/fetch-sumatrapdf.ps1 -Arch ${{ matrix.arch }}"));
-    assert!(build.contains("src-tauri/resources/shellext/$($a.Arch)"));
+    assert!(build.contains("./scripts/build-shell-ext.ps1 -Arch all"));
 }
 
 /// NFR-006: the installer size is measured on every Windows build.

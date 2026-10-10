@@ -171,22 +171,15 @@ jobs:
       # resources/shellext/<arch>/ because Explorer on Windows on ARM is a
       # native ARM64 process and cannot load the x64 DLL, even when the x64
       # installer ran there under emulation; the installer registers the one
-      # that matches the OS. build-shell-ext.ps1 also leaves the installer
-      # architecture's DLL where the NSIS hooks look for it.
+      # that matches the OS. build-shell-ext.ps1 -Arch all builds both and puts
+      # them where the NSIS hooks look for them.
       - name: Build the Explorer extension (x64 + ARM64)
         if: startsWith(matrix.platform, 'windows')
         shell: pwsh
         env:
           PLURYPRINT_REQUIRE_RESOURCES: '1'
         run: |
-          foreach ($a in @(@{ Arch = 'x64'; Triple = 'x86_64-pc-windows-msvc' }, @{ Arch = 'arm64'; Triple = 'aarch64-pc-windows-msvc' })) {
-            cargo build --release --manifest-path shell-ext-win/Cargo.toml --target $a.Triple
-            if ($LASTEXITCODE -ne 0) { throw "shell-ext-win $($a.Triple) failed" }
-            $dest = "src-tauri/resources/shellext/$($a.Arch)"
-            New-Item -ItemType Directory -Force $dest | Out-Null
-            Copy-Item "shell-ext-win/target/$($a.Triple)/release/shell_ext_win.dll" $dest -Force
-          }
-          ./scripts/build-shell-ext.ps1 -Arch ${{ matrix.arch }}
+          ./scripts/build-shell-ext.ps1 -Arch all
           Get-ChildItem -Recurse src-tauri/resources/shellext -Filter *.dll | ForEach-Object { "$($_.FullName) $($_.Length)" }
 
       - name: Classify the release
