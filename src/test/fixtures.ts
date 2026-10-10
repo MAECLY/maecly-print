@@ -352,9 +352,9 @@ export const fixtureAppSettings: AppSettings = {
 export const fixtureAppInfo: AppInfo = {
   version: '1.0.0',
   build_date: '2026-07-01',
-  config_dir: '/Users/maecly/Library/Application Support/com.maecly.pluryprint',
-  data_dir: '/Users/maecly/Library/Application Support/com.maecly.pluryprint',
-  log_dir: '/Users/maecly/Library/Logs/com.maecly.pluryprint',
+  config_dir: '/Users/maecly/Library/Application Support/com.Maecly.Pluryprint',
+  data_dir: '/Users/maecly/Library/Application Support/com.Maecly.Pluryprint',
+  log_dir: '/Users/maecly/Library/Logs/Pluryprint',
   os: 'macos',
   arch: 'aarch64',
 };
