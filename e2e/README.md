@@ -54,8 +54,8 @@ suite, and uploads `e2e/artifacts/` whatever the outcome. Two smoke specs
 the job; the full suite is advisory (`continue-on-error`) because a real GUI
 driver is flake-prone.
 
-Two things make WebDriver reach the app's WebView2, both verified on Windows
-11 ARM64 with WebView2 154:
+Three things make WebDriver reach the app's WebView2 safely, verified on
+Windows 11 ARM64 with WebView2 154:
 
 - `msedgedriver` asks for its debugging port through
   `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, which WebView2 ignores once wry
@@ -65,6 +65,15 @@ Two things make WebDriver reach the app's WebView2, both verified on Windows
 - `wdio.conf.ts` sets `wdio:enforceWebDriverClassic`: WebDriver BiDi commands
   target a browsing context msedgedriver does not have for a WebView2, and the
   specs then read a blank page.
+- `msedgedriver` also hands WebView2 a throwaway `--user-data-dir` in that
+  variable, and WebView2 keeps its profile in that folder's `EBWebView`. An
+  unstamped profile runs Chromium's blank-password logon probe, which records
+  a failed Windows logon (Security event 4625) per session, and ten in ten
+  minutes lock the account. The app stamps every profile the variable (or
+  `WEBVIEW2_USER_DATA_FOLDER`) names before its web view starts
+  (`util::chromium::extra_profiles_to_stamp`). Measured in the VM in round 7:
+  the full suite (7 sessions) recorded 0 failed logons; the same `about` spec
+  on the previous build recorded 1 per session.
 
 ```powershell
 # 1. Install the WebDriver bridge (once).
