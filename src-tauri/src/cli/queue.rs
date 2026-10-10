@@ -41,7 +41,9 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
             Ok(())
         }
         QueueCmd::Cancel { id } => {
-            refuse_while_app_runs(&paths.queue)?;
+            // Held from reading the file to writing it back: an app starting
+            // in between waits, and then loads what we wrote.
+            let edit = hold_while_editing(&paths.queue)?;
             let mut snapshot = persist::load(&paths.queue);
             let job = snapshot
                 .jobs
@@ -60,10 +62,9 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
             job.progress = None;
             job.finished_at = Some(now_rfc3339());
 
-            // Again right before the write: an app that started while we were
-            // reading now owns the file, and our snapshot is already stale.
-            refuse_while_app_runs(&paths.queue)?;
             save(&paths.queue, &snapshot)?;
+            // The spooler can be slow; a starting app must not wait on it.
+            drop(edit);
             let spooler_errors = cancel_os_jobs(os_job);
             emitter.emit(
                 &serde_json::json!({ "cancelled": [id.clone()], "spooler_errors": spooler_errors }),
@@ -72,7 +73,7 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
             Ok(())
         }
         QueueCmd::CancelAll => {
-            refuse_while_app_runs(&paths.queue)?;
+            let edit = hold_while_editing(&paths.queue)?;
             let mut snapshot = persist::load(&paths.queue);
             let finished_at = now_rfc3339();
             let mut cancelled = Vec::new();
@@ -86,8 +87,8 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
                     cancelled.push(job.id.clone());
                 }
             }
-            refuse_while_app_runs(&paths.queue)?;
             save(&paths.queue, &snapshot)?;
+            drop(edit);
             let spooler_errors = cancel_os_jobs(os_jobs);
             let count = cancelled.len();
             emitter.emit(
@@ -195,17 +196,22 @@ fn watch_queue(path: &Path, emitter: Emitter, mut last: QueueSnapshot) {
 /// A lock that cannot be checked at all is refused too: on a filesystem
 /// without locking the app runs unlocked, and "could not tell" must not turn
 /// into "the app is closed".
-fn refuse_while_app_runs(queue_json: &Path) -> Result<(), CliError> {
-    use crate::cli::instance::{lock_path_for, state, LockState};
-    match state(&lock_path_for(queue_json)) {
-        LockState::Free => Ok(()),
-        LockState::Held => Err(IpcError::InvalidState(
+///
+/// On success the returned lock is held until dropped, so the app cannot
+/// start, load the old file and print a job this edit is cancelling
+/// ([`crate::cli::instance::hold_for_edit`]).
+fn hold_while_editing(queue_json: &Path) -> Result<crate::cli::instance::InstanceLock, CliError> {
+    use crate::cli::instance::{hold_for_edit, lock_path_for, LockState};
+    match hold_for_edit(&lock_path_for(queue_json)) {
+        Ok(lock) => Ok(lock),
+        // `Free` is never an error of `hold_for_edit`; listed for completeness.
+        Err(LockState::Held | LockState::Free) => Err(IpcError::InvalidState(
             "Pluryprint is open and owns the live queue, so nothing was changed — \
              cancel from its Queue screen, or close the app and run this again"
                 .to_string(),
         )
         .into()),
-        LockState::Unknown(why) => Err(IpcError::InvalidState(format!(
+        Err(LockState::Unknown(why)) => Err(IpcError::InvalidState(format!(
             "could not check whether Pluryprint is open ({why}), so nothing was changed — \
              cancel from its Queue screen if it is running"
         ))
@@ -418,6 +424,30 @@ mod tests {
             err.error
         );
         assert_eq!(persist::load(&paths.queue).jobs[0].state, JobState::Queued);
+    }
+
+    /// NFR-010: the edit holds the app's lock only for itself — once the
+    /// cancel is written, an app can start and own the queue again.
+    #[test]
+    fn nfr_010_a_cancel_gives_the_app_lock_back_once_written() {
+        use crate::cli::instance::{lock_path_for, state, LockState};
+        let dir = tempfile::tempdir().unwrap();
+        let paths = queue_paths(dir.path());
+        persist::save(&paths.queue, &snapshot_with(&[JobState::Queued])).unwrap();
+
+        run(
+            &paths,
+            Emitter::new(true),
+            QueueCmd::Cancel {
+                id: "job-0".to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(state(&lock_path_for(&paths.queue)), LockState::Free);
+        assert_eq!(
+            persist::load(&paths.queue).jobs[0].state,
+            JobState::Cancelled
+        );
     }
 
     #[test]

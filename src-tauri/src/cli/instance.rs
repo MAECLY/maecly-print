@@ -120,6 +120,27 @@ pub fn state(path: &Path) -> LockState {
     }
 }
 
+/// Take the lock for a short edit of the app's files, without waiting: the
+/// lock when nobody holds it, else what stands in the way ([`LockState::Held`]
+/// or [`LockState::Unknown`]; never `Free`).
+///
+/// A CLI command that rewrites `queue.json` holds it from reading the file to
+/// writing it back. Checking with [`state`] and then writing leaves a gap in
+/// which the app can start, claim the lock, load the old file and print the
+/// job the CLI is about to cancel; holding the lock closes that gap. An app
+/// starting meanwhile waits for it in [`claim`] and then loads the file the
+/// CLI wrote. That wait is bounded ([`CLAIM_ATTEMPTS`]), so keep the hold to
+/// the read-modify-write itself: drop it before anything slow, such as
+/// talking to the spooler.
+pub fn hold_for_edit(path: &Path) -> Result<InstanceLock, LockState> {
+    let file = open(path).map_err(|e| LockState::Unknown(e.to_string()))?;
+    match file.try_lock() {
+        Ok(()) => Ok(InstanceLock { _file: file }),
+        Err(TryLockError::WouldBlock) => Err(LockState::Held),
+        Err(TryLockError::Error(e)) => Err(LockState::Unknown(e.to_string())),
+    }
+}
+
 /// `true` only when a running app is known to hold the lock. Callers that
 /// are about to edit the app's files must use [`state`] and treat
 /// [`LockState::Unknown`] as a refusal too.
@@ -168,6 +189,38 @@ mod tests {
             "the app gets the lock once the probe lets go"
         );
         assert_eq!(state(&path), LockState::Held);
+    }
+
+    /// NFR-010: the CLI's edit holds the lock from read to write, so an app
+    /// starting in between waits for it and loads what the CLI wrote; and an
+    /// edit is refused while the app (or anything else) holds it.
+    #[test]
+    fn nfr_010_an_edit_holds_the_lock_until_it_is_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(LOCK_FILE);
+
+        let edit = hold_for_edit(&path).expect("free lock is taken");
+        assert_eq!(state(&path), LockState::Held, "the app sees the edit");
+        let starter = {
+            let path = path.clone();
+            std::thread::spawn(move || claim(&path).unwrap())
+        };
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        drop(edit);
+        let app = starter.join().unwrap();
+        assert!(
+            app.is_some(),
+            "a starting app waits out the edit and then owns the lock"
+        );
+        assert!(matches!(hold_for_edit(&path), Err(LockState::Held)));
+    }
+
+    #[test]
+    fn nfr_010_an_edit_on_an_uncheckable_lock_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(LOCK_FILE);
+        std::fs::create_dir(&path).unwrap();
+        assert!(matches!(hold_for_edit(&path), Err(LockState::Unknown(_))));
     }
 
     /// A lock that cannot be checked is not evidence the app is closed.
