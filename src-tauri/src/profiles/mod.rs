@@ -1457,6 +1457,19 @@ mod tests {
         assert_eq!(doc.profile[0].quality, Quality::Normal);
     }
 
+    /// ADR-0009: a file exported by MaeclyPrint (the old name, and its old
+    /// `.maecly-profile.toml` extension) still imports.
+    #[test]
+    fn fr_024_read_document_accepts_a_legacy_maeclyprint_export() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = builtins().remove(0);
+        let path = write_doc(&dir, "quick.maecly-profile.toml", &export_document(&p));
+
+        let doc = read_document(&path).unwrap();
+        assert_eq!(doc.profile.len(), 1);
+        assert_eq!(doc.profile[0].name, "Quick");
+    }
+
     #[test]
     fn fr_024_read_document_rejects_untrusted_garbage() {
         let dir = tempfile::tempdir().unwrap();
