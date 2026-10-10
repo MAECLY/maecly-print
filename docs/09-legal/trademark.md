@@ -1,6 +1,6 @@
 # Trademark Policy
 
-> **TL;DR.** "Pluryprint", its wordmark and the Abanico mark (the Pluryprint logo) are unregistered trademarks that belong to the founder (maecly); see also the repository's [`TRADEMARKS.md`](../../TRADEMARKS.md). Refer to us, link to us, write about us — that's all welcome and protected as fair use. Do not use the name or logo to imply our endorsement of your product or service. Forks must use a different name.
+> **TL;DR.** "Pluryprint", its wordmark and the Abanico mark (the Pluryprint logo) are unregistered trademarks that belong to MAECLY (the founder, Miguel Angel Esparza Calero); see also the repository's [`TRADEMARKS.md`](../../TRADEMARKS.md). Refer to us, link to us, write about us — that's all welcome and protected as fair use. Do not use the name or logo to imply our endorsement of your product or service. Forks must use a different name.
 
 This policy explains how the Pluryprint name, logo, and visual identity may and may not be used. It is independent of the [AGPL-3.0 license](./license.md) on the source code: copyright and trademark are different rights. The one place the two meet is an additional term under section 7(e) of the AGPL, stated in [`TRADEMARKS.md`](../../TRADEMARKS.md): the licence grants no rights under trademark law to these names and marks beyond reasonable and customary use in describing where the work came from (for example, "a fork of Pluryprint").
 
@@ -18,8 +18,8 @@ This policy exists to prevent those harms while keeping the door wide open for l
 
 | Asset | Status |
 |---|---|
-| The word **"Pluryprint"** | Unregistered trademark of the founder (maecly) |
-| The Pluryprint logo (the Abanico mark and the wordmark) | Unregistered trademark of the founder (maecly) |
+| The word **"Pluryprint"** | Unregistered trademark of MAECLY |
+| The Pluryprint logo (the Abanico mark and the wordmark) | Unregistered trademark of MAECLY |
 | The colors and typography defined in our brand guide | Visual identity, not a registered mark, but covered by trade dress conventions |
 | Domain names: `maecly.com`, `updates.maecly.com` | Owned by the project |
 

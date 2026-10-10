@@ -1,7 +1,8 @@
 # TRADEMARKS
 
 **Pluryprint**, the two-colour wordmark (`Plury` + `print` in the accent colour),
-and the **Abanico** mark belong to the founder (maecly).
+and the **Abanico** mark belong to MAECLY, the name under which the founder, Miguel Angel Esparza
+Calero, publishes his software.
 
 The Abanico mark is a printer releasing three sheets in a fan (left, up, right),
 which is what the app does: many files out at once. It has two forms, and both

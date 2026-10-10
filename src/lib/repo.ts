@@ -30,7 +30,7 @@ export const DOCS_URL = REPO_URL + '/tree/main/docs';
  *
  * It is an identifier, not prose: it stays untranslated in every locale.
  */
-export const APP_LICENSE = 'AGPL-3.0';
+export const APP_LICENSE = 'AGPL-3.0-only';
 
 /**
  * The single placeholder shown wherever the app version is rendered but not

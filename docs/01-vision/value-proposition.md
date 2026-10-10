@@ -4,7 +4,7 @@
 
 ## The Pitch in One Paragraph
 
-Today, batch printing on Windows costs you either time or money. You either click through the same Print dialog 15 times for an 80-file job because Windows hides the verb past 15 selections, or you spend $79 to $149 on a commercial tool and accept that it will live in its own window outside the file manager you actually work in. Pluryprint refuses that trade. It puts a single, modern context-menu entry — **Print all with Pluryprint** — directly into Windows 11's right-click menu, handles 1 or 1,000 files identically, supports the formats you actually print (PDF, Office, images, plus a growing list), and ships under GPLv3 so the cost stays at zero forever.
+Today, batch printing on Windows costs you either time or money. You either click through the same Print dialog 15 times for an 80-file job because Windows hides the verb past 15 selections, or you spend $79 to $149 on a commercial tool and accept that it will live in its own window outside the file manager you actually work in. Pluryprint refuses that trade. It puts a single, modern context-menu entry — **Print all with Pluryprint** — directly into Windows 11's right-click menu, handles 1 or 1,000 files identically, supports the formats you actually print (PDF, Office, images, plus a growing list), and ships under AGPL-3.0 so the cost stays at zero forever.
 
 ## Why the Status Quo Is Unacceptable
 

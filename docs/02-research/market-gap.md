@@ -170,7 +170,7 @@ The biggest risk is the last one. The structural reason every prior OSS attempt 
 
 ## Summary
 
-The market gap is real, structural, and persistent. The OSS world has tried and failed to fill it. The conditions in 2026 — Tauri 2, mature Rust ecosystem, modern Windows shell APIs, demonstrable demand — are the most favorable they have ever been. Pluryprint occupies the gap by being unapologetically focused: free, GPLv3, modern context menu integration, multi-format, lightweight, privacy-first, and built to be maintained by more than one person.
+The market gap is real, structural, and persistent. The OSS world has tried and failed to fill it. The conditions in 2026 — Tauri 2, mature Rust ecosystem, modern Windows shell APIs, demonstrable demand — are the most favorable they have ever been. Pluryprint occupies the gap by being unapologetically focused: free, AGPL-3.0, modern context menu integration, multi-format, lightweight, privacy-first, and built to be maintained by more than one person.
 
 ## Related Documents
 
