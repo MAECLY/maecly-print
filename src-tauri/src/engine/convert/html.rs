@@ -27,7 +27,10 @@
 //!   over the worker's whole process tree, [`RENDER_WORKER_MEMORY_CAP`];
 //!   ADR-0014): a page that hangs, crashes the web view or needs too much
 //!   memory kills the worker, never the app. Out of memory is the terminal
-//!   `page_too_large`.
+//!   `page_too_large`. On Windows the cap holds the WebView2 processes too;
+//!   on macOS it covers only the worker's process group, not WebKit's
+//!   web-content and networking processes (XPC services launchd starts), so
+//!   memory a page uses there is not capped.
 //!
 //! - Text pre-scanning is **not** the security boundary. An HTML parser that
 //!   is not the web view's own will always read some page differently from
