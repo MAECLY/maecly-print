@@ -1,18 +1,18 @@
 # Third-Party Licenses
 
-> **TL;DR.** Pluryprint bundles SumatraPDF (GPLv3, same license as ours — fetched at packaging time by `scripts/fetch-sumatrapdf.*`, never committed) and depends on Tauri/Rust/React (all permissive licenses, GPL-compatible). External tools we invoke as subprocesses (LibreOffice, Pandoc, Chromium) are not embedded; per FSF guidance, subprocess invocation does not create a derivative work, so their licenses do not constrain our license.
+> **TL;DR.** Pluryprint is AGPL-3.0-only. It bundles SumatraPDF on Windows (GPL-3.0, with MuPDF inside under AGPL-3.0 — fetched at packaging time by `scripts/fetch-sumatrapdf.*`, never committed) and depends on Tauri/Rust/React (all permissive licenses, AGPL-compatible). External tools we invoke as subprocesses (LibreOffice, Pandoc, Chromium) are not embedded; per FSF guidance, subprocess invocation does not create a derivative work, so their licenses do not constrain our license. The notices themselves ship in every bundle as [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md), with `LICENSE` and the texts in `LICENSES/`.
 
-This document inventories every third-party component Pluryprint depends on, with its license, our usage pattern (embedded vs subprocess), and the GPLv3-compatibility analysis. This is the source of truth for legal compliance.
+This document inventories every third-party component Pluryprint depends on, with its license, our usage pattern (embedded vs subprocess), and the AGPL-3.0 compatibility analysis. This is the source of truth for legal compliance; the notice that ships with the app, covering every transitive crate as well, is [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md) at the repository root.
 
 If you find a discrepancy or a missing component, file an issue immediately.
 
 ## Master inventory
 
-The tables below are derived from the **actual manifests**: `src-tauri/Cargo.toml`, `shell-ext-win/Cargo.toml` and `package.json`. Versions are the declared requirements, not resolved lockfile versions; the authoritative per-release inventory is the generated `LICENSES.txt` (see "Compliance artifacts we ship"). Licenses marked *(typical)* are the customary license of that crate and must be confirmed against the generated manifest before a release.
+The tables below are derived from the **actual manifests**: `src-tauri/Cargo.toml`, `shell-ext-win/Cargo.toml` and `package.json`. Versions are the declared requirements, not resolved lockfile versions; the per-release inventory of every crate and package that ships, transitive ones included, is [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md) (see "Compliance artifacts we ship"). Licenses marked *(typical)* are the customary license of that crate and must be confirmed against the generated manifest before a release.
 
 ### Rust — `src-tauri` (direct dependencies, all linked into the binary)
 
-| Crate | Declared version | License (typical) | Used for | GPLv3 compatible? |
+| Crate | Declared version | License (typical) | Used for | AGPL-3.0 compatible? |
 |---|---|---|---|---|
 | `tauri` | 2.1 | MIT / Apache-2.0 | App framework | Yes |
 | `tauri-build` | 2.0 | MIT / Apache-2.0 | Build script (not distributed) | N/A |
@@ -83,19 +83,19 @@ Two notes: **Tailwind CSS is MIT and its generated CSS *is* distributed** in the
 
 ### Non-crate components
 
-| Component | License | Used for | Embedded? | GPLv3 compatible? |
+| Component | License | Used for | Embedded? | AGPL-3.0 compatible? |
 |---|---|---|---|---|
-| SumatraPDF **3.5.2** (pinned) | **GPLv3** | PDF printing on Windows | Yes — fetched at packaging time and bundled | Yes (same license); see the compliance note below |
+| SumatraPDF **3.5.2** (pinned) | **GPL-3.0** (MuPDF inside it: AGPL-3.0) | PDF printing on Windows | Yes — fetched at packaging time and bundled as a separate program | Yes; see the compliance note below |
 | LibreOffice | MPL 2.0 | Office, OpenDocument, TXT, RTF → PDF | No (subprocess) | Yes (separate) |
 | Chromium / Microsoft Edge | BSD 3-Clause (Chromium core) | HTML and Markdown → PDF (Google Chrome or Chromium also work) | No (subprocess) | Yes (separate) |
 | Pandoc | GPLv2-or-later | Markdown → HTML | No (subprocess) | Yes (separate) |
 | sips / Windows Imaging Component | OS components | HEIC/HEIF decoding (`sips` on macOS; WIC plus the Store *HEIF Image Extensions* on Windows) | No (system tool / OS API) | Yes (separate) |
 | CUPS `lp` | Apache 2.0 (system component) | Printing on macOS/Linux | No (system binary) | Yes (separate) |
-| WebView2 loader | MIT (loader); Edge engine system-installed | Webview rendering | Loader linked; engine system | Yes (loader); engine N/A |
+| WebView2 loader | BSD-style Microsoft license (loader); Edge engine system-installed | Webview rendering | Loader statically linked; engine system | Yes (loader); engine N/A |
 | WKWebView (macOS) | Apple SLA | Webview rendering | No (system framework) | N/A (system) |
 | NSIS (via `tauri build`) | zlib/libpng | Windows installer | No (build-time only) | N/A |
 
-**Removed from this inventory because they are not used:** `reqwest` (replaced by `ureq`), `tauri-plugin-updater` (there is no in-app updater — see [`../04-architecture/auto-updater.md`](../04-architecture/auto-updater.md)), `tauri-plugin-cli` (the CLI is plain `clap`), `winreg`, `which`, `mime_guess`, `infer`, `rayon`, `notify`, `minisign-verify`, `react-i18next`, `@radix-ui/*`, `react-hook-form`, `@tanstack/react-query`, `lucide-react`, `clsx`, `tailwind-merge`, `playwright`, Inno Setup, create-dmg. **ImageMagick and qpdf are not invoked at all**: images are converted in-process with the `image` crate, and there is no PDF preprocessing step.
+**Removed from this inventory because they are not used:** `reqwest` (replaced by `ureq`), `tauri-plugin-cli` (the CLI is plain `clap`), `winreg`, `which`, `mime_guess`, `infer`, `rayon`, `notify`, `react-i18next`, `@radix-ui/*`, `react-hook-form`, `@tanstack/react-query`, `lucide-react`, `clsx`, `tailwind-merge`, `playwright`, Inno Setup, create-dmg. **ImageMagick and qpdf are not invoked at all**: images are converted in-process with the `image` crate, and there is no PDF preprocessing step.
 
 For each entry below: the license text source, how we use it, and any compliance notes.
 
@@ -107,42 +107,42 @@ These are statically or dynamically linked into `pluryprint.exe`/`pluryprint` an
 
 - **Used for:** the application framework (main process, IPC, plugins, updater).
 - **License text:** [https://github.com/tauri-apps/tauri/blob/dev/LICENSE_MIT](https://github.com/tauri-apps/tauri/blob/dev/LICENSE_MIT) and [https://github.com/tauri-apps/tauri/blob/dev/LICENSE_APACHE-2.0](https://github.com/tauri-apps/tauri/blob/dev/LICENSE_APACHE-2.0).
-- **Compatibility:** MIT and Apache 2.0 are both permissive and explicitly GPLv3-compatible. We can include them in a GPLv3 work freely.
-- **Compliance:** Tauri's notices are included in our `Resources/third-party/LICENSES.txt` distributed with each release.
+- **Compatibility:** MIT and Apache 2.0 are both permissive and compatible with GPLv3, and so with the AGPL-3.0. We can include them in an AGPL-3.0 work freely.
+- **Compliance:** Tauri and its crates are listed in [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md), which ships in every bundle; the Apache-2.0 text ships beside it in `LICENSES/Apache-2.0.txt`.
 
 ### Rust standard library + crates ecosystem
 
 - **Used for:** language runtime + the utility crates listed in the inventory above.
 - **License:** Mostly MIT/Apache 2.0 dual.
-- **Compatibility:** all GPLv3-compatible.
+- **Compatibility:** all AGPL-3.0-compatible. Beyond MIT and Apache-2.0 the shipped crates use ISC, BSD-3-Clause, Zlib, Unicode-3.0, CDLA-Permissive-2.0 (`webpki-roots`) and MPL-2.0 (`option-ext`, no "Incompatible With Secondary Licenses" notice); none is GPL-2.0-only. The list per crate is in [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md).
 - **Audit — not yet automated.** `cargo about generate` is described below as the intended mechanism, but there is **no `src-tauri/about.toml` and no `deny.toml` in the repository today**, and neither `cargo about` nor `cargo deny` runs in `.github/workflows/ci.yml`. Until those land, the inventory above is maintained by hand against the manifests, which is exactly the failure mode that produced the previous version of this document.
 
 ### React + TypeScript ecosystem
 
 - **Used for:** the frontend. React / React DOM (MIT), Zustand (MIT), Sonner (MIT), the `@tauri-apps/*` JS packages (MIT / Apache-2.0), and Tailwind CSS (MIT) whose *generated* CSS ships in the bundle.
 - **Localization is in-house** (`src/i18n/`): a small provider plus JSON catalogues per screen. No i18n library is bundled.
-- **Compatibility:** GPLv3-compatible.
+- **Compatibility:** AGPL-3.0-compatible.
 - **Audit:** `pnpm licenses list` produces an inventory; wiring it into the release is still open (see above).
 
 ### `windows` (windows-rs)
 
 - **Used for:** Win32 API bindings — `EnumPrinters` / `DeviceCapabilities` / `GetDefaultPrinter` in the app, and COM / `IExplorerCommand` in the shell extension.
 - **License:** MIT / Apache 2.0 dual.
-- **Compatibility:** GPLv3-compatible.
+- **Compatibility:** AGPL-3.0-compatible.
 - **Note:** the two crates pull the same 0.58 line but different feature sets; they are separate builds because the shell extension is a separate crate.
 
 ### `objc2`, `objc2-app-kit`, `objc2-foundation` (macOS only)
 
 - **Used for:** the "Print with Pluryprint" NSServices provider declared in `Info.plist` (FR-001).
 - **License:** MIT.
-- **Compatibility:** GPLv3-compatible.
+- **Compatibility:** AGPL-3.0-compatible.
 - **Note:** versions are constrained to the ones tao/wry already resolve, so only one copy of the objc2 tree is linked.
 
 ### WebView2 (Windows webview)
 
-- **Loader stub:** distributed with our app (`WebView2Loader.dll`). Licensed MIT.
+- **Loader:** `webview2-com-sys` links Microsoft's `WebView2LoaderStatic.lib` statically into `pluryprint.exe` on the MSVC targets; no `WebView2Loader.dll` is shipped. Its license is a BSD-style Microsoft license, reproduced in [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md).
 - **Edge engine:** system-installed (preinstalled on Win 11; bootstrap on Win 10). Microsoft EULA governs it. We do not redistribute the engine itself.
-- **Compatibility:** the loader stub being MIT is fine. The engine being a system component (we link to it dynamically at runtime) is analogous to linking against the OS itself; this is the [system library exception](https://www.gnu.org/licenses/gpl-faq.en.html#WindowsRuntimeAndGPL) under GPLv3.
+- **Compatibility:** the loader's license is permissive. The engine being a system component (we link to it dynamically at runtime) is analogous to linking against the OS itself; this is the [system library exception](https://www.gnu.org/licenses/gpl-faq.en.html#WindowsRuntimeAndGPL), which the AGPL-3.0 shares with the GPLv3.
 
 ### WKWebView (macOS webview)
 
@@ -153,16 +153,16 @@ These are statically or dynamically linked into `pluryprint.exe`/`pluryprint` an
 
 These are not linked but shipped as separate files in our installer.
 
-### SumatraPDF 3.5.2 (GPLv3) — the one GPL binary we redistribute
+### SumatraPDF 3.5.2 (GPL-3.0) — the one third-party program we redistribute
 
 - **Used for:** silent PDF printing on Windows (`-print-to`, `-print-settings`, `-silent`, `-exit-when-done`). Not used on macOS/Linux, which print through CUPS `lp`.
-- **License:** [GPLv3](https://www.gnu.org/licenses/gpl-3.0.html).
-- **How it gets into the bundle:** `scripts/fetch-sumatrapdf.ps1` (Windows) / `scripts/fetch-sumatrapdf.sh` (POSIX twin, for cross-building CI and for verifying the pins off-Windows). They download the **pinned** upstream release, version `3.5.2`, for the target architecture: `https://www.sumatrapdfreader.org/dl/rel/3.5.2/SumatraPDF-3.5.2-64.zip` for x64 and `...-arm64.zip` for ARM64 (an ARM64 installer carries the native ARM64 build, not the x64 one under emulation). Each archive is checked against a pinned SHA-256 (x64 `66ccb395...512989`, ARM64 `d6fa6678...71e882f`, both computed independently on macOS and on Windows 11). The executable is installed as `SumatraPDF.exe` in `src-tauri/resources/sumatrapdf/`, and `tauri.conf.json` ships that directory via `bundle.resources: ["resources/sumatrapdf/*"]`. The glob matches only the README on a macOS/Linux bundle.
-- **The licence travels with it.** The portable archives contain the executable only, no licence file. The scripts therefore fetch `COPYING` (the GPLv3 text, byte-identical to our own `LICENSE`), `COPYING.BSD` and `AUTHORS` from the SumatraPDF repository at commit `646d1feddcc80b3b51072c5b27a1446487904175`, which the release tag `3.5.2rel` points to. Each file has its own pinned SHA-256, and a missing or altered file fails the script. They land next to the executable as `LICENSE.txt`, `COPYING.BSD.txt` and `AUTHORS.txt`, with a `SOURCE.txt` naming the version, architecture, archive URL and the source commit.
-- **Why not committed:** ~16 MB of platform-specific artifact git would keep forever, paid for by every contributor including those who can never run it; and it is not ours to re-host. Fetching the vendor's own release at packaging time keeps provenance (and these GPLv3 obligations) where they belong. A pinned URL plus a pinned checksum is a stronger guarantee than a committed blob, and it is reviewable in a diff. `src-tauri/tests/fetch_scripts.rs` checks that both scripts carry the same pins and that the PowerShell one stays ASCII (Windows PowerShell 5.1 cannot parse a BOM-less UTF-8 script with typographic punctuation).
-- **Source code:** [https://github.com/sumatrapdfreader/sumatrapdf](https://github.com/sumatrapdfreader/sumatrapdf).
-- **Compatibility:** SumatraPDF is GPLv3, Pluryprint is GPLv3. Identical license; the combined distribution is unambiguously GPLv3.
-- **Compliance (GPLv3 §6):** because we redistribute a GPLv3 binary we must offer its corresponding source. We do so by shipping the licence (`LICENSE.txt`, `COPYING.BSD.txt`, `AUTHORS.txt`) and `SOURCE.txt`, which names the exact upstream commit, beside the executable, and by linking to the upstream repository from the About screen and from this document. **Pin the exact upstream version in the release notes** so "corresponding source" is unambiguous.
+- **License:** [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.html). The MuPDF library compiled into `SumatraPDF.exe` is [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html) (Artifex Software).
+- **How it gets into the bundle:** `scripts/fetch-sumatrapdf.ps1` (Windows) / `scripts/fetch-sumatrapdf.sh` (POSIX twin, for cross-building CI and for verifying the pins off-Windows). They download the **pinned** upstream release, version `3.5.2`, for the target architecture: `https://www.sumatrapdfreader.org/dl/rel/3.5.2/SumatraPDF-3.5.2-64.zip` for x64 and `...-arm64.zip` for ARM64 (an ARM64 installer carries the native ARM64 build, not the x64 one under emulation). Each archive is checked against a pinned SHA-256 (x64 `66ccb395...512989`, ARM64 `d6fa6678...71e882f`, both computed independently on macOS and on Windows 11). The executable is installed as `SumatraPDF.exe` in `src-tauri/resources/sumatrapdf/`, and `tauri.conf.json` ships that directory via `bundle.resources` (`"resources/sumatrapdf/*": "resources/sumatrapdf/"`). The glob matches only the README on a macOS/Linux bundle.
+- **The licence travels with it.** The portable archives contain the executable only, no licence file. The scripts therefore fetch `COPYING` (the GPL-3.0 text, byte-identical to our `LICENSES/GPL-3.0.txt`), `COPYING.BSD` and `AUTHORS` from the SumatraPDF repository at commit `646d1feddcc80b3b51072c5b27a1446487904175`, which the release tag `3.5.2rel` points to. Each file has its own pinned SHA-256, and a missing or altered file fails the script. They land next to the executable as `LICENSE.txt`, `COPYING.BSD.txt` and `AUTHORS.txt`, with a `SOURCE.txt` naming the version, architecture, archive URL and the source commit.
+- **Why not committed:** ~16 MB of platform-specific artifact git would keep forever, paid for by every contributor including those who can never run it; and it is not ours to re-host. Fetching the vendor's own release at packaging time keeps provenance (and these GPL-3.0 obligations) where they belong. A pinned URL plus a pinned checksum is a stronger guarantee than a committed blob, and it is reviewable in a diff. `src-tauri/tests/fetch_scripts.rs` checks that both scripts carry the same pins and that the PowerShell one stays ASCII (Windows PowerShell 5.1 cannot parse a BOM-less UTF-8 script with typographic punctuation).
+- **Source code:** [https://github.com/sumatrapdfreader/sumatrapdf](https://github.com/sumatrapdfreader/sumatrapdf), tag `3.5.2rel` (MuPDF is under `mupdf/`).
+- **Compatibility:** SumatraPDF is a separate program that Pluryprint runs as a process, so the two are an aggregate, not a combined work. Even if they were combined, section 13 of both the GPL-3.0 and the AGPL-3.0 explicitly allows linking one with the other. MuPDF is AGPL-3.0, the same license as Pluryprint.
+- **Compliance (GPL-3.0 §6):** because we redistribute a GPL-3.0 binary we must offer its corresponding source. We do so by shipping the licence (`LICENSE.txt`, `COPYING.BSD.txt`, `AUTHORS.txt`) and `SOURCE.txt`, which names the exact upstream commit, beside the executable, the GPL-3.0 text in `LICENSES/GPL-3.0.txt`, and a notice naming the version and the source tag in `THIRD-PARTY-NOTICES.md`, and by linking to the upstream repository from the About screen and from this document. **Pin the exact upstream version in the release notes** so "corresponding source" is unambiguous.
 
 ### Future bundled components
 
@@ -176,7 +176,7 @@ Quoting the FSF directly:
 
 > "If two programs run at the same time and communicate using exec, fork, or pipes, then they are normally separate programs."
 
-This is the legal foundation for using LibreOffice (MPL 2.0) and Chromium (BSD 3-Clause) in a GPLv3 project without those licenses contaminating ours.
+This is the legal foundation for using LibreOffice (MPL 2.0) and Chromium (BSD 3-Clause) in an AGPL-3.0 project without those licenses contaminating ours.
 
 ### LibreOffice (MPL 2.0)
 
@@ -198,7 +198,7 @@ This is the legal foundation for using LibreOffice (MPL 2.0) and Chromium (BSD 3
 - **Used for:** Markdown → PDF.
 - **License:** [GPLv2-or-later](https://www.gnu.org/licenses/gpl-2.0.html). Pandoc itself is GPL.
 - **Embedded?** No. Subprocess only.
-- **Compatibility:** GPLv2-or-later is GPLv3-compatible (the "or later" clause permits combination). Subprocess invocation makes this moot.
+- **Compatibility:** GPLv2-or-later can be used under GPLv3, which section 13 lets be combined with the AGPL-3.0. Subprocess invocation makes this moot.
 
 ### CUPS `lp` (Apache 2.0, system component)
 
@@ -244,41 +244,34 @@ These tools are used to build Pluryprint but are not part of the distributed bin
 
 ## Compliance artifacts we ship
 
-**Shipped today.** The Windows bundle carries, via `bundle.resources`:
+Every bundle carries, via `bundle.resources` in `tauri.conf.json` (checked by `src-tauri/tests/licence_bundle.rs`):
 
 ```
 <resource-dir>/
-└── sumatrapdf/
+├── LICENSE                    # AGPL-3.0, Pluryprint's own license (full text)
+├── THIRD-PARTY-NOTICES.md     # every shipped component, crate and package, with copyright lines
+├── LICENSES/
+│   ├── Apache-2.0.txt         # Apache-2.0-only crates, ring
+│   ├── GPL-3.0.txt            # SumatraPDF
+│   └── OFL-1.1.txt            # JetBrains Mono, with its copyright line
+└── resources/sumatrapdf/      # Windows only, once fetched
     ├── SumatraPDF.exe
-    └── LICENSE.txt            # SumatraPDF's GPLv3 notice, copied by the fetch script
+    └── LICENSE.txt            # SumatraPDF's own licence file, when its archive has one
 ```
 
-**Not yet shipped (open work).** The aggregated notices file below is the intended target, not the current state: `LICENSE.txt` (our GPLv3 text) and `third-party/LICENSES.txt` are **not** added to the bundle by `tauri.conf.json` today, and neither generator runs in CI. Wiring both is a prerequisite for a public release, since the GPLv3 §4/§6 notice obligations do not depend on our tooling being convenient.
+On macOS `<resource-dir>` is `Pluryprint.app/Contents/Resources/`; on Windows it is the install folder.
 
-```
-<install-dir>/
-├── LICENSE.txt                # GPLv3 (full text)          [TODO: not bundled]
-├── third-party/
-│   └── LICENSES.txt           # All third-party licenses    [TODO: not generated]
-└── sumatrapdf/
-    ├── SumatraPDF.exe
-    └── LICENSE.txt            # shipped
-```
-
-The `LICENSES.txt` file is intended to be generated at build time by:
+`THIRD-PARTY-NOTICES.md` is written by hand from `cargo tree` (per release target) and a production `vite build`; its "How this list was made" section has the exact commands. It is still incomplete — it names the 62 MIT-only crates but does not reproduce their notices — and its "Open items" say what is missing. Generating it instead of writing it is open work:
 
 ```bash
 # Rust deps
 cargo about generate templates/about.hbs > LICENSES-rust.txt
 
 # Frontend deps
-pnpm licenses list --long --recursive > LICENSES-frontend.txt
-
-# Concatenate with a header
-cat templates/header.txt LICENSES-rust.txt LICENSES-frontend.txt > Resources/third-party/LICENSES.txt
+pnpm licenses list --long --prod > LICENSES-frontend.txt
 ```
 
-This file is reviewed during release prep (see [release-checklist.md](../08-development/release-checklist.md)) to catch new dependencies that don't have a license declared.
+`THIRD-PARTY-NOTICES.md` is reviewed during release prep (see [release-checklist.md](../08-development/release-checklist.md)) to catch new dependencies that don't have a license declared.
 
 ## Compatibility check process
 
@@ -286,8 +279,8 @@ When adding a new dependency:
 
 1. Identify its license (`cargo metadata` for Rust deps; `npm view <pkg> license` for frontend).
 2. Cross-reference against the [FSF compatibility list](https://www.gnu.org/licenses/license-list.html) or [SPDX license list](https://spdx.org/licenses/).
-3. If GPLv3-compatible: proceed.
-4. If GPLv3-incompatible (e.g. CDDL, EPL, MPL 1.x without dual-license): **do not add**. Either find a replacement, refactor to subprocess invocation, or skip the feature.
+3. If AGPL-3.0-compatible: proceed.
+4. If AGPL-3.0-incompatible (e.g. GPL-2.0-only, CDDL, EPL, MPL 1.x without dual-license, MPL-2.0 marked "Incompatible With Secondary Licenses"): **do not add**. Either find a replacement, refactor to subprocess invocation, or skip the feature.
 
 **`cargo deny` is not wired up yet.** There is no `deny.toml` in the repository and `.github/workflows/ci.yml` does not run it, so today step 4 above is enforced by review only. The configuration below is the intended one and should be committed as `deny.toml` when the check lands:
 
@@ -301,21 +294,21 @@ allow = [
   "BSD-2-Clause",
   "BSD-3-Clause",
   "ISC",
-  "Unicode-DFS-2016",
+  "Unicode-3.0",
   "Zlib",
-  "GPL-3.0",
+  "CDLA-Permissive-2.0",
   "MPL-2.0",
+  "AGPL-3.0",
 ]
 deny = [
   "CDDL-1.0",
   "EPL-1.0",
   "EPL-2.0",
-  "GPL-2.0",  # GPL-2.0-only is incompatible with GPLv3
-  "AGPL-3.0",  # We're GPL, not AGPL
+  "GPL-2.0",  # GPL-2.0-only is incompatible with the AGPL-3.0
 ]
 ```
 
-Once committed, a PR that introduces a denied license will fail CI. Note that `GPL-3.0` must stay on the allow list: the workspace's own crates are `GPL-3.0-only`.
+Once committed, a PR that introduces a denied license will fail CI. Note that `AGPL-3.0` must stay on the allow list: the project's own crates are `AGPL-3.0-only`.
 
 ## "But is X legally a derivative work?"
 
@@ -325,7 +318,7 @@ The case for subprocess invocation **not** being a derivative work has been argu
 - [Linux Kernel position](https://www.kernel.org/doc/Documentation/process/license-rules.rst): the syscall boundary is treated as a license boundary.
 - [LibreOffice's own FAQ](https://www.libreoffice.org/about-us/licenses/) accepts subprocess invocation as a non-combining use pattern.
 
-We are conservative: when there is doubt, we use subprocess invocation rather than embedding. The clearest example is LibreOffice (MPL 2.0) — even though MPL 2.0 has GPL-compat clauses, the subprocess pattern removes any ambiguity about whether a combined work exists.
+We are conservative: when there is doubt, we use subprocess invocation rather than embedding. The clearest example is LibreOffice (MPL 2.0) — even though MPL 2.0 has GPL/AGPL-compatibility clauses, the subprocess pattern removes any ambiguity about whether a combined work exists.
 
 ## Trademark notices for components we mention
 
@@ -338,6 +331,7 @@ We are conservative: when there is doubt, we use subprocess invocation rather th
 - "Apple", "macOS", "Apple Silicon", "Xcode", "Finder" are trademarks of Apple Inc.
 - "Pandoc" is a trademark of John MacFarlane.
 - "SumatraPDF" is the work of Krzysztof Kowalczyk and contributors.
+- "MuPDF" is a trademark of Artifex Software, Inc.
 - "JetBrains Mono" is a typeface by JetBrains s.r.o., used under the SIL Open Font License 1.1.
 
 We use these names nominatively (to refer to the components themselves), not in a way that implies endorsement.

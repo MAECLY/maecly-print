@@ -26,8 +26,10 @@ Both scripts drop `SumatraPDF.exe` (the build for the installer's
 architecture), its licence (`LICENSE.txt`, `COPYING.BSD.txt`, `AUTHORS.txt`,
 fetched from the pinned upstream source commit, since the portable archives
 carry none) and a `SOURCE.txt` naming the version, architecture and source
-commit in this directory. Everything here except this README is git-ignored. `bundle.resources` in `src-tauri/tauri.conf.json` is
-`"resources/sumatrapdf/*"`, so whatever is here is copied verbatim into the
+commit in this directory. Everything here except this README is git-ignored.
+`bundle.resources` in `src-tauri/tauri.conf.json` maps
+`"resources/sumatrapdf/*"` to `"resources/sumatrapdf/"`, so whatever is here
+is copied verbatim into the
 bundle's resource directory — which is the first place
 `engine::deps::bundled_dirs` looks.
 

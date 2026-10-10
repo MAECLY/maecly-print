@@ -19,7 +19,7 @@
 
 ADRs are not rewritten, they are superseded. Do not edit ADR-0006 to match the code.
 
-Whichever way it goes, one constraint binds both options: `SumatraPDF.exe` is **not committed**. Any packaging job must run `scripts/fetch-sumatrapdf.ps1` first, or `bundle.resources` (`resources/sumatrapdf/*`) copies only a `README.md` and every print job on the installed app fails with `DependencyMissing`.
+Whichever way it goes, one constraint binds both options: `SumatraPDF.exe` is **not committed**. Any packaging job must run `scripts/fetch-sumatrapdf.ps1` first, or `bundle.resources` (`"resources/sumatrapdf/*": "resources/sumatrapdf/"`) copies only a `README.md` and every print job on the installed app fails with `DependencyMissing`.
 
 ## Packaging a Windows installer (current procedure)
 
@@ -61,7 +61,12 @@ That is the Windows 10 verb shape from `shell-ext-win/README.md`: the menu entry
 "bundle": {
   "active": true,
   "targets": ["nsis", "app", "dmg", "deb", "rpm", "appimage"],
-  "resources": ["resources/sumatrapdf/*"],
+  "resources": {
+    "resources/sumatrapdf/*": "resources/sumatrapdf/",
+    "../LICENSE": "LICENSE",
+    "../LICENSES/*": "LICENSES/",
+    "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
+  },
   "publisher": "Maecly",
   "windows": {
     "nsis": {
@@ -391,12 +396,13 @@ After install:
 ├── pluryprint.exe              # Main app (Tauri runtime + all logic)
 ├── pluryprint-cli.exe          # Console CLI front end (scripts wait for it; see ipc-and-cli.md §3.1)
 ├── shell_ext_win.dll            # COM in-proc server
-├── WebView2Loader.dll           # WebView2 (system WebView2 used; this is loader stub)
-├── LICENSE.txt                  # GPLv3
+├── LICENSE                      # AGPL-3.0 (the WebView2 loader is linked into pluryprint.exe; no DLL)
+├── THIRD-PARTY-NOTICES.md       # Third-party notices
+├── LICENSES\                    # Apache-2.0, GPL-3.0 (SumatraPDF), OFL-1.1 (JetBrains Mono)
 ├── CHANGELOG.md
 ├── sumatrapdf\
-│   ├── SumatraPDF.exe           # Bundled, GPLv3
-│   └── LICENSE.txt              # SumatraPDF's GPLv3 notice
+│   ├── SumatraPDF.exe           # Bundled, GPL-3.0 (MuPDF inside: AGPL-3.0)
+│   └── LICENSE.txt              # SumatraPDF's GPL-3.0 text (also COPYING.BSD.txt, AUTHORS.txt, SOURCE.txt)
 ├── sparse-msix\
 │   ├── AppxManifest.xml
 │   └── Assets\

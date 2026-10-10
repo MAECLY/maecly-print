@@ -87,8 +87,8 @@ The repository itself is still called `maecly-print`
 The app and its docs mention products it works with, prints through or runs on.
 Those names belong to their owners, and their use here only describes
 compatibility: Tauri, React, SumatraPDF, CUPS, Adobe, Acrobat, Microsoft,
-Windows, Explorer, Apple, macOS, Finder, GitHub, Epson, Brother, HP, and similar
-marks. Licence notices for the third-party code compiled into the app are in
-`docs/09-legal/third-party-licenses.md`.
+Windows, Explorer, Apple, macOS, Finder, GitHub, Epson, Brother, HP, MuPDF, and
+similar marks. Licence notices for the third-party code compiled into the app
+are in `THIRD-PARTY-NOTICES.md`.
 
 Copyright © 2026 maecly.

@@ -11,9 +11,13 @@ Directories marked **(placeholder)** exist with only a `.gitkeep`/`README.md` in
 ```
 maecly-print/
 ├── README.md                    # Landing page for github.com/MAECLY/maecly-print
-├── LICENSE                      # GPLv3 (the canonical legal text)
+├── LICENSE                      # AGPL-3.0 (the canonical legal text; ships in the bundle)
+├── LICENSES/                    # Third-party licence texts the notices point at (ship in the bundle)
+├── THIRD-PARTY-NOTICES.md       # Notices for everything the app ships (ships in the bundle)
+├── TRADEMARKS.md                # The name and the mark, and the AGPL 7(e) term about them
+├── CLA.md                       # Contributor License Agreement
 ├── CHANGELOG.md                 # Keep a Changelog format, updated atomically with releases
-├── CONTRIBUTING.md              # Stub pointing to docs/08-development/contributing.md
+├── CONTRIBUTING.md              # The CLA, the checks, the licence; points to docs/08-development/contributing.md
 ├── CODE_OF_CONDUCT.md           # Contributor Covenant 2.1
 ├── SECURITY.md                  # Vulnerability disclosure policy
 ├── Makefile                     # Canonical local task runner (make help)

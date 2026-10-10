@@ -39,8 +39,9 @@ Pluryprint.app/
     │   ├── es.lproj/
     │   │   ├── InfoPlist.strings
     │   │   └── ServicesMenu.strings   # "Imprimir con Pluryprint", …
-    │   └── third-party/
-    │       └── LICENSES.txt
+    │   ├── LICENSE                    # AGPL-3.0
+    │   ├── THIRD-PARTY-NOTICES.md
+    │   └── LICENSES/                  # Apache-2.0, GPL-3.0, OFL-1.1
     ├── Frameworks/
     │   └── (any embedded frameworks; usually empty for Tauri)
     ├── PlugIns/
@@ -89,7 +90,7 @@ Key entries in `Contents/Info.plist`:
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.utilities</string>
   <key>NSHumanReadableCopyright</key>
-  <string>Copyright (c) 2026 Pluryprint Project. Licensed under GPLv3.</string>
+  <string>Copyright (C) 2026 Maecly. Licensed under AGPL-3.0-only.</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoads</key>
