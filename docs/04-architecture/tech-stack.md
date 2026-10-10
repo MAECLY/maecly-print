@@ -10,7 +10,7 @@ Everything in this table is declared in `src-tauri/Cargo.toml`, `shell-ext-win/C
 | ---------------------- | ------------------------------------------------------- |
 | Application shell      | **Tauri 2.1** (Rust host + system webview)              |
 | Backend / core logic   | **Rust 1.78+** (stable, edition 2021)                   |
-| Frontend / UI          | **React 18 + TypeScript 5 + Vite 7 + Tailwind CSS 3** (layout utilities only; design tokens are CSS custom properties, Tailwind `preflight` disabled) |
+| Frontend / UI          | **React 19 + TypeScript 5 + Vite 7 + Tailwind CSS 3** (layout utilities only; design tokens are CSS custom properties, Tailwind `preflight` disabled) |
 | Frontend state         | `zustand` 5; toasts via `sonner`                        |
 | Localization           | **In-house** (`src/i18n/`, JSON catalogues per screen) — no i18n library |
 | Typed IPC              | `tauri-specta` + `specta` (pinned `=` pre-release) → generated `src/ipc/bindings.ts` |

@@ -78,7 +78,7 @@ This crate is deliberately **not** a workspace member (see [`../04-architecture/
 
 | Package | Declared version | License | Used for |
 |---|---|---|---|
-| `react`, `react-dom` | ^18.3.1 | MIT | UI runtime |
+| `react`, `react-dom` | ^19.3.0 | MIT | UI runtime |
 | `@tauri-apps/api` | ^2.1.1 | MIT / Apache-2.0 | IPC + event bridge |
 | `@tauri-apps/plugin-dialog` | ^2.7.1 | MIT / Apache-2.0 | File picker binding |
 | `zustand` | ^5.0.14 | MIT | Frontend state |
