@@ -34,6 +34,7 @@ pub mod args;
 pub mod console;
 pub mod exit;
 pub mod files;
+pub mod foreground;
 pub mod handoff;
 pub mod instance;
 pub mod output;

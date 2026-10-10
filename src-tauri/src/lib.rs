@@ -123,6 +123,10 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
     let pending = cli::pending::PendingSelections::default();
     let forwarded_into = pending.clone();
 
+    // If this launch is about to be forwarded to a running instance, hand that
+    // instance the right to come to the front (`cli::foreground`).
+    cli::foreground::grant_to_running_instance();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(move |app, argv, cwd| {
             // A second launch already exited by the time this runs; all we get
@@ -146,9 +150,12 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
                     tracing::warn!(event = "selection_forwarded_emit_failed", error = %e);
                 }
             }
+            // Never `set_focus` here: on Windows its fallback fakes an Alt
+            // keystroke that parks the window in menu mode, and the selection
+            // then waits for the user's next click (`cli::foreground`).
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.set_focus();
+                let raised = cli::foreground::bring_to_front(&window);
+                tracing::info!(event = "window_raised", outcome = raised.as_str());
             }
         }))
         .plugin(tauri_plugin_dialog::init())

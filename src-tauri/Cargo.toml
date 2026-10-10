@@ -242,6 +242,9 @@ windows = { version = "0.58", features = [
   "Win32_System_Console",
   # HKLM\SOFTWARE\Policies\Maecly\Pluryprint (settings::policy).
   "Win32_System_Registry",
+  # SetForegroundWindow / AllowSetForegroundWindow / FlashWindowEx: raising the
+  # window for a forwarded launch without faked input (cli::foreground).
+  "Win32_UI_WindowsAndMessaging",
 ] }
 # FR-055: HTML -> PDF through the system WebView2 (`ICoreWebView2_7::PrintToPdf`)
 # in the hidden render worker. Pinned to the line wry already uses, so the
