@@ -73,6 +73,25 @@ pub fn claim(path: &Path) -> io::Result<Option<InstanceLock>> {
     Ok(None)
 }
 
+/// Take the lock at `path`, waiting up to `timeout` for whoever holds it.
+/// `Ok(None)` when it is still held after that. For short critical sections
+/// another process may be in (the data migration, `util::legacy`), not for
+/// the app's own lock.
+pub fn claim_within(path: &Path, timeout: std::time::Duration) -> io::Result<Option<InstanceLock>> {
+    let file = open(path)?;
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(Some(InstanceLock { _file: file })),
+            Err(TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(CLAIM_RETRY);
+            }
+            Err(TryLockError::WouldBlock) => return Ok(None),
+            Err(TryLockError::Error(e)) => return Err(e),
+        }
+    }
+}
+
 /// What the lock says about a running app.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LockState {
