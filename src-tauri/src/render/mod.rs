@@ -667,8 +667,9 @@ fn webkit_regex_escape(text: &str) -> String {
     out
 }
 
-/// The text encoding a staged page is declared in, for a web view that needs
-/// it named up front (`WKWebView loadData`): a byte-order mark first, then a
+/// The text encoding a staged page is declared in, named in the
+/// `Content-Type` the macOS scheme handler serves the page with
+/// (`render/macos.rs`): a byte-order mark first, then a
 /// `charset` in the first kilobyte, then UTF-8 when the bytes are valid
 /// UTF-8, else Windows-1252 (what a browser assumes for Western text). Pure.
 pub fn sniff_charset(html: &[u8]) -> String {
