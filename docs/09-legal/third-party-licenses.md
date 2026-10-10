@@ -1,6 +1,6 @@
 # Third-Party Licenses
 
-> **TL;DR.** Pluryprint is AGPL-3.0-only. It bundles SumatraPDF on Windows (GPL-3.0, with MuPDF inside under AGPL-3.0 — fetched at packaging time by `scripts/fetch-sumatrapdf.*`, never committed) and depends on Tauri/Rust/React (all permissive licenses, AGPL-compatible). External tools we invoke as subprocesses (LibreOffice, Pandoc, Chromium) are not embedded; per FSF guidance, subprocess invocation does not create a derivative work, so their licenses do not constrain our license. The notices themselves ship in every bundle as [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md), with `LICENSE` and the texts in `LICENSES/`.
+> **TL;DR.** Pluryprint is AGPL-3.0-only. It bundles SumatraPDF on Windows (GPL-3.0, with MuPDF inside under AGPL-3.0 — fetched at packaging time by `scripts/fetch-sumatrapdf.*`, never committed) and depends on Tauri/Rust/React (all permissive licenses, AGPL-compatible). External tools we invoke as subprocesses (LibreOffice; Edge/Chrome only as a hidden fallback) are not embedded; per FSF guidance, subprocess invocation does not create a derivative work, so their licenses do not constrain our license. The notices themselves ship in every bundle as [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md), with `LICENSE` and the texts in `LICENSES/`.
 
 This document inventories every third-party component Pluryprint depends on, with its license, our usage pattern (embedded vs subprocess), and the AGPL-3.0 compatibility analysis. This is the source of truth for legal compliance; the notice that ships with the app, covering every transitive crate as well, is [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md) at the repository root.
 
@@ -95,16 +95,15 @@ Two notes: **Tailwind CSS is MIT and its generated CSS *is* distributed** in the
 | Component | License | Used for | Embedded? | AGPL-3.0 compatible? |
 |---|---|---|---|---|
 | SumatraPDF (**3.6.1**, pinned) | **GPL-3.0** (MuPDF inside it: AGPL-3.0) | PDF printing on Windows | Yes — fetched at packaging time and bundled as a separate program | Yes; see the compliance note below |
-| LibreOffice | MPL 2.0 | Office, OpenDocument, TXT, RTF → PDF | No (subprocess) | Yes (separate) |
-| Chromium / Microsoft Edge | BSD 3-Clause (Chromium core) | HTML and Markdown → PDF (Google Chrome or Chromium also work) | No (subprocess) | Yes (separate) |
-| Pandoc | GPLv2-or-later | Markdown → HTML | No (subprocess) | Yes (separate) |
-| sips / Windows Imaging Component | OS components | HEIC/HEIF decoding (`sips` on macOS; WIC plus the Store *HEIF Image Extensions* on Windows) | No (system tool / OS API) | Yes (separate) |
+| LibreOffice | MPL 2.0 | Office and OpenDocument → PDF, and RTF on Windows | No (subprocess) | Yes (separate) |
+| Chromium / Microsoft Edge | BSD 3-Clause (Chromium core) | Only the hidden `html_renderer = "browser"` fallback for HTML, Markdown and text (Google Chrome or Chromium also work); the default is the system web view | No (subprocess) | Yes (separate) |
+| sips / Windows Imaging Component | OS components | HEIC/HEIF decoding (`sips` on macOS; WIC plus the Store *HEIF Image Extensions* and *HEVC Video Extensions* on Windows); macOS `textutil` likewise turns RTF into HTML | No (system tool / OS API) | Yes (separate) |
 | CUPS `lp` | Apache 2.0 (system component) | Printing on macOS/Linux | No (system binary) | Yes (separate) |
-| WebView2 loader | BSD-style Microsoft license (loader); Edge engine system-installed | Webview rendering | Loader statically linked; engine system | Yes (loader); engine N/A |
-| WKWebView (macOS) | Apple SLA | Webview rendering | No (system framework) | N/A (system) |
+| WebView2 loader | BSD-style Microsoft license (loader); Edge engine system-installed | Webview rendering, and printing HTML, Markdown and text in the render worker | Loader statically linked; engine system | Yes (loader); engine N/A |
+| WKWebView (macOS) | Apple SLA | Webview rendering, and printing HTML, Markdown and text in the render worker | No (system framework) | N/A (system) |
 | NSIS (via `tauri build`) | zlib/libpng | Windows installer | No (build-time only) | N/A |
 
-**Removed from this inventory because they are not used:** `reqwest` (replaced by `ureq`), `tauri-plugin-cli` (the CLI is plain `clap`), `winreg`, `which`, `mime_guess`, `infer`, `rayon`, `notify`, `react-i18next`, `@radix-ui/*`, `react-hook-form`, `@tanstack/react-query`, `lucide-react`, `clsx`, `tailwind-merge`, `playwright`, Inno Setup, create-dmg. **ImageMagick and qpdf are not invoked at all**: images are converted in-process with the `image` crate, and there is no PDF preprocessing step.
+**Removed from this inventory because they are not used:** `reqwest` (replaced by `ureq`), `tauri-plugin-cli` (the CLI is plain `clap`), `winreg`, `which`, `mime_guess`, `infer`, `rayon`, `notify`, `react-i18next`, `@radix-ui/*`, `react-hook-form`, `@tanstack/react-query`, `lucide-react`, `clsx`, `tailwind-merge`, `playwright`, Inno Setup, create-dmg, and Pandoc (Markdown converts in-process with `pulldown-cmark` since round 3). **ImageMagick and qpdf are not invoked at all**: images are converted in-process with the `image` crate, and there is no PDF preprocessing step.
 
 For each entry below: the license text source, how we use it, and any compliance notes.
 
@@ -179,7 +178,7 @@ If we ever bundle Pandoc (GPLv2-or-later) or another GPL'd binary, the same comp
 
 ## External components (subprocess invocation)
 
-These are tools we shell out to with `std::process::Command`. We never bundle them; they must be installed by the user separately (the app probes for them and reports what is missing — `engine::deps`, FR-058). CUPS `lp` (macOS/Linux), LibreOffice, a Chromium-class browser, Pandoc and macOS `sips` are all invoked as separate processes, each with an argument vector and never through a shell. **Per the [FSF's guidance](https://www.gnu.org/licenses/gpl-faq.html#GPLPlugins) and [Mere Aggregation FAQ](https://www.gnu.org/licenses/gpl-faq.en.html#MereAggregation), subprocess invocation does not create a combined work, so the subprocess's license does not infect ours.**
+These are tools we shell out to with `std::process::Command`. We never bundle them; they must be installed by the user separately (the app probes for them and reports what is missing — `engine::deps`, FR-058). CUPS `lp` (macOS/Linux), LibreOffice, macOS `sips` and `textutil`, and, only under the hidden fallback, a Chromium-class browser are all invoked as separate processes, each with an argument vector and never through a shell. **Per the [FSF's guidance](https://www.gnu.org/licenses/gpl-faq.html#GPLPlugins) and [Mere Aggregation FAQ](https://www.gnu.org/licenses/gpl-faq.en.html#MereAggregation), subprocess invocation does not create a combined work, so the subprocess's license does not infect ours.**
 
 Quoting the FSF directly:
 
@@ -197,14 +196,14 @@ This is the legal foundation for using LibreOffice (MPL 2.0) and Chromium (BSD 3
 
 ### Chromium / Microsoft Edge (BSD 3-Clause)
 
-- **Used for:** HTML → PDF rendering. Invoked as `msedge --headless --print-to-pdf=<output> <input>`.
+- **Used for:** nothing by default. Only the hidden `[engine] html_renderer = "browser"` fallback (kept for one version, ADR-0012) prints HTML, Markdown and text with `msedge --headless --print-to-pdf=<output> <input>`; the default is the system web view.
 - **License:** [BSD 3-Clause](https://opensource.org/licenses/BSD-3-Clause) (Chromium core; Edge adds Microsoft proprietary code we don't redistribute).
 - **Embedded?** No. Subprocess only. We use the system Edge installation.
 - **Compatibility:** BSD 3-Clause is permissive; subprocess invocation makes this irrelevant anyway.
 
 ### Pandoc (GPLv2-or-later)
 
-- **Used for:** Markdown → PDF.
+- **Used for:** nothing since round 3: Markdown converts in-process (`pulldown-cmark`). The dependency id stays only so an old `queue.json` that names it still loads.
 - **License:** [GPLv2-or-later](https://www.gnu.org/licenses/gpl-2.0.html). Pandoc itself is GPL.
 - **Embedded?** No. Subprocess only.
 - **Compatibility:** GPLv2-or-later can be used under GPLv3, which section 13 lets be combined with the AGPL-3.0. Subprocess invocation makes this moot.
