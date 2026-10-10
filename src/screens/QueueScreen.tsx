@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 import { ConfirmDialog, type ConfirmState } from '@/components/ConfirmDialog';
@@ -153,6 +153,42 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
       toast.success(t('fix.resumed', { count, name: report.name }));
     }
   };
+
+  // FR-058: a Store or web install finishes outside the app, so while a job
+  // waits on a missing dependency, coming back to the window (focus, or the
+  // page becoming visible again) probes the dependencies afresh and resumes
+  // what is now unblocked — the promise the "opened" install result makes.
+  const waitingOnDependency = uiJobs.some((j) => missingDependency(j) !== null);
+  const resolvedRef = useRef(onDependencyResolved);
+  resolvedRef.current = onDependencyResolved;
+  useEffect(() => {
+    if (!waitingOnDependency) return;
+    let probing = false;
+    const recheck = async () => {
+      if (probing) return;
+      probing = true;
+      try {
+        const info = await fetchAppInfo();
+        for (const report of info.dependencies ?? []) {
+          resolvedRef.current(report);
+        }
+      } catch (e) {
+        console.error('dependency re-probe failed', e);
+      } finally {
+        probing = false;
+      }
+    };
+    const onFocus = () => void recheck();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void recheck();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [waitingOnDependency]);
 
   const attention = {
     onEnterPassword: (j: UiQueueJobView) => openPasswordPrompt(j.id, j.file),
@@ -369,6 +405,7 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
             report={installFor}
             onClose={() => setInstallFor(null)}
             onResolved={onDependencyResolved}
+            resumesJobs
           />
         )}
       </div>

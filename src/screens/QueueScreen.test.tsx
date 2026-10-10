@@ -15,6 +15,7 @@ import {
   fixtureQueueSnapshot,
   mkJob,
 } from '@/test/fixtures';
+import { resetInstallStore } from '@/stores/installStore';
 import { resetPrinterNames } from '@/stores/printerNamesStore';
 import { Toaster } from '@/components/AppShell/Toaster';
 
@@ -63,6 +64,7 @@ function snapshotOf(jobs: Job[]): QueueSnapshot {
 
 function resetStore() {
   // Cancels any undo window a previous test left open (and its timer).
+  resetInstallStore();
   useQueueStore.getState().undoClearDone();
   useQueueStore.setState({
     status: 'idle',
@@ -781,5 +783,63 @@ describe('QueueScreen — alternate views', () => {
       expect(calls.some((c) => c.cmd === 'resume_job')).toBe(true),
     );
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+  it('FR-058: after an install page opened, coming back to the window checks again and resumes', async () => {
+    const calls: Call[] = [];
+    let installed = false;
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+      if (cmd === 'queue_status') return missingOffice();
+      if (cmd === 'app_info')
+        return { ...fixtureAppInfo, dependencies: [office(installed)] };
+      if (cmd === 'install_dependency')
+        return { status: 'opened', exit_code: null, report: office(false) };
+      return null;
+    });
+    await useQueueStore.getState().init();
+    render(<QueueScreen view="list" setView={() => {}} />);
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Install what is missing for letter.docx',
+      }),
+    );
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Install LibreOffice',
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Install' }));
+    // The page opened: the promise names what happens on return.
+    expect(
+      await within(dialog).findByText(
+        /checks again when you come back to it and resumes the jobs waiting for LibreOffice/,
+      ),
+    ).toBeInTheDocument();
+    expect(calls.some((c) => c.cmd === 'resume_job')).toBe(false);
+
+    // Coming back while it is still missing changes nothing.
+    const probes = () => calls.filter((c) => c.cmd === 'app_info').length;
+    const before = probes();
+    fireEvent.focus(window);
+    await waitFor(() => expect(probes()).toBeGreaterThan(before));
+    expect(calls.some((c) => c.cmd === 'resume_job')).toBe(false);
+
+    // The user finished in the Store and comes back: the job resumes.
+    installed = true;
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible',
+    });
+    fireEvent(document, new Event('visibilitychange'));
+    await waitFor(() =>
+      expect(calls.find((c) => c.cmd === 'resume_job')?.args).toEqual({
+        id: 'j-docx',
+      }),
+    );
+  });
+
+  it('FR-058: with nothing waiting on a dependency, focus does not probe dependencies', async () => {
+    const calls = await renderReady();
+    fireEvent.focus(window);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls.some((c) => c.cmd === 'app_info')).toBe(false);
   });
 });
