@@ -373,6 +373,8 @@ describe('App', () => {
       // What `list_profiles` reads from disk; `writeProfiles` stands in for
       // another process (the CLI) rewriting profiles.toml.
       let onDisk: unknown[] = fixtureProfiles;
+      // When set, reading profiles.toml fails (a corrupt file).
+      let corrupt = false;
       mockIPC((cmd, args) => {
         calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
         switch (cmd) {
@@ -391,6 +393,12 @@ describe('App', () => {
           case 'print_files':
             return { batch_id: 'b1', job_ids: ['j1'] };
           case 'list_profiles':
+            if (corrupt) {
+              throw {
+                code: 'Internal',
+                message: 'profiles.toml is corrupt',
+              };
+            }
             return onDisk;
           case 'get_app_settings':
             return fixtureAppSettings;
@@ -409,6 +417,9 @@ describe('App', () => {
         },
         writeProfiles: (list: unknown[]) => {
           onDisk = list;
+        },
+        corruptProfiles: () => {
+          corrupt = true;
         },
       };
     }
@@ -568,6 +579,33 @@ describe('App', () => {
       // The files land on the Print Job screen for the user to finish…
       expect((await reportRows()).length).toBeGreaterThan(0);
       // …and the default profile is never used behind their back.
+      expect(calls.some((c) => c.cmd === 'print_files')).toBe(false);
+    });
+
+    it('FR-001: profiles that cannot be read are reported as such, never as a missing profile', async () => {
+      const { calls, park, corruptProfiles } = mockSelections();
+      corruptProfiles();
+      park([selection('print-default', 'Invoices')]);
+      render(<App />);
+      expect(
+        await screen.findByText(
+          /Your profiles could not be read .*so nothing was printed/,
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/No profile is called/)).toBeNull();
+      expect((await reportRows()).length).toBeGreaterThan(0);
+      expect(calls.some((c) => c.cmd === 'print_files')).toBe(false);
+    });
+
+    it('FR-001: with no readable profile list, “Print with Pluryprint” does not fall back to a built-in profile', async () => {
+      const { calls, park, corruptProfiles } = mockSelections();
+      corruptProfiles();
+      park([selection('print-default')]);
+      render(<App />);
+      expect(
+        await screen.findByText(/Your profiles could not be read/),
+      ).toBeInTheDocument();
+      expect((await reportRows()).length).toBeGreaterThan(0);
       expect(calls.some((c) => c.cmd === 'print_files')).toBe(false);
     });
 

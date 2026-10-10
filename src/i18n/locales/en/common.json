@@ -35,7 +35,9 @@
     "held_other": "{{count}} jobs added to the queue, paused — start them from the Queue screen",
     "nothingPrintable": "Nothing in that selection can be printed.",
     "unknownProfile": "No profile is called “{{name}}”. Choose a profile before printing.",
-    "unknownProfileNotPrinted": "No profile is called “{{name}}”, so nothing was printed. The files are on the Print Job screen: choose a profile there."
+    "unknownProfileNotPrinted": "No profile is called “{{name}}”, so nothing was printed. The files are on the Print Job screen: choose a profile there.",
+    "profilesUnreadable": "Your profiles could not be read ({{reason}}). Choose a profile before printing.",
+    "profilesUnreadableNotPrinted": "Your profiles could not be read ({{reason}}), so nothing was printed. The files are on the Print Job screen."
   },
   "selection": {
     "truncated": "Only the first {{sent}} of the {{total}} selected items reached Pluryprint. Select the rest separately to print them."

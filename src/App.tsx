@@ -22,6 +22,7 @@ import {
   type Selection,
 } from '@/lib/ipc';
 import { logError } from '@/lib/errorLog';
+import { errorMessage } from '@/lib/ipcError';
 import {
   addPathsToJob,
   clearPendingFolders,
@@ -85,6 +86,20 @@ async function settledProfiles(): Promise<UiProfile[]> {
   return store.getState().profiles;
 }
 
+/** The profiles a context-menu selection is resolved against. */
+interface FreshProfiles {
+  profiles: UiProfile[];
+  /**
+   * Why the list could not be re-read from disk, when it could not (a
+   * corrupt `profiles.toml`, the backend refusing). `profiles` is then only
+   * the cached list — or, if that never loaded, the built-in fallback — so a
+   * reference missing from it proves nothing.
+   */
+  unreadable: string | null;
+  /** Whether `profiles` is a list really read from disk at some point. */
+  trusted: boolean;
+}
+
 /**
  * The profile list as it is on disk *now*, for acting on a profile reference
  * this window did not pick itself (a context-menu selection, FR-001).
@@ -93,16 +108,22 @@ async function settledProfiles(): Promise<UiProfile[]> {
  * rewrites the shell menu so the new profile is offered at once), by a second
  * window and by hand, and the store has no watcher. Resolving against the
  * cached list used to miss such a profile and print with the default instead.
- * When the reload itself fails the settled list is the best there is; an
- * unresolvable reference is still refused by the caller, never guessed.
+ * When the reload itself fails, the caller is told why: a profile missing
+ * from a list that could not be read is not "a profile that does not exist",
+ * and a built-in fallback is not the user's default.
  */
-async function freshProfiles(): Promise<UiProfile[]> {
+async function freshProfiles(): Promise<FreshProfiles> {
   const settled = await settledProfiles();
   try {
-    return await useProfilesStore.getState().reload();
+    const profiles = await useProfilesStore.getState().reload();
+    return { profiles, unreadable: null, trusted: true };
   } catch (e) {
     logError('app.reload-profiles', e);
-    return settled;
+    return {
+      profiles: settled,
+      unreadable: errorMessage(e),
+      trusted: useProfilesStore.getState().status === 'ready',
+    };
   }
 }
 
@@ -489,14 +510,31 @@ function App() {
     // A selection can arrive before the profile list has loaded (it is
     // drained right at launch), or name a profile created after it loaded
     // (the CLI); either way the cached list is not the authority.
-    const profiles = await freshProfiles();
+    const { profiles, unreadable, trusted } = await freshProfiles();
     const named = findProfileByRef(profiles, selection.profile_id);
     // The reference the integration asked for and nothing matched.
     const unknownRef =
       selection.profile_id && !named ? selection.profile_id : null;
+    // The list could not be read: a missing reference is not "no such
+    // profile", and with no real list at all the default is not known either.
+    const cannotResolve =
+      unreadable !== null && (unknownRef !== null || (!named && !trusted));
 
-    if (selection.action === 'configure' || unknownRef !== null) {
-      if (unknownRef !== null) {
+    if (
+      selection.action === 'configure' ||
+      unknownRef !== null ||
+      cannotResolve
+    ) {
+      if (cannotResolve) {
+        toast.error(
+          t(
+            selection.action === 'configure'
+              ? 'print.profilesUnreadable'
+              : 'print.profilesUnreadableNotPrinted',
+            { reason: unreadable },
+          ),
+        );
+      } else if (unknownRef !== null) {
         toast.error(
           t(
             selection.action === 'configure'
