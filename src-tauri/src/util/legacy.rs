@@ -89,7 +89,9 @@ const MIGRATION_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 /// One old folder and the folder its entries move into.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirPair {
+    /// The MaeclyPrint folder entries move out of.
     pub old: PathBuf,
+    /// The Pluryprint folder they move into.
     pub new: PathBuf,
 }
 
@@ -274,7 +276,10 @@ impl Report {
 /// second launch cannot migrate into the folders of an app still starting.
 #[derive(Debug, Default)]
 pub struct Migration {
+    /// What moved, what stayed and what failed.
     pub report: Report,
+    /// The migration lock, when this run took it; dropping it lets another
+    /// launch go ahead.
     pub guard: Option<instance::InstanceLock>,
 }
 
