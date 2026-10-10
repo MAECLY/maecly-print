@@ -91,6 +91,19 @@ updates:
       commitlint:
         patterns:
           - '@commitlint/*'
+    ignore:
+      # Tailwind CSS 4 needs Safari 16.4 or later: its output relies on
+      # @property and on range-syntax media queries such as
+      # `@media (width >= 40rem)`, which have no fallback. tauri.conf.json
+      # supports macOS 13.0, and macOS 13.0 to 13.2 ship the WKWebView of
+      # Safari 16.0 to 16.3; vite also builds for safari13. The app also uses no Tailwind
+      # utilities (every class is an mp-* class of its own), so a v4
+      # migration would add that risk and change nothing visible. Minor and
+      # patch releases of 3.x still come through. Revisit when the macOS
+      # floor reaches 13.3 or Tailwind is dropped.
+      - dependency-name: tailwindcss
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /
