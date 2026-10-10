@@ -188,6 +188,8 @@
         "svg_too_large": "This SVG image is larger than the {{limit}} MB limit once uncompressed.",
         "svg_convert_failed": "The SVG image could not be converted to PDF.",
         "render_failed": "The page could not be laid out for printing.",
+        "render_worker_missing": "The Pluryprint app, which lays out pages for printing, was not found next to the command-line tool. Reinstall Pluryprint.",
+        "share_reference_refused": "The page uses a file on a network share, which the browser renderer cannot load safely. Print it with the system renderer.",
         "text_unreadable": "The text file could not be read as text."
       },
       "print_failed": {

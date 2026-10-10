@@ -273,6 +273,10 @@ pub const JOB_REASONS: &[ReasonSpec<&'static str>] = &[
     ("conversion_failed", "svg_convert_failed", &[]),
     // FR-055/056/057 (HTML, Markdown, TXT through the system web view).
     ("conversion_failed", "render_failed", &[]),
+    // The console CLI without the app next to it (the app is the renderer).
+    ("conversion_failed", "render_worker_missing", &[]),
+    // The browser fallback refuses a page whose stylesheets name a share.
+    ("conversion_failed", "share_reference_refused", &[]),
     ("conversion_failed", "text_unreadable", &[]),
     // --- Printing ---
     ("print_failed", "sumatra_start_failed", &[]),

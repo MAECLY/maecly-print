@@ -188,6 +188,8 @@
         "svg_too_large": "Esta imagen SVG supera el límite de {{limit}} MB una vez descomprimida.",
         "svg_convert_failed": "No se pudo convertir la imagen SVG a PDF.",
         "render_failed": "No se pudo maquetar la página para imprimirla.",
+        "render_worker_missing": "No se encontró la aplicación Pluryprint, que maqueta las páginas para imprimirlas, junto a la herramienta de línea de comandos. Reinstala Pluryprint.",
+        "share_reference_refused": "La página usa un archivo de una carpeta compartida de red, que el renderizador del navegador no puede cargar de forma segura. Imprímela con el renderizador del sistema.",
         "text_unreadable": "No se pudo leer el archivo como texto."
       },
       "print_failed": {
