@@ -321,8 +321,8 @@ fn fr_055_same_folder_fonts_use_and_relative_base_load() {
         images(&pdf) >= 1,
         "the image under the page's own base loads"
     );
-    // WebKit never loads an external `<use>` document for a page loaded from
-    // data with a `file:` base; WebView2, serving one origin, does.
+    // WebKit does not draw an external `<use>` document (also not from its
+    // private scheme, round 7); WebView2, serving one origin, does.
     if cfg!(windows) {
         let content = page_content(&pdf);
         assert!(
@@ -498,5 +498,101 @@ fn nfr_security_only_the_document_folder_is_readable() {
         images(&pdf),
         images(&control_pdf),
         "nothing from the parent folder is loaded"
+    );
+}
+
+#[cfg(unix)]
+fn png_of(path: &Path, rgb: [u8; 3]) {
+    let img = image::RgbImage::from_pixel(40, 40, image::Rgb(rgb));
+    img.save_with_format(path, image::ImageFormat::Png).unwrap();
+}
+
+/// Round 7 finding: a symbolic link inside the document's folder that
+/// points outside it (a file link, a folder link, an absolute one, a chain)
+/// never loads, on the real WebKit worker; a link that stays inside the
+/// folder, and a plain same-folder picture, still load. The round-6 rule
+/// list matched URLs only, and WebKit followed `doc/link.png ->
+/// ../secret.png` to the parent folder.
+#[cfg(unix)]
+#[test]
+fn nfr_security_a_symlink_in_the_document_folder_cannot_escape_it() {
+    use std::os::unix::fs::symlink;
+    let root = tempfile::tempdir().unwrap();
+    let parent = root.path().canonicalize().unwrap();
+    let doc = parent.join("doc");
+    std::fs::create_dir_all(doc.join("sub")).unwrap();
+    png_of(&parent.join("secret.png"), [20, 20, 220]);
+    png_of(&doc.join("inside.png"), [220, 20, 20]);
+    png_of(&doc.join("sub").join("inside2.png"), [20, 220, 20]);
+    // Out of the folder: relative, through a folder link, absolute, and a
+    // chain whose second hop leaves.
+    symlink("../secret.png", doc.join("link.png")).unwrap();
+    symlink("..", doc.join("up")).unwrap();
+    symlink(parent.join("secret.png"), doc.join("abs.png")).unwrap();
+    symlink("hop2.png", doc.join("hop1.png")).unwrap();
+    symlink("../secret.png", doc.join("hop2.png")).unwrap();
+    // Inside the folder: a relative and an absolute link to the same file.
+    symlink("sub/inside2.png", doc.join("alias.png")).unwrap();
+    symlink(
+        doc.join("sub").join("inside2.png"),
+        doc.join("alias-abs.png"),
+    )
+    .unwrap();
+
+    let page = doc.join("page.html");
+    std::fs::write(
+        &page,
+        "<!doctype html><html><head><meta charset=utf-8></head><body>\
+         <img src=\"inside.png\"><img src=\"alias.png\"><img src=\"alias-abs.png\">\
+         <img src=\"link.png\"><img src=\"up/secret.png\"><img src=\"abs.png\">\
+         <img src=\"hop1.png\"><img src=\"up/doc/link.png\"></body></html>",
+    )
+    .unwrap();
+    let pdf = convert(&page, &PageSetup::default()).unwrap();
+    let control = doc.join("control.html");
+    std::fs::write(
+        &control,
+        "<!doctype html><html><head><meta charset=utf-8></head><body>\
+         <img src=\"inside.png\"><img src=\"sub/inside2.png\"><img src=\"sub/inside2.png\">\
+         <img src=\"m1.png\"><img src=\"m2.png\"><img src=\"m3.png\">\
+         <img src=\"m4.png\"><img src=\"m5.png\"></body></html>",
+    )
+    .unwrap();
+    let control_pdf = convert(&control, &PageSetup::default()).unwrap();
+    let only_parent = doc.join("only-parent.html");
+    std::fs::write(
+        &only_parent,
+        "<!doctype html><html><head><meta charset=utf-8></head><body>\
+         <img src=\"link.png\"><img src=\"up/secret.png\"><img src=\"abs.png\">\
+         <img src=\"hop1.png\"></body></html>",
+    )
+    .unwrap();
+    let only_parent_pdf = convert(&only_parent, &PageSetup::default()).unwrap();
+
+    assert!(
+        images(&control_pdf) >= 2,
+        "same-folder pictures load ({})",
+        images(&control_pdf)
+    );
+    assert_eq!(
+        images(&pdf),
+        images(&control_pdf),
+        "links inside the folder load, links out of it do not"
+    );
+    // The control: the same number of pictures that do not exist (a web
+    // view may draw its broken-image icon for each).
+    let missing = doc.join("missing.html");
+    std::fs::write(
+        &missing,
+        "<!doctype html><html><head><meta charset=utf-8></head><body>\
+         <img src=\"m1.png\"><img src=\"m2.png\"><img src=\"m3.png\">\
+         <img src=\"m4.png\"></body></html>",
+    )
+    .unwrap();
+    let missing_pdf = convert(&missing, &PageSetup::default()).unwrap();
+    assert_eq!(
+        images(&only_parent_pdf),
+        images(&missing_pdf),
+        "no picture behind an escaping link loads"
     );
 }

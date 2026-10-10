@@ -184,6 +184,10 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
   "NSGeometry",
   "NSObjCRuntime",
   "NSRunLoop",
+  # Round 7: the render worker answers its private scheme itself
+  # (render::macos DocSchemeHandler).
+  "NSURLRequest",
+  "NSURLResponse",
 ] }
 # FR-055: completion handlers of WebKit's async calls (the content rule list
 # compiler) in the render worker. The same line objc2 0.6 uses. MIT.
@@ -204,6 +208,9 @@ objc2-web-kit = { version = "0.3", default-features = false, features = [
   "WKUserContentController",
   "WKWebpagePreferences",
   "WKWebsiteDataStore",
+  # Round 7: the private scheme the worker serves the page and folder on.
+  "WKURLSchemeHandler",
+  "WKURLSchemeTask",
   "block2",
   "objc2-core-foundation",
 ] }

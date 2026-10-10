@@ -76,6 +76,7 @@ Every screen was audited against its spec and completed end to end; the items be
 
 ### Fixed — round 7
 
+- **Security:** on macOS a symbolic link inside a printed page's folder (`doc/link.png -> ../secret.png`, which an extracted zip can carry) let the page load any file the user can read. WebKit now reads no file itself: the render worker serves the page and its folder through its own URL scheme handler, opens each file without following a link out of the folder and checks the open file's path, and every `file:` URL is blocked.
 - **Security:** the HTML/Markdown/text render worker now runs under a 2 GiB memory cap for itself and the web view processes it starts (a Job Object on Windows, a watchdog on macOS), like the SVG worker. A page that needs more ends with the new terminal reason `page_too_large`.
 - **Security:** an SVG whose clip paths or masks use the default `userSpaceOnUse` units and are nested inside each other (3.6 KB) no longer turns into a 78 MB PDF: every reference is charged, so it fails at once as `svg_too_large`.
 

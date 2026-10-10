@@ -4,19 +4,27 @@
 //! icon: the activation policy is `Prohibited`):
 //!
 //! 1. A content rule list ([`super::webkit_rule_list`]) is compiled into a
-//!    store inside the job's work folder; it blocks every load that is not
-//!    under the document's folder (its exact `file:` URL as WebKit spells it),
-//!    `data:`, `blob:` or `about:blank`: the network, a `file:` URL with a host
-//!    (a share) and any other local file, the folder's parent included.
+//!    store inside the job's work folder; it blocks every load that is not on
+//!    the private origin `pluryprint-doc://`[`super::DOC_HOST`], `data:`,
+//!    `blob:` or `about:blank`: the network, and every `file:` URL, local or
+//!    with a host (a share).
 //! 2. A `WKWebView` with content JavaScript off, a non-persistent website data
 //!    store (no cookies, caches or storage written anywhere) and that rule
-//!    list loads the staged page **as data** with the document's folder as
-//!    its base URL. WebKit grants the page read access to that folder only
-//!    (`loadFileURL:allowingReadAccessToURL:` on the folder itself, never its
-//!    parent), and a navigation delegate ([`NavigationGuard`]) cancels every
-//!    navigation the worker did not start itself (a refresh, a frame, a link
-//!    target), writing each one it refused to stderr (the job's
-//!    `render.log`).
+//!    list loads the staged page from that origin. **WebKit never reads a
+//!    file itself** (round 7): the worker registers its own
+//!    `WKURLSchemeHandler` ([`DocSchemeHandler`]) for
+//!    [`super::MAC_DOC_SCHEME`] and answers every request on it, as the
+//!    Windows worker does with its request filter: the staged page, and files
+//!    inside the document's folder opened by [`super::open_in_folder`], which
+//!    follows no symbolic link out of the folder and checks the open file's
+//!    own path before the bytes are read from it. The round-6 design granted
+//!    WebKit read access to the folder and confined it with the rule list's
+//!    URL prefix; a symbolic link inside the folder (one an extracted zip can
+//!    carry) passed the prefix and WebKit followed it to any file on disk.
+//!    A navigation delegate ([`NavigationGuard`]) cancels every navigation
+//!    the worker did not start itself (a refresh, a frame, a link target),
+//!    writing each one it refused to stderr (the job's `render.log`), and so
+//!    do refused requests.
 //! 3. When loading ends, an `NSPrintOperation` from
 //!    `printOperationWithPrintInfo:` writes the paginated PDF straight to the
 //!    output file (`NSPrintSaveJob`), with no panel. It runs modally for the
@@ -28,30 +36,32 @@
 
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool, ProtocolObject};
-use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
+use objc2::{
+    define_class, msg_send, sel, AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly,
+};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSPrintInfo,
     NSPrintJobSavingURL, NSPrintOperation, NSPrintSaveJob, NSPrintingPaginationMode, NSWindow,
     NSWindowStyleMask,
 };
 use objc2_foundation::{
-    ns_string, NSData, NSDate, NSDefaultRunLoopMode, NSError, NSObject, NSObjectProtocol, NSPoint,
-    NSRect, NSRunLoop, NSSize, NSString, NSURL,
+    ns_string, NSData, NSDate, NSDefaultRunLoopMode, NSDictionary, NSError, NSHTTPURLResponse,
+    NSObject, NSObjectProtocol, NSPoint, NSRect, NSRunLoop, NSSize, NSString, NSURLRequest, NSURL,
 };
 use objc2_web_kit::{
     WKContentRuleList, WKContentRuleListStore, WKNavigationAction, WKNavigationActionPolicy,
-    WKNavigationDelegate, WKWebView, WKWebViewConfiguration, WKWebpagePreferences,
-    WKWebsiteDataStore,
+    WKNavigationDelegate, WKURLSchemeHandler, WKURLSchemeTask, WKWebView, WKWebViewConfiguration,
+    WKWebpagePreferences, WKWebsiteDataStore,
 };
 
-use super::RenderRequest;
+use super::{RenderRequest, Resolved};
 
 /// US Letter, in points, for a job whose paper is `auto`.
 const LETTER_PT: (f64, f64) = (612.0, 792.0);
@@ -81,6 +91,176 @@ fn timed_out(stage: &str) -> String {
 /// producing pages; this stops it before it fills the disk.
 const MAX_OUTPUT_BYTES: u64 = 512 * 1024 * 1024;
 
+/// Largest file the worker serves to the page, as on Windows. A bigger one
+/// is answered 404.
+const MAX_SERVED_BYTES: u64 = 256 * 1024 * 1024;
+
+/// What the scheme handler answers one request with.
+#[derive(Debug, PartialEq, Eq)]
+struct Answer {
+    status: isize,
+    /// `(name, value)` response headers.
+    headers: Vec<(&'static str, String)>,
+    body: Vec<u8>,
+}
+
+impl Answer {
+    fn empty(status: isize) -> Self {
+        Self {
+            status,
+            headers: vec![("Content-Type", "text/plain".into())],
+            body: Vec::new(),
+        }
+    }
+}
+
+/// The answer to a request for `uri` on the private origin (module docs):
+/// the staged `page` (with its policy as a header too), a file inside
+/// `base_dir` opened by [`super::open_in_folder`] and read from that same
+/// descriptor, a 404, or a logged 403 for anything that is not this origin
+/// or would leave the folder.
+fn answer(uri: &str, page: &Path, base_dir: &Path) -> Answer {
+    use std::io::Read;
+    let read_capped = |file: std::fs::File| -> Option<Vec<u8>> {
+        let mut bytes = Vec::new();
+        file.take(MAX_SERVED_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        (bytes.len() as u64 <= MAX_SERVED_BYTES).then_some(bytes)
+    };
+    match super::resolve(super::MAC_DOC_SCHEME, uri, page) {
+        Resolved::Page => match std::fs::File::open(page).ok().and_then(read_capped) {
+            Some(body) => Answer {
+                status: 200,
+                headers: vec![
+                    (
+                        "Content-Type",
+                        format!("text/html; charset={}", super::sniff_charset(&body)),
+                    ),
+                    (
+                        "Content-Security-Policy",
+                        crate::engine::convert::html::page_csp(),
+                    ),
+                ],
+                body,
+            },
+            None => Answer::empty(404),
+        },
+        Resolved::InFolder(segments) => match super::open_in_folder(base_dir, &segments) {
+            Ok(file) => match read_capped(file) {
+                Some(body) => {
+                    let name = segments.last().map(String::as_str).unwrap_or_default();
+                    Answer {
+                        status: 200,
+                        headers: vec![(
+                            "Content-Type",
+                            super::content_type(Path::new(name)).to_string(),
+                        )],
+                        body,
+                    }
+                }
+                None => Answer::empty(404),
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                super::log_refusal("file", uri);
+                Answer::empty(403)
+            }
+            Err(_) => Answer::empty(404),
+        },
+        Resolved::NotFound => Answer::empty(404),
+        Resolved::Refused => {
+            super::log_refusal("request", uri);
+            Answer::empty(403)
+        }
+    }
+}
+
+/// State of the [`DocSchemeHandler`].
+struct SchemeIvars {
+    page: PathBuf,
+    base_dir: PathBuf,
+}
+
+define_class!(
+    // SAFETY: NSObject has no subclassing requirements; the class adds no
+    // Drop and implements WKURLSchemeHandler's two methods with their
+    // declared signatures.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "PluryprintRenderSchemeHandler"]
+    #[ivars = SchemeIvars]
+    struct DocSchemeHandler;
+
+    unsafe impl NSObjectProtocol for DocSchemeHandler {}
+
+    unsafe impl WKURLSchemeHandler for DocSchemeHandler {
+        // SAFETY: matches WebKit's
+        // - (void)webView:(WKWebView *)webView
+        //   startURLSchemeTask:(id<WKURLSchemeTask>)urlSchemeTask
+        #[unsafe(method(webView:startURLSchemeTask:))]
+        fn start_task(&self, _web_view: &WKWebView, task: &ProtocolObject<dyn WKURLSchemeTask>) {
+            // SAFETY: plain property reads of a live task.
+            let Some(url) = (unsafe { task.request() }).URL() else {
+                return;
+            };
+            let uri = url
+                .absoluteString()
+                .map(|u| u.to_string())
+                .unwrap_or_default();
+            let ivars = self.ivars();
+            let answer = answer(&uri, &ivars.page, &ivars.base_dir);
+            let keys: Vec<Retained<NSString>> = answer
+                .headers
+                .iter()
+                .map(|(k, _)| NSString::from_str(k))
+                .collect();
+            let values: Vec<Retained<NSString>> = answer
+                .headers
+                .iter()
+                .map(|(_, v)| NSString::from_str(v))
+                .collect();
+            let key_refs: Vec<&NSString> = keys.iter().map(|k| &**k).collect();
+            let value_refs: Vec<&NSString> = values.iter().map(|v| &**v).collect();
+            let headers = NSDictionary::from_slices(&key_refs, &value_refs);
+            let response = NSHTTPURLResponse::initWithURL_statusCode_HTTPVersion_headerFields(
+                NSHTTPURLResponse::alloc(),
+                &url,
+                answer.status,
+                Some(ns_string!("HTTP/1.1")),
+                Some(&headers),
+            );
+            let Some(response) = response else {
+                return;
+            };
+            // SAFETY: the task is live and has not been answered or
+            // stopped: it is answered once, here, synchronously.
+            unsafe {
+                task.didReceiveResponse(&response);
+                if !answer.body.is_empty() {
+                    task.didReceiveData(&NSData::with_bytes(&answer.body));
+                }
+                task.didFinish();
+            }
+        }
+
+        // SAFETY: matches WebKit's
+        // - (void)webView:(WKWebView *)webView
+        //   stopURLSchemeTask:(id<WKURLSchemeTask>)urlSchemeTask
+        #[unsafe(method(webView:stopURLSchemeTask:))]
+        fn stop_task(&self, _web_view: &WKWebView, _task: &ProtocolObject<dyn WKURLSchemeTask>) {
+            // Every task is answered in full when it starts; nothing runs on.
+        }
+    }
+);
+
+impl DocSchemeHandler {
+    fn new(mtm: MainThreadMarker, page: PathBuf, base_dir: PathBuf) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(SchemeIvars { page, base_dir });
+        // SAFETY: NSObject's designated initializer.
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
 /// Spin the main run loop until `done` says so or `limit` passes.
 fn pump_until(limit: Duration, mut done: impl FnMut() -> bool) -> bool {
     let started = Instant::now();
@@ -100,12 +280,12 @@ fn file_url(path: &Path, is_dir: bool) -> Retained<NSURL> {
     NSURL::fileURLWithPath_isDirectory(&NSString::from_str(&path.to_string_lossy()), is_dir)
 }
 
-/// Compile the rule list that keeps the page inside `folder_url`, its
-/// document's folder (module docs).
+/// Compile the rule list that keeps the page on `origin_url`, its private
+/// origin (module docs).
 fn compile_rules(
     mtm: MainThreadMarker,
     store_dir: &Path,
-    folder_url: &str,
+    origin_url: &str,
 ) -> Result<Retained<WKContentRuleList>, String> {
     std::fs::create_dir_all(store_dir)
         .map_err(|e| format!("cannot create the web view folder: {e}"))?;
@@ -131,7 +311,7 @@ fn compile_rules(
     unsafe {
         store.compileContentRuleListForIdentifier_encodedContentRuleList_completionHandler(
             Some(ns_string!("pluryprint-offline")),
-            Some(&NSString::from_str(&super::webkit_rule_list(folder_url))),
+            Some(&NSString::from_str(&super::webkit_rule_list(origin_url))),
             Some(&handler),
         );
     }
@@ -153,20 +333,23 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
     // No Dock icon, no menu bar, never frontmost.
     app.setActivationPolicy(NSApplicationActivationPolicy::Prohibited);
 
-    let html = std::fs::read(&request.page)
-        .map_err(|e| format!("cannot read {}: {e}", request.page.display()))?;
     let (width, height) = request
         .paper_in
         .map(|(w, h)| (w * 72.0, h * 72.0))
         .unwrap_or(LETTER_PT);
 
-    let base = file_url(&request.base_dir, true);
-    let folder_url = base
-        .absoluteString()
-        .map(|u| u.to_string())
-        .ok_or("the document's folder has no file URL")?;
-    let rules = compile_rules(mtm, &request.data_dir.join("rules"), &folder_url)?;
-    let guard = NavigationGuard::new(mtm, folder_url.clone());
+    let origin_url = super::base_href(&request.base_dir);
+    let page_url = super::page_url_on(super::MAC_DOC_SCHEME, &request.page);
+    let rules = compile_rules(mtm, &request.data_dir.join("rules"), &origin_url)?;
+    let page_nsurl =
+        NSURL::URLWithString(&NSString::from_str(&page_url)).ok_or("the staged page has no URL")?;
+    let guard = NavigationGuard::new(
+        mtm,
+        page_nsurl
+            .absoluteString()
+            .map_or(page_url.clone(), |u| u.to_string()),
+    );
+    let handler = DocSchemeHandler::new(mtm, request.page.clone(), request.base_dir.clone());
 
     let view_frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height));
     // SAFETY: plain WebKit object construction and configuration on the main
@@ -178,6 +361,10 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
         config.setDefaultWebpagePreferences(Some(&prefs));
         config.setWebsiteDataStore(&WKWebsiteDataStore::nonPersistentDataStore(mtm));
         config.userContentController().addContentRuleList(&rules);
+        config.setURLSchemeHandler_forURLScheme(
+            Some(ProtocolObject::from_ref(&*handler)),
+            &NSString::from_str(super::MAC_DOC_SCHEME),
+        );
         WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), view_frame, &config)
     };
     // SAFETY: the guard outlives the web view (both live to the end of this
@@ -203,28 +390,12 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
     unsafe { window.setReleasedWhenClosed(false) };
     window.setContentView(Some(&webview));
 
-    let charset = super::sniff_charset(&html);
-    let data = NSData::with_bytes(&html);
-    // WebKit's content process may read a local file only under a folder the
-    // app granted with `loadFileURL:allowingReadAccessToURL:`; loading data
-    // with a file base URL merely *assumes* such a grant exists. Grant the
-    // document's folder (and nothing else) by "loading" it first.
+    // The page comes from the worker's own scheme handler; WebKit is never
+    // given a file URL or read access to any folder.
     guard.expect_load();
-    // SAFETY: both URLs are valid file URLs.
+    // SAFETY: a valid request for the private origin.
     unsafe {
-        webview.loadFileURL_allowingReadAccessToURL(&base, &base);
-    }
-    // SAFETY: isLoading is a plain property read on the main thread.
-    pump_until(Duration::from_secs(10), || unsafe { !webview.isLoading() });
-    guard.expect_load();
-    // SAFETY: all arguments are valid objects.
-    unsafe {
-        webview.loadData_MIMEType_characterEncodingName_baseURL(
-            &data,
-            ns_string!("text/html"),
-            &NSString::from_str(&charset),
-            &base,
-        );
+        webview.loadRequest(&NSURLRequest::requestWithURL(&page_nsurl));
     }
     // SAFETY: isLoading is a plain property read on the main thread.
     let loaded = pump_until(remaining(deadline), || unsafe { !webview.isLoading() });
@@ -245,6 +416,7 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
     window.close();
     // SAFETY: plain property write on the main thread.
     unsafe { webview.setNavigationDelegate(None) };
+    drop(handler);
     printed?;
     match std::fs::metadata(&request.output) {
         Ok(meta) if meta.len() > 0 => Ok(()),
@@ -254,9 +426,9 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
 
 /// State of the [`NavigationGuard`].
 struct GuardIvars {
-    /// The document folder's URL: the only URL the worker itself loads
-    /// (`loadFileURL` on the folder, then the page as data with that base).
-    folder_url: String,
+    /// The staged page's URL on the private origin: the only URL the worker
+    /// itself loads.
+    page_url: String,
     /// Navigations the worker started and that have not been decided yet.
     expected: Cell<u32>,
 }
@@ -303,27 +475,27 @@ define_class!(
 );
 
 impl NavigationGuard {
-    fn new(mtm: MainThreadMarker, folder_url: String) -> Retained<Self> {
+    fn new(mtm: MainThreadMarker, page_url: String) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(GuardIvars {
-            folder_url,
+            page_url,
             expected: Cell::new(0),
         });
         // SAFETY: NSObject's designated initializer.
         unsafe { msg_send![super(this), init] }
     }
 
-    /// The worker is about to load the folder or the page itself.
+    /// The worker is about to load the page itself.
     fn expect_load(&self) {
         let ivars = self.ivars();
         ivars.expected.set(ivars.expected.get() + 1);
     }
 
-    /// Whether a navigation to `url` is one the worker started: the folder's
+    /// Whether a navigation to `url` is one the worker started: the page's
     /// own URL, while a load of ours is pending. Anything else, and the
-    /// folder URL once our loads are done (a refresh to it), is refused.
+    /// page URL once our load is done (a refresh to it), is refused.
     fn allows(&self, url: &str) -> bool {
         let ivars = self.ivars();
-        let ours = ivars.expected.get() > 0 && url == ivars.folder_url;
+        let ours = ivars.expected.get() > 0 && url == ivars.page_url;
         if ours {
             ivars.expected.set(ivars.expected.get() - 1);
         }
@@ -433,5 +605,69 @@ fn print_to_file(
         (true, Some(true)) => Ok(()),
         (true, _) => Err("the print operation failed".into()),
         (false, _) => Err(timed_out("printing")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Round 7: the scheme handler serves the staged page with its policy,
+    /// files inside the folder with their type, and refuses a link out of
+    /// the folder (403), another origin (403) and a missing file (404).
+    #[test]
+    fn nfr_security_scheme_handler_answers_only_the_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let doc = root.join("doc");
+        let stage = root.join("stage");
+        std::fs::create_dir_all(&doc).unwrap();
+        std::fs::create_dir_all(&stage).unwrap();
+        let page = stage.join("page.html");
+        std::fs::write(&page, "\u{feff}<p>hi").unwrap();
+        std::fs::write(doc.join("a.css"), "p{}").unwrap();
+        std::fs::write(root.join("secret.css"), "x").unwrap();
+        std::os::unix::fs::symlink("../secret.css", doc.join("link.css")).unwrap();
+        let origin = format!(
+            "{}://{}",
+            super::super::MAC_DOC_SCHEME,
+            super::super::DOC_HOST
+        );
+
+        let served = answer(
+            &super::super::page_url_on(super::super::MAC_DOC_SCHEME, &page),
+            &page,
+            &doc,
+        );
+        assert_eq!(served.status, 200);
+        assert!(served
+            .headers
+            .iter()
+            .any(|(k, v)| *k == "Content-Security-Policy" && v.contains("script-src 'none'")));
+        assert!(served
+            .headers
+            .iter()
+            .any(|(k, v)| *k == "Content-Type" && v == "text/html; charset=utf-8"));
+
+        let css = answer(&format!("{origin}/a.css"), &page, &doc);
+        assert_eq!((css.status, css.body.as_slice()), (200, b"p{}".as_slice()));
+        assert_eq!(css.headers, vec![("Content-Type", "text/css".to_string())]);
+
+        assert_eq!(
+            answer(&format!("{origin}/link.css"), &page, &doc).status,
+            403
+        );
+        assert_eq!(
+            answer(&format!("{origin}/..%2fsecret.css"), &page, &doc).status,
+            403
+        );
+        assert_eq!(answer("file:///etc/hosts", &page, &doc).status, 403);
+        assert_eq!(
+            answer(&format!("{origin}/nope.css"), &page, &doc).status,
+            404
+        );
+        assert!(answer(&format!("{origin}/link.css"), &page, &doc)
+            .body
+            .is_empty());
     }
 }

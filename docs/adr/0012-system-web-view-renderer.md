@@ -70,6 +70,14 @@ We will print HTML, Markdown and plain text through the **operating system's own
 
 **Consequences.** No headless browser is ever started; Edge/Chrome/Chromium is not used at all. A page with a broken charset declaration prints. `page_not_checkable` now means only that the policy could not be placed first (a doctype that never closes).
 
+## Round 7 amendment: WebKit reads no file itself
+
+**Context.** The round-6 macOS boundary was a `WKContentRuleList` whose only folder rule was a `file:` URL prefix, plus read access to the folder. A review found that a symbolic link inside the document's folder (`doc/link.png -> ../secret.png`; Archive Utility keeps links from zip files) has a URL under the prefix, and WebKit followed it on disk to any file the user can read, `/net/<host>/…` included (autofs then mounts an NFS export, reaching the network).
+
+**Decision.** The macOS worker serves the page the way the Windows worker does. It registers a `WKURLSchemeHandler` for `pluryprint-doc` and loads the staged page from `pluryprint-doc://doc.pluryprint.example/`. Every request on that origin is mapped by the same pure `render::resolve` as on Windows. A file is opened by `render::open_in_folder`: component by component with `openat(O_NOFOLLOW)`, following a symbolic link by hand only while its target stays inside the folder (so nothing outside is ever looked up), and then its `F_GETPATH` must lie inside the folder; the bytes come from that descriptor. WebKit gets no `file:` URL and no read access, and the rule list now blocks every `file:` URL. The page's policy names the private origins and no longer `file:`.
+
+**Consequences.** Links inside the folder that stay inside still load. A hard link to an outside file cannot be told apart from the file itself (as on Windows). WebKit still does not draw an external SVG `<use>` document on macOS.
+
 ## Related
 
 - ADR-0003 — the hybrid strategy this keeps, and whose HTML/Markdown converter choice this replaces.

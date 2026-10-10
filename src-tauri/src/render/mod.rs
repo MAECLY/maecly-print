@@ -24,9 +24,13 @@
 //!   ([`serve`]); `data:`, `blob:` and `about:blank` load as they are;
 //!   anything else (another host, `http`, `ws`, `file:`, a UNC path) gets a
 //!   synthetic 403 and is written to the worker's stderr (the job's
-//!   `render.log`). On macOS a `WKContentRuleList` ([`webkit_rule_list`])
-//!   blocks every load that is not under the document folder's own `file:`
-//!   URL, `data:`, `blob:` or `about:blank`;
+//!   `render.log`). On macOS (round 7) the worker answers its own private
+//!   scheme, [`MAC_DOC_SCHEME`] on [`DOC_HOST`], with a `WKURLSchemeHandler`
+//!   that serves the staged page and the document's folder the same way
+//!   ([`resolve`], [`open_in_folder`]), and a `WKContentRuleList`
+//!   ([`webkit_rule_list`]) blocks every other load: every `file:` URL and
+//!   every network scheme; only that origin, `data:`, `blob:` and
+//!   `about:blank` pass;
 //! - **no navigation**: every navigation other than the worker's own load of
 //!   the page (a `<meta http-equiv=refresh>`, a frame, a link target, a new
 //!   window) is cancelled, and refused ones are logged;
@@ -38,16 +42,20 @@
 //!   from which Chromium refuses every `file:` sub-resource, and a
 //!   protocol-relative reference resolves to `https:`, which the filter
 //!   refuses. Every path it serves is checked by the shared share predicate
-//!   ([`crate::engine::convert::local_ref`]). On macOS a `file:` URL with a
-//!   host is outside the folder prefix, so the rule list refuses it.
+//!   ([`crate::engine::convert::local_ref`]). On macOS the page is not
+//!   loaded from `file:` either, and the rule list refuses every `file:` URL.
 //! - **one origin**: the staged page and the document's folder share that
 //!   origin, so same-folder web fonts (CORS-mode requests) and external SVG
 //!   `<use>` (same-origin only) load as they do from the user's folder.
 //! - **only the page's folder readable**: the worker serves the staged page
-//!   and files inside the document's folder, nothing else; WebKit gets read
-//!   access to the base folder only, and its rule list refuses the folder's
-//!   parent too (a round-6 test showed read access alone let a `../` picture
-//!   through).
+//!   and files inside the document's folder, nothing else, and checks each
+//!   file on the handle it reads from: on Windows its final path
+//!   (`GetFinalPathNameByHandleW`) must lie inside the folder; on macOS
+//!   [`open_in_folder`] opens it component by component without following a
+//!   link out of the folder, then checks its `F_GETPATH`. Neither web view
+//!   reads a document file by itself. (Round 6 confined WebKit with a
+//!   `file:` URL prefix only; round 7 showed a symbolic link inside the
+//!   folder passed that prefix and WebKit followed it anywhere.)
 //! - **bounded**: the worker gives up by itself after the job's conversion
 //!   timeout ([`RenderRequest::timeout_secs`], none when the setting is 0),
 //!   printing [`TIMEOUT_MARKER`] so the engine reports a timeout (terminal),
@@ -73,6 +81,23 @@ pub const DOC_HOST: &str = "doc.pluryprint.example";
 /// The folder, on [`DOC_HOST`], the staged page is served under. A name no
 /// document folder is expected to have; the page wins over a file there.
 pub const STAGE_PATH: &str = "/.pluryprint-stage/";
+
+/// The private URL scheme the macOS worker serves the staged page and the
+/// document's folder on (`pluryprint-doc://`[`DOC_HOST`]`/…`), through its
+/// own `WKURLSchemeHandler` (round 7; module docs). WebKit hands every
+/// request on it to the worker and never reads a `file:` URL for the page.
+pub const MAC_DOC_SCHEME: &str = "pluryprint-doc";
+
+/// The scheme the staged page and its document's folder are served on by
+/// this platform's worker: `https` on Windows (WebView2's request filter),
+/// [`MAC_DOC_SCHEME`] elsewhere (WebKit's scheme handler).
+pub const fn doc_scheme() -> &'static str {
+    if cfg!(windows) {
+        "https"
+    } else {
+        MAC_DOC_SCHEME
+    }
+}
 
 /// The line a render worker prints on stderr when it gave up because the
 /// conversion timeout passed, so the engine reports a timeout.
@@ -212,19 +237,11 @@ fn parse_paper(value: &OsStr) -> Result<(f64, f64), String> {
 
 /// The `<base href>` a staged page uses so its relative references resolve
 /// against `base_dir` in the web view that prints it: the private
-/// [`DOC_HOST`] origin on Windows (module docs), the folder's `file:` URL
-/// elsewhere. Always ends with `/`.
+/// [`DOC_HOST`] origin on [`doc_scheme`] (module docs), which the worker maps
+/// to `base_dir` itself. Always ends with `/`.
 pub fn base_href(base_dir: &Path) -> String {
-    if cfg!(windows) {
-        let _ = base_dir;
-        format!("https://{DOC_HOST}/")
-    } else {
-        let mut url = crate::engine::convert::file_url(base_dir);
-        if !url.ends_with('/') {
-            url.push('/');
-        }
-        url
-    }
+    let _ = base_dir;
+    format!("{}://{DOC_HOST}/", doc_scheme())
 }
 
 /// Whether `uri` is inline content the web view resolves without any fetch:
@@ -254,6 +271,11 @@ pub fn is_allowed_request(uri: &str) -> bool {
 /// The URL the staged `page` is loaded from on Windows: under
 /// [`STAGE_PATH`] on [`DOC_HOST`], the document folder's own origin. Pure.
 pub fn page_url(page: &Path) -> String {
+    page_url_on("https", page)
+}
+
+/// [`page_url`] on `scheme` ([`doc_scheme`]). Pure.
+pub fn page_url_on(scheme: &str, page: &Path) -> String {
     let name = page
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -263,7 +285,7 @@ pub fn page_url(page: &Path) -> String {
         .remove(b'-')
         .remove(b'_');
     let encoded = percent_encoding::utf8_percent_encode(&name, KEEP);
-    format!("https://{DOC_HOST}{STAGE_PATH}{encoded}")
+    format!("{scheme}://{DOC_HOST}{STAGE_PATH}{encoded}")
 }
 
 /// What the Windows request filter does with a request for `uri` (module
@@ -314,35 +336,54 @@ pub enum Served {
     Refused,
 }
 
-/// Map a request `uri` to what is served (module docs): the staged `page` at
-/// [`page_url`], otherwise a file inside `base_dir`, never a path that
-/// leaves it (`..`, an absolute or drive path, a stream name, a share by
-/// [`crate::engine::convert::local_ref`]). The query and fragment are
-/// ignored. Touches the disk only for a path that passed every check.
-pub fn serve(uri: &str, page: &Path, base_dir: &Path) -> Served {
-    use crate::engine::convert::local_ref;
+/// Where a request on the document's private origin points, before the disk
+/// is touched ([`resolve`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Resolved {
+    /// The staged page.
+    Page,
+    /// A path inside the document's folder, as its decoded segments (none is
+    /// empty, `.`, `..`, or holds a separator, `:` or a control character).
+    InFolder(Vec<String>),
+    /// Nothing can be there (an empty segment, a trailing `/`): 404.
+    NotFound,
+    /// Not the private origin on `scheme`, or a path that tries to leave the
+    /// folder: 403.
+    Refused,
+}
+
+/// Map a request `uri` on `scheme`://[`DOC_HOST`] to what it points at
+/// (module docs): the staged `page` at [`page_url_on`], otherwise a path
+/// inside the document's folder, never one that leaves it (`..`, an absolute
+/// or drive path, a stream name). The query and fragment are ignored. Pure;
+/// shared by the Windows filter ([`serve`]) and the macOS scheme handler.
+pub fn resolve(scheme: &str, uri: &str, page: &Path) -> Resolved {
     let Ok(url) = url::Url::parse(uri.trim()) else {
-        return Served::Refused;
+        return Resolved::Refused;
     };
-    let same_origin = url.scheme() == "https"
-        && url.host_str() == Some(DOC_HOST)
+    let same_origin = url.scheme().eq_ignore_ascii_case(scheme)
+        && url
+            .host_str()
+            .is_some_and(|h| h.eq_ignore_ascii_case(DOC_HOST))
         && url.port().is_none()
         && url.username().is_empty()
         && url.password().is_none();
     if !same_origin {
-        return Served::Refused;
+        return Resolved::Refused;
     }
-    if url.path() == url::Url::parse(&page_url(page)).map_or(String::new(), |u| u.path().into()) {
-        return Served::Page(page.to_path_buf());
+    let page_path =
+        url::Url::parse(&page_url_on(scheme, page)).map_or(String::new(), |u| u.path().into());
+    if url.path() == page_path {
+        return Resolved::Page;
     }
     let Some(segments) = url.path_segments() else {
-        return Served::Refused;
+        return Resolved::Refused;
     };
-    let mut candidate = base_dir.to_path_buf();
+    let mut out = Vec::new();
     for raw in segments {
         let segment = percent_encoding::percent_decode_str(raw).decode_utf8_lossy();
         if segment.is_empty() {
-            return Served::NotFound;
+            return Resolved::NotFound;
         }
         let bad = segment == "."
             || segment == ".."
@@ -350,9 +391,29 @@ pub fn serve(uri: &str, page: &Path, base_dir: &Path) -> Served {
                 .chars()
                 .any(|c| matches!(c, '/' | '\\' | ':' | '\0') || c.is_control());
         if bad {
-            return Served::Refused;
+            return Resolved::Refused;
         }
-        candidate.push(segment.as_ref());
+        out.push(segment.into_owned());
+    }
+    Resolved::InFolder(out)
+}
+
+/// Map a request `uri` to what is served (module docs): the staged `page` at
+/// [`page_url`], otherwise a file inside `base_dir`, never a path that
+/// leaves it (`..`, an absolute or drive path, a stream name, a share by
+/// [`crate::engine::convert::local_ref`]). The query and fragment are
+/// ignored. Touches the disk only for a path that passed every check.
+pub fn serve(uri: &str, page: &Path, base_dir: &Path) -> Served {
+    use crate::engine::convert::local_ref;
+    let segments = match resolve("https", uri, page) {
+        Resolved::Page => return Served::Page(page.to_path_buf()),
+        Resolved::NotFound => return Served::NotFound,
+        Resolved::Refused => return Served::Refused,
+        Resolved::InFolder(segments) => segments,
+    };
+    let mut candidate = base_dir.to_path_buf();
+    for segment in &segments {
+        candidate.push(segment);
     }
     if !local_ref::may_open(&candidate, base_dir) {
         return Served::Refused;
@@ -368,6 +429,163 @@ pub fn serve(uri: &str, page: &Path, base_dir: &Path) -> Served {
     } else {
         Served::NotFound
     }
+}
+
+/// Most symbolic links [`open_in_folder`] follows for one path (as the
+/// kernel's own `MAXSYMLINKS`).
+#[cfg(unix)]
+const MAX_LINK_HOPS: usize = 32;
+
+/// Open the file at `segments` (a [`Resolved::InFolder`] path) inside the
+/// folder `root` without ever touching anything outside it (round 7,
+/// macOS). Each component is opened relative to the directory before it
+/// (`openat` with `O_NOFOLLOW`), so no symbolic link is followed by the
+/// kernel. A link found on the way is read (`readlinkat`) and followed by
+/// hand only while its target stays inside `root`: a relative target that
+/// climbs above `root`, or an absolute one that does not start with
+/// `root`'s canonical path, is refused (`PermissionDenied`) before anything
+/// it names is looked up, so a link to `/net/host/…` never mounts that
+/// share. The file must be a regular file; on macOS its path, read back from
+/// the open descriptor (`F_GETPATH`), must lie inside `root` too, and the
+/// caller reads from that same descriptor. A hard link cannot be told from
+/// the file itself, as on Windows.
+#[cfg(unix)]
+pub fn open_in_folder(root: &Path, segments: &[String]) -> std::io::Result<std::fs::File> {
+    use std::collections::VecDeque;
+    use std::ffi::{CString, OsString};
+    use std::io::{Error, ErrorKind};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let outside = |what: &str| Error::new(ErrorKind::PermissionDenied, what.to_string());
+    let open_at = |dir: libc::c_int, name: &CString, flags: libc::c_int| {
+        // SAFETY: `dir` is a live directory descriptor and `name` a valid C
+        // string; the returned descriptor is owned by the OwnedFd.
+        let fd = unsafe { libc::openat(dir, name.as_ptr(), flags | libc::O_CLOEXEC) };
+        if fd < 0 {
+            Err(Error::last_os_error())
+        } else {
+            // SAFETY: a fresh descriptor nobody else owns.
+            Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+        }
+    };
+    let components = |path: &Path| -> VecDeque<OsString> {
+        path.components()
+            .filter_map(|c| match c {
+                std::path::Component::Normal(n) => Some(n.to_os_string()),
+                std::path::Component::ParentDir => Some(OsString::from("..")),
+                _ => None,
+            })
+            .collect()
+    };
+
+    let root = root.canonicalize()?;
+    let root_c = CString::new(root.as_os_str().as_bytes())?;
+    // SAFETY: a valid C string; the descriptor is owned below.
+    let root_fd = unsafe {
+        libc::open(
+            root_c.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+        )
+    };
+    if root_fd < 0 {
+        return Err(Error::last_os_error());
+    }
+    // SAFETY: a fresh descriptor nobody else owns.
+    let root_fd = unsafe { OwnedFd::from_raw_fd(root_fd) };
+
+    // The directories below `root` the walk is in, innermost last.
+    let mut dirs: Vec<OwnedFd> = Vec::new();
+    let mut queue: VecDeque<OsString> = segments.iter().map(OsString::from).collect();
+    let mut hops = 0;
+    while let Some(name) = queue.pop_front() {
+        if name.is_empty() || name == "." {
+            continue;
+        }
+        if name == ".." {
+            if dirs.pop().is_none() {
+                return Err(outside("the path leaves the document's folder"));
+            }
+            continue;
+        }
+        let dir = dirs.last().map_or(root_fd.as_raw_fd(), AsRawFd::as_raw_fd);
+        let c_name = CString::new(name.as_bytes())?;
+        // SAFETY: plain struct the call fills.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: live descriptor, valid C string, out-pointer to a local.
+        if unsafe { libc::fstatat(dir, c_name.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW) } != 0 {
+            return Err(Error::last_os_error());
+        }
+        if st.st_mode & libc::S_IFMT == libc::S_IFLNK {
+            hops += 1;
+            if hops > MAX_LINK_HOPS {
+                return Err(Error::other("too many symbolic links"));
+            }
+            let mut buf = vec![0u8; 4096];
+            // SAFETY: live descriptor, valid C string, buffer of the length
+            // passed.
+            let n = unsafe {
+                libc::readlinkat(dir, c_name.as_ptr(), buf.as_mut_ptr().cast(), buf.len())
+            };
+            let n = usize::try_from(n).map_err(|_| Error::last_os_error())?;
+            buf.truncate(n);
+            let target = std::path::PathBuf::from(OsString::from_vec(buf));
+            let mut next = if target.is_absolute() {
+                let inside = target
+                    .strip_prefix(&root)
+                    .map_err(|_| outside("a link points outside the document's folder"))?;
+                dirs.clear();
+                components(inside)
+            } else {
+                components(&target)
+            };
+            next.extend(queue);
+            queue = next;
+            continue;
+        }
+        if queue.is_empty() {
+            if st.st_mode & libc::S_IFMT != libc::S_IFREG {
+                return Err(Error::new(ErrorKind::NotFound, "not a regular file"));
+            }
+            let fd = open_at(
+                dir,
+                &c_name,
+                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+            )?;
+            let file = std::fs::File::from(fd);
+            if !file.metadata()?.is_file() {
+                return Err(Error::new(ErrorKind::NotFound, "not a regular file"));
+            }
+            // macOS: the path the kernel holds for the open file must lie
+            // under the one it holds for the folder (both read the same way,
+            // so the case and firmlinks agree).
+            #[cfg(target_os = "macos")]
+            if !fd_path(file.as_raw_fd())?.starts_with(fd_path(root_fd.as_raw_fd())?) {
+                return Err(outside("the file lies outside the document's folder"));
+            }
+            return Ok(file);
+        }
+        dirs.push(open_at(
+            dir,
+            &c_name,
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+        )?);
+    }
+    Err(Error::new(ErrorKind::NotFound, "no file named"))
+}
+
+/// The path the kernel holds for the open descriptor `fd` (`F_GETPATH`).
+#[cfg(target_os = "macos")]
+fn fd_path(fd: libc::c_int) -> std::io::Result<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut path = vec![0u8; libc::PATH_MAX as usize + 1];
+    // SAFETY: F_GETPATH writes at most MAXPATHLEN (= PATH_MAX) bytes, NUL
+    // included, into the buffer, which is larger.
+    if unsafe { libc::fcntl(fd, libc::F_GETPATH, path.as_mut_ptr()) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let end = path.iter().position(|b| *b == 0).unwrap_or(path.len());
+    Ok(PathBuf::from(OsStr::from_bytes(&path[..end])))
 }
 
 /// The `Content-Type` a served file is answered with, from its extension.
@@ -406,15 +624,14 @@ pub fn content_type(path: &Path) -> &'static str {
     }
 }
 
-/// The content rule list (WebKit's JSON) for a page whose document folder is
-/// `folder_url` (its `file:` URL as WebKit spells it, ending in `/`): every
-/// load is blocked except one under that folder, a `data:` or `blob:` URI and
-/// `about:blank`. A file anywhere else (the folder's parent included), a
-/// `file:` URL with a host (a share), and every network scheme are refused
-/// before they are fetched. The folder rule is case-sensitive, so a sibling
-/// whose name differs only in case is not let through. Pure.
-pub fn webkit_rule_list(folder_url: &str) -> String {
-    let mut folder = folder_url.to_string();
+/// The content rule list (WebKit's JSON) for a page served from
+/// `origin_url` (the private origin, `pluryprint-doc://`[`DOC_HOST`]`/`,
+/// ending in `/`): every load is blocked except one on that origin, which
+/// only the worker's own scheme handler answers, a `data:` or `blob:` URI
+/// and `about:blank`. Every `file:` URL (local or with a host, a share) and
+/// every network scheme is refused before it is fetched. Pure.
+pub fn webkit_rule_list(origin_url: &str) -> String {
+    let mut folder = origin_url.to_string();
     if !folder.ends_with('/') {
         folder.push('/');
     }
@@ -618,6 +835,131 @@ mod tests {
         assert_eq!(content_type(Path::new("noext")), "application/octet-stream");
     }
 
+    /// Round 7: the macOS scheme maps its private origin like the Windows
+    /// one, and nothing else.
+    #[test]
+    fn fr_055_resolve_maps_the_private_scheme_to_the_page_and_the_folder() {
+        let page = Path::new("/w/stage/page.html");
+        let url = page_url_on(MAC_DOC_SCHEME, page);
+        assert_eq!(
+            url,
+            "pluryprint-doc://doc.pluryprint.example/.pluryprint-stage/page.html"
+        );
+        assert_eq!(resolve(MAC_DOC_SCHEME, &url, page), Resolved::Page);
+        assert_eq!(
+            resolve(
+                MAC_DOC_SCHEME,
+                "pluryprint-doc://DOC.pluryprint.example/fonts/a%20b.woff2?v=1#x",
+                page
+            ),
+            Resolved::InFolder(vec!["fonts".into(), "a b.woff2".into()])
+        );
+        assert_eq!(
+            resolve(
+                MAC_DOC_SCHEME,
+                "pluryprint-doc://doc.pluryprint.example/a/",
+                page
+            ),
+            Resolved::NotFound
+        );
+        for uri in [
+            "pluryprint-doc://doc.pluryprint.example/..%2fsecret.txt",
+            "pluryprint-doc://doc.pluryprint.example/%2e%2e%2fsecret.txt",
+            "pluryprint-doc://doc.pluryprint.example/a%5cb",
+            "pluryprint-doc://doc.pluryprint.example:1/x",
+            "pluryprint-doc://u@doc.pluryprint.example/x",
+            "pluryprint-doc://other.example/x",
+            "https://doc.pluryprint.example/x",
+            "file:///etc/passwd",
+            "file://host/share/x",
+        ] {
+            assert_eq!(
+                resolve(MAC_DOC_SCHEME, uri, page),
+                Resolved::Refused,
+                "{uri}"
+            );
+        }
+        // `..` that the URL parser folds away stays inside the origin.
+        assert_eq!(
+            resolve(
+                MAC_DOC_SCHEME,
+                "pluryprint-doc://doc.pluryprint.example/a/../../b.png",
+                page
+            ),
+            Resolved::InFolder(vec!["b.png".into()])
+        );
+        assert_eq!(
+            base_href(Path::new("/d")),
+            format!("{}://{DOC_HOST}/", doc_scheme())
+        );
+        let rules = webkit_rule_list(&format!("{MAC_DOC_SCHEME}://{DOC_HOST}/"));
+        assert!(
+            rules.contains(r#""^pluryprint-doc://doc\\.pluryprint\\.example/""#),
+            "{rules}"
+        );
+        assert!(!rules.contains("file:"), "{rules}");
+    }
+
+    /// Round 7 finding: a file is opened inside the document's folder
+    /// without following any link out of it, whatever form the link takes;
+    /// links that stay inside still work.
+    #[cfg(unix)]
+    #[test]
+    fn nfr_security_open_in_folder_never_leaves_the_folder() {
+        use std::io::{ErrorKind, Read};
+        use std::os::unix::fs::symlink;
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = tmp.path().canonicalize().unwrap();
+        let doc = parent.join("doc");
+        std::fs::create_dir_all(doc.join("sub")).unwrap();
+        std::fs::write(parent.join("secret.txt"), b"secret").unwrap();
+        std::fs::write(doc.join("a.txt"), b"a").unwrap();
+        std::fs::write(doc.join("sub").join("b.txt"), b"b").unwrap();
+        symlink("../secret.txt", doc.join("out.txt")).unwrap();
+        symlink(parent.join("secret.txt"), doc.join("abs-out.txt")).unwrap();
+        symlink("..", doc.join("up")).unwrap();
+        symlink(&parent, doc.join("abs-up")).unwrap();
+        symlink("/etc", doc.join("etc")).unwrap();
+        symlink("hop", doc.join("hop0")).unwrap();
+        symlink("sub/../../secret.txt", doc.join("hop")).unwrap();
+        symlink("loop", doc.join("loop")).unwrap();
+        symlink("sub/b.txt", doc.join("in.txt")).unwrap();
+        symlink(doc.join("sub"), doc.join("abs-sub")).unwrap();
+        symlink("../a.txt", doc.join("sub").join("up-a.txt")).unwrap();
+
+        let read = |segments: &[&str]| -> std::io::Result<String> {
+            let segments: Vec<String> = segments.iter().map(|s| s.to_string()).collect();
+            let mut text = String::new();
+            open_in_folder(&doc, &segments)?.read_to_string(&mut text)?;
+            Ok(text)
+        };
+        assert_eq!(read(&["a.txt"]).unwrap(), "a");
+        assert_eq!(read(&["sub", "b.txt"]).unwrap(), "b");
+        assert_eq!(read(&["in.txt"]).unwrap(), "b");
+        assert_eq!(read(&["abs-sub", "b.txt"]).unwrap(), "b");
+        assert_eq!(read(&["sub", "up-a.txt"]).unwrap(), "a");
+        for escaping in [
+            &["out.txt"][..],
+            &["abs-out.txt"],
+            &["up", "secret.txt"],
+            &["abs-up", "secret.txt"],
+            &["etc", "hosts"],
+            &["hop0"],
+            &["up", "doc", "a.txt"],
+        ] {
+            let err = read(escaping).unwrap_err();
+            assert_eq!(
+                err.kind(),
+                ErrorKind::PermissionDenied,
+                "{escaping:?}: {err}"
+            );
+        }
+        for missing in [&["nope.txt"][..], &["sub"], &[], &["loop"]] {
+            let err = read(missing).unwrap_err();
+            assert_ne!(err.kind(), ErrorKind::PermissionDenied, "{missing:?}");
+        }
+    }
+
     #[test]
     fn fr_055_render_request_refuses_incomplete_or_bad_args() {
         let mut args = req(None).to_args();
@@ -774,10 +1116,12 @@ mod tests {
         } else {
             "/docs/my notes"
         }));
+        // Never a `file:` URL (round 7): the worker maps the private origin
+        // to the folder itself.
         if cfg!(windows) {
             assert_eq!(href, "https://doc.pluryprint.example/");
         } else {
-            assert_eq!(href, "file:///docs/my%20notes/");
+            assert_eq!(href, "pluryprint-doc://doc.pluryprint.example/");
         }
     }
 

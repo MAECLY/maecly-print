@@ -315,16 +315,19 @@ pub(crate) fn render_system_capped(
 
 /// The Content-Security-Policy every staged page carries: no script, plugin,
 /// frame, worker, form or connection; styles, images, fonts and media only
-/// from the page's own folder (a `file:` URL, or the renderer's private
-/// origin on Windows) or `data:`. Defence in depth: the renderer already
-/// turns scripts off and refuses every other request natively. It is the
-/// first thing in the staged page, and on Windows also a response header.
+/// from the renderer's private origin (the page's own folder, served by the
+/// worker: `https://` on Windows, `pluryprint-doc://` on macOS) or `data:`;
+/// never `file:` (round 7: no platform loads the page from `file:` any
+/// more). Defence in depth: the renderer already turns scripts off and
+/// refuses every other request natively. It is the first thing in the staged
+/// page, and also a response header.
 pub fn page_csp() -> String {
-    let hosts = format!("https://{}", crate::render::DOC_HOST);
+    let host = crate::render::DOC_HOST;
+    let hosts = format!("https://{host} {}://{host}", crate::render::MAC_DOC_SCHEME);
     format!(
-        "default-src file: data: 'unsafe-inline' {hosts}; script-src 'none'; \
+        "default-src 'self' data: 'unsafe-inline' {hosts}; script-src 'none'; \
          object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; \
-         connect-src 'none'; form-action 'none'; base-uri file: {hosts}"
+         connect-src 'none'; form-action 'none'; base-uri 'self' {hosts}"
     )
 }
 
@@ -721,6 +724,7 @@ mod tests {
             assert!(csp.contains(directive), "{directive}: {csp}");
         }
         assert!(!csp.contains("http:"), "{csp}");
+        assert!(!csp.contains("file:"), "no file: source (round 7): {csp}");
         assert!(!csp.contains("https: "), "no blanket https: {csp}");
         assert!(!csp.contains('*'), "{csp}");
     }
