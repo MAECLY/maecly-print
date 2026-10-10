@@ -158,7 +158,7 @@ src-tauri/
 │   │   ├── mod.rs windows.rs   # winspool + GDI DeviceCapabilities enumeration
 │   │   ├── cups.rs             # CUPS enumeration + lpadmin queue management
 │   │   ├── testpage.rs         # Generated test page
-│   │   └── macos/              # NSServices "Print with MaeclyPrint" provider
+│   │   └── macos/              # NSServices "Print with Pluryprint" provider
 │   │       ├── mod.rs handoff.rs services.rs
 │   ├── queue/             # Persisted print queue
 │   │   ├── mod.rs job.rs dispatcher.rs persist.rs
@@ -298,7 +298,7 @@ shell-ext-win/
 │   ├── selection.rs        # Reads the Explorer selection (IShellItemArray)
 │   ├── supported.rs        # Which selections the menu offers itself for
 │   ├── handoff.rs          # Writes the JSON selection file
-│   ├── launch.rs           # ShellExecuteExW onto maeclyprint.exe
+│   ├── launch.rs           # ShellExecuteExW onto pluryprint.exe
 │   ├── guard.rs            # catch_unwind at every COM boundary
 │   ├── comstr.rs strings.rs logging.rs
 └── tests/
@@ -325,7 +325,7 @@ The `windows-rs` risks the C++ decision cited (thread affinity, apartment models
 
 ## `shell-ext-mac/` — placeholder
 
-Contains a `README.md` and a `.gitkeep`, nothing else. **The macOS Finder integration that ships today is not here**: it is an NSServices provider ("Print with MaeclyPrint") implemented in `src-tauri/src/platform/macos/`, declared in the app's `Info.plist`, and linked into the main binary via `objc2`. A Finder Sync `.appex` would need a separate Xcode target; if one is ever built, this is where it goes.
+Contains a `README.md` and a `.gitkeep`, nothing else. **The macOS Finder integration that ships today is not here**: it is an NSServices provider ("Print with Pluryprint") implemented in `src-tauri/src/platform/macos/`, declared in the app's `Info.plist`, and linked into the main binary via `objc2`. A Finder Sync `.appex` would need a separate Xcode target; if one is ever built, this is where it goes.
 
 ## `installers/`
 
@@ -345,7 +345,7 @@ Single-purpose shell / PowerShell scripts. Each script does one thing; the file 
 
 | Script | Purpose |
 |---|---|
-| `fetch-sumatrapdf.ps1` | Downloads the SumatraPDF build MaeclyPrint bundles on Windows, from a pinned vendor URL, verified against a pinned SHA-256, into `src-tauri/resources/sumatrapdf/` along with its licence files, fetched from the pinned upstream source commit and verified the same way. Picks the x64 or ARM64 build (`-Arch`). Kept ASCII so Windows PowerShell 5.1 parses it. The binary is deliberately **not** committed: it is a ~20 MB third-party artifact, and re-hosting it in our tree would make us its distributor with the GPLv3 obligations that follow. |
+| `fetch-sumatrapdf.ps1` | Downloads the SumatraPDF build Pluryprint bundles on Windows, from a pinned vendor URL, verified against a pinned SHA-256, into `src-tauri/resources/sumatrapdf/` along with its licence files, fetched from the pinned upstream source commit and verified the same way. Picks the x64 or ARM64 build (`-Arch`). Kept ASCII so Windows PowerShell 5.1 parses it. The binary is deliberately **not** committed: it is a ~20 MB third-party artifact, and re-hosting it in our tree would make us its distributor with the GPLv3 obligations that follow. |
 | `fetch-sumatrapdf.sh` | POSIX twin of the above, for cross-builds from macOS/Linux. |
 
 Everything else the release process will eventually need (signing, notarization, artifact upload, manifest updates) is **unwritten**. Earlier drafts of this table listed ten scripts as if they existed; they never did. See [ci-cd.md](../07-build-and-release/ci-cd.md) § "What does not exist yet".

@@ -32,7 +32,7 @@ The table below is the **complete** registered surface — 44 commands, in `coll
 
 | Command                     | TS binding                                                    | Rust handler                            | Notes |
 | --------------------------- | ------------------------------------------------------------- | --------------------------------------- | ----- |
-| `app_info`                  | `appInfo() => AppInfo`                                        | `ipc::diag::app_info`                   | Version, build date, config/data/log dirs, os, arch, **plus the FR-058 `dependencies` probe** and the running `executable` (Home's copyable CLI command names it, since nothing puts `maeclyprint` on `PATH`) |
+| `app_info`                  | `appInfo() => AppInfo`                                        | `ipc::diag::app_info`                   | Version, build date, config/data/log dirs, os, arch, **plus the FR-058 `dependencies` probe** and the running `executable` (Home's copyable CLI command names it, since nothing puts `pluryprint` on `PATH`) |
 | `open_logs_folder`          | `openLogsFolder() => null`                                     | `ipc::diag::open_logs_folder`           | Creates the dir, reveals it in Explorer/Finder |
 | `report_issue`              | `reportIssue(text) => null`                                    | `ipc::diag::report_issue`               | Opens a prefilled GitHub new-issue URL (percent-encoded) |
 | `open_external`             | `openExternal(url) => null`                                    | `ipc::diag::open_external`              | HTTPS allow-list: exactly `github.com`, `maecly.com`, `*.maecly.com`; no userinfo, no port |
@@ -41,7 +41,7 @@ The table below is the **complete** registered surface — 44 commands, in `coll
 | `list_printers`             | `listPrinters() => Printer[]`                                  | `ipc::printers::list_printers`          | Rich `Printer` — see [printer-enumeration.md](./printer-enumeration.md) |
 | `default_printer`           | `defaultPrinter() => string \| null`                           | `ipc::printers::default_printer`        | OS-default id |
 | `discover_printers`         | `discoverPrinters() => DiscoveredPrinter[]`                    | `ipc::printers::discover_printers`      | mDNS/Bonjour: `ippfind` on macOS/Linux, the OS DNS-SD client (`DnsServiceBrowse`) for `_ipp._tcp`/`_ipps._tcp` on Windows (WSD-only devices are not listed) |
-| `get_printer_prefs`         | `getPrinterPrefs() => PrinterPrefs`                            | `ipc::printers::get_printer_prefs`      | MaeclyPrint-only prefs: `default_printer`, `disabled`, `routes`, `overrides` |
+| `get_printer_prefs`         | `getPrinterPrefs() => PrinterPrefs`                            | `ipc::printers::get_printer_prefs`      | Pluryprint-only prefs: `default_printer`, `disabled`, `routes`, `overrides` |
 | `set_printer_prefs`         | `setPrinterPrefs(prefs) => PrinterPrefs`                       | `ipc::printers::set_printer_prefs`      | Persists and returns the saved prefs |
 | `set_default_printer`       | `setDefaultPrinter(name) => null`                              | `ipc::printers::set_default_printer`    | `lpoptions -d` (macOS/Linux) / `SetDefaultPrinterW` (Windows); no elevation |
 | `print_test_page`           | `printTestPage(name) => null`                                  | `ipc::printers::print_test_page`        | Branded PDF via `lp` (macOS/Linux) / SumatraPDF (Windows; `printui.dll` only without the SumatraPDF sidecar) |
@@ -351,7 +351,7 @@ Tauri 2's capability system gates **core and plugin** permissions (window, webvi
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-capability",
-  "description": "Permissions granted to the MaeclyPrint main window.",
+  "description": "Permissions granted to the Pluryprint main window.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -381,9 +381,9 @@ Tauri 2's capability system gates **core and plugin** permissions (window, webvi
 4. Anything else → headless, so clap can answer "unrecognized subcommand" with a non-zero code instead of silently opening a window.
 5. No arguments (or only platform noise such as macOS' `-psn_0_12345`) → **GUI mode**.
 
-**Windows: two executables.** `maeclyprint.exe` is a GUI-subsystem program, so a double-click never flashes a console. Its headless path calls `cli::console::attach_parent()` first — `AttachConsole(ATTACH_PARENT_PROCESS)`, then `CONOUT$` for any standard handle that is still empty, while handles the caller redirected (`> out.txt`, a pipe) are kept — so output reaches the terminal. What it cannot change is that `cmd.exe` and PowerShell **do not wait** for a GUI-subsystem program: the prompt returns at once and `%ERRORLEVEL%` / `$LASTEXITCODE` never see the exit code.
+**Windows: two executables.** `pluryprint.exe` is a GUI-subsystem program, so a double-click never flashes a console. Its headless path calls `cli::console::attach_parent()` first — `AttachConsole(ATTACH_PARENT_PROCESS)`, then `CONOUT$` for any standard handle that is still empty, while handles the caller redirected (`> out.txt`, a pipe) are kept — so output reaches the terminal. What it cannot change is that `cmd.exe` and PowerShell **do not wait** for a GUI-subsystem program: the prompt returns at once and `%ERRORLEVEL%` / `$LASTEXITCODE` never see the exit code.
 
-Scripts therefore use **`maeclyprint-cli.exe`**, installed next to it (`src-tauri/src/bin/maeclyprint-cli.rs`): a console-subsystem build of the same CLI, run in-process, whose exit status is the §3.7 code. When its command line asks for the GUI (no subcommand, a context-menu invocation, an "open with" path) it starts `maeclyprint.exe` detached with the same arguments and exits 0, so a terminal is never held open by a window. Calling `maeclyprint.exe` itself from a script needs `start /wait maeclyprint.exe …` (cmd) or `Start-Process -Wait -PassThru` (PowerShell) to get the code. Both executables flush stdout/stderr before exiting (`cli::exit_process`). On macOS and Linux both are plain console programs.
+Scripts therefore use **`pluryprint-cli.exe`**, installed next to it (`src-tauri/src/bin/pluryprint-cli.rs`): a console-subsystem build of the same CLI, run in-process, whose exit status is the §3.7 code. When its command line asks for the GUI (no subcommand, a context-menu invocation, an "open with" path) it starts `pluryprint.exe` detached with the same arguments and exits 0, so a terminal is never held open by a window. Calling `pluryprint.exe` itself from a script needs `start /wait pluryprint.exe …` (cmd) or `Start-Process -Wait -PassThru` (PowerShell) to get the code. Both executables flush stdout/stderr before exiting (`cli::exit_process`). On macOS and Linux both are plain console programs.
 
 **Second launches.** `tauri-plugin-single-instance` intercepts a second process and forwards its argv to the running instance, which re-interprets it (`cli::single_instance`) and emits `selection-forwarded` (NFR-014). Both a context-menu argv and an "open with" argv (absolute paths only — the running instance has a different working directory) resolve to a selection. The pending store is created **before** the Tauri builder and shared with the plugin callback, so a selection forwarded while the first instance is still cold-starting (before `setup`) is kept and drained with the launch's own selection, which stays first. A headless subcommand exits before that ever matters.
 
@@ -392,11 +392,11 @@ Scripts therefore use **`maeclyprint-cli.exe`**, installed next to it (`src-taur
 ### 3.2 Command reference
 
 ```
-maeclyprint [--json] [--cli]
+pluryprint [--json] [--cli]
             [--invoke context-menu --files-from <PATH>
              [--action <configure|print-default|queue>] [--profile <NAME-OR-ID>]]
 
-maeclyprint print (--files <FILES> | --files-from <PATH>)
+pluryprint print (--files <FILES> | --files-from <PATH>)
                   [--profile <NAME-OR-ID>] [--printer <NAME>]
                   [--color | --mono] [--duplex <off|long-edge|short-edge>]
                   [--copies <N>] [--paper <SIZE>] [--range <SPEC>]
@@ -405,36 +405,36 @@ maeclyprint print (--files <FILES> | --files-from <PATH>)
                   [--collate | --no-collate]
                   [--no-dialog] [--wait]
 
-maeclyprint printers list
+pluryprint printers list
 
-maeclyprint profiles list
-maeclyprint profiles show <NAME-OR-ID>
-maeclyprint profiles create --name <NAME> [--from <NAME-OR-ID>] [--printer <NAME>]
+pluryprint profiles list
+pluryprint profiles show <NAME-OR-ID>
+pluryprint profiles create --name <NAME> [--from <NAME-OR-ID>] [--printer <NAME>]
                             [--quality <draft|normal|high>] [--tray <TRAY>]
                             [--color | --mono] [--duplex …] [--copies …]
                             [--paper …] [--range …] [--scale …] [--orientation …]
                             [--collate | --no-collate]
-maeclyprint profiles delete <NAME-OR-ID>
-maeclyprint profiles set-default <NAME-OR-ID>
+pluryprint profiles delete <NAME-OR-ID>
+pluryprint profiles set-default <NAME-OR-ID>
 
-maeclyprint queue status [--watch]
-maeclyprint queue cancel <JOB-ID>
-maeclyprint queue cancel-all
+pluryprint queue status [--watch]
+pluryprint queue cancel <JOB-ID>
+pluryprint queue cancel-all
 
-maeclyprint update check
-maeclyprint update install [--yes]      # download, verify, install; --yes skips the prompt
-maeclyprint update channel [stable|beta|nightly]
+pluryprint update check
+pluryprint update install [--yes]      # download, verify, install; --yes skips the prompt
+pluryprint update channel [stable|beta|nightly]
 
-maeclyprint --version
-maeclyprint --help
+pluryprint --version
+pluryprint --help
 ```
 
 `--json` is a **global** flag: it may appear anywhere, including before the subcommand.
 
 ### 3.3 Flag semantics
 
-- `--files` takes a comma-separated list. Each entry may be a plain path, a **directory** (walked recursively with the same `engine::expand_folder` the GUI uses, filtered by `max_file_size_mb`), or a **wildcard in the last path component** (`C:\Reports\*.pdf`). Patterns are expanded by MaeclyPrint, not the shell, so they behave identically in `cmd.exe` and in bash. A pattern or folder matching nothing is an error naming the entry.
-- Relative paths are resolved against the working directory **only here** and for an "open with" launch (`maeclyprint-cli report.pdf` from a terminal). Every other surface refuses them (`util::paths::canonical_input`, NFR-025). An "open with" launch is resolved against the *launching* process' folder even when the app is already running: the single-instance plugin forwards the second launch's working directory, and the running instance anchors the paths there before deciding what the launch means (`cli::single_instance::interpret`).
+- `--files` takes a comma-separated list. Each entry may be a plain path, a **directory** (walked recursively with the same `engine::expand_folder` the GUI uses, filtered by `max_file_size_mb`), or a **wildcard in the last path component** (`C:\Reports\*.pdf`). Patterns are expanded by Pluryprint, not the shell, so they behave identically in `cmd.exe` and in bash. A pattern or folder matching nothing is an error naming the entry.
+- Relative paths are resolved against the working directory **only here** and for an "open with" launch (`pluryprint-cli report.pdf` from a terminal). Every other surface refuses them (`util::paths::canonical_input`, NFR-025). An "open with" launch is resolved against the *launching* process' folder even when the app is already running: the single-instance plugin forwards the second launch's working directory, and the running instance anchors the paths there before deciding what the launch means (`cli::single_instance::interpret`).
 - `--files-from <PATH>` reads a JSON handoff file instead of argv — how the shell extensions pass a large selection past Windows' 32,767-character argv cap. A handoff file is untrusted input: it must resolve **inside** the per-user handoff directory (`<data dir>/handoff`) and be fresh, or it is refused.
 - `--duplex`, `--paper`, `--scale`, `--orientation`, `--quality` are case-insensitive. `--scale actual` is the engine's `none` — the one deliberate rename.
 - `--paper` takes the same names as the Print Job screen and the profile editor: `a4`, `letter`, `legal`, `a3` (case-insensitive), `auto` (the printer's own default, no media sent), or any size a printer reports (`A6`, `4x6`, `Tabloid`, `w288h432`…; see `printers list`). For `print`, a size the target printer does not list is refused before anything is spooled (exit 5, `Printer`), as in the GUI. `profiles create --paper` stores the name as given, since a profile is not tied to one printer.
@@ -447,26 +447,26 @@ maeclyprint --help
 
 **What `print` does *not* do.** A headless print is a foreground operation, so it deliberately differs from the GUI queue in three ways: it never touches `queue.json` (so it cannot race a running app for it), it converts into a private temp directory deleted on exit (so neither process can delete the other's work), and it has **no retry/backoff** — a script wants an exit code, not a job that quietly retries.
 
-**What `queue` does *not* do.** `queue status|cancel|cancel-all` operate on the persisted `queue.json` through `queue::persist`, guarded by the same `can_transition` rules the dispatcher uses. They do **not** reach into a running app: a live instance owns its queue in memory and rewrites the file on every transition, so a cancel written to the file while the app is open would be overwritten — and reported as a success while the job kept printing. The app therefore holds an exclusive OS lock on `<data_dir>/instance.lock` for its whole lifetime (`cli::instance`; released by the OS however the process ends), and `queue cancel` / `cancel-all` check it before reading and again before writing: while the app runs they **fail** with `InvalidState` (exit code 1) and change nothing, telling the user to cancel from the Queue screen. A lock that cannot be checked at all (the file cannot be opened, or the filesystem does not support locking, where the app may be running unlocked) is refused the same way: "could not tell" is never read as "the app is closed". The app retries its own claim for about half a second at startup, so a CLI probe that holds the lock for an instant cannot leave it running without one. `queue status` stays available (it only reads what the app persists). The offline path is what makes `queue status` useful in a script and `queue cancel` useful on a queue left behind by a closed app. A cancelled job that is still in the system print queue (any job with a known spooler id and printer, including one recovered as paused) is removed from it as well. On Windows the spooler reuses job ids, so the job is deleted only while it still carries the name MaeclyPrint spooled it under and belongs to the current user. A job that already left the spooler is not an error; one that could not be removed is listed in `spooler_errors` (`{id, os_job_id, printer, message}`) next to `cancelled` in the JSON output, and as a `warning:` line in the text output, because its paper may still come out.
+**What `queue` does *not* do.** `queue status|cancel|cancel-all` operate on the persisted `queue.json` through `queue::persist`, guarded by the same `can_transition` rules the dispatcher uses. They do **not** reach into a running app: a live instance owns its queue in memory and rewrites the file on every transition, so a cancel written to the file while the app is open would be overwritten — and reported as a success while the job kept printing. The app therefore holds an exclusive OS lock on `<data_dir>/instance.lock` for its whole lifetime (`cli::instance`; released by the OS however the process ends), and `queue cancel` / `cancel-all` check it before reading and again before writing: while the app runs they **fail** with `InvalidState` (exit code 1) and change nothing, telling the user to cancel from the Queue screen. A lock that cannot be checked at all (the file cannot be opened, or the filesystem does not support locking, where the app may be running unlocked) is refused the same way: "could not tell" is never read as "the app is closed". The app retries its own claim for about half a second at startup, so a CLI probe that holds the lock for an instant cannot leave it running without one. `queue status` stays available (it only reads what the app persists). The offline path is what makes `queue status` useful in a script and `queue cancel` useful on a queue left behind by a closed app. A cancelled job that is still in the system print queue (any job with a known spooler id and printer, including one recovered as paused) is removed from it as well. On Windows the spooler reuses job ids, so the job is deleted only while it still carries the name Pluryprint spooled it under and belongs to the current user. A job that already left the spooler is not an error; one that could not be removed is listed in `spooler_errors` (`{id, os_job_id, printer, message}`) next to `cancelled` in the JSON output, and as a `warning:` line in the text output, because its paper may still come out.
 
 ### 3.4 Examples
 
 ```
 # Print every PDF in a folder using the default profile
-maeclyprint print --files "C:\Reports\*.pdf"
+pluryprint print --files "C:\Reports\*.pdf"
 
 # Print one PDF with explicit overrides
-maeclyprint print --files report.pdf --printer "HP LaserJet" \
+pluryprint print --files report.pdf --printer "HP LaserJet" \
     --duplex long-edge --color --copies 2
 
 # Pipe-friendly listing
-maeclyprint printers list --json | jq -r '.[] | select(.is_default) | .id'
+pluryprint printers list --json | jq -r '.[] | select(.is_default) | .id'
 
 # Watch the queue
-maeclyprint queue status --watch
+pluryprint queue status --watch
 
 # Ask GitHub whether a newer release exists
-maeclyprint update check --json
+pluryprint update check --json
 ```
 
 ### 3.5 IPC ↔ CLI mapping
@@ -489,12 +489,12 @@ Both surfaces call the same core; the table names the shared implementation rath
 
 #### `update install`
 
-`update install` runs the same core as `install_update`. Without `--yes` it asks on an interactive terminal (`[y/N]`; a major update is named as such, FR-087), exits **2** when there is no terminal to ask, and exits **12** when the answer is not yes. A rejected signature or any other install failure exits **11**. `MAECLYPRINT_UPDATE_ENDPOINT` replaces the manifest URL for local end-to-end tests. With `--json`, stdout is the `UpdateInstallResult` (`{"installed": "0.2.0", "restart_required": true}`, or `"installed": null` when up to date).
+`update install` runs the same core as `install_update`. Without `--yes` it asks on an interactive terminal (`[y/N]`; a major update is named as such, FR-087), exits **2** when there is no terminal to ask, and exits **12** when the answer is not yes. A rejected signature or any other install failure exits **11**. `PLURYPRINT_UPDATE_ENDPOINT` replaces the manifest URL for local end-to-end tests. With `--json`, stdout is the `UpdateInstallResult` (`{"installed": "0.2.0", "restart_required": true}`, or `"installed": null` when up to date).
 
 On Windows two more rules apply:
 
-- **Refused while the app is open.** The per-user NSIS installer runs in passive mode and closes a running MaeclyPrint without asking. While the app holds its instance lock, `update install` therefore installs nothing and exits **1** (`InvalidState`), pointing at *About → Install update* in the app. macOS and Linux replace the bundle without closing the app, so they do not refuse.
-- **The result is printed at hand-off.** `tauri-plugin-updater` ends the process itself (`std::process::exit`) once the verified installer has been launched, so the result (`{"installed": "0.2.0", "restart_required": false}` / `Installing MaeclyPrint 0.2.0`) is printed and the log is flushed from the updater's before-exit hook, after download and signature verification and just before the installer starts. Exit code 0 then means "verified and handed to the installer", not "installation finished". The installer is told not to relaunch anything: the plugin's default would replay the CLI's own `update install --yes` command line through NSIS `/ARGS`.
+- **Refused while the app is open.** The per-user NSIS installer runs in passive mode and closes a running Pluryprint without asking. While the app holds its instance lock, `update install` therefore installs nothing and exits **1** (`InvalidState`), pointing at *About → Install update* in the app. macOS and Linux replace the bundle without closing the app, so they do not refuse.
+- **The result is printed at hand-off.** `tauri-plugin-updater` ends the process itself (`std::process::exit`) once the verified installer has been launched, so the result (`{"installed": "0.2.0", "restart_required": false}` / `Installing Pluryprint 0.2.0`) is printed and the log is flushed from the updater's before-exit hook, after download and signature verification and just before the installer starts. Exit code 0 then means "verified and handed to the installer", not "installation finished". The installer is told not to relaunch anything: the plugin's default would replay the CLI's own `update install --yes` command line through NSIS `/ARGS`.
 
 ### 3.6 JSON output mode
 

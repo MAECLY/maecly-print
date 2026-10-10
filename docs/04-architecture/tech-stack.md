@@ -1,6 +1,6 @@
 # Tech Stack
 
-> **TL;DR** — MaeclyPrint is built on **Tauri 2 + Rust + React (TypeScript)**. This combination gives us a small installer, fast cold start, low idle RAM, and a near-fully shared codebase across Windows and macOS — which is exactly what a context-menu-invoked utility needs. Note that the shipped build does **not** use Tauri's updater plugin; see §2 and [`auto-updater.md`](./auto-updater.md).
+> **TL;DR** — Pluryprint is built on **Tauri 2 + Rust + React (TypeScript)**. This combination gives us a small installer, fast cold start, low idle RAM, and a near-fully shared codebase across Windows and macOS — which is exactly what a context-menu-invoked utility needs. Note that the shipped build does **not** use Tauri's updater plugin; see §2 and [`auto-updater.md`](./auto-updater.md).
 
 ## 1. Stack at a glance
 
@@ -46,9 +46,9 @@ Tauri 2 was selected after benchmarking five competing frameworks. The full comp
 | Flutter Desktop   | 50-100 MB  | 100-150 MB  | Fast       | None built-in         | ✓ shell ext. awkward  | 4/10  |
 | Qt / PySide6      | 100+ MB    | 80-150 MB   | Fast       | None built-in         | ✓ mature but verbose  | 5/10  |
 
-### Why each metric matters for MaeclyPrint
+### Why each metric matters for Pluryprint
 
-- **Installer size.** MaeclyPrint is invoked by people who right-click a file and expect the dialog to appear instantly. Bundle bloat hurts the install experience and slows updates.
+- **Installer size.** Pluryprint is invoked by people who right-click a file and expect the dialog to appear instantly. Bundle bloat hurts the install experience and slows updates.
 - **RAM idle.** The app may sit in the tray (or be re-launched on every right-click). Electron's 250 MB baseline is unacceptable for a utility.
 - **Cold start.** Right-click latency is perceived directly by users. Anything over ~700 ms feels broken.
 - **Auto-update.** A polished updater is non-negotiable for a desktop app shipped outside an app store. Tauri ships one as a first-party MIT plugin; competitors require third-party glue.

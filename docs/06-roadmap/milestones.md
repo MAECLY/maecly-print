@@ -1,6 +1,6 @@
 # Milestones
 
-> **TL;DR.** MaeclyPrint ships in six milestones (M0–M5) over roughly five to six months of single-developer work, taking the project from an empty repository to a notarized macOS port. Each milestone has explicit scope, deliverables, exit criteria, and named risks.
+> **TL;DR.** Pluryprint ships in six milestones (M0–M5) over roughly five to six months of single-developer work, taking the project from an empty repository to a notarized macOS port. Each milestone has explicit scope, deliverables, exit criteria, and named risks.
 
 This document is the source of truth for what each milestone contains. Anything not listed here is out of scope for that milestone and should be deferred or filed against a later one. See [timeline.md](./timeline.md) for duration estimates and [release-strategy.md](./release-strategy.md) for how these milestones map to public versions.
 
@@ -72,7 +72,7 @@ None. M0 is the bootstrap.
 
 **Delivered since the 2026-07-12 entry below:**
 
-- The **headless CLI** — the largest item that was open. `maeclyprint print|printers|profiles|queue|update` parsed with `clap`, `--help` on every subcommand, `--json` output with errors as JSON on stderr, and the documented exit-code table (FR-008/009/010/112). A CLI run creates no window. `src-tauri/tests/cli_contract.rs` pins the surface.
+- The **headless CLI** — the largest item that was open. `pluryprint print|printers|profiles|queue|update` parsed with `clap`, `--help` on every subcommand, `--json` output with errors as JSON on stderr, and the documented exit-code table (FR-008/009/010/112). A CLI run creates no window. `src-tauri/tests/cli_contract.rs` pins the surface.
 - **Single instance** (NFR-014): a second launch forwards its selection to the first through `tauri-plugin-single-instance` and exits; the running app raises its window and drains the pending selection.
 - **Folder selections** (FR-004/005/007/059): `inspect_files` classifies a path as a folder and reports whether it has subfolders, the screen asks recurse-or-top-level, and `expand_folders` walks it. Discarded files come back with a reason instead of vanishing.
 - **A dependency probe** (`engine::deps`, FR-058): LibreOffice / Chromium / Pandoc located across bundled dirs, `PATH` and the usual install locations, reported through `app_info` and surfaced on the Print Job screen for the dependencies that actually gate the user's files.
@@ -110,11 +110,11 @@ Note: several scope lines below are framed Windows-first, but the enumeration/pr
 
 - Rust backend modules: `engine::router`, `engine::pdf`, `printer::windows`, `queue`, `profiles`, `cli`.
 - SumatraPDF integration: bundled binary in `src-tauri/resources/`, invoked via `Command` with structured args.
-- CLI: `maeclyprint print <files…> --printer <name> --profile <id>` parsed with `clap`.
-- TOML profiles: load from `%APPDATA%\Maecly\MaeclyPrint\config\profiles\*.toml`, schema documented and versioned.
+- CLI: `pluryprint print <files…> --printer <name> --profile <id>` parsed with `clap`.
+- TOML profiles: load from `%APPDATA%\Maecly\Pluryprint\config\profiles\*.toml`, schema documented and versioned.
 - GUI: bare-bones React pages for Profiles list, Queue view, Settings (printer picker).
 - Print queue: Tokio task that processes jobs sequentially, reports progress over Tauri IPC.
-- Logging: `tracing` with file rotation under `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\`.
+- Logging: `tracing` with file rotation under `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\`.
 
 ### Deliverables
 
@@ -148,15 +148,15 @@ Note: several scope lines below are framed Windows-first, but the enumeration/pr
 
 ## M2 — Shell Integration (Win)
 
-**Goal:** Right-click in File Explorer on a selection of files surfaces a "Print all with MaeclyPrint" submenu that hands the selection to the running app (or starts it).
+**Goal:** Right-click in File Explorer on a selection of files surfaces a "Print all with Pluryprint" submenu that hands the selection to the running app (or starts it).
 
 ### Status (2026-07-20) — in progress, started ahead of M1 sign-off
 
 **Delivered:**
 
 - The **Explorer handler** in `shell-ext-win/`: an in-process COM DLL implementing `IExplorerCommand` with a dynamic submenu (default-profile print, one row per profile, "Configure print job…", "Add to print queue"), a localized string cache, selection enumeration with no count limit (FR-003), a supported-extension filter, and a panic guard so a fault cannot take Explorer down with it. It is a **Rust** crate, not the C++ one this scope line assumed — deliberately, and deliberately outside the `src-tauri` workspace so that crate's `panic = "abort"` cannot neuter `catch_unwind`. Built, clippy-gated and tested in CI (`shell-ext-win/tests/`).
-- The **handoff contract**: the DLL writes the selection to a JSON file and launches `maeclyprint --invoke=context-menu --files-from <PATH> [--action …] [--profile …]`. This is a handoff file rather than the named pipe the scope line names, because argv on Windows is capped at 32,767 characters. Both ends are pinned by round-trip tests.
-- The **macOS counterpart**, pulled forward from M5: an `NSServices` declaration in `src-tauri/Info.plist` plus a provider in `platform/macos/services.rs`, so "Print with MaeclyPrint" appears in the Finder's Services submenu. No `.appex`, no App Group, no second signature — see the M5 note below.
+- The **handoff contract**: the DLL writes the selection to a JSON file and launches `pluryprint --invoke=context-menu --files-from <PATH> [--action …] [--profile …]`. This is a handoff file rather than the named pipe the scope line names, because argv on Windows is capped at 32,767 characters. Both ends are pinned by round-trip tests.
+- The **macOS counterpart**, pulled forward from M5: an `NSServices` declaration in `src-tauri/Info.plist` plus a provider in `platform/macos/services.rs`, so "Print with Pluryprint" appears in the Finder's Services submenu. No `.appex`, no App Group, no second signature — see the M5 note below.
 
 **Not started — this is what still blocks the `0.1.0-beta`:**
 
@@ -170,11 +170,11 @@ Note: several scope lines below are framed Windows-first, but the enumeration/pr
 - COM DLL in `shell-ext-win/` implementing `IExplorerCommand` (Win 11) and `IShellExtInit` + `IContextMenu` (Win 10 fallback). *Implemented in Rust; the Win 10 fallback is not implemented.*
 - Sparse MSIX package in `installers/windows/sparse-msix/` to grant DLL identity for `IExplorerCommand` registration on Win 11.
 - Inno Setup installer (`installers/windows/inno-setup.iss`) that:
-  - Installs to `%LOCALAPPDATA%\Programs\MaeclyPrint`.
+  - Installs to `%LOCALAPPDATA%\Programs\Pluryprint`.
   - Registers `HKCU\Software\Classes\` entries for the Win 10 fallback path.
   - Calls `Add-AppxPackage` to deploy the sparse MSIX during install, `Remove-AppxPackage` on uninstall.
 - IPC handoff: shell extension serializes selection to JSON and hands off to running app via named pipe (or starts app with `--enqueue` CLI arg).
-- Submenu items: "Print all", "Print all with profile…", "Open MaeclyPrint…".
+- Submenu items: "Print all", "Print all with profile…", "Open Pluryprint…".
 
 ### Deliverables
 
@@ -183,14 +183,14 @@ Note: several scope lines below are framed Windows-first, but the enumeration/pr
 | Right-click on 30 mixed files, click "Print all" | All 30 PDFs print successfully; non-PDFs are listed as skipped (multi-format is M3). |
 | Submenu appears in Win 11 File Explorer (modern UI) | Verified on clean Win 11 23H2 VM. |
 | Submenu appears in Win 10 File Explorer | Verified on clean Win 10 22H2 VM. |
-| Installer + uninstaller round-trip | After install → use → uninstall, no MaeclyPrint files or registry entries remain (audited with Sysinternals Process Monitor). |
+| Installer + uninstaller round-trip | After install → use → uninstall, no Pluryprint files or registry entries remain (audited with Sysinternals Process Monitor). |
 | `0.1.0-beta` public release | Signed with self-signed cert (warnings expected); SmartScreen reputation N/A yet. |
 
 ### Exit criteria
 
 - Shell extension passes Microsoft's [Shell Extension Best Practices](https://learn.microsoft.com/windows/win32/shell/shell-extension-handlers) audit (no UI on background threads, no `MessageBox` from handler, no blocking I/O > 50 ms).
 - Installer is reproducible: building twice from the same commit produces byte-identical `.exe`.
-- Uninstaller deregisters MSIX, removes all registry entries, deletes install directory and `%LOCALAPPDATA%\Maecly\MaeclyPrint`.
+- Uninstaller deregisters MSIX, removes all registry entries, deletes install directory and `%LOCALAPPDATA%\Maecly\Pluryprint`.
 
 ### Risks
 
@@ -269,7 +269,7 @@ Everything else in M4 is untouched: no download-verify-relaunch path, no updater
 ### Scope
 
 - Tauri updater wired up: 24h periodic check, on-demand "Check for updates" in Settings.
-- Update manifest server: static JSON at `updates.maecly.com/maeclyprint/{channel}.json` (S3 or Cloudflare R2 origin, CloudFront/CF in front).
+- Update manifest server: static JSON at `updates.maecly.com/pluryprint/{channel}.json` (S3 or Cloudflare R2 origin, CloudFront/CF in front).
 - EV code signing certificate procured and integrated into CI (key in HSM-backed GitHub Actions runner or Azure Key Vault).
 - SmartScreen reputation seed: submit installer to Microsoft Defender SmartScreen analytics endpoint via Partner Center.
 - i18n: full English + Spanish translations using `react-i18next` for frontend and `fluent-rs` for backend strings.
@@ -336,8 +336,8 @@ Untouched: `.pkg` / `.dmg` packaging, Developer ID signing, notarization, stapli
 
 | Item | Acceptance |
 |---|---|
-| `MaeclyPrint.app` runs on macOS 13 Ventura, 14 Sonoma, 15 Sequoia | First-launch Gatekeeper allows execution without right-click bypass. |
-| Right-click in Finder → "Print all with MaeclyPrint" | Selection passed to app, prints via CUPS. |
+| `Pluryprint.app` runs on macOS 13 Ventura, 14 Sonoma, 15 Sequoia | First-launch Gatekeeper allows execution without right-click bypass. |
+| Right-click in Finder → "Print all with Pluryprint" | Selection passed to app, prints via CUPS. |
 | `.pkg` and `.dmg` both notarized and stapled | `spctl --assess --verbose=4` reports "accepted source=Notarized Developer ID". |
 | `1.1.0` macOS GA release | GitHub Release includes Win + Mac assets; update manifest covers both. |
 

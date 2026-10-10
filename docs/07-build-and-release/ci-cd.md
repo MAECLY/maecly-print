@@ -64,7 +64,7 @@ The lane that covers what Windows CI structurally cannot: the CUPS backend (`pla
 clippy → `cargo test` → the same bindings gate → `pnpm test`. Then two **advisory** steps (`continue-on-error: true`):
 
 - `pnpm tauri build --debug`
-- **Smoke launch (macOS)**: run `src-tauri/target/debug/maeclyprint`, poll `~/Library/Logs/MaeclyPrint/maeclyprint-*.jsonl` (the name `logging/mod.rs` writes) for `app_started`, 60 s deadline, then kill it.
+- **Smoke launch (macOS)**: run `src-tauri/target/debug/pluryprint`, poll `~/Library/Logs/Pluryprint/pluryprint-*.jsonl` (the name `logging/mod.rs` writes) for `app_started`, 60 s deadline, then kill it.
 
 Both are best-effort because WKWebView has no WebDriver and a headless runner has no guaranteed window server.
 
@@ -94,9 +94,9 @@ cargo test --manifest-path src-tauri/Cargo.toml -- --ignored
 
 `pnpm tauri build --debug`, then **Smoke launch (Windows)**, which is the strictest GUI assertion in the pipeline and *does* gate:
 
-- Starts the binary and polls the real log directory, `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\maeclyprint-*.jsonl` (only files written after the launch), for **both** `app_started` and `main_window_resolved`, 60 s deadline. Overriding `APPDATA`/`LOCALAPPDATA` does not sandbox it — `directories` resolves known folders through `SHGetKnownFolderPath`, which ignores those variables — which is why an earlier version of this step could never pass.
+- Starts the binary and polls the real log directory, `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\pluryprint-*.jsonl` (only files written after the launch), for **both** `app_started` and `main_window_resolved`, 60 s deadline. Overriding `APPDATA`/`LOCALAPPDATA` does not sandbox it — `directories` resolves known folders through `SHGetKnownFolderPath`, which ignores those variables — which is why an earlier version of this step could never pass.
 - Throws if either never appears; the process is killed in a `finally` block either way.
-- **Smoke CLI exit codes (Windows)**: `maeclyprint-cli.exe --version` must exit 0 and `maeclyprint-cli.exe frobnicate` must exit 2 as seen by the shell (FR-009).
+- **Smoke CLI exit codes (Windows)**: `pluryprint-cli.exe --version` must exit 0 and `pluryprint-cli.exe frobnicate` must exit 2 as seen by the shell (FR-009).
 - On failure uploads `windows-smoke-log`.
 
 This catches missing runtime dependencies and startup panics that a compile-only build would sail past.
@@ -120,11 +120,11 @@ The Explorer context-menu DLL needs its own lane: `shell-ext-win/` is deliberate
 | `x86_64-pc-windows-msvc` | yes |
 | `aarch64-pc-windows-msvc` | no — build only; an x64 runner cannot execute an ARM64 test binary |
 
-Steps: `cargo fmt --check` → `cargo clippy --target <t> --all-targets -- -D warnings` → release build with **`MAECLYPRINT_REQUIRE_RESOURCES=1`** → `cargo test` (x64 only) → **COM export check** → artifact upload (`if-no-files-found: error`).
+Steps: `cargo fmt --check` → `cargo clippy --target <t> --all-targets -- -D warnings` → release build with **`PLURYPRINT_REQUIRE_RESOURCES=1`** → `cargo test` (x64 only) → **COM export check** → artifact upload (`if-no-files-found: error`).
 
 Two of those deserve explanation:
 
-- `MAECLYPRINT_REQUIRE_RESOURCES=1` turns a missing `rc.exe` — and therefore a DLL with no embedded `<msix>` manifest — into a build failure. Such a DLL builds fine, registers fine, and is never loaded by Explorer. That is the most expensive way for this component to go wrong, and it is invisible without this flag.
+- `PLURYPRINT_REQUIRE_RESOURCES=1` turns a missing `rc.exe` — and therefore a DLL with no embedded `<msix>` manifest — into a build failure. Such a DLL builds fine, registers fine, and is never loaded by Explorer. That is the most expensive way for this component to go wrong, and it is invisible without this flag.
 - The **COM export check** runs `dumpbin /EXPORTS` (located via `vswhere`) and asserts `DllGetClassObject` and `DllCanUnloadNow` are present. Without them Explorer cannot instantiate the handler at all, and nothing else in the lane would notice. `DllMain` is deliberately **not** on the list: it is an entry point, and whether it also appears in the export table is a toolchain detail. If `dumpbin` cannot be found the step warns and exits 0 rather than failing the lane over a runner-image change — the build above is still the gate.
 
 ### `shell-ext-portable` — ubuntu-latest, blocking
@@ -166,13 +166,13 @@ Everything in this section is **unimplemented**. It is recorded as design intent
 Releases are signed so the installed app can verify an update before installing it (FR-082, [ADR-0008](../adr/0008-installer-nsis-per-user.md)). The key pair is minisign, generated once with `pnpm tauri signer generate`:
 
 - **Public key** — committed, in `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`. Every build embeds it and accepts only artifacts signed by the matching private key.
-- **Private key** — **never committed**. A release build reads it from the `TAURI_SIGNING_PRIVATE_KEY` secret (the key file's contents), plus `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if the key has a password. With both set, `pnpm tauri build` writes a `.sig` next to every updater artifact: the NSIS setup on Windows, `MaeclyPrint.app.tar.gz` on macOS. Keep an offline backup. If the key is lost, installed copies cannot be updated in place. If it leaks, rotate it and ship the new public key through a release signed with the old one.
+- **Private key** — **never committed**. A release build reads it from the `TAURI_SIGNING_PRIVATE_KEY` secret (the key file's contents), plus `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if the key has a password. With both set, `pnpm tauri build` writes a `.sig` next to every updater artifact: the NSIS setup on Windows, `Pluryprint.app.tar.gz` on macOS. Keep an offline backup. If the key is lost, installed copies cannot be updated in place. If it leaks, rotate it and ship the new public key through a release signed with the old one.
 - **The private key must have a password.** Tauri asks for the password whenever `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is not set, and a passwordless key can only be used by setting that variable to an empty string. Windows PowerShell cannot do that: `$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""` *deletes* the variable (verified with `Test-Path env:...` on 5.1), so `pnpm tauri build` finishes both bundles and then waits forever at the password prompt, with no `.sig` written. In a non-interactive job (a scheduled task, CI) that is a hang, not an error. Generate release keys with a non-empty password (`pnpm tauri signer generate -w <file>` asks for one), and run signing builds with `CI=true` and a job timeout so a missing password fails instead of hanging. If an existing key has no password, sign the artifact explicitly instead, from `cmd.exe`: `pnpm tauri signer sign -f <key file> -p "" <artifact>`. Windows PowerShell 5.1 drops empty arguments to native programs, so the same line typed there loses the `""`; `cmd.exe` passes it through.
 - **Manifest** — the release uploads `latest.json` as a release asset: `version`, `notes`, `pub_date`, and a `platforms` map (`windows-x86_64`, `darwin-aarch64`, `darwin-x86_64`) of `{ url, signature }`, where `signature` is the contents of the matching `.sig`. The app reads it from `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json`.
 
 PR and `main` builds have no key and must not get one. With `createUpdaterArtifacts` on, Tauri refuses to bundle without a private key, so `ci.yml` builds with `--config src-tauri/tauri.ci.conf.json`, which turns updater artifacts off for that build only.
 
-To test an update end to end without publishing, serve a `latest.json` and a signed artifact locally, then point a **debug** build at it with `MAECLYPRINT_UPDATE_ENDPOINT=http://127.0.0.1:<port>/latest.json`. Release builds only accept `https`. The variable also redirects `update check`, the About screen's check and the launch-time check, which then read that manifest's `version` and `notes` instead of the GitHub releases API (`update::fetch_configured_latest`), so the whole flow can be exercised against one test server. A copy of the artifact with one byte changed must fail with "failed its signature check and was NOT installed" (exit code 11 from `update install`).
+To test an update end to end without publishing, serve a `latest.json` and a signed artifact locally, then point a **debug** build at it with `PLURYPRINT_UPDATE_ENDPOINT=http://127.0.0.1:<port>/latest.json`. Release builds only accept `https`. The variable also redirects `update check`, the About screen's check and the launch-time check, which then read that manifest's `version` and `notes` instead of the GitHub releases API (`update::fetch_configured_latest`), so the whole flow can be exercised against one test server. A copy of the artifact with one byte changed must fail with "failed its signature check and was NOT installed" (exit code 11 from `update install`).
 
 `BUILD_DATE` (About, issue reports) is the build script's run date, re-stamped on every source change. A reproducible release pins it with `SOURCE_DATE_EPOCH`.
 

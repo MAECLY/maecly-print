@@ -2,7 +2,7 @@
 
 > **TL;DR.** Open a discussion or issue before non-trivial work. Sign off commits with `git commit -s` (DCO), use Conventional Commits, keep PRs focused. Look for `good first issue` labels to start.
 
-Welcome. MaeclyPrint is open source under [GPLv3](../09-legal/license.md), and we genuinely want help. This document is the social and procedural contract for contributing.
+Welcome. Pluryprint is open source under [GPLv3](../09-legal/license.md), and we genuinely want help. This document is the social and procedural contract for contributing.
 
 The repository's root `CONTRIBUTING.md` is a stub that points here so GitHub's "Contributing" UI works; the real text lives in the docs tree so it can cross-link with other developer docs.
 
@@ -39,11 +39,11 @@ This avoids the painful situation where you spend a weekend on a PR that the mai
 
 Use the **Bug report** issue template. Include:
 
-- MaeclyPrint version (`maeclyprint --version` or in the About page).
+- Pluryprint version (`pluryprint --version` or in the About page).
 - OS version (Windows 10 22H2, macOS 14.4, etc.).
 - Reproduction steps. Be specific. "It doesn't work" is not a reproduction.
 - Expected vs actual behavior.
-- Logs from `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\` (Windows) or `~/Library/Logs/MaeclyPrint/` (macOS). Redact filenames if sensitive.
+- Logs from `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\` (Windows) or `~/Library/Logs/Pluryprint/` (macOS). Redact filenames if sensitive.
 - Screenshots if it's a UI issue.
 
 ### Feature requests

@@ -1,6 +1,6 @@
 # Architecture Decision Records (ADRs)
 
-> **TL;DR** — This folder contains the architectural decisions for MaeclyPrint, recorded in **Michael Nygard's ADR format**. Each file captures one decision: the context that forced it, the alternatives considered, the choice made, and the consequences. ADRs are append-only — once accepted, an ADR is never edited; it is **superseded** by a new ADR if the decision changes.
+> **TL;DR** — This folder contains the architectural decisions for Pluryprint, recorded in **Michael Nygard's ADR format**. Each file captures one decision: the context that forced it, the alternatives considered, the choice made, and the consequences. ADRs are append-only — once accepted, an ADR is never edited; it is **superseded** by a new ADR if the decision changes.
 
 ## Index
 

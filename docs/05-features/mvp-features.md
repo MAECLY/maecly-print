@@ -1,6 +1,6 @@
 # MVP Features (v0.1.0)
 
-> **TL;DR** — The minimum cut of MaeclyPrint that is genuinely useful: right-click → print PDFs and common images, with a small set of profiles, on Windows 10/11. No Office, no cloud, no fancy automation.
+> **TL;DR** — The minimum cut of Pluryprint that is genuinely useful: right-click → print PDFs and common images, with a small set of profiles, on Windows 10/11. No Office, no cloud, no fancy automation.
 
 The MVP exists to **prove the core thesis**: that a free, open-source tool can integrate cleanly into the Windows context menu and print N files in batch without the friction of Adobe Reader or the price of Print Conductor. Everything else can wait.
 
@@ -67,7 +67,7 @@ Settings not exposed in MVP: n-up, collate, watermark, separator pages, custom p
   - **Photo Color** — system default printer, color, simplex, none scaling, A4, portrait, high quality
 - User can create unlimited custom profiles.
 - One profile is marked **Default** for context menu invocations.
-- Profiles persist in `%APPDATA%\Maecly\MaeclyPrint\config\profiles.toml` (atomic writes).
+- Profiles persist in `%APPDATA%\Maecly\Pluryprint\config\profiles.toml` (atomic writes).
 
 ### 5. GUI
 
@@ -88,11 +88,11 @@ GUI MUST start in <500 ms cold from a context menu invocation.
 The same binary, headless mode:
 
 ```
-maeclyprint print --files <list> [--profile <name>] [--printer <name>] [...overrides]
-maeclyprint printers list
-maeclyprint profiles list
-maeclyprint queue status
-maeclyprint update check
+pluryprint print --files <list> [--profile <name>] [--printer <name>] [...overrides]
+pluryprint printers list
+pluryprint profiles list
+pluryprint queue status
+pluryprint update check
 ```
 
 `--help` for every subcommand. Stable exit codes (documented in [ipc-and-cli.md](../04-architecture/ipc-and-cli.md)).
@@ -106,7 +106,7 @@ Delivered, and slightly wider than this list: the five subcommand roots are `pri
 - Persistent queue (`queue.json`) survives crashes and restarts.
 - Concurrent **conversions**: configurable 1–8 (default 2), clamped in both the IPC command and the settings loader, and read into the dispatcher at app start. Spooling itself is sequential.
 - Automatic retry: the initial attempt plus 3 retries with exponential backoff (1s, 5s, 25s) before marking failed.
-- Structured JSONL logs in `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\`, size-capped with rotation and retention.
+- Structured JSONL logs in `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\`, size-capped with rotation and retention.
 
 ### 8. Notifications
 
@@ -121,7 +121,7 @@ Delivered:
 - On startup (delayed 30 s) and at most once per 24 h, check for a newer release. The check runs in Rust on a detached thread, so a cold start never waits on the network. The current implementation queries the **GitHub `releases/latest` API**, not `updates.maecly.com` — that manifest host is an M4 deliverable.
 - Manual "Check for updates now" from About.
 - If a newer version is available: an in-app toast (with the release notes) and an About-screen card offering **Install now**, **defer** (say nothing until the next check window) or **skip this version** (silence exactly that tag; a later release prompts again). The skipped tag is persisted.
-- **Install now** downloads the artifact named by `latest.json`, verifies its signature, installs it per-user and offers a restart ([FR-082](../03-requirements/functional-requirements.md), FR-083). A major version needs a second confirmation (FR-087). The CLI equivalent is `maeclyprint update install [--yes]`. See [ADR-0008](../adr/0008-installer-nsis-per-user.md).
+- **Install now** downloads the artifact named by `latest.json`, verifies its signature, installs it per-user and offers a restart ([FR-082](../03-requirements/functional-requirements.md), FR-083). A major version needs a second confirmation (FR-087). The CLI equivalent is `pluryprint update install [--yes]`. See [ADR-0008](../adr/0008-installer-nsis-per-user.md).
 
 Not delivered — this is the honest part:
 
@@ -132,14 +132,14 @@ Not delivered — this is the honest part:
 
 **Not started.** `installers/windows/` and `installers/macos/` contain only a `.gitkeep`. Everything below is the target, not the state:
 
-- **Inno Setup** generates `MaeclyPrint-Setup-0.1.0-x64.exe` (~10 MB).
-- Installs to `%LOCALAPPDATA%\Programs\MaeclyPrint`.
+- **Inno Setup** generates `Pluryprint-Setup-0.1.0-x64.exe` (~10 MB).
+- Installs to `%LOCALAPPDATA%\Programs\Pluryprint`.
 - Bundles SumatraPDF binary (~10 MB additional). Today `scripts/fetch-sumatrapdf.{ps1,sh}` fetch it into `src-tauri/resources/sumatrapdf/` for development; a machine without it gets a `DependencyMissing` that pauses the job.
 - Registers Sparse MSIX for shell extension.
 - Creates Start Menu shortcut + optional desktop shortcut.
 - Code-signed with EV cert from day 1 to avoid SmartScreen warnings.
 
-Until this lands there is no supported way to install MaeclyPrint; the context-menu entry in §1 depends on it.
+Until this lands there is no supported way to install Pluryprint; the context-menu entry in §1 depends on it.
 
 ### 11. Localization
 

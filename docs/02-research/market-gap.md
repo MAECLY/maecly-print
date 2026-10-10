@@ -1,6 +1,6 @@
 # Market Gap
 
-> **TL;DR** — A free, actively maintained, open-source batch printer with native Windows shell integration does not exist. The reasons are structural — the user base is a B2B niche that pays the commercial vendors without complaint, the developer community largely does not share this pain point, the technical surface is unusually broad (shell extensions plus multi-format rendering plus driver quirks), and prior OSS attempts have been abandoned. MaeclyPrint exists to occupy that gap, and the conditions to do so successfully are better than they have been at any point in the last decade.
+> **TL;DR** — A free, actively maintained, open-source batch printer with native Windows shell integration does not exist. The reasons are structural — the user base is a B2B niche that pays the commercial vendors without complaint, the developer community largely does not share this pain point, the technical surface is unusually broad (shell extensions plus multi-format rendering plus driver quirks), and prior OSS attempts have been abandoned. Pluryprint exists to occupy that gap, and the conditions to do so successfully are better than they have been at any point in the last decade.
 
 ## Defining the Gap
 
@@ -89,15 +89,15 @@ Print Conductor's reviews on Capterra, G2, and SourceForge include consistent th
 
 These quotes are from satisfied paying customers. The unsatisfied ones — those for whom $149 was never approachable — do not appear in commercial review sites at all. They appear in `r/sysadmin` complaining about the 15-file cap.
 
-### MaeclyPrint's own anticipated audience
+### Pluryprint's own anticipated audience
 
-The five personas in [target-users.md](../01-vision/target-users.md) (office admin, print shop operator, sysadmin, embedded engineer, teacher) are not a sample frame — they are composites of real workflows surfaced in the discussions above. Each one has a current workaround that is materially worse than what MaeclyPrint will ship.
+The five personas in [target-users.md](../01-vision/target-users.md) (office admin, print shop operator, sysadmin, embedded engineer, teacher) are not a sample frame — they are composites of real workflows surfaced in the discussions above. Each one has a current workaround that is materially worse than what Pluryprint will ship.
 
 ### Adjacent OSS projects have audiences
 
 `clawPDF` has thousands of GitHub stars. `SumatraPDF`, the lightweight PDF reader many users invoke from `ShellExecute`-based scripts, has tens of thousands. `Inkscape`, which people occasionally script to convert SVG batches for printing, has a long tail of "I use it for printing" mentions in its forum. The audience for "free, lightweight, focused desktop print tooling" exists; it is currently fragmented across tools that solve adjacent slices of the problem.
 
-## Why MaeclyPrint Can Win
+## Why Pluryprint Can Win
 
 The structural barriers above are real, but the conditions in 2026 to overcome them are unusually favorable.
 
@@ -135,11 +135,11 @@ We are no longer the first project to need any of this. Each integration is docu
 
 ### 3. The Windows 11 modern context menu is a fresh greenfield
 
-`IExplorerCommand` plus Sparse MSIX is *new*. The commercial competitors built their products against the legacy `IContextMenu` interface and never invested in re-tooling. Print Conductor, Batch & Print Pro, and the others would all benefit from modern menu integration; none of them ship it. By treating modern context menu integration as a **first-class** feature from day one, MaeclyPrint enters with a differentiator the incumbents would have to retrofit.
+`IExplorerCommand` plus Sparse MSIX is *new*. The commercial competitors built their products against the legacy `IContextMenu` interface and never invested in re-tooling. Print Conductor, Batch & Print Pro, and the others would all benefit from modern menu integration; none of them ship it. By treating modern context menu integration as a **first-class** feature from day one, Pluryprint enters with a differentiator the incumbents would have to retrofit.
 
 ### 4. A sustainable maintenance model is realistic
 
-Past OSS attempts (DarkStorm's BPH, scattered batch-print scripts) failed because they relied on a single contributor's spare time and burned out. MaeclyPrint's sustainability plan combines several streams to avoid that fate:
+Past OSS attempts (DarkStorm's BPH, scattered batch-print scripts) failed because they relied on a single contributor's spare time and burned out. Pluryprint's sustainability plan combines several streams to avoid that fate:
 
 - **Donations** (GitHub Sponsors, OpenCollective). The category has demonstrated willingness to pay $79–$149 for the commercial alternative; capturing a small percentage as voluntary donations from professional users is plausible.
 - **Optional, paid cloud features** (post-v1.0). Strictly opt-in. Examples that respect the privacy-first stance: a hosted profile-sync service for organizations, a hosted printer-driver compatibility database. The desktop app remains 100% free and 100% functional without these.
@@ -149,7 +149,7 @@ Past OSS attempts (DarkStorm's BPH, scattered batch-print scripts) failed becaus
 
 ### 5. The competitive moat is "we are free and integrated"
 
-The two things MaeclyPrint provides that the competition cannot easily match are exactly the two things the competition cannot price-match or technically retrofit:
+The two things Pluryprint provides that the competition cannot easily match are exactly the two things the competition cannot price-match or technically retrofit:
 
 - **Free.** Print Conductor cannot drop to $0 without burning down its existing revenue base. They will not.
 - **Modern shell integration.** Retrofitting `IExplorerCommand` requires repackaging the entire product as a Sparse MSIX, refactoring registration logic, and re-testing every shell interaction. None of the incumbents has done this in five years; betting they will rush to do it now is reasonable to discount.
@@ -160,17 +160,17 @@ In the spirit of intellectual honesty, the conditions could turn against us.
 
 | Risk | Likelihood | Mitigation |
 | --- | --- | --- |
-| Microsoft removes the 15-file cap entirely | Low (it has been unchanged since at least Windows 7) | Even if removed, the cap is only one of several reasons users want MaeclyPrint. |
+| Microsoft removes the 15-file cap entirely | Low (it has been unchanged since at least Windows 7) | Even if removed, the cap is only one of several reasons users want Pluryprint. |
 | A commercial vendor releases a free tier with shell integration | Medium | Even a free Print Conductor tier would not be open source; we keep the OSS, privacy, and lightweight pillars. |
 | Tauri 2 ecosystem stalls | Low (Tauri 2.x is on a stable cadence and has institutional sponsorship) | Rust core is portable; UI layer is the only Tauri-specific piece. |
 | A competing OSS project enters the gap | Medium | Coopetition. We collaborate where possible, differentiate on shell integration and Windows/macOS dual focus. |
 | Maintainer burnout (the historical OSS failure mode) | High if not actively managed | Document everything, lower the bar to first contribution, set up a 2–3 person maintainer rotation by v1.0. |
 
-The biggest risk is the last one. The structural reason every prior OSS attempt failed was unsustainable solo maintenance, not technical inability. MaeclyPrint's success depends on building governance and contributor onboarding from day one, not bolting them on at v2.0.
+The biggest risk is the last one. The structural reason every prior OSS attempt failed was unsustainable solo maintenance, not technical inability. Pluryprint's success depends on building governance and contributor onboarding from day one, not bolting them on at v2.0.
 
 ## Summary
 
-The market gap is real, structural, and persistent. The OSS world has tried and failed to fill it. The conditions in 2026 — Tauri 2, mature Rust ecosystem, modern Windows shell APIs, demonstrable demand — are the most favorable they have ever been. MaeclyPrint occupies the gap by being unapologetically focused: free, GPLv3, modern context menu integration, multi-format, lightweight, privacy-first, and built to be maintained by more than one person.
+The market gap is real, structural, and persistent. The OSS world has tried and failed to fill it. The conditions in 2026 — Tauri 2, mature Rust ecosystem, modern Windows shell APIs, demonstrable demand — are the most favorable they have ever been. Pluryprint occupies the gap by being unapologetically focused: free, GPLv3, modern context menu integration, multi-format, lightweight, privacy-first, and built to be maintained by more than one person.
 
 ## Related Documents
 

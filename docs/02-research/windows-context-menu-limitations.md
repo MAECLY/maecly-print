@@ -1,10 +1,10 @@
-# Windows Context Menu Limitations (and How MaeclyPrint Sidesteps Them)
+# Windows Context Menu Limitations (and How Pluryprint Sidesteps Them)
 
-> **TL;DR** — Windows imposes several structural and behavioral limits on the right-click "Print" experience: a hard 15-file cap on the legacy verb, multiple `ShellExecute` quirks with the `printto` verb, application-specific bugs with Adobe Reader and Acrobat DC, and a Windows 11 modern-menu requirement that shell extensions ship with package identity (MSIX or Sparse). MaeclyPrint avoids each of these by registering as a Sparse MSIX with an `IExplorerCommand` handler that consumes the full `IShellItemArray`, owning its own format pipeline, and never delegating the print job to a third-party application like Adobe.
+> **TL;DR** — Windows imposes several structural and behavioral limits on the right-click "Print" experience: a hard 15-file cap on the legacy verb, multiple `ShellExecute` quirks with the `printto` verb, application-specific bugs with Adobe Reader and Acrobat DC, and a Windows 11 modern-menu requirement that shell extensions ship with package identity (MSIX or Sparse). Pluryprint avoids each of these by registering as a Sparse MSIX with an `IExplorerCommand` handler that consumes the full `IShellItemArray`, owning its own format pipeline, and never delegating the print job to a third-party application like Adobe.
 
 ## Why This Matters for the Project
 
-The single biggest claim MaeclyPrint makes is that **right-click batch printing should just work**. To make that claim credibly, we have to be precise about what Windows actually does, what it intentionally does not do, and where the application-layer bugs live. This document is the reference: when a future contributor asks "why are we doing it that way?" the answer should be in here.
+The single biggest claim Pluryprint makes is that **right-click batch printing should just work**. To make that claim credibly, we have to be precise about what Windows actually does, what it intentionally does not do, and where the application-layer bugs live. This document is the reference: when a future contributor asks "why are we doing it that way?" the answer should be in here.
 
 ## The 15-File Cap
 
@@ -30,7 +30,7 @@ The cap is enforced by the **legacy context menu host** in Explorer when it comp
 - Programmatically iterating with `ShellExecuteEx` works but inherits all the per-application quirks below.
 - A custom shell extension that consumes the **full `IShellItemArray`** (which has no documented item-count limit) bypasses the cap entirely.
 
-This last bullet is the foundation of MaeclyPrint's shell integration design.
+This last bullet is the foundation of Pluryprint's shell integration design.
 
 ## The `printto` Verb
 
@@ -108,7 +108,7 @@ Excel's `printto` invocation respects the workbook's *currently saved* print are
 
 ### Implication
 
-Any batch printer that delegates to Word, Excel, or Adobe via `printto` inherits the bugs and quirks of each of those applications. The implication for MaeclyPrint is unambiguous: **own the rendering pipeline**. We render PDFs with `pdfium`/`mupdf`. We render Office files with headless LibreOffice (or Office Interop only when explicitly available and selected by the user). We render images, HTML, and text with Rust crates we control. We never invoke `ShellExecute(printto, ...)` against a third-party application as a primary code path.
+Any batch printer that delegates to Word, Excel, or Adobe via `printto` inherits the bugs and quirks of each of those applications. The implication for Pluryprint is unambiguous: **own the rendering pipeline**. We render PDFs with `pdfium`/`mupdf`. We render Office files with headless LibreOffice (or Office Interop only when explicitly available and selected by the user). We render images, HTML, and text with Rust crates we control. We never invoke `ShellExecute(printto, ...)` against a third-party application as a primary code path.
 
 ## Windows 11 Modern Context Menu: Package Identity Required
 
@@ -134,7 +134,7 @@ Full MSIX packaging means accepting the MSIX execution model: the app runs in a 
 
 **Sparse MSIX** is the compromise. The application is installed by a traditional MSI/EXE installer and runs as a regular Win32 process. A separate, signed `.msix` file is registered alongside the install to grant the application **package identity** without forcing it into the MSIX runtime container. The Sparse package's manifest declares the `IExplorerCommand` extension, and Windows treats the entry as a first-class modern menu participant.
 
-This is the path MaeclyPrint will take.
+This is the path Pluryprint will take.
 
 ### Per-user vs per-machine registration
 
@@ -142,23 +142,23 @@ Shell extensions registered under `HKEY_CURRENT_USER` are **silently ignored** b
 
 For Sparse MSIX, the equivalent constraint surfaces in the package signing and installation scope: per-machine package registration requires admin elevation; per-user package registration is permitted but Explorer's enforcement of the per-machine rule for shell extensions still applies, so the modern-menu entry only reliably appears for per-machine installs.
 
-The MaeclyPrint installer will offer both modes:
+The Pluryprint installer will offer both modes:
 
 - **Per-machine install (default).** Requires elevation. Modern context menu entry available to all users.
-- **Per-user install (`/CurrentUser` switch).** No elevation. App functions normally; modern context menu entry not registered (the user can still launch MaeclyPrint and add files manually).
+- **Per-user install (`/CurrentUser` switch).** No elevation. App functions normally; modern context menu entry not registered (the user can still launch Pluryprint and add files manually).
 
-## Putting It Together: How MaeclyPrint Sidesteps Each Limit
+## Putting It Together: How Pluryprint Sidesteps Each Limit
 
-| Limitation | MaeclyPrint approach |
+| Limitation | Pluryprint approach |
 | --- | --- |
 | 15-file cap on legacy verb | Register our own `IExplorerCommand` handler. Consume the full `IShellItemArray`. Process unlimited selections. |
 | Modern Win11 menu requires package identity | Ship as **Sparse MSIX** alongside the MSI installer. Declare `windows.fileExplorerContextMenus` extension in the package manifest. |
 | Legacy menu still needed for Win10 and "Show more options" | Register a parallel `IShellExtInit` / `IContextMenu` handler that exposes the same verb. Same backend command processing on both code paths. |
 | `printto` quirks (default printer race, ordering, DDE) | Do not use `printto`. Render every supported format with libraries we own. Submit jobs to the spooler with our own DEVMODE. |
 | Adobe Acrobat DC hides "Print" verb | Irrelevant to us — we never depend on Adobe being the default handler. We open the PDF with `pdfium`/`mupdf` ourselves. |
-| Adobe Reader silent partial failures | Same — we never invoke Reader. The user can keep Reader as their default viewer; MaeclyPrint does not ride on top of it. |
+| Adobe Reader silent partial failures | Same — we never invoke Reader. The user can keep Reader as their default viewer; Pluryprint does not ride on top of it. |
 | Per-user shell extension registrations are ignored | Default installer is per-machine and elevates. A per-user mode skips shell registration but still gives a working GUI/CLI. |
-| Print order races across multiple application launches | A single `IExplorerCommand` invocation hands the entire selection to a single MaeclyPrint process. We render and submit jobs serially (or, optionally, as a single spool job — the "Single Print Job Mode" idea borrowed from 2Printer). |
+| Print order races across multiple application launches | A single `IExplorerCommand` invocation hands the entire selection to a single Pluryprint process. We render and submit jobs serially (or, optionally, as a single spool job — the "Single Print Job Mode" idea borrowed from 2Printer). |
 | Helper applications (Word/Excel/Adobe) staying open after print | We do not launch helper applications. |
 
 ## Pseudocode of the Shell Integration Path
@@ -168,13 +168,13 @@ The integration path the user actually exercises looks like this in shorthand. T
 ```text
 1. User selects N files in Explorer (N may be > 15).
 2. User right-clicks. Explorer composes the modern context menu.
-3. Explorer queries our IExplorerCommand for icon, label ("Print all with MaeclyPrint"), and enabled state.
+3. Explorer queries our IExplorerCommand for icon, label ("Print all with Pluryprint"), and enabled state.
 4. We answer "enabled" if at least one file extension in the selection is in our supported list.
 5. User clicks the entry.
 6. Explorer calls IExplorerCommand::Invoke with an IShellItemArray containing all N items.
 7. We enumerate the IShellItemArray (no item-count limit).
 8. We serialize the file paths into a job manifest.
-9. We launch (or send IPC to a running) maeclyprint.exe with the manifest.
+9. We launch (or send IPC to a running) pluryprint.exe with the manifest.
 10. The Tauri window opens with the file list pre-populated.
 11. The user confirms options and clicks Print.
 12. The Rust core renders each file via the appropriate backend (pdfium, lo-headless, image-rs, etc.).

@@ -9,7 +9,7 @@
 | ADR-0006 (Accepted, 2026-05-03) selects Inno Setup as the primary installer, explicitly rejecting NSIS as "quirky … less polished" | `tauri.conf.json` configures `bundle.windows.nsis` and nothing else. NSIS is what a `pnpm tauri build` produces. |
 | ADR-0006 requires a post-install PowerShell step registering a Sparse MSIX via `Add-AppxPackage -Register -ExternalLocation` | No sparse package exists. `installers/windows/sparse-msix/` was never created. |
 | ADR-0006 requires `installers/windows/inno-setup.iss` + `build.ps1` | Neither file exists. `installers/windows/` holds a single `.gitkeep`. |
-| ADR-0005 / ADR-0006 assume a C++ COM DLL named `shell-ext-win.dll` / `MaeclyPrintShellExt.dll` | The extension is a Rust `cdylib` and the built artifact is **`shell_ext_win.dll`** (underscores — `[lib] name = "shell_ext_win"`). |
+| ADR-0005 / ADR-0006 assume a C++ COM DLL named `shell-ext-win.dll` / `PluryprintShellExt.dll` | The extension is a Rust `cdylib` and the built artifact is **`shell_ext_win.dll`** (underscores — `[lib] name = "shell_ext_win"`). |
 | ADR-0006 fixes the app CLSID as `{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}` in draft snippets | The real CLSID, in `shell-ext-win/src/clsid.rs`, is **`{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}`**. |
 
 **Decided (2026-10-09): option 2.** [ADR-0008](../adr/0008-installer-nsis-per-user.md) supersedes ADR-0006. The Windows installer is Tauri's per-user NSIS bundle, with signed updater artifacts (`createUpdaterArtifacts`), because `tauri-plugin-updater` installs updates by running that same setup. The sparse-MSIX identity remains open and is tracked in ADR-0008. The two options as they were weighed:
@@ -33,21 +33,21 @@ pnpm tauri build                      # PR/CI builds: --config src-tauri/tauri.c
 
 - `fetch-sumatrapdf.ps1` puts the SumatraPDF build for that architecture, with its licence files, in `src-tauri/resources/sumatrapdf/`.
 - `build-shell-ext.ps1` builds `shell_ext_win.dll` and copies it to `src-tauri/windows/`. The installer hooks (`src-tauri/windows/installer-hooks.nsh`, wired through `bundle.windows.nsis.installerHooks`) refuse to build an installer without it.
-- The result is `src-tauri/target/release/bundle/nsis/MaeclyPrint_<version>_<arch>-setup.exe`, per user (`installMode: "currentUser"`), installing to `%LOCALAPPDATA%\MaeclyPrint\` with its uninstall entry under HKCU. No MSI is built (`bundle.targets` has no `msi`).
+- The result is `src-tauri/target/release/bundle/nsis/Pluryprint_<version>_<arch>-setup.exe`, per user (`installMode: "currentUser"`), installing to `%LOCALAPPDATA%\Pluryprint\` with its uninstall entry under HKCU. No MSI is built (`bundle.targets` has no `msi`).
 
 What the hooks register, all under `HKCU\Software\Classes`:
 
 | Key | Value |
 |---|---|
 | `CLSID\{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}\InprocServer32` | `(Default)` = `<install dir>\shell_ext_win.dll`, `ThreadingModel` = `Apartment` |
-| `*\shell\MaeclyPrint` and `Directory\shell\MaeclyPrint` | `ExplorerCommandHandler` = the CLSID, `MultiSelectModel` = `Player`, `Icon` = `maeclyprint.exe,0` |
+| `*\shell\Pluryprint` and `Directory\shell\Pluryprint` | `ExplorerCommandHandler` = the CLSID, `MultiSelectModel` = `Player`, `Icon` = `pluryprint.exe,0` |
 
 ### Verified on Windows 11 ARM64 (24H2, 2026-10-10)
 
 With UAC **enabled** and the installer run from a non-elevated, medium-integrity session (`whoami /groups` = *Medium Mandatory Level*, not an administrator token):
 
-- `MaeclyPrint_0.0.1_arm64-setup.exe /S` exits 0 in about 7 s with no elevation; files land in `%LOCALAPPDATA%\MaeclyPrint\` (`maeclyprint.exe`, `maeclyprint-cli.exe`, `shell_ext_win.dll`, `uninstall.exe`, `resources\sumatrapdf\` with the ARM64 `SumatraPDF.exe` and its licence files); the CLSID and verbs exist under HKCU and nothing under HKLM. `uninstall.exe /S` exits 0 and removes the keys.
-- The classic context menu that Explorer builds for a `.pdf` (`IContextMenu` from the file's folder) lists **MaeclyPrint**, and its sub-command *Print 1 file* put the file into the paused default queue as a job named `e2e-sample.pdf`.
+- `Pluryprint_0.0.1_arm64-setup.exe /S` exits 0 in about 7 s with no elevation; files land in `%LOCALAPPDATA%\Pluryprint\` (`pluryprint.exe`, `pluryprint-cli.exe`, `shell_ext_win.dll`, `uninstall.exe`, `resources\sumatrapdf\` with the ARM64 `SumatraPDF.exe` and its licence files); the CLSID and verbs exist under HKCU and nothing under HKLM. `uninstall.exe /S` exits 0 and removes the keys.
+- The classic context menu that Explorer builds for a `.pdf` (`IContextMenu` from the file's folder) lists **Pluryprint**, and its sub-command *Print 1 file* put the file into the paused default queue as a job named `e2e-sample.pdf`.
 
 One limit found on the way: when Explorer itself runs **elevated** (UAC turned off, as on the test VM by default), Windows ignores per-user COM registrations for shell extensions, so the HKCU-registered handler is never created and the entry does not appear. That is the documented behaviour for elevated processes, not something a per-user installer can change. Machines with UAC on, the Windows default, are not affected.
 
@@ -70,7 +70,7 @@ That is the Windows 10 verb shape from `shell-ext-win/README.md`: the menu entry
 
 - `installMode: "currentUser"` is what keeps the no-admin requirement (NFR-020) satisfied: a per-user install under `%LOCALAPPDATA%`, `HKCU` only.
 - `targets` is an explicit list without `msi`. The bundler builds only the entries that apply to the host, so a Windows build produces the per-user NSIS `setup.exe` and nothing else. It used to be `"all"`, which also built a per-machine WiX MSI (Program Files, elevation) next to it. Installing that MSI and later updating through the NSIS-based `latest.json` left two installs and two Start-menu entries, which contradicts [ADR-0008](../adr/0008-installer-nsis-per-user.md). `fr_083_no_per_machine_msi_is_bundled` guards the list.
-- The crate has two binaries, `maeclyprint` (the app) and `maeclyprint-cli` (`src/bin/maeclyprint-cli.rs`, the console-subsystem CLI front end scripts wait on). Tauri's bundler packages every binary of the crate, so the NSIS installer is expected to place `maeclyprint-cli.exe` next to `maeclyprint.exe`; **verify this on the first Windows build.** Neither is added to `PATH` yet.
+- The crate has two binaries, `pluryprint` (the app) and `pluryprint-cli` (`src/bin/pluryprint-cli.rs`, the console-subsystem CLI front end scripts wait on). Tauri's bundler packages every binary of the crate, so the NSIS installer is expected to place `pluryprint-cli.exe` next to `pluryprint.exe`; **verify this on the first Windows build.** Neither is added to `PATH` yet.
 - `plugins.updater` and `createUpdaterArtifacts` are set: the NSIS setup is signed for the updater, and `tauri-plugin-updater` installs an update by running that same setup in `passive` mode (see [auto-update-flow.md](./auto-update-flow.md)).
 - Nothing is code-signed. See [ci-cd.md](./ci-cd.md) § *What does not exist yet*.
 
@@ -99,20 +99,20 @@ The script lives at `installers/windows/inno-setup.iss`. Below is the section-by
 ```iss
 [Setup]
 AppId={{B72E6F3A-1C4F-4C8E-9B62-3A4E5D6F7A8B}
-AppName=MaeclyPrint
+AppName=Pluryprint
 AppVersion={#MyAppVersion}
-AppPublisher=MaeclyPrint Project
+AppPublisher=Pluryprint Project
 AppPublisherURL=https://maecly.com
 AppSupportURL=https://maecly.com/support
 AppUpdatesURL=https://maecly.com/releases
-DefaultDirName={localappdata}\Programs\MaeclyPrint
-DefaultGroupName=MaeclyPrint
+DefaultDirName={localappdata}\Programs\Pluryprint
+DefaultGroupName=Pluryprint
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 DisableProgramGroupPage=yes
 LicenseFile=..\..\LICENSE
 OutputDir=output
-OutputBaseFilename=MaeclyPrint-Setup-{#MyAppVersion}
+OutputBaseFilename=Pluryprint-Setup-{#MyAppVersion}
 SetupIconFile=..\..\src-tauri\icons\icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -120,8 +120,8 @@ WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64 arm64
 ArchitecturesAllowed=x64 arm64
 MinVersion=10.0.19041
-UninstallDisplayIcon={app}\maeclyprint.exe
-UninstallDisplayName=MaeclyPrint {#MyAppVersion}
+UninstallDisplayIcon={app}\pluryprint.exe
+UninstallDisplayName=Pluryprint {#MyAppVersion}
 SignTool=signtool
 ```
 
@@ -136,15 +136,15 @@ Notes:
 
 ```iss
 [Files]
-Source: "..\..\src-tauri\target\release\maeclyprint.exe"; DestDir: "{app}"; Flags: ignoreversion signonce
-Source: "..\..\src-tauri\target\release\maeclyprint-cli.exe"; DestDir: "{app}"; Flags: ignoreversion signonce
+Source: "..\..\src-tauri\target\release\pluryprint.exe"; DestDir: "{app}"; Flags: ignoreversion signonce
+Source: "..\..\src-tauri\target\release\pluryprint-cli.exe"; DestDir: "{app}"; Flags: ignoreversion signonce
 Source: "..\..\src-tauri\target\release\WebView2Loader.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\src-tauri\resources\sumatrapdf\SumatraPDF.exe"; DestDir: "{app}\sumatrapdf"; Flags: ignoreversion
 Source: "..\..\src-tauri\resources\sumatrapdf\LICENSE.txt"; DestDir: "{app}\sumatrapdf"; Flags: ignoreversion
 Source: "..\..\shell-ext-win\target\release\shell_ext_win.dll"; DestDir: "{app}"; Flags: ignoreversion regserver 64bit
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "..\..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "sparse-msix\MaeclyPrint.msix"; DestDir: "{app}\sparse-msix"; Flags: ignoreversion; Check: IsWindows11
+Source: "sparse-msix\Pluryprint.msix"; DestDir: "{app}\sparse-msix"; Flags: ignoreversion; Check: IsWindows11
 ```
 
 Notes:
@@ -160,33 +160,33 @@ For Win 10 fallback (when Sparse MSIX is not deployed), we register a classic `I
 ```iss
 [Registry]
 ; CLSID for the in-proc COM server
-Root: HKCU; Subkey: "Software\Classes\CLSID\{{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}}"; ValueType: string; ValueData: "MaeclyPrint Shell Extension"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\CLSID\{{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}}"; ValueType: string; ValueData: "Pluryprint Shell Extension"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\CLSID\{{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}}\InprocServer32"; ValueType: string; ValueData: "{app}\shell_ext_win.dll"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\CLSID\{{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}}\InprocServer32"; ValueType: string; ValueName: "ThreadingModel"; ValueData: "Apartment"
 
 ; Attach to "AllFileSystemObjects" so the verb appears for any file/folder selection
-Root: HKCU; Subkey: "Software\Classes\AllFileSystemObjects\shellex\ContextMenuHandlers\MaeclyPrint"; ValueType: string; ValueData: "{{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\AllFileSystemObjects\shellex\ContextMenuHandlers\Pluryprint"; ValueType: string; ValueData: "{{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}}"; Flags: uninsdeletekey
 
-; Register the application URL handler for the maeclyprint:// scheme (used by IPC handoff)
-Root: HKCU; Subkey: "Software\Classes\maeclyprint"; ValueType: string; ValueData: "URL:MaeclyPrint Protocol"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\maeclyprint"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\maeclyprint\shell\open\command"; ValueType: string; ValueData: """{app}\maeclyprint.exe"" --uri ""%1"""
+; Register the application URL handler for the pluryprint:// scheme (used by IPC handoff)
+Root: HKCU; Subkey: "Software\Classes\pluryprint"; ValueType: string; ValueData: "URL:Pluryprint Protocol"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\pluryprint"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\pluryprint\shell\open\command"; ValueType: string; ValueData: """{app}\pluryprint.exe"" --uri ""%1"""
 ```
 
 Notes:
 
 - All entries are `HKCU\Software\Classes\` (per-user). No `HKLM` writes; no admin needed.
 - `uninsdeletekey` ensures the key is removed on uninstall.
-- The CLSID GUID `{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}` is fixed across versions; it's the contract with Windows. Its single source of truth is `shell-ext-win/src/clsid.rs` (`CLSID_MAECLYPRINT_COMMAND`), which documents the three places it must agree in. Never regenerate it: an already-installed machine keeps the old CLSID registered and the menu entry simply stops appearing.
-- Note the Win 10 fallback shape the crate documents is a **verb** under `HKCU\Software\Classes\*\shell\MaeclyPrint\ExplorerCommandHandler`, i.e. an `IExplorerCommand` handler, not the `shellex\ContextMenuHandlers` `IContextMenu` shape sketched above. The crate implements `IExplorerCommand` only. Whoever writes the real registration must reconcile this before shipping.
+- The CLSID GUID `{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}` is fixed across versions; it's the contract with Windows. Its single source of truth is `shell-ext-win/src/clsid.rs` (`CLSID_PLURYPRINT_COMMAND`), which documents the three places it must agree in. Never regenerate it: an already-installed machine keeps the old CLSID registered and the menu entry simply stops appearing.
+- Note the Win 10 fallback shape the crate documents is a **verb** under `HKCU\Software\Classes\*\shell\Pluryprint\ExplorerCommandHandler`, i.e. an `IExplorerCommand` handler, not the `shellex\ContextMenuHandlers` `IContextMenu` shape sketched above. The crate implements `IExplorerCommand` only. Whoever writes the real registration must reconcile this before shipping.
 
 ### `[Icons]` section
 
 ```iss
 [Icons]
-Name: "{group}\MaeclyPrint"; Filename: "{app}\maeclyprint.exe"
-Name: "{group}\Uninstall MaeclyPrint"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\MaeclyPrint"; Filename: "{app}\maeclyprint.exe"; Tasks: desktopicon
+Name: "{group}\Pluryprint"; Filename: "{app}\pluryprint.exe"
+Name: "{group}\Uninstall Pluryprint"; Filename: "{uninstallexe}"
+Name: "{userdesktop}\Pluryprint"; Filename: "{app}\pluryprint.exe"; Tasks: desktopicon
 ```
 
 ```iss
@@ -199,12 +199,12 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 ```iss
 [Run]
 Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""Add-AppxPackage -Path '{app}\sparse-msix\MaeclyPrint.msix' -ExternalLocation '{app}'"""; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""Add-AppxPackage -Path '{app}\sparse-msix\Pluryprint.msix' -ExternalLocation '{app}'"""; \
   Flags: runhidden waituntilterminated; \
   Check: IsWindows11; \
   StatusMsg: "Registering modern shell integration..."
 
-Filename: "{app}\maeclyprint.exe"; Description: "{cm:LaunchProgram,MaeclyPrint}"; Flags: postinstall skipifsilent nowait
+Filename: "{app}\pluryprint.exe"; Description: "{cm:LaunchProgram,Pluryprint}"; Flags: postinstall skipifsilent nowait
 ```
 
 The `-ExternalLocation` flag is what makes this a **Sparse** package — the MSIX manifest declares files that live outside the package, in the main install directory. This avoids duplicating the binary while still giving us MSIX identity.
@@ -214,7 +214,7 @@ The `-ExternalLocation` flag is what makes this a **Sparse** package — the MSI
 ```iss
 [UninstallRun]
 Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""Get-AppxPackage -Name 'MaeclyPrint' | Remove-AppxPackage"""; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""Get-AppxPackage -Name 'Pluryprint' | Remove-AppxPackage"""; \
   Flags: runhidden waituntilterminated; \
   RunOnceId: "RemoveSparseMsix"
 ```
@@ -255,10 +255,10 @@ var
   AppDataPath: String;
 begin
   // Optional: prompt user to remove their data
-  AppDataPath := ExpandConstant('{userappdata}\MaeclyPrint');
+  AppDataPath := ExpandConstant('{userappdata}\Pluryprint');
   if DirExists(AppDataPath) then
   begin
-    if MsgBox('Remove your MaeclyPrint profiles and logs at ' + AppDataPath + '?', mbConfirmation, MB_YESNO) = IDYES then
+    if MsgBox('Remove your Pluryprint profiles and logs at ' + AppDataPath + '?', mbConfirmation, MB_YESNO) = IDYES then
       DelTree(AppDataPath, True, True, True);
   end;
 end;
@@ -305,18 +305,18 @@ sparse-msix/
   <!-- These three values MUST match shell-ext-win/res/shellext.manifest
        character for character: Identity/@Publisher, Identity/@Name and
        Applications/Application/@Id. The embedded manifest already commits to
-       publisher="CN=Maecly, O=Maecly, C=ES", packageName="MaeclyPrint",
-       applicationId="MaeclyPrint" — so this Identity block is not free to
+       publisher="CN=Maecly, O=Maecly, C=ES", packageName="Pluryprint",
+       applicationId="Pluryprint" — so this Identity block is not free to
        choose. A mismatch surfaces as 0x80073D54, or as an extension that
        simply never appears. -->
   <Identity
-    Name="MaeclyPrint"
+    Name="Pluryprint"
     Publisher="CN=Maecly, O=Maecly, C=ES"
     Version="1.0.0.0" />
 
   <Properties>
-    <DisplayName>MaeclyPrint</DisplayName>
-    <PublisherDisplayName>MaeclyPrint Project</PublisherDisplayName>
+    <DisplayName>Pluryprint</DisplayName>
+    <PublisherDisplayName>Pluryprint Project</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
@@ -333,12 +333,12 @@ sparse-msix/
   </Capabilities>
 
   <Applications>
-    <Application Id="MaeclyPrint"
-                 Executable="maeclyprint.exe"
+    <Application Id="Pluryprint"
+                 Executable="pluryprint.exe"
                  uap10:TrustLevel="mediumIL"
                  uap10:RuntimeBehavior="win32App">
       <uap:VisualElements
-        DisplayName="MaeclyPrint"
+        DisplayName="Pluryprint"
         Description="Batch print N files from File Explorer"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
@@ -349,7 +349,7 @@ sparse-msix/
       <Extensions>
         <com:Extension Category="windows.comServer">
           <com:ComServer>
-            <com:SurrogateServer DisplayName="MaeclyPrint Shell Extension">
+            <com:SurrogateServer DisplayName="Pluryprint Shell Extension">
               <com:Class Id="B269B8DC-044F-4D65-8F1E-8F20A2E653EA" Path="shell_ext_win.dll" ThreadingModel="STA" />
             </com:SurrogateServer>
           </com:ComServer>
@@ -358,10 +358,10 @@ sparse-msix/
         <desktop:Extension Category="windows.fileExplorerContextMenus">
           <desktop:FileExplorerContextMenus>
             <desktop:ItemType Type="*">
-              <desktop:Verb Id="MaeclyPrintVerb" Clsid="B269B8DC-044F-4D65-8F1E-8F20A2E653EA" />
+              <desktop:Verb Id="PluryprintVerb" Clsid="B269B8DC-044F-4D65-8F1E-8F20A2E653EA" />
             </desktop:ItemType>
             <desktop:ItemType Type="Directory">
-              <desktop:Verb Id="MaeclyPrintVerb" Clsid="B269B8DC-044F-4D65-8F1E-8F20A2E653EA" />
+              <desktop:Verb Id="PluryprintVerb" Clsid="B269B8DC-044F-4D65-8F1E-8F20A2E653EA" />
             </desktop:ItemType>
           </desktop:FileExplorerContextMenus>
         </desktop:Extension>
@@ -378,9 +378,9 @@ The CLSID `B269B8DC-...` matches the one in the Inno Setup `[Registry]` section.
 After install:
 
 ```
-%LOCALAPPDATA%\Programs\MaeclyPrint\
-├── maeclyprint.exe              # Main app (Tauri runtime + all logic)
-├── maeclyprint-cli.exe          # Console CLI front end (scripts wait for it; see ipc-and-cli.md §3.1)
+%LOCALAPPDATA%\Programs\Pluryprint\
+├── pluryprint.exe              # Main app (Tauri runtime + all logic)
+├── pluryprint-cli.exe          # Console CLI front end (scripts wait for it; see ipc-and-cli.md §3.1)
 ├── shell_ext_win.dll            # COM in-proc server
 ├── WebView2Loader.dll           # WebView2 (system WebView2 used; this is loader stub)
 ├── LICENSE.txt                  # GPLv3
@@ -397,18 +397,18 @@ After install:
 User data lives separately:
 
 ```
-%APPDATA%\Maecly\MaeclyPrint\config\
+%APPDATA%\Maecly\Pluryprint\config\
 ├── config.toml       # App settings (FR-100..103)
 └── profiles.toml     # ALL custom profiles, as [[profile]] entries — one file,
                       #   not a directory of per-profile files
 
-%LOCALAPPDATA%\Maecly\MaeclyPrint\
+%LOCALAPPDATA%\Maecly\Pluryprint\
 ├── data\
 │   ├── queue.json        # The persisted queue (NFR-010: survives a crash)
 │   ├── shell-menu.json   # Explorer menu labels + profile rows (written by the app)
 │   ├── handoff\          # Short-lived context-menu selections
 │   └── logs\
-│       ├── maeclyprint-2026-05-03.jsonl
+│       ├── pluryprint-2026-05-03.jsonl
 │       └── (rolls daily AND at a size ceiling; retained 14 days / 7 files,
 │            whichever bound bites first — see src-tauri/src/logging/mod.rs)
 └── cache\
@@ -425,15 +425,15 @@ Complete list of the registry writes the designed installer would perform (all u
 |---|---|
 | `CLSID\{B269B8DC-...}` | Friendly name of the COM server |
 | `CLSID\{B269B8DC-...}\InprocServer32` | DLL path + threading model |
-| `AllFileSystemObjects\shellex\ContextMenuHandlers\MaeclyPrint` | Hooks the verb into Win 10 File Explorer |
-| `maeclyprint` | URL protocol handler for `maeclyprint://` IPC scheme |
-| `maeclyprint\shell\open\command` | Command to launch when URL is invoked |
+| `AllFileSystemObjects\shellex\ContextMenuHandlers\Pluryprint` | Hooks the verb into Win 10 File Explorer |
+| `pluryprint` | URL protocol handler for `pluryprint://` IPC scheme |
+| `pluryprint\shell\open\command` | Command to launch when URL is invoked |
 
-Plus a single key under `HKCU\Software\MaeclyPrint`:
+Plus a single key under `HKCU\Software\Pluryprint`:
 
 | Key | Purpose |
 |---|---|
-| `HKCU\Software\MaeclyPrint\Settings` | App-level settings (channel, language, etc.) — written by app at runtime, not by installer |
+| `HKCU\Software\Pluryprint\Settings` | App-level settings (channel, language, etc.) — written by app at runtime, not by installer |
 
 Inno Setup's standard `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\<AppId>_is1` key is also written automatically (for Add/Remove Programs).
 
@@ -463,22 +463,22 @@ We **never** silently install third-party software. Every install action is the 
 
 When the user runs the uninstaller (`unins000.exe`):
 
-1. **Stop running app:** if `maeclyprint.exe` is running, prompt the user to close it (or wait + retry).
-2. **Remove sparse MSIX:** `Remove-AppxPackage -Name MaeclyPrint`. If this fails (rare), log and continue — orphan MSIX entries are harmless.
+1. **Stop running app:** if `pluryprint.exe` is running, prompt the user to close it (or wait + retry).
+2. **Remove sparse MSIX:** `Remove-AppxPackage -Name Pluryprint`. If this fails (rare), log and continue — orphan MSIX entries are harmless.
 3. **Unregister shell extension DLL:** `regsvr32 /u shell_ext_win.dll` (no-op if Inno Setup's `regserver` flag wasn't used, but defensive).
 4. **Delete registry entries:** all `HKCU\Software\Classes\` entries listed in `[Registry]` (Inno Setup handles via `uninsdeletekey`).
 5. **Delete install directory:** Inno Setup default behavior.
-6. **Prompt for user data:** ask whether to delete `%APPDATA%\Maecly\MaeclyPrint` and `%LOCALAPPDATA%\Maecly\MaeclyPrint`. Default is **no** (preserve user data).
+6. **Prompt for user data:** ask whether to delete `%APPDATA%\Maecly\Pluryprint` and `%LOCALAPPDATA%\Maecly\Pluryprint`. Default is **no** (preserve user data).
 7. **Refresh shell:** broadcast `WM_SETTINGCHANGE` so File Explorer re-reads context menu registrations.
 
-After a clean uninstall (with user data wiped), `regedit` and `Process Monitor` should find zero MaeclyPrint references. **This is not tested anywhere.** There is no installer test job in `ci.yml`, and there cannot be one until an installer exists; today it is a manual QA item on the release checklist.
+After a clean uninstall (with user data wiped), `regedit` and `Process Monitor` should find zero Pluryprint references. **This is not tested anywhere.** There is no installer test job in `ci.yml`, and there cannot be one until an installer exists; today it is a manual QA item on the release checklist.
 
 ## Build script
 
 **This file does not exist.** `installers/windows/build.ps1` would be the single entrypoint. It would:
 
 0. Run `scripts/fetch-sumatrapdf.ps1 -Arch <x64|arm64>` for the installer's architecture (or verify a previous run left `SumatraPDF.exe`, `LICENSE.txt` and a `SOURCE.txt` naming that architecture in `src-tauri/resources/sumatrapdf/`). Skipping this is the difference between a working installer and one whose every print job fails.
-1. Validate that `maeclyprint.exe`, `shell_ext_win.dll` and `SumatraPDF.exe` exist in expected locations — note the DLL comes out of `shell-ext-win/target/<triple>/release/`, a *separate* target directory from the app's, because the crate is not a workspace member.
+1. Validate that `pluryprint.exe`, `shell_ext_win.dll` and `SumatraPDF.exe` exist in expected locations — note the DLL comes out of `shell-ext-win/target/<triple>/release/`, a *separate* target directory from the app's, because the crate is not a workspace member.
 2. Read the version from `src-tauri/tauri.conf.json`.
 3. Generate the sparse MSIX with `MakeAppx.exe` from the Windows SDK.
 4. Sign the MSIX with the EV cert (release builds) or self-signed cert (nightly builds) — neither certificate exists yet; see [code-signing.md](./code-signing.md).
@@ -504,7 +504,7 @@ foreach ($tool in $required) {
 }
 
 # 2. Build sparse MSIX
-$msixPath = "sparse-msix/MaeclyPrint.msix"
+$msixPath = "sparse-msix/Pluryprint.msix"
 & MakeAppx.exe pack /d "sparse-msix/" /p $msixPath /nv | Out-Host
 if ($LASTEXITCODE -ne 0) { throw "MakeAppx failed" }
 
@@ -518,7 +518,7 @@ if ($LASTEXITCODE -ne 0) { throw "MSIX signing failed" }
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed" }
 
 # 5. Verify signature
-$setupPath = "output/MaeclyPrint-Setup-$Version.exe"
+$setupPath = "output/Pluryprint-Setup-$Version.exe"
 & SignTool.exe verify /pa /v $setupPath
 if ($LASTEXITCODE -ne 0) { throw "Setup verification failed" }
 

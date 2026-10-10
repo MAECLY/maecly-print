@@ -1,10 +1,10 @@
 # Print Job
 
-> **TL;DR** — The **Print Job** screen: a two-pane composer where the user assembles a batch of files on the left and dials in print settings on the right, sees the *exact* command MaeclyPrint will run, and submits the batch to the print queue. Files are added from the OS picker or by dragging them onto the window; every file is inspected for type/size/page-count before it can be printed.
+> **TL;DR** — The **Print Job** screen: a two-pane composer where the user assembles a batch of files on the left and dials in print settings on the right, sees the *exact* command Pluryprint will run, and submits the batch to the print queue. Files are added from the OS picker or by dragging them onto the window; every file is inspected for type/size/page-count before it can be printed.
 
 This document is the source of truth for the **content and behavior** of the Print Job screen (`src/screens/PrintJobScreen.tsx`). The queue that receives a submitted batch lives in [queue.md](./queue.md); the conversion/print pipeline behind it is the [print engine](../04-architecture/print-engine.md); the wire contract is the [IPC & CLI doc](../04-architecture/ipc-and-cli.md); persisted shapes are in the [data model](../04-architecture/data-model.md).
 
-The screen is the GUI counterpart to the `print_files` IPC command, with `inspect_files` and `preview_command` as its two read-only helpers. It is the destination of the **New print job** action on Home and of the right-click "Print with MaeclyPrint" shell entry.
+The screen is the GUI counterpart to the `print_files` IPC command, with `inspect_files` and `preview_command` as its two read-only helpers. It is the destination of the **New print job** action on Home and of the right-click "Print with Pluryprint" shell entry.
 
 ## Screen layout
 
@@ -64,7 +64,7 @@ A profile provides the baseline; the controls below it are per-invocation overri
 | Control      | Options                                   | Wire field (`JobSettings`)                       |
 | ------------ | ----------------------------------------- | ------------------------------------------------ |
 | **Profile**  | built-in + saved custom profiles          | `profile_name` (display/log only)                |
-| **Printer**  | `System default` + installed printers (minus MaeclyPrint-disabled) | `printer` (`null` = default) |
+| **Printer**  | `System default` + installed printers (minus Pluryprint-disabled) | `printer` (`null` = default) |
 | **Sides**    | Single / Long / Short                     | `duplex` = `none` / `long` / `short`             |
 | **Color**    | Color / B&W                               | `color_mode` = `color` / `monochrome`            |
 | **Copies**   | integer, validated `1..=999`              | `copies`                                         |
@@ -78,7 +78,7 @@ A profile provides the baseline; the controls below it are per-invocation overri
 - **Changing the profile resets the overrides** (FR-041): from the dropdown, from Ctrl/⌘+K or from a context-menu selection, the new profile's own values are what the panel shows and what is sent — overrides made against the previous profile never linger behind a dropdown that names another one. Overrides are also dropped after a successful print: they were tweaks for that job.
 - **Copies** shows a *draft* only while the field differs from the committed value (an invalid entry, or one mid-edit); otherwise it shows the effective value, so a profile change from anywhere is reflected immediately. An out-of-range entry shows an inline error instead of being silently clamped; only a valid value flows into the request (`isValidCopies`). The draft lives in `App`, so the Ctrl/⌘+P shortcut refuses the same invalid entry the Print button does (one shared rule, `printBlocker`).
 - **Page range** is validated client-side against a mirror of the engine grammar (`isValidPageRange`) so the Print button reflects intent; the backend re-validates authoritatively (`engine::pagerange::parse`). Ranges apply to PDFs and to converted documents (pages of the converted PDF); images ignore them.
-- **Printer** options come from `list_printers` with MaeclyPrint-disabled queues filtered out (via `get_printer_prefs`). When an explicitly chosen printer reports it cannot print two-sided (`Printer.duplex`) or in color (`Printer.color`) and the panel asks for it, a warning under **Sides** / **Color** says so (duplex: the job will pause; color: pages come out grey). *System default* gets no warning: it resolves at print time (routes, app default).
+- **Printer** options come from `list_printers` with Pluryprint-disabled queues filtered out (via `get_printer_prefs`). When an explicitly chosen printer reports it cannot print two-sided (`Printer.duplex`) or in color (`Printer.color`) and the panel asks for it, a warning under **Sides** / **Color** says so (duplex: the job will pause; color: pages come out grey). *System default* gets no warning: it resolves at print time (routes, app default).
 - **Paper** lists the sizes the selected printer reports (`Printer.papers`), so photo, envelope and other sizes can be chosen; a size the printer does not list pauses the job (`unsupported_setting`) instead of being substituted silently. **Printer default** sends no size, so the printer's override from the Printers screen (or its own default) applies.
 
 ## Resolved command (honesty preview)
@@ -95,7 +95,7 @@ While a folder is being read (FR-004) a loading toast names it and Print stays d
 
 A file whose page count is unknown (a PDF above the probe ceiling or one that will not parse) is labelled "pages unknown" — never "image" — and the top-bar total then reads "at least N pages".
 
-**Context-menu selections that print immediately** ("Print with MaeclyPrint", "Add to print queue") do not go through this screen's list at all: their files are resolved on their own (every folder walked top-level, no question), printed with the named profile exactly as saved (no overrides), and the job the user was composing here is left untouched. "Add to print queue" submits the batch with `hold: true`, so its jobs land paused while the rest of the queue keeps running. Selections are handled strictly in order, one at a time.
+**Context-menu selections that print immediately** ("Print with Pluryprint", "Add to print queue") do not go through this screen's list at all: their files are resolved on their own (every folder walked top-level, no question), printed with the named profile exactly as saved (no overrides), and the job the user was composing here is left untouched. "Add to print queue" submits the batch with `hold: true`, so its jobs land paused while the rest of the queue keeps running. Selections are handled strictly in order, one at a time.
 
 ## Actions
 
@@ -123,7 +123,7 @@ The screen itself is platform-neutral; only the resolved command and the eventua
 | Add files / drag & drop       | `inspect_files(paths) => FileInfo[]`       | Per-file type/size/pages; bad paths flagged, not thrown |
 | Resolved command panel        | `preview_command(req) => string`           | Exact backend command; debounced 300 ms      |
 | Print {n}                     | `print_files(req) => JobBatch`             | Validates + enqueues one job per file        |
-| Printer dropdown              | `list_printers()` / `get_printer_prefs()`  | Installed printers minus MaeclyPrint-disabled |
+| Printer dropdown              | `list_printers()` / `get_printer_prefs()`  | Installed printers minus Pluryprint-disabled |
 
 See [ipc-and-cli.md](../04-architecture/ipc-and-cli.md) (§ jobs/queue) for the request/response types.
 

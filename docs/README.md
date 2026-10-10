@@ -1,8 +1,8 @@
-# MaeclyPrint — Documentation
+# Pluryprint — Documentation
 
 > Open source batch file printing for Windows and macOS. Right-click → print everything, with no 15-file limit, no Adobe required, and no $149 license fee.
 
-This directory contains the full documentation for the **MaeclyPrint** project: vision, research, requirements, architecture, features, roadmap, build/release pipelines, development guidelines, legal information, and Architecture Decision Records (ADRs).
+This directory contains the full documentation for the **Pluryprint** project: vision, research, requirements, architecture, features, roadmap, build/release pipelines, development guidelines, legal information, and Architecture Decision Records (ADRs).
 
 If you are reading this on GitHub, every link below is clickable.
 
@@ -26,7 +26,7 @@ These decisions are not up for re-debate during the MVP cycle. They are recorded
 
 | Item | Choice | ADR |
 |---|---|---|
-| Product name | **MaeclyPrint** | — |
+| Product name | **Pluryprint** | — |
 | Application stack | **Tauri 2 + Rust + React (TypeScript)** | [ADR-0001](./adr/0001-stack-tauri-rust-react.md) |
 | License | **GPLv3** | [ADR-0002](./adr/0002-license-gplv3.md) |
 | Print engine strategy | **Hybrid: SumatraPDF as final hop, format-specific converters upstream** | [ADR-0003](./adr/0003-hybrid-print-engine-strategy.md) |
@@ -46,7 +46,7 @@ These decisions are not up for re-debate during the MVP cycle. They are recorded
 
 - [Product Vision](./01-vision/product-vision.md) — mission, problem, intended outcome
 - [Target Users](./01-vision/target-users.md) — personas
-- [Value Proposition](./01-vision/value-proposition.md) — why MaeclyPrint vs alternatives
+- [Value Proposition](./01-vision/value-proposition.md) — why Pluryprint vs alternatives
 
 ### 02 — Research
 

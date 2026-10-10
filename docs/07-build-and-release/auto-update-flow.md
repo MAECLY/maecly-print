@@ -1,6 +1,6 @@
 # Auto-Update Flow
 
-> **TL;DR.** MaeclyPrint uses Tauri's built-in updater backed by a static JSON manifest hosted at `updates.maecly.com/maeclyprint/{channel}.json`. The client checks every 24 hours, downloads signed binaries from the manifest URL, verifies the signature against an embedded public key, replaces the binary, and restarts. Channels (stable, beta, nightly) are switched in Settings.
+> **TL;DR.** Pluryprint uses Tauri's built-in updater backed by a static JSON manifest hosted at `updates.maecly.com/pluryprint/{channel}.json`. The client checks every 24 hours, downloads signed binaries from the manifest URL, verifies the signature against an embedded public key, replaces the binary, and restarts. Channels (stable, beta, nightly) are switched in Settings.
 
 This document covers the end-to-end auto-update flow: build, sign, host, manifest schema, client behavior, UX, rollback, and channel switching. It is the operational runbook for delivering updates.
 
@@ -8,8 +8,8 @@ This document covers the end-to-end auto-update flow: build, sign, host, manifes
 
 Where this runbook and the code differ, the code wins. What actually ships ([ADR-0008](../adr/0008-installer-nsis-per-user.md)):
 
-- **Two steps, both explicit.** The launch-time check (30 s after start, at most once per 24 h, `updater.check_on_startup`) and About's **Check for updates** ask the GitHub `releases/latest` API whether something newer exists. Nothing is downloaded until the user picks **Install now** in About, or runs `maeclyprint update install`. There is no silent or background install.
-- **Manifest.** `tauri-plugin-updater` reads `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json`, a GitHub release asset, not `updates.maecly.com`. One manifest serves every channel for now. `MAECLYPRINT_UPDATE_ENDPOINT` overrides it for local testing.
+- **Two steps, both explicit.** The launch-time check (30 s after start, at most once per 24 h, `updater.check_on_startup`) and About's **Check for updates** ask the GitHub `releases/latest` API whether something newer exists. Nothing is downloaded until the user picks **Install now** in About, or runs `pluryprint update install`. There is no silent or background install.
+- **Manifest.** `tauri-plugin-updater` reads `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json`, a GitHub release asset, not `updates.maecly.com`. One manifest serves every channel for now. `PLURYPRINT_UPDATE_ENDPOINT` overrides it for local testing.
 - **Verify, then install.** The artifact's minisign signature is checked against `plugins.updater.pubkey` before anything is written. A failure is reported as `UpdateSignatureInvalid` ("failed its signature check and was NOT installed"). Windows runs the per-user NSIS setup passively, and the app exits and is restarted by the installer. macOS swaps the `.app` in place and offers **Restart now**. A binary outside an `.app` bundle refuses to update itself.
 - **FR-087.** A major version jump needs a second confirmation: a dialog in About, or `--yes` / a typed "yes" to a prompt that names the major update on the CLI.
 - **Signing.** `TAURI_SIGNING_PRIVATE_KEY` at release build time. See [ci-cd.md § Updater signing](./ci-cd.md#updater-signing). `requireSignedVersion` is off because the Tauri CLI in use does not yet record the version in the signature.
@@ -32,9 +32,9 @@ Where this runbook and the code differ, the code wins. What actually ships ([ADR
                                           ▼
                   ┌──────────────────────────────────────┐
                   │  updates.maecly.com (Cloudflare R2)  │
-                  │   /maeclyprint/stable.json           │
-                  │   /maeclyprint/<version>/setup.exe   │
-                  │   /maeclyprint/<version>/setup.exe.sig│
+                  │   /pluryprint/stable.json           │
+                  │   /pluryprint/<version>/setup.exe   │
+                  │   /pluryprint/<version>/setup.exe.sig│
                   └─────────────┬────────────────────────┘
                                 │ 4. periodic check (24h)
                                 ▼
@@ -53,8 +53,8 @@ Where this runbook and the code differ, the code wins. What actually ships ([ADR
 In `.github/workflows/release.yml`, after `tauri build` completes for each platform:
 
 1. **Tauri produces** the platform-specific update artifact:
-   - Windows: `target/release/bundle/nsis/maeclyprint_<version>_x64-setup.nsis.zip` (Tauri's NSIS bundle wrapped for delta update; we still ship the Inno Setup `.exe` separately for first-time install).
-   - macOS: `target/release/bundle/macos/MaeclyPrint.app.tar.gz`.
+   - Windows: `target/release/bundle/nsis/pluryprint_<version>_x64-setup.nsis.zip` (Tauri's NSIS bundle wrapped for delta update; we still ship the Inno Setup `.exe` separately for first-time install).
+   - macOS: `target/release/bundle/macos/Pluryprint.app.tar.gz`.
 2. **Sign with `tauri signer`:** `tauri signer sign --private-key <path> --password <env>` produces a `.sig` file (a 256-byte Ed25519 signature plus metadata).
 3. **Upload** the binary, the `.sig`, and the SHA-256 to the manifest CDN.
 4. **Update the manifest JSON** atomically (write `stable.json.new`, then rename).
@@ -65,7 +65,7 @@ The private key lives only in GitHub Secrets (`TAURI_SIGNING_PRIVATE_KEY` and `T
 
 The manifest is a static JSON file, one per channel, served over HTTPS.
 
-**Path:** `https://updates.maecly.com/maeclyprint/{channel}.json` where `{channel}` is `stable`, `beta`, or `nightly`.
+**Path:** `https://updates.maecly.com/pluryprint/{channel}.json` where `{channel}` is `stable`, `beta`, or `nightly`.
 
 **Schema:**
 
@@ -77,19 +77,19 @@ The manifest is a static JSON file, one per channel, served over HTTPS.
   "platforms": {
     "windows-x86_64": {
       "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUbmRiNUJWdWY5UVk4...",
-      "url": "https://updates.maecly.com/maeclyprint/1.2.3/maeclyprint_1.2.3_x64-setup.nsis.zip"
+      "url": "https://updates.maecly.com/pluryprint/1.2.3/pluryprint_1.2.3_x64-setup.nsis.zip"
     },
     "windows-aarch64": {
       "signature": "...",
-      "url": "https://updates.maecly.com/maeclyprint/1.2.3/maeclyprint_1.2.3_arm64-setup.nsis.zip"
+      "url": "https://updates.maecly.com/pluryprint/1.2.3/pluryprint_1.2.3_arm64-setup.nsis.zip"
     },
     "darwin-x86_64": {
       "signature": "...",
-      "url": "https://updates.maecly.com/maeclyprint/1.2.3/MaeclyPrint_1.2.3_x64.app.tar.gz"
+      "url": "https://updates.maecly.com/pluryprint/1.2.3/Pluryprint_1.2.3_x64.app.tar.gz"
     },
     "darwin-aarch64": {
       "signature": "...",
-      "url": "https://updates.maecly.com/maeclyprint/1.2.3/MaeclyPrint_1.2.3_aarch64.app.tar.gz"
+      "url": "https://updates.maecly.com/pluryprint/1.2.3/Pluryprint_1.2.3_aarch64.app.tar.gz"
     }
   }
 }
@@ -123,19 +123,19 @@ DNS: `updates.maecly.com` → Cloudflare CNAME → R2 public bucket. TLS handled
 Bucket layout:
 
 ```
-maeclyprint/
+pluryprint/
 ├── stable.json
 ├── beta.json
 ├── nightly.json
 └── 1.2.3/
-    ├── maeclyprint_1.2.3_x64-setup.nsis.zip
-    ├── maeclyprint_1.2.3_x64-setup.nsis.zip.sig
-    ├── maeclyprint_1.2.3_arm64-setup.nsis.zip
-    ├── maeclyprint_1.2.3_arm64-setup.nsis.zip.sig
-    ├── MaeclyPrint_1.2.3_x64.app.tar.gz
-    ├── MaeclyPrint_1.2.3_x64.app.tar.gz.sig
-    ├── MaeclyPrint_1.2.3_aarch64.app.tar.gz
-    └── MaeclyPrint_1.2.3_aarch64.app.tar.gz.sig
+    ├── pluryprint_1.2.3_x64-setup.nsis.zip
+    ├── pluryprint_1.2.3_x64-setup.nsis.zip.sig
+    ├── pluryprint_1.2.3_arm64-setup.nsis.zip
+    ├── pluryprint_1.2.3_arm64-setup.nsis.zip.sig
+    ├── Pluryprint_1.2.3_x64.app.tar.gz
+    ├── Pluryprint_1.2.3_x64.app.tar.gz.sig
+    ├── Pluryprint_1.2.3_aarch64.app.tar.gz
+    └── Pluryprint_1.2.3_aarch64.app.tar.gz.sig
 ```
 
 Old version directories are retained for at least 12 months (so users on stale versions can still update).
@@ -148,7 +148,7 @@ We use Tauri's built-in updater signing (Ed25519, not the OS code signing certs)
 
 ```bash
 # Done once at project setup. Output is two files: keypair.pub and keypair.key.
-tauri signer generate -w ~/.tauri/maeclyprint-update.key
+tauri signer generate -w ~/.tauri/pluryprint-update.key
 # Public key goes in tauri.conf.json (committed).
 # Private key goes in GitHub Secret TAURI_SIGNING_PRIVATE_KEY (NEVER committed).
 ```
@@ -167,7 +167,7 @@ In CI:
   run: |
     tauri signer sign \
       --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
-      target/release/bundle/nsis/maeclyprint_*_x64-setup.nsis.zip
+      target/release/bundle/nsis/pluryprint_*_x64-setup.nsis.zip
 ```
 
 Output: a `.sig` file alongside the binary. Both are uploaded to the CDN.
@@ -180,7 +180,7 @@ Output: a `.sig` file alongside the binary. Both are uploaded to the CDN.
     "updater": {
       "active": true,
       "endpoints": [
-        "https://updates.maecly.com/maeclyprint/{{target}}-{{arch}}/{{current_version}}.json"
+        "https://updates.maecly.com/pluryprint/{{target}}-{{arch}}/{{current_version}}.json"
       ],
       "dialog": false,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDExNDdEMzdENjkzMzg3RTUKUldUbDQ0Y3pmYWxIVjlNMTRBQTJxN1lWaW9SS3o2bUlrLXFXOWNjVVJ4WG5LU3lHaXZpaUFqUlk="
@@ -293,7 +293,7 @@ Auto-update has no built-in rollback. If a release goes bad, our recovery option
 
 1. **Yank the version** from the manifest (see [release-strategy.md](../06-roadmap/release-strategy.md#yanking-policy)). New installs and existing users no longer see the bad version offered, but users already on the bad version stay there.
 2. **Ship a hotfix** as the next patch version. Users will receive it on next check.
-3. **For critical issues** (data loss, security): publish a `YANKED` marker file at `https://updates.maecly.com/maeclyprint/yanked/<version>.txt`. The app checks for this on every launch (separate from update check). If the user's current version matches a yanked version, the app refuses to start with a clear error and a one-click "Update now" button.
+3. **For critical issues** (data loss, security): publish a `YANKED` marker file at `https://updates.maecly.com/pluryprint/yanked/<version>.txt`. The app checks for this on every launch (separate from update check). If the user's current version matches a yanked version, the app refuses to start with a clear error and a one-click "Update now" button.
 
 We do **not** support automatic downgrades. If a user wants to revert, they uninstall the bad version and manually install an older `.exe` / `.pkg` from GitHub Releases. We document this path in the troubleshooting docs.
 
@@ -313,7 +313,7 @@ Behavior on switch:
 - **Switching upward** (stable → beta → nightly): immediate. Next check pulls from the new channel's manifest. If the new channel has a higher version, the update prompt appears.
 - **Switching downward** (nightly → beta → stable): the app warns: "Switching to Stable will not downgrade your current version. You will receive Stable updates only when a Stable version >= your current version is released." The app remembers the channel choice and applies it from the next check.
 
-Channel preference is stored in the user-area config (`%APPDATA%\Maecly\MaeclyPrint\config\settings.toml` on Windows, `~/Library/Application Support/com.Maecly.MaeclyPrint/settings.toml` on macOS), separate from app install. So uninstalling and reinstalling preserves the channel choice if the user keeps their data.
+Channel preference is stored in the user-area config (`%APPDATA%\Maecly\Pluryprint\config\settings.toml` on Windows, `~/Library/Application Support/com.Maecly.Pluryprint/settings.toml` on macOS), separate from app install. So uninstalling and reinstalling preserves the channel choice if the user keeps their data.
 
 ## Failure modes
 

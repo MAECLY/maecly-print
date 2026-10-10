@@ -17,10 +17,10 @@ A single scrolling column (max 760 px) of labelled sections, each a stack of lab
 │   Density      Comfortable for reading…           [ Comfortable | Compact ]    │
 │   Language     Applies immediately, across the whole app. [ English  ▾ ]    │
 │   Start minimized  Opens minimized, from the next launch.    [ ———⬤  ]        │
-│   Native notifications  …while MaeclyPrint is in the background. [ ⬤——— ]   │
+│   Native notifications  …while Pluryprint is in the background. [ ⬤——— ]   │
 │ PRINTING                                                                       │
 │   Default profile   Applied when no profile is chosen.   [ Quick        ▾ ]    │
-│   ⓘ macOS: Finder › Services › Print with MaeclyPrint. Windows: the Explorer   │
+│   ⓘ macOS: Finder › Services › Print with Pluryprint. Windows: the Explorer   │
 │     entry is built but no installer registers it yet.                          │
 │ ENGINE                                                                         │
 │   Concurrent conversions   Applies to the next conv…     [ 2      ] jobs       │
@@ -60,12 +60,12 @@ Optional fields that skip-serialize when unset (`density`, both telemetry flags)
 
 Theme is a **3-way** control (Light / Dark / System) driven by `App`'s `useTheme` hook; density is Comfortable / Compact from `useDensity`. Appearance is special: it lives in **two** places and both are written on every change.
 
-1. **Instant-boot cache** — `localStorage` keys `maeclyprint:theme` / `maeclyprint:density` (`src/lib/theme.ts`), applied to the DOM synchronously at boot — `bootAppearance()` runs in `main.tsx` before the first render, because the `--mp-*` tokens exist only under the theme class and React effects run after the first paint — so there is no theme flash before the backend loads. These hooks are DOM/localStorage-only and never call IPC.
+1. **Instant-boot cache** — `localStorage` keys `pluryprint:theme` / `pluryprint:density` (`src/lib/theme.ts`), applied to the DOM synchronously at boot — `bootAppearance()` runs in `main.tsx` before the first render, because the `--mp-*` tokens exist only under the theme class and React effects run after the first paint — so there is no theme flash before the backend loads. These hooks are DOM/localStorage-only and never call IPC.
 2. **Backend source of truth** — the same value is persisted to `config.toml` via `patch({ app: { theme } })` / `patch({ app: { density } })` when the backend is reachable.
 
 On divergence the **backend wins**: once `get_app_settings` resolves, a reconcile effect (in both `SettingsScreen` and `App`) overrides the cache with the persisted value. The reconcile is idempotent, so it settles without fighting a fresh user change. In the standalone preview (backend `unavailable`) appearance stays local-only — no backend write.
 
-The section also carries the **Native notifications** switch (`app.native_notifications`, on by default; FR-072). It is read by the backend before every OS notification (`notify_native`), so turning it off takes effect immediately. With it on, a finished batch, a failed batch and a job stopped for the user are announced through the OS notification centre while the MaeclyPrint window is unfocused, hidden or minimized; the in-app toasts are unaffected either way.
+The section also carries the **Native notifications** switch (`app.native_notifications`, on by default; FR-072). It is read by the backend before every OS notification (`notify_native`), so turning it off takes effect immediately. With it on, a finished batch, a failed batch and a job stopped for the user are announced through the OS notification centre while the Pluryprint window is unfocused, hidden or minimized; the in-app toasts are unaffected either way.
 
 ### Appearance — language
 
@@ -73,11 +73,11 @@ The section also carries the **Native notifications** switch (`app.native_notifi
 
 ### Appearance — start minimized
 
-**Start minimized** persists `[app].launch_minimized`. It is honoured at startup: `lib.rs` reads the flag straight from `config.toml` in `setup` (before any IPC round-trip) and minimizes the main window to the taskbar / Dock. MaeclyPrint has no tray icon, so minimizing is the whole behaviour. A launch that carries a file selection (Explorer/Finder context menu) is never minimized, because it exists to show that selection (`settings::should_start_minimized`). A second launch un-minimizes and focuses the window through the single-instance callback. The change applies from the next launch.
+**Start minimized** persists `[app].launch_minimized`. It is honoured at startup: `lib.rs` reads the flag straight from `config.toml` in `setup` (before any IPC round-trip) and minimizes the main window to the taskbar / Dock. Pluryprint has no tray icon, so minimizing is the whole behaviour. A launch that carries a file selection (Explorer/Finder context menu) is never minimized, because it exists to show that selection (`settings::should_start_minimized`). A second launch un-minimizes and focuses the window through the single-instance callback. The change applies from the next launch.
 
 ### Printing — default profile
 
-A dropdown of every profile from the profiles store; selecting one calls `profilesStore.setDefault` → `set_default_profile`, which writes `config.toml`'s `[engine].default_profile` (the single source of the default — see [profiles-management.md](./profiles-management.md#default-profile-resolution)). Because that command writes the config behind the settings store's back, the store syncs its cached `engine.default_profile` afterward so a later whole-section engine write can't silently revert the default (`settingsStore.syncDefaultProfile` also rewrites the confirmed baseline and any queued write). The row is disabled until both the profile list and the settings backend are loaded; when the list fails to load, a note with a **Retry** re-runs the profiles store's `init`. A muted, per-platform note follows: on macOS it says right-click printing works from **Finder › Services › Print with MaeclyPrint** (menu titles follow the system language); on Windows it says the Explorer entry is built but no installer registers it yet, so it does not appear ([FR-001](../03-requirements/functional-requirements.md)).
+A dropdown of every profile from the profiles store; selecting one calls `profilesStore.setDefault` → `set_default_profile`, which writes `config.toml`'s `[engine].default_profile` (the single source of the default — see [profiles-management.md](./profiles-management.md#default-profile-resolution)). Because that command writes the config behind the settings store's back, the store syncs its cached `engine.default_profile` afterward so a later whole-section engine write can't silently revert the default (`settingsStore.syncDefaultProfile` also rewrites the confirmed baseline and any queued write). The row is disabled until both the profile list and the settings backend are loaded; when the list fails to load, a note with a **Retry** re-runs the profiles store's `init`. A muted, per-platform note follows: on macOS it says right-click printing works from **Finder › Services › Print with Pluryprint** (menu titles follow the system language); on Windows it says the Explorer entry is built but no installer registers it yet, so it does not appear ([FR-001](../03-requirements/functional-requirements.md)).
 
 ### Engine — real limits, applied without a restart
 
@@ -109,7 +109,7 @@ The settings store (`src/stores/settingsStore.ts`) is **optimistic with rollback
 - Writes are **serialized and coalesced**: at most one `set_app_settings` is in flight. Updates made meanwhile collapse into one pending bundle (each update carries the whole bundle, so the newest already contains the earlier changes), sent when the in-flight write settles. The last write to reach `config.toml` is therefore always the newest value, and only a write that leaves the queue empty reconciles the visible state.
 - `patch(partial)` is the convenience path most controls use: it shallow-merges a per-section patch onto the current settings and persists.
 
-On the backend, `set_app_settings` takes the config lock, loads the full config, **replaces exactly the four wire sections** (keeping `printers` and `schema_version`) — except `engine.default_profile`, which it **never writes**: the stored value is kept and the reply carries it, so a stale cache (for example after `maeclyprint profiles set-default` / `delete` while the window was open) can neither revert the default nor make every later save fail on an id that no longer exists. It validates and writes atomically. Validation returns `InvalidRequest` naming the offending field, and nothing is written when it fails. Bounds: concurrency `1..=8`, timeout `0` or `10..=3600`, size `1..=4096`, non-empty locale.
+On the backend, `set_app_settings` takes the config lock, loads the full config, **replaces exactly the four wire sections** (keeping `printers` and `schema_version`) — except `engine.default_profile`, which it **never writes**: the stored value is kept and the reply carries it, so a stale cache (for example after `pluryprint profiles set-default` / `delete` while the window was open) can neither revert the default nor make every later save fail on an id that no longer exists. It validates and writes atomically. Validation returns `InvalidRequest` naming the offending field, and nothing is written when it fails. Bounds: concurrency `1..=8`, timeout `0` or `10..=3600`, size `1..=4096`, non-empty locale.
 
 > **This is replace-sections, not a deep merge.** `set_app_settings` overwrites each of the four sections wholesale with what the client sends; it is not the field-level `update_settings` deep-merge that earlier drafts of [ipc-and-cli.md](../04-architecture/ipc-and-cli.md) described. The client is expected to send a complete `AppSettings` (the store always does, via `patch` merging onto the loaded value).
 
@@ -142,7 +142,7 @@ On the backend, `set_app_settings` takes the config lock, loads the full config,
   - The old **`[shell_extension]` switches were removed** for the MVP — shell-integration toggles land with **M2**, not here.
   - **Beta/nightly channel feeds**; today the channel is persisted but the check always uses `releases/latest`. Installing an update is the About screen's job ([about.md](./about.md)).
   - **Telemetry transport** — the consent switches are wired but nothing is sent; a future build can honour them.
-  - **Hot-reload / env overrides** of `config.toml` (via `notify` / `MAECLYPRINT_*`) are deferred; the file is read on demand under `CONFIG_LOCK`.
+  - **Hot-reload / env overrides** of `config.toml` (via `notify` / `PLURYPRINT_*`) are deferred; the file is read on demand under `CONFIG_LOCK`.
 
 ## Open questions for v1+
 

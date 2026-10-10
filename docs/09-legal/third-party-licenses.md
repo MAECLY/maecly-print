@@ -1,8 +1,8 @@
 # Third-Party Licenses
 
-> **TL;DR.** MaeclyPrint bundles SumatraPDF (GPLv3, same license as ours — fetched at packaging time by `scripts/fetch-sumatrapdf.*`, never committed) and depends on Tauri/Rust/React (all permissive licenses, GPL-compatible). External tools we invoke as subprocesses (LibreOffice, Pandoc, Chromium) are not embedded; per FSF guidance, subprocess invocation does not create a derivative work, so their licenses do not constrain our license.
+> **TL;DR.** Pluryprint bundles SumatraPDF (GPLv3, same license as ours — fetched at packaging time by `scripts/fetch-sumatrapdf.*`, never committed) and depends on Tauri/Rust/React (all permissive licenses, GPL-compatible). External tools we invoke as subprocesses (LibreOffice, Pandoc, Chromium) are not embedded; per FSF guidance, subprocess invocation does not create a derivative work, so their licenses do not constrain our license.
 
-This document inventories every third-party component MaeclyPrint depends on, with its license, our usage pattern (embedded vs subprocess), and the GPLv3-compatibility analysis. This is the source of truth for legal compliance.
+This document inventories every third-party component Pluryprint depends on, with its license, our usage pattern (embedded vs subprocess), and the GPLv3-compatibility analysis. This is the source of truth for legal compliance.
 
 If you find a discrepancy or a missing component, file an issue immediately.
 
@@ -101,7 +101,7 @@ For each entry below: the license text source, how we use it, and any compliance
 
 ## Embedded components (linked into our binary)
 
-These are statically or dynamically linked into `maeclyprint.exe`/`maeclyprint` and form a combined work with our code.
+These are statically or dynamically linked into `pluryprint.exe`/`pluryprint` and form a combined work with our code.
 
 ### Tauri (MIT / Apache 2.0 dual-license)
 
@@ -133,7 +133,7 @@ These are statically or dynamically linked into `maeclyprint.exe`/`maeclyprint` 
 
 ### `objc2`, `objc2-app-kit`, `objc2-foundation` (macOS only)
 
-- **Used for:** the "Print with MaeclyPrint" NSServices provider declared in `Info.plist` (FR-001).
+- **Used for:** the "Print with Pluryprint" NSServices provider declared in `Info.plist` (FR-001).
 - **License:** MIT.
 - **Compatibility:** GPLv3-compatible.
 - **Note:** versions are constrained to the ones tao/wry already resolve, so only one copy of the objc2 tree is linked.
@@ -161,7 +161,7 @@ These are not linked but shipped as separate files in our installer.
 - **The licence travels with it.** The portable archives contain the executable only, no licence file. The scripts therefore fetch `COPYING` (the GPLv3 text, byte-identical to our own `LICENSE`), `COPYING.BSD` and `AUTHORS` from the SumatraPDF repository at commit `646d1feddcc80b3b51072c5b27a1446487904175`, which the release tag `3.5.2rel` points to. Each file has its own pinned SHA-256, and a missing or altered file fails the script. They land next to the executable as `LICENSE.txt`, `COPYING.BSD.txt` and `AUTHORS.txt`, with a `SOURCE.txt` naming the version, architecture, archive URL and the source commit.
 - **Why not committed:** ~16 MB of platform-specific artifact git would keep forever, paid for by every contributor including those who can never run it; and it is not ours to re-host. Fetching the vendor's own release at packaging time keeps provenance (and these GPLv3 obligations) where they belong. A pinned URL plus a pinned checksum is a stronger guarantee than a committed blob, and it is reviewable in a diff. `src-tauri/tests/fetch_scripts.rs` checks that both scripts carry the same pins and that the PowerShell one stays ASCII (Windows PowerShell 5.1 cannot parse a BOM-less UTF-8 script with typographic punctuation).
 - **Source code:** [https://github.com/sumatrapdfreader/sumatrapdf](https://github.com/sumatrapdfreader/sumatrapdf).
-- **Compatibility:** SumatraPDF is GPLv3, MaeclyPrint is GPLv3. Identical license; the combined distribution is unambiguously GPLv3.
+- **Compatibility:** SumatraPDF is GPLv3, Pluryprint is GPLv3. Identical license; the combined distribution is unambiguously GPLv3.
 - **Compliance (GPLv3 §6):** because we redistribute a GPLv3 binary we must offer its corresponding source. We do so by shipping the licence (`LICENSE.txt`, `COPYING.BSD.txt`, `AUTHORS.txt`) and `SOURCE.txt`, which names the exact upstream commit, beside the executable, and by linking to the upstream repository from the About screen and from this document. **Pin the exact upstream version in the release notes** so "corresponding source" is unambiguous.
 
 ### Future bundled components
@@ -208,11 +208,11 @@ This is the legal foundation for using LibreOffice (MPL 2.0) and Chromium (BSD 3
 
 ### Image conversion — no third party involved
 
-Image → PDF conversion happens **inside** MaeclyPrint using the `image` and `lopdf` crates (both permissive, both in the inventory above). **ImageMagick is not used**, and `magick` is never invoked. Likewise there is **no qpdf step**: nothing linearizes or decrypts PDFs. Earlier versions of this document listed both; they were never dependencies.
+Image → PDF conversion happens **inside** Pluryprint using the `image` and `lopdf` crates (both permissive, both in the inventory above). **ImageMagick is not used**, and `magick` is never invoked. Likewise there is **no qpdf step**: nothing linearizes or decrypts PDFs. Earlier versions of this document listed both; they were never dependencies.
 
 ## Build-time only (not distributed)
 
-These tools are used to build MaeclyPrint but are not part of the distributed binary.
+These tools are used to build Pluryprint but are not part of the distributed binary.
 
 ### Vite (MIT)
 

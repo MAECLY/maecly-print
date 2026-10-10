@@ -1,4 +1,4 @@
-# MaeclyPrint
+# Pluryprint
 
 > **Open source batch file printing for Windows and macOS.** Right-click → print everything, with no 15-file limit, no Adobe required, and no $149 license fee.
 
@@ -15,12 +15,12 @@ Windows hides the **Print** verb from the right-click menu when you select more 
 
 So most people end up printing in tedious batches of 15-20 files, manually, again and again.
 
-## What MaeclyPrint does
+## What Pluryprint does
 
-MaeclyPrint adds a native entry to the **modern Windows 11 right-click menu**:
+Pluryprint adds a native entry to the **modern Windows 11 right-click menu**:
 
 ```
-Right-click on any number of files → MaeclyPrint ▸
+Right-click on any number of files → Pluryprint ▸
                                        ├─ Print 12 files          (default profile)
                                        ├─ ──────────
                                        ├─ Print with “Duplex BW”  (one row per profile †)
@@ -46,7 +46,7 @@ Two of the headline promises are still on the roadmap and are called out as such
 - **A persistent print queue** (`queue.json`): a single-writer dispatcher with bounded concurrency, automatic retries with backoff, per-job and whole-queue pause/resume/cancel, and crash recovery.
 - **Profiles and settings on disk**: `profiles.toml` and `config.toml`, written atomically with a `schema_version`, plus profile import/export.
 - **Seven GUI screens** (Home, Print Job, Queue, Printers, Profiles, Settings, About) wired to the real backend over 40 typed IPC commands — no mock data in the desktop app — with keyboard shortcuts and an English/Spanish UI.
-- **A headless CLI**: `maeclyprint print|printers|profiles|queue|update`, `--help` everywhere, `--json` output, and documented exit codes.
+- **A headless CLI**: `pluryprint print|printers|profiles|queue|update`, `--help` everywhere, `--json` output, and documented exit codes.
 - **Context-menu handlers**: an `IExplorerCommand` COM DLL for Windows Explorer (`shell-ext-win/`, written in Rust) and an `NSServices` provider for the macOS Finder.
 - **An update check** on startup and from About, with defer / skip-this-version.
 
@@ -121,7 +121,7 @@ Rows marked M3/M4/Planned are decided but not yet wired; the app already detects
 
 ## License
 
-[GPLv3](./LICENSE). MaeclyPrint is and will remain free software. See [docs/09-legal/license.md](./docs/09-legal/license.md) for what that means in practice.
+[GPLv3](./LICENSE). Pluryprint is and will remain free software. See [docs/09-legal/license.md](./docs/09-legal/license.md) for what that means in practice.
 
 ## Contributing
 
@@ -131,7 +131,7 @@ If you want to contribute a translation, see the [internationalization section](
 
 ## Project name and trademark
 
-"MaeclyPrint" is a trademark of the project. Forks must rebrand. See [trademark policy](./docs/09-legal/trademark.md).
+"Pluryprint" is a trademark of the project. Forks must rebrand. See [trademark policy](./docs/09-legal/trademark.md).
 
 ## Privacy
 
@@ -139,7 +139,7 @@ No telemetry by default. No cloud. Your files never leave your machine. See [pri
 
 ## Acknowledgements
 
-MaeclyPrint stands on the shoulders of these excellent open-source projects:
+Pluryprint stands on the shoulders of these excellent open-source projects:
 
 - [Tauri](https://tauri.app), [Rust](https://www.rust-lang.org/), [React](https://react.dev/)
 - [SumatraPDF](https://www.sumatrapdfreader.org/) for fast, reliable PDF printing on Windows

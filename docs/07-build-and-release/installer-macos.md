@@ -22,15 +22,15 @@ We require macOS 13 because:
 
 ## App bundle structure
 
-The `MaeclyPrint.app` bundle, post-build, looks like:
+The `Pluryprint.app` bundle, post-build, looks like:
 
 ```
-MaeclyPrint.app/
+Pluryprint.app/
 └── Contents/
     ├── Info.plist
     ├── PkgInfo
     ├── MacOS/
-    │   └── maeclyprint                # Universal binary (lipo-ed)
+    │   └── pluryprint                # Universal binary (lipo-ed)
     ├── Resources/
     │   ├── icon.icns
     │   ├── en.lproj/
@@ -38,17 +38,17 @@ MaeclyPrint.app/
     │   │   └── ServicesMenu.strings   # Finder Services titles (FR-001)
     │   ├── es.lproj/
     │   │   ├── InfoPlist.strings
-    │   │   └── ServicesMenu.strings   # "Imprimir con MaeclyPrint", …
+    │   │   └── ServicesMenu.strings   # "Imprimir con Pluryprint", …
     │   └── third-party/
     │       └── LICENSES.txt
     ├── Frameworks/
     │   └── (any embedded frameworks; usually empty for Tauri)
     ├── PlugIns/
-    │   └── MaeclyPrintFinderExt.appex/   # Finder Sync Extension
+    │   └── PluryprintFinderExt.appex/   # Finder Sync Extension
     │       └── Contents/
     │           ├── Info.plist
     │           ├── MacOS/
-    │           │   └── MaeclyPrintFinderExt
+    │           │   └── PluryprintFinderExt
     │           └── Resources/
     └── _CodeSignature/
         └── CodeResources
@@ -56,8 +56,8 @@ MaeclyPrint.app/
 
 Highlights:
 
-- `MacOS/maeclyprint` is a Universal Mach-O binary. Built with `lipo -create` from `target/aarch64-apple-darwin/release/maeclyprint` and `target/x86_64-apple-darwin/release/maeclyprint`.
-- `PlugIns/MaeclyPrintFinderExt.appex` is the Finder Sync Extension, which is itself a small `.appex` bundle with its own `Info.plist` and Mach-O.
+- `MacOS/pluryprint` is a Universal Mach-O binary. Built with `lipo -create` from `target/aarch64-apple-darwin/release/pluryprint` and `target/x86_64-apple-darwin/release/pluryprint`.
+- `PlugIns/PluryprintFinderExt.appex` is the Finder Sync Extension, which is itself a small `.appex` bundle with its own `Info.plist` and Mach-O.
 - `Frameworks/` is empty in the M5 baseline. We avoid bundling third-party `.framework` directories; SumatraPDF is Windows-only, and the Mac path uses `lpr` (CUPS) which is system-provided.
 
 ## `Info.plist` essentials
@@ -71,13 +71,13 @@ Key entries in `Contents/Info.plist`:
 <plist version="1.0">
 <dict>
   <key>CFBundleDisplayName</key>
-  <string>MaeclyPrint</string>
+  <string>Pluryprint</string>
   <key>CFBundleExecutable</key>
-  <string>maeclyprint</string>
+  <string>pluryprint</string>
   <key>CFBundleIdentifier</key>
-  <string>com.maecly.maeclyprint</string>
+  <string>com.maecly.pluryprint</string>
   <key>CFBundleName</key>
-  <string>MaeclyPrint</string>
+  <string>Pluryprint</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -89,7 +89,7 @@ Key entries in `Contents/Info.plist`:
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.utilities</string>
   <key>NSHumanReadableCopyright</key>
-  <string>Copyright (c) 2026 MaeclyPrint Project. Licensed under GPLv3.</string>
+  <string>Copyright (c) 2026 Pluryprint Project. Licensed under GPLv3.</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoads</key>
@@ -106,7 +106,7 @@ Key entries in `Contents/Info.plist`:
     </dict>
   </dict>
   <key>NSPrintingUsageDescription</key>
-  <string>MaeclyPrint sends documents to printers you choose.</string>
+  <string>Pluryprint sends documents to printers you choose.</string>
 </dict>
 </plist>
 ```
@@ -131,13 +131,13 @@ cargo build --release --target x86_64-apple-darwin
 
 # Combine
 lipo -create \
-  -output target/universal-apple-darwin/release/maeclyprint \
-  target/aarch64-apple-darwin/release/maeclyprint \
-  target/x86_64-apple-darwin/release/maeclyprint
+  -output target/universal-apple-darwin/release/pluryprint \
+  target/aarch64-apple-darwin/release/pluryprint \
+  target/x86_64-apple-darwin/release/pluryprint
 
 # Verify
-lipo -info target/universal-apple-darwin/release/maeclyprint
-# Expected: Architectures in the fat file: maeclyprint are: x86_64 arm64
+lipo -info target/universal-apple-darwin/release/pluryprint
+# Expected: Architectures in the fat file: pluryprint are: x86_64 arm64
 ```
 
 The same flow runs for the Finder Sync Extension's executable.
@@ -148,13 +148,13 @@ The same flow runs for the Finder Sync Extension's executable.
 
 ```bash
 #!/usr/bin/env bash
-# Builds MaeclyPrint.pkg from a fully-built MaeclyPrint.app
+# Builds Pluryprint.pkg from a fully-built Pluryprint.app
 set -euo pipefail
 
 VERSION="${1:?Usage: pkgbuild.sh <version>}"
-APP_PATH="build/MaeclyPrint.app"
-PKG_PATH="dist/MaeclyPrint-${VERSION}.pkg"
-COMPONENT_PKG="dist/MaeclyPrint-component-${VERSION}.pkg"
+APP_PATH="build/Pluryprint.app"
+PKG_PATH="dist/Pluryprint-${VERSION}.pkg"
+COMPONENT_PKG="dist/Pluryprint-component-${VERSION}.pkg"
 
 mkdir -p dist
 
@@ -162,7 +162,7 @@ mkdir -p dist
 pkgbuild \
   --component "${APP_PATH}" \
   --install-location "/Applications" \
-  --identifier "com.maecly.maeclyprint" \
+  --identifier "com.maecly.pluryprint" \
   --version "${VERSION}" \
   --sign "${APPLE_DEVELOPER_ID_INSTALLER}" \
   "${COMPONENT_PKG}"
@@ -186,7 +186,7 @@ echo "Built: ${PKG_PATH}"
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-  <title>MaeclyPrint</title>
+  <title>Pluryprint</title>
   <organization>com.maecly</organization>
   <welcome file="welcome.html" mime-type="text/html"/>
   <license file="LICENSE.html" mime-type="text/html"/>
@@ -199,14 +199,14 @@ echo "Built: ${PKG_PATH}"
   </volume-check>
   <choices-outline>
     <line choice="default">
-      <line choice="com.maecly.maeclyprint"/>
+      <line choice="com.maecly.pluryprint"/>
     </line>
   </choices-outline>
   <choice id="default"/>
-  <choice id="com.maecly.maeclyprint" visible="false">
-    <pkg-ref id="com.maecly.maeclyprint"/>
+  <choice id="com.maecly.pluryprint" visible="false">
+    <pkg-ref id="com.maecly.pluryprint"/>
   </choice>
-  <pkg-ref id="com.maecly.maeclyprint" version="1.1.0" auth="root">MaeclyPrint-component-1.1.0.pkg</pkg-ref>
+  <pkg-ref id="com.maecly.pluryprint" version="1.1.0" auth="root">Pluryprint-component-1.1.0.pkg</pkg-ref>
 </installer-gui-script>
 ```
 
@@ -218,24 +218,24 @@ The `auth="root"` is required because the install destination (`/Applications`) 
 
 ```bash
 #!/usr/bin/env bash
-# Builds MaeclyPrint.dmg using create-dmg (Homebrew: brew install create-dmg)
+# Builds Pluryprint.dmg using create-dmg (Homebrew: brew install create-dmg)
 set -euo pipefail
 
 VERSION="${1:?Usage: create-dmg.sh <version>}"
-APP_PATH="build/MaeclyPrint.app"
-DMG_PATH="dist/MaeclyPrint-${VERSION}.dmg"
+APP_PATH="build/Pluryprint.app"
+DMG_PATH="dist/Pluryprint-${VERSION}.dmg"
 
 mkdir -p dist
 
 create-dmg \
-  --volname "MaeclyPrint ${VERSION}" \
+  --volname "Pluryprint ${VERSION}" \
   --volicon "installers/macos/resources/volume.icns" \
   --background "installers/macos/resources/dmg-bg.png" \
   --window-pos 200 120 \
   --window-size 600 400 \
   --icon-size 100 \
-  --icon "MaeclyPrint.app" 175 200 \
-  --hide-extension "MaeclyPrint.app" \
+  --icon "Pluryprint.app" 175 200 \
+  --hide-extension "Pluryprint.app" \
   --app-drop-link 425 200 \
   --no-internet-enable \
   --codesign "${APPLE_DEVELOPER_ID_APPLICATION}" \
@@ -255,7 +255,7 @@ Before `pkgbuild` or `create-dmg`, the `.app` and its embedded `.appex` must be 
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP="build/MaeclyPrint.app"
+APP="build/Pluryprint.app"
 SIGN_ID="${APPLE_DEVELOPER_ID_APPLICATION}"
 ENTITLEMENTS="installers/macos/resources/entitlements.plist"
 
@@ -263,7 +263,7 @@ ENTITLEMENTS="installers/macos/resources/entitlements.plist"
 codesign --force --options runtime --timestamp \
   --entitlements "installers/macos/resources/finder-ext-entitlements.plist" \
   --sign "${SIGN_ID}" \
-  "${APP}/Contents/PlugIns/MaeclyPrintFinderExt.appex"
+  "${APP}/Contents/PlugIns/PluryprintFinderExt.appex"
 
 # 2. Sign any frameworks (none in M5; placeholder for future)
 # for fw in "${APP}/Contents/Frameworks/"*.framework; do
@@ -351,11 +351,11 @@ The `App Specific Password` (`APPLE_APP_PASSWORD`) is generated in [appleid.appl
 
 ## Finder Sync Extension
 
-`shell-ext-mac/MaeclyPrintFinderExt/` is a Swift target. Built with `xcodebuild`:
+`shell-ext-mac/PluryprintFinderExt/` is a Swift target. Built with `xcodebuild`:
 
 ```bash
-xcodebuild -project shell-ext-mac/MaeclyPrintFinderExt/MaeclyPrintFinderExt.xcodeproj \
-  -scheme MaeclyPrintFinderExt \
+xcodebuild -project shell-ext-mac/PluryprintFinderExt/PluryprintFinderExt.xcodeproj \
+  -scheme PluryprintFinderExt \
   -configuration Release \
   -destination "generic/platform=macOS" \
   ARCHS="x86_64 arm64" \
@@ -364,7 +364,7 @@ xcodebuild -project shell-ext-mac/MaeclyPrintFinderExt/MaeclyPrintFinderExt.xcod
   build
 ```
 
-Output is copied into `MaeclyPrint.app/Contents/PlugIns/MaeclyPrintFinderExt.appex/`.
+Output is copied into `Pluryprint.app/Contents/PlugIns/PluryprintFinderExt.appex/`.
 
 The extension's `Info.plist` declares it's a Finder Sync Extension:
 
@@ -378,7 +378,7 @@ The extension's `Info.plist` declares it's a Finder Sync Extension:
 </dict>
 ```
 
-Users must enable the extension in **System Settings → Extensions → Added Extensions → MaeclyPrint** after first launch. The app prompts the user to do this on first run with a deep link.
+Users must enable the extension in **System Settings → Extensions → Added Extensions → Pluryprint** after first launch. The app prompts the user to do this on first run with a deep link.
 
 If Finder Sync Extension proves too restrictive (it has known limitations around right-click menus on multi-selections in some Finder versions), the fallback is a **Quick Action** (Automator workflow) installed at `~/Library/Services/`. Decision is made by week 3 of M5.
 
@@ -386,7 +386,7 @@ If Finder Sync Extension proves too restrictive (it has known limitations around
 
 After notarization, on first launch:
 
-- Downloaded `.dmg` → user double-clicks → Finder shows: "MaeclyPrint is an app downloaded from the Internet. Are you sure you want to open it?" → user clicks Open → app runs.
+- Downloaded `.dmg` → user double-clicks → Finder shows: "Pluryprint is an app downloaded from the Internet. Are you sure you want to open it?" → user clicks Open → app runs.
 - Downloaded `.pkg` → user double-clicks → Installer.app launches → standard install flow → app runs.
 
 No right-click bypass needed. No "developer cannot be verified" dialog.

@@ -1,10 +1,10 @@
 # Value Proposition
 
-> **TL;DR** — MaeclyPrint is the answer to a single, ten-word question: **What if right-click → Print just worked, for any number of files?** It is free, open source (GPLv3), integrated into the Windows 11 modern context menu, and never asks you to pay $149 to bypass an arbitrary 15-file ceiling.
+> **TL;DR** — Pluryprint is the answer to a single, ten-word question: **What if right-click → Print just worked, for any number of files?** It is free, open source (GPLv3), integrated into the Windows 11 modern context menu, and never asks you to pay $149 to bypass an arbitrary 15-file ceiling.
 
 ## The Pitch in One Paragraph
 
-Today, batch printing on Windows costs you either time or money. You either click through the same Print dialog 15 times for an 80-file job because Windows hides the verb past 15 selections, or you spend $79 to $149 on a commercial tool and accept that it will live in its own window outside the file manager you actually work in. MaeclyPrint refuses that trade. It puts a single, modern context-menu entry — **Print all with MaeclyPrint** — directly into Windows 11's right-click menu, handles 1 or 1,000 files identically, supports the formats you actually print (PDF, Office, images, plus a growing list), and ships under GPLv3 so the cost stays at zero forever.
+Today, batch printing on Windows costs you either time or money. You either click through the same Print dialog 15 times for an 80-file job because Windows hides the verb past 15 selections, or you spend $79 to $149 on a commercial tool and accept that it will live in its own window outside the file manager you actually work in. Pluryprint refuses that trade. It puts a single, modern context-menu entry — **Print all with Pluryprint** — directly into Windows 11's right-click menu, handles 1 or 1,000 files identically, supports the formats you actually print (PDF, Office, images, plus a growing list), and ships under GPLv3 so the cost stays at zero forever.
 
 ## Why the Status Quo Is Unacceptable
 
@@ -31,7 +31,7 @@ These are all good tools. Print Conductor in particular is the most popular prod
 | DarkStorm's BPH | Abandoned since 2015. |
 | PrintFile | Freeware. TXT/PostScript only. No modern formats. |
 
-There is no actively maintained, multi-format, open-source batch printer with a real Windows shell integration. **MaeclyPrint exists to be that tool.**
+There is no actively maintained, multi-format, open-source batch printer with a real Windows shell integration. **Pluryprint exists to be that tool.**
 
 ## The Six Pillars
 
@@ -43,14 +43,14 @@ For organizations, this collapses procurement to a software-allowlist check. For
 
 ### 2. Native Modern Context Menu Integration
 
-MaeclyPrint ships as a **Sparse MSIX** package so it can register a real Windows 11 modern context menu entry via `IExplorerCommand` — the menu item appears at the top level of the right-click menu, not behind "Show more options". The integration:
+Pluryprint ships as a **Sparse MSIX** package so it can register a real Windows 11 modern context menu entry via `IExplorerCommand` — the menu item appears at the top level of the right-click menu, not behind "Show more options". The integration:
 
 - Works with **any number of selected files** by reading the full `IShellItemArray` (which has no documented item-count limit).
 - Appears in both the modern menu (Win11) and the legacy menu (Win10 / "Show more options").
 - Is per-machine on install for managed environments, per-user on `--user` install for unprivileged scenarios.
 - Can be disabled in Settings if a user prefers GUI-only operation.
 
-This is the feature commercial competitors do not offer. It is the entire reason MaeclyPrint exists.
+This is the feature commercial competitors do not offer. It is the entire reason Pluryprint exists.
 
 ### 3. No Artificial Limits
 
@@ -98,11 +98,11 @@ The Tauri 2 + Rust foundation is what makes this realistic. We are not shipping 
 
 ### Vs. Print Conductor
 
-> "Print Conductor is excellent and expensive. If you have $149 and you live inside Print Conductor's window all day, buy it. If you want the same 'select files, click Print, walk away' experience but starting from your Explorer right-click for free, install MaeclyPrint."
+> "Print Conductor is excellent and expensive. If you have $149 and you live inside Print Conductor's window all day, buy it. If you want the same 'select files, click Print, walk away' experience but starting from your Explorer right-click for free, install Pluryprint."
 
 ### Vs. Adobe Acrobat / Reader
 
-> "Adobe is a PDF editor that happens to print. MaeclyPrint is a printer that happens to handle PDF (and Office, and images) without ever launching Adobe. If you have caught Reader silently skipping files in a multi-select print, you already know why this matters."
+> "Adobe is a PDF editor that happens to print. Pluryprint is a printer that happens to handle PDF (and Office, and images) without ever launching Adobe. If you have caught Reader silently skipping files in a multi-select print, you already know why this matters."
 
 ### Vs. The 'select 15 at a time' workaround
 
@@ -110,11 +110,11 @@ The Tauri 2 + Rust foundation is what makes this realistic. We are not shipping 
 
 ### Vs. clawPDF
 
-> "Different problem. clawPDF turns *any* print job into a PDF on your disk. MaeclyPrint turns a folder of files into ink on your printer. They are complementary; install both if you want both directions."
+> "Different problem. clawPDF turns *any* print job into a PDF on your disk. Pluryprint turns a folder of files into ink on your printer. They are complementary; install both if you want both directions."
 
 ### Vs. 'I'll just write a script'
 
-> "If you enjoy maintaining `ShellExecute` wrappers around Acrobat, Word, and SumatraPDF in PowerShell, MaeclyPrint is not for you. If you have ever debugged a DDE timeout at 4 PM on a Friday, it is."
+> "If you enjoy maintaining `ShellExecute` wrappers around Acrobat, Word, and SumatraPDF in PowerShell, Pluryprint is not for you. If you have ever debugged a DDE timeout at 4 PM on a Friday, it is."
 
 ## What 'Just Works' Means
 

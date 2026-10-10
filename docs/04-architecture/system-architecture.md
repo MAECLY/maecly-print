@@ -1,6 +1,6 @@
 # System Architecture
 
-> **TL;DR** — MaeclyPrint is a Tauri 2 app composed of (a) a thin C++ COM DLL hooked into Windows Explorer, (b) a single Rust binary that hosts the webview, the queue, and the CLI, and (c) external converter processes (LibreOffice, SumatraPDF, ImageMagick, Pandoc) orchestrated as short-lived subprocesses. Communication between layers uses well-defined IPC: shell-ext → CLI args (or named pipe), webview → Rust via Tauri commands, Rust → converters via stdin/stdout + exit codes.
+> **TL;DR** — Pluryprint is a Tauri 2 app composed of (a) a thin C++ COM DLL hooked into Windows Explorer, (b) a single Rust binary that hosts the webview, the queue, and the CLI, and (c) external converter processes (LibreOffice, SumatraPDF, ImageMagick, Pandoc) orchestrated as short-lived subprocesses. Communication between layers uses well-defined IPC: shell-ext → CLI args (or named pipe), webview → Rust via Tauri commands, Rust → converters via stdin/stdout + exit codes.
 
 ## 1. C4 model — Context
 
@@ -17,7 +17,7 @@
                                  v
 +----------------------------------------------------------------------+
 |                                                                      |
-|                          MaeclyPrint                                 |
+|                          Pluryprint                                 |
 |         (Tauri app + Rust core + shell extension)                    |
 |                                                                      |
 +----+-----------------+-------------------+--------------------+------+
@@ -41,7 +41,7 @@
 
 Key external systems:
 
-- **OS print spooler.** Windows Print Spooler service or macOS CUPS daemon. MaeclyPrint never touches drivers directly; it always goes through the spooler.
+- **OS print spooler.** Windows Print Spooler service or macOS CUPS daemon. Pluryprint never touches drivers directly; it always goes through the spooler.
 - **External converters.** Optional binaries on the user's PATH (or bundled): LibreOffice (`soffice`), SumatraPDF, ImageMagick (`magick`), Pandoc, headless Chromium.
 - **Updater CDN.** `https://updates.maecly.com/` — static manifest JSON + signed binary deltas served from S3 / CloudFront / R2.
 - **Crash reporter (opt-in, M3+).** Sentry-compatible endpoint; off by default, requires explicit user consent.
@@ -50,7 +50,7 @@ Key external systems:
 
 ```
 +------------------------------------------------------------------+
-|                       MaeclyPrint (process model)                |
+|                       Pluryprint (process model)                |
 |                                                                  |
 |  +----------------------------+    +-----------------------+     |
 |  | Shell extension DLL        |    | Tauri main process    |     |
@@ -183,7 +183,7 @@ User           Explorer        Shell DLL          Tauri exe         Rust core   
  |                 |               | paths, dedupe    |                 |                |              |
  |                 |               |                  |                 |                |              |
  |                 |               | spawn(           |                 |                |              |
- |                 |               |  MaeclyPrint.exe |                 |                |              |
+ |                 |               |  Pluryprint.exe |                 |                |              |
  |                 |               |  --invoke=ctx    |                 |                |              |
  |                 |               |  --files=<json>) |                 |                |              |
  |                 |               |----------------->|                 |                |              |

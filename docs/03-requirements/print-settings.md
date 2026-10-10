@@ -1,6 +1,6 @@
 # Print Settings
 
-> **TL;DR** — Every printing setting MaeclyPrint exposes, mapped to the underlying engine flag (SumatraPDF on Windows, CUPS **`lp -o`** on macOS/Linux), with default value, implementation status, and driver-dependency notes. Eleven settings reach the spooler today, `quality`, `tray` and `collate` included (SumatraPDF cannot express `quality` or `collate`, and the job says so); per-printer tray/paper defaults from the Printers screen fill whatever a job leaves open; the rest are unimplemented.
+> **TL;DR** — Every printing setting Pluryprint exposes, mapped to the underlying engine flag (SumatraPDF on Windows, CUPS **`lp -o`** on macOS/Linux), with default value, implementation status, and driver-dependency notes. Eleven settings reach the spooler today, `quality`, `tray` and `collate` included (SumatraPDF cannot express `quality` or `collate`, and the job says so); per-printer tray/paper defaults from the Printers screen fill whatever a job leaves open; the rest are unimplemented.
 
 A print setting is anything that can be different per job: the printer, paper, duplex, color, copies, range, etc. Some settings are universally supported by the OS spooler; others depend on the specific printer driver; a few would have to be synthesized via PDF preprocessing.
 
@@ -42,11 +42,11 @@ Any media name the printer reports can be chosen — the Print Job paper menu li
 
 ### `printer`
 
-The destination printer. On a profile, the sentinel `"<default>"` defers to the default at print time; on `JobSettings` the same meaning is carried by `printer: None`. Resolution order, defined once in `ipc::printers::resolve_app_printer` and used by the queue, the CLI and the command preview: an explicit printer, then the file-type routing rule, then the org-policy default (`policy.json` `default_printer`), then the app default, then the OS default. Use `maeclyprint printers list` to enumerate available printers.
+The destination printer. On a profile, the sentinel `"<default>"` defers to the default at print time; on `JobSettings` the same meaning is carried by `printer: None`. Resolution order, defined once in `ipc::printers::resolve_app_printer` and used by the queue, the CLI and the command preview: an explicit printer, then the file-type routing rule, then the org-policy default (`policy.json` `default_printer`), then the app default, then the OS default. Use `pluryprint printers list` to enumerate available printers.
 
 **Identity.** A printer may be named by its spooler **queue id** or by its **display name** (CUPS `printer-info`); both resolve, through `ipc::printers::match_installed`, to the queue id, and the queue id is what is spooled. A display name shared by several queues is treated as unresolved rather than guessed.
 
-**Behavior on missing printer.** When the OS enumerates printers and none matches (or the name is ambiguous), the queue **pauses** the job with `printer_unavailable` (reason `ambiguous` for a shared name) so the user can pick a replacement, and the CLI exits with the `Printer` code. A printer disabled in MaeclyPrint pauses it with `printer_disabled`. A failed or empty enumeration is not treated as proof of absence: the name is then handed to the spooler as is.
+**Behavior on missing printer.** When the OS enumerates printers and none matches (or the name is ambiguous), the queue **pauses** the job with `printer_unavailable` (reason `ambiguous` for a shared name) so the user can pick a replacement, and the CLI exits with the `Printer` code. A printer disabled in Pluryprint pauses it with `printer_disabled`. A failed or empty enumeration is not treated as proof of absence: the name is then handed to the spooler as is.
 
 ### `duplex`
 
@@ -84,7 +84,7 @@ A comma-separated range string: `"1-5,10,20-25"`. Whitespace is stripped before 
 
 Validation is split deliberately. `JobSettings::validate` owns only what that layer can know — it rejects an empty range string so the UI can show an inline error early (FR-042). The range *grammar* is parsed by `engine::pagerange`, which owns it, and mirrored client-side by `parsePageRange` (`src/lib/profiles.ts`).
 
-**Document bounds are checked at submission, on both surfaces.** The Print Job screen flags a range that runs past the last page of a file inline, naming the file (`findPageRangeOverflow`), and the backend refuses the same batch with `InvalidRequest` (`ipc::jobs::check_ranges_fit_documents`, which `maeclyprint print --range` calls too, so the CLI no longer spools zero pages in silence). Two deliberate narrowings, identical on both sides: only **PDFs** are checked (an image is one page and the range is dropped for it, `engine::print::effective_settings`), and only PDFs whose page count could be **measured** (too large or unparseable PDFs pass). Documents that are converted first (DOCX, HTML, …) take the range, but their page count exists only after conversion, so they are not bounded.
+**Document bounds are checked at submission, on both surfaces.** The Print Job screen flags a range that runs past the last page of a file inline, naming the file (`findPageRangeOverflow`), and the backend refuses the same batch with `InvalidRequest` (`ipc::jobs::check_ranges_fit_documents`, which `pluryprint print --range` calls too, so the CLI no longer spools zero pages in silence). Two deliberate narrowings, identical on both sides: only **PDFs** are checked (an image is one page and the range is dropped for it, `engine::print::effective_settings`), and only PDFs whose page count could be **measured** (too large or unparseable PDFs pass). Documents that are converted first (DOCX, HTML, …) take the range, but their page count exists only after conversion, so they are not bounded.
 
 ### `paper_size_custom`
 

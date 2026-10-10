@@ -1,6 +1,6 @@
 # Print Engine
 
-> **TL;DR** — MaeclyPrint uses a **hybrid pipeline**: each input file is converted to PDF by the most appropriate converter for its format, then printed by a single back-end (SumatraPDF on Windows, CUPS `lp` on macOS/Linux). This "convert-everything-to-PDF, then print PDF" strategy is dramatically simpler than per-format printing while still producing native-quality output. **Images are converted in-process by the Rust `image` crate, not by ImageMagick.** HEIC goes through the OS decoder. Office, OpenDocument, TXT and RTF go through LibreOffice headless, HTML through a headless Edge/Chrome/Chromium, and Markdown through Pandoc followed by that browser.
+> **TL;DR** — Pluryprint uses a **hybrid pipeline**: each input file is converted to PDF by the most appropriate converter for its format, then printed by a single back-end (SumatraPDF on Windows, CUPS `lp` on macOS/Linux). This "convert-everything-to-PDF, then print PDF" strategy is dramatically simpler than per-format printing while still producing native-quality output. **Images are converted in-process by the Rust `image` crate, not by ImageMagick.** HEIC goes through the OS decoder. Office, OpenDocument, TXT and RTF go through LibreOffice headless, HTML through a headless Edge/Chrome/Chromium, and Markdown through Pandoc followed by that browser.
 
 ## Implementation status
 
@@ -12,7 +12,7 @@ This document describes the hybrid design. EPUB and SVG are still targets only. 
 - **Dependency probing (FR-058):** `engine::deps` probes SumatraPDF, LibreOffice, Chromium/Edge and Pandoc on every `app_info` call (a handful of `is_file` checks). For each dependency it reports whether it is *applicable on this OS at all* and which extensions it blocks while missing. The applicability flag matters: SumatraPDF is irrelevant on macOS, and reporting it as "missing" there would be the loudest possible false alarm. The converters use the same resolver, and a missing one returns `DependencyMissing` with the same remediation text, which pauses the job.
 - **Capability gate:** only **duplex** is hard-checked — a duplex request against a non-duplex driver is an error (the failure would otherwise be invisible at the tray); colour on a mono printer is allowed (it prints grey, which is visible). See `engine::print::check_supported`.
 - **Orchestration lives in the queue, not the engine.** Conversion/print concurrency (default ≤ 2 conversions, 1 print), retries with backoff, cancellation, and the conversion cache are owned by the dispatcher — see [queue.md](../05-features/queue.md) and [data-model § 4](./data-model.md#4-queuejson--live-print-queue). The converter/printer functions here are pure, blocking, single-file units the dispatcher drives, with a page-range parser (`engine::pagerange`) shared by validation and the backends.
-- **The headless CLI does not use the queue at all.** `maeclyprint print` walks the same `engine::convert` → `engine::print::spool` path directly, into a private temp cache deleted on exit, with **no `queue.json` and no retries** — see [ipc-and-cli.md §3.3](./ipc-and-cli.md#33-flag-semantics).
+- **The headless CLI does not use the queue at all.** `pluryprint print` walks the same `engine::convert` → `engine::print::spool` path directly, into a private temp cache deleted on exit, with **no `queue.json` and no retries** — see [ipc-and-cli.md §3.3](./ipc-and-cli.md#33-flag-semantics).
 
 ## 1. Why a hybrid engine
 
@@ -64,10 +64,10 @@ SumatraPDF.exe ^
   -print-settings "1-5,duplex,monochrome,fit,paper=A4,2x" ^
   -silent ^
   -exit-when-done ^
-  "%LOCALAPPDATA%\Maecly\MaeclyPrint\cache\conversions\<job-id>.pdf"
+  "%LOCALAPPDATA%\Maecly\Pluryprint\cache\conversions\<job-id>.pdf"
 ```
 
-The `-print-settings` value is a comma-separated keyword list MaeclyPrint emits in a fixed order (SumatraPDF is itself order-independent; the fixed order keeps the honesty preview stable):
+The `-print-settings` value is a comma-separated keyword list Pluryprint emits in a fixed order (SumatraPDF is itself order-independent; the fixed order keeps the honesty preview stable):
 
 1. **page ranges** — bare, no key (e.g. `1-5,8`); omitted when printing all pages.
 2. **duplex** — `simplex` / `duplex` (long edge) / `duplexshort`.
@@ -77,17 +77,17 @@ The `-print-settings` value is a comma-separated keyword list MaeclyPrint emits 
 6. **copies** — `<n>x` (e.g. `3x`), only when > 1. SumatraPDF silently skips an unknown `copies=<n>` token.
 7. **orientation** — `landscape` / `portrait`; `auto` emits nothing.
 
-Defaults serialise to `simplex,color,fit,paper=A4`. Translation from the wire `JobSettings` lives in `engine/print/sumatra.rs`, and the same builder feeds the UI's honesty preview so what the user sees is exactly what runs. The child is spawned with the console window suppressed; SumatraPDF prints synchronously and reports no spooler job id. Its stdin is closed and its stdout/stderr go to a log file, never to the app's own handles: SumatraPDF logs its whole start-up to an inherited stdout, which used to land in the middle of `maeclyprint-cli print --json`. The tail of that log is quoted when SumatraPDF fails. SumatraPDF has no job-title flag and names the spooler document after the file it prints, so the PDF is handed to it as a hard link (or a copy, across volumes) named after the original file (`report.pdf` for `report.docx`, the same name the CUPS backend gives a job; `sumatra::spool_file_name`) in a private `maeclyprint-spool-*` temp folder that is removed once the job is spooled. The Windows print queue then shows the user's file name instead of a cache UUID or the source's full path. The folder path is still part of the document name, because SumatraPDF uses the full path.
+Defaults serialise to `simplex,color,fit,paper=A4`. Translation from the wire `JobSettings` lives in `engine/print/sumatra.rs`, and the same builder feeds the UI's honesty preview so what the user sees is exactly what runs. The child is spawned with the console window suppressed; SumatraPDF prints synchronously and reports no spooler job id. Its stdin is closed and its stdout/stderr go to a log file, never to the app's own handles: SumatraPDF logs its whole start-up to an inherited stdout, which used to land in the middle of `pluryprint-cli print --json`. The tail of that log is quoted when SumatraPDF fails. SumatraPDF has no job-title flag and names the spooler document after the file it prints, so the PDF is handed to it as a hard link (or a copy, across volumes) named after the original file (`report.pdf` for `report.docx`, the same name the CUPS backend gives a job; `sumatra::spool_file_name`) in a private `pluryprint-spool-*` temp folder that is removed once the job is spooled. The Windows print queue then shows the user's file name instead of a cache UUID or the source's full path. The folder path is still part of the document name, because SumatraPDF uses the full path.
 
 ### 3.2 LibreOffice (cross-platform)
 
 ```
 soffice ^
-  -env:UserInstallation=file:///C:/Users/.../AppData/Local/Temp/maeclyprint-convert-<job>-XXXX/profile ^
+  -env:UserInstallation=file:///C:/Users/.../AppData/Local/Temp/pluryprint-convert-<job>-XXXX/profile ^
   --headless --invisible --nologo --nodefault --nolockcheck --norestore ^
   --convert-to pdf ^
-  --outdir "%TEMP%\maeclyprint-convert-<job>-XXXX\out" ^
-  "%TEMP%\maeclyprint-convert-<job>-XXXX\input.docx"
+  --outdir "%TEMP%\pluryprint-convert-<job>-XXXX\out" ^
+  "%TEMP%\pluryprint-convert-<job>-XXXX\input.docx"
 ```
 
 (`engine::convert::office`.) Caveats:
@@ -118,14 +118,14 @@ Known limitations, documented rather than treated as bugs:
 ```
 msedge.exe ^
   --headless --disable-gpu --no-pdf-header-footer --print-to-pdf-no-header ^
-  --user-data-dir="%TEMP%\maeclyprint-convert-<job>-XXXX\browser" ^
+  --user-data-dir="%TEMP%\pluryprint-convert-<job>-XXXX\browser" ^
   --no-first-run --no-default-browser-check --disable-extensions ^
   --disable-background-networking --disable-sync --mute-audio ^
   --proxy-server=127.0.0.1:9 "--proxy-bypass-list=<-loopback>" ^
   "--host-resolver-rules=MAP * ~NOTFOUND" ^
   --force-webrtc-ip-handling-policy=disable_non_proxied_udp --disable-quic ^
   --disable-remote-fonts --disable-features=NetworkPrediction ^
-  --print-to-pdf="%TEMP%\maeclyprint-convert-<job>-XXXX\out.pdf" ^
+  --print-to-pdf="%TEMP%\pluryprint-convert-<job>-XXXX\out.pdf" ^
   "file:///C:/Users/.../page.html"
 ```
 
@@ -156,7 +156,7 @@ lp -d "OfficeJet_Pro" \
    -o media=A4 \
    -o fit-to-page \
    -o page-ranges=1-5 \
-   "~/Library/Caches/com.Maecly.MaeclyPrint/conversions/<job-id>.pdf"
+   "~/Library/Caches/com.Maecly.Pluryprint/conversions/<job-id>.pdf"
 ```
 
 Flag mapping (`engine/print/cups.rs`), in the exact order `lp_args` emits them:
@@ -184,7 +184,7 @@ Three things worth stating plainly:
 
 On success `lp`'s `request id is <dest>-<n>` line yields the CUPS job id used to follow the job and to `cancel` it. `<dest>` may itself contain `-`, so the number is only ever the last segment. `lp` is run in the C locale, but macOS localizes this line from the user's language list anyway (`el id de la petición es Office-42 (1 archivos)`), so the parser does not depend on the English marker: it falls back to the token naming the destination, then to any `<name>-<digits>` token.
 
-The job is then followed until it leaves the queue (`engine::print::job_state`): `ipptool -tv ipp://localhost/jobs/<n> <tmp>/maeclyprint-ipp-XXXX.test` gives the IPP `job-state` (`pending`, `pending-held`, `processing`, `processing-stopped`, `canceled`, `aborted`, `completed`). The test is the stock `get-job-attributes` request, embedded in the app, written to a private temporary file and passed by absolute path: `ipptool` looks a bare test name up in the current directory first, so a planted `get-job-attributes.test` in the folder the CLI was started from would otherwise run. Where `ipptool` is missing `lpstat -W not-completed -o <dest>` still tells a waiting job from a finished one. It cannot tell *how* a job finished (CUPS' completed list holds printed, cancelled and aborted jobs alike), so a job that left the queue is `Gone` (done, logged as `left_queue`), never reported as confirmed printed. An `lpstat` that exits non-zero (cupsd restarting or unreachable) is a transient tracking failure, retried and then given up as `unconfirmed`, never read as "no longer listed". On Windows, SumatraPDF reports no id, so the spooler's job list is read before and after spooling and the new job is followed with `GetJobW`. The job is adopted only when exactly one new job was submitted by the current user and its document is the spooled file (SumatraPDF names the job after the full path of the staged, title-named copy; a whole path or file-name match, never a substring). There is no "it is the only new job" fallback, because on a shared `\\server\queue` that job can be a colleague's. If either job list cannot be read, the job is not tracked and the dispatcher treats it as finished on hand-off. In the `JOB_STATUS_*` flags, `PRINTED`/`COMPLETE` wins over `DELETING`/`DELETED`, because the spooler deletes every job it has printed. Only a job deleted before it printed counts as cancelled, and a job the spooler no longer knows has left the queue. The dispatcher owns the cadence and the budget — see [queue.md](../05-features/queue.md#dispatcher-semantics-what-the-ui-reflects).
+The job is then followed until it leaves the queue (`engine::print::job_state`): `ipptool -tv ipp://localhost/jobs/<n> <tmp>/pluryprint-ipp-XXXX.test` gives the IPP `job-state` (`pending`, `pending-held`, `processing`, `processing-stopped`, `canceled`, `aborted`, `completed`). The test is the stock `get-job-attributes` request, embedded in the app, written to a private temporary file and passed by absolute path: `ipptool` looks a bare test name up in the current directory first, so a planted `get-job-attributes.test` in the folder the CLI was started from would otherwise run. Where `ipptool` is missing `lpstat -W not-completed -o <dest>` still tells a waiting job from a finished one. It cannot tell *how* a job finished (CUPS' completed list holds printed, cancelled and aborted jobs alike), so a job that left the queue is `Gone` (done, logged as `left_queue`), never reported as confirmed printed. An `lpstat` that exits non-zero (cupsd restarting or unreachable) is a transient tracking failure, retried and then given up as `unconfirmed`, never read as "no longer listed". On Windows, SumatraPDF reports no id, so the spooler's job list is read before and after spooling and the new job is followed with `GetJobW`. The job is adopted only when exactly one new job was submitted by the current user and its document is the spooled file (SumatraPDF names the job after the full path of the staged, title-named copy; a whole path or file-name match, never a substring). There is no "it is the only new job" fallback, because on a shared `\\server\queue` that job can be a colleague's. If either job list cannot be read, the job is not tracked and the dispatcher treats it as finished on hand-off. In the `JOB_STATUS_*` flags, `PRINTED`/`COMPLETE` wins over `DELETING`/`DELETED`, because the spooler deletes every job it has printed. Only a job deleted before it printed counts as cancelled, and a job the spooler no longer knows has left the queue. The dispatcher owns the cadence and the budget — see [queue.md](../05-features/queue.md#dispatcher-semantics-what-the-ui-reflects).
 
 ## 4. The full pipeline
 
@@ -215,7 +215,7 @@ The job is then followed until it leaves the queue (`engine::print::job_state`):
            v
 +--------------------+
 | 4. Conversion pool |  Up to N parallel converters via rayon.
-|    (parallel)      |  Each writes to %LOCALAPPDATA%\Maecly\MaeclyPrint\cache\<job>.pdf
+|    (parallel)      |  Each writes to %LOCALAPPDATA%\Maecly\Pluryprint\cache\<job>.pdf
 +----------+---------+
            |
            v
@@ -259,12 +259,12 @@ The router is **not** a MIME-keyed trait-object factory. `engine::convert::conve
 
 ### 4.2 PDF caching
 
-Converted PDFs land in a `conversions/` subdirectory of the OS cache directory — `%LOCALAPPDATA%\Maecly\MaeclyPrint\cache\conversions\<job-id>.pdf` on Windows, `~/Library/Caches/com.Maecly.MaeclyPrint/conversions/<job-id>.pdf` on macOS (`queue::spawn` resolves `paths::cache_dir().join("conversions")`). The cache:
+Converted PDFs land in a `conversions/` subdirectory of the OS cache directory — `%LOCALAPPDATA%\Maecly\Pluryprint\cache\conversions\<job-id>.pdf` on Windows, `~/Library/Caches/com.Maecly.Pluryprint/conversions/<job-id>.pdf` on macOS (`queue::spawn` resolves `paths::cache_dir().join("conversions")`). The cache:
 
 - Is **not** keyed on file content; each job gets its own cache file. This avoids spurious "is the file modified?" decisions.
 - Holds nothing for a PDF input: a PDF passes through and is printed in place, so no cache file is produced at all.
 - Is swept at app start, which is precisely why the single-instance plugin must be registered **before** any of that work runs — a second launch sweeping the cache would destroy the running instance's in-flight jobs (NFR-014).
-- The **CLI does not share it.** `maeclyprint print` converts into a private temp directory deleted when the process exits, so a script and a running app cannot delete each other's work.
+- The **CLI does not share it.** `pluryprint print` converts into a private temp directory deleted when the process exits, so a script and a running app cannot delete each other's work.
 - There is **no size-capped eviction** (`cache_max_bytes`) today. Files are removed with their jobs (`clear_done` deletes a job's cache), not by a byte budget.
 
 ### 4.3 Size and probe ceilings
@@ -337,7 +337,7 @@ These are *converter* throughputs. The printer itself is the long pole for actua
 
 ## 7. Configuration knobs
 
-The **whole** `[engine]` section is four keys, in `config.toml` (see [data-model.md §1](./data-model.md#1-file-locations) for where that file lives — it is *not* `~/.config/MaeclyPrint/` on Windows or macOS):
+The **whole** `[engine]` section is four keys, in `config.toml` (see [data-model.md §1](./data-model.md#1-file-locations) for where that file lives — it is *not* `~/.config/Pluryprint/` on Windows or macOS):
 
 ```toml
 [engine]

@@ -78,7 +78,7 @@ For a stable release, run the manual QA suite on **every** combination below. Fo
 - [ ] Single-PDF print works.
 - [ ] About page shows correct version.
 - [ ] Settings page shows correct channel.
-- [ ] Right-click in File Explorer shows MaeclyPrint submenu.
+- [ ] Right-click in File Explorer shows Pluryprint submenu.
 - [ ] Uninstaller runs cleanly; no leftover files in install dir.
 
 **Full QA suite** (~30 min): the smoke checklist plus:
@@ -127,7 +127,7 @@ When CI reaches the `publish` job, GitHub will request approval (via the `produc
 
 After CI completes:
 
-- [ ] Manifest at `https://updates.maecly.com/maeclyprint/<channel>.json` reflects the new version. Open in a browser; check JSON.
+- [ ] Manifest at `https://updates.maecly.com/pluryprint/<channel>.json` reflects the new version. Open in a browser; check JSON.
 - [ ] Each binary URL in the manifest is reachable. Run `./scripts/verify-published-manifest.sh <channel>` which fetches all URLs.
 - [ ] GitHub Release for `v<version>` is published with the correct binaries attached and notes match `RELEASE_NOTES.md`.
 - [ ] `CHANGELOG.md` on `main` is correctly updated.
@@ -155,7 +155,7 @@ If any updater step fails, **immediately**:
 
 - [ ] Post on project social channels (X/Twitter, Mastodon if active). Use a template:
   ```
-  MaeclyPrint <version> is out!
+  Pluryprint <version> is out!
 
   • <highlight 1>
   • <highlight 2>

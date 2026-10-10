@@ -57,18 +57,18 @@ signtool sign `
   /fd SHA256 `
   /td SHA256 `
   /tr "http://timestamp.sectigo.com" `
-  /d "MaeclyPrint" `
+  /d "Pluryprint" `
   /du "https://maecly.com" `
   setup.exe
 ```
 
 | Flag | Purpose |
 |---|---|
-| `/sha1 <thumbprint>` | Selects the cert by its SHA-1 thumbprint. Alternative: `/n "MaeclyPrint Project"` to select by subject name. |
+| `/sha1 <thumbprint>` | Selects the cert by its SHA-1 thumbprint. Alternative: `/n "Pluryprint Project"` to select by subject name. |
 | `/fd SHA256` | File digest algorithm (signed hash of file contents). |
 | `/td SHA256` | Timestamp digest algorithm. |
 | `/tr <url>` | Timestamp authority URL. **Critical**: without a timestamp, the signature expires when the cert does, and existing signed binaries become "invalid" overnight. With a timestamp, the signature remains valid forever (the timestamp proves the signature was made while the cert was valid). |
-| `/d "MaeclyPrint"` | Description shown in UAC dialog. |
+| `/d "Pluryprint"` | Description shown in UAC dialog. |
 | `/du <url>` | Description URL (clickable in some dialogs). |
 
 We sign every `.exe` and every `.dll` we ship: the main app, the shell extension DLL, the installer, and the bundled SumatraPDF (re-signing it does not violate its license; we ship it as-is and add our signature on top).
@@ -195,8 +195,8 @@ Standard signing of an `.app`:
 ```bash
 codesign --force --options runtime --timestamp \
   --entitlements installers/macos/resources/entitlements.plist \
-  --sign "Developer ID Application: MaeclyPrint Project (TEAMID)" \
-  MaeclyPrint.app
+  --sign "Developer ID Application: Pluryprint Project (TEAMID)" \
+  Pluryprint.app
 ```
 
 | Flag | Purpose |
@@ -214,7 +214,7 @@ codesign --force --options runtime --timestamp \
 Apple's notarization service scans the binary for malware and known security issues. As of macOS 10.15+, it is **mandatory** for Gatekeeper to allow apps from outside the Mac App Store.
 
 ```bash
-xcrun notarytool submit MaeclyPrint-1.1.0.pkg \
+xcrun notarytool submit Pluryprint-1.1.0.pkg \
   --apple-id "$APPLE_ID" \
   --team-id "$APPLE_TEAM_ID" \
   --password "$APPLE_APP_PASSWORD" \
@@ -231,8 +231,8 @@ xcrun notarytool submit MaeclyPrint-1.1.0.pkg \
 After notarization succeeds, **staple** the ticket to the artifact:
 
 ```bash
-xcrun stapler staple MaeclyPrint-1.1.0.pkg
-xcrun stapler validate MaeclyPrint-1.1.0.pkg
+xcrun stapler staple Pluryprint-1.1.0.pkg
+xcrun stapler validate Pluryprint-1.1.0.pkg
 ```
 
 Stapling embeds the notarization ticket in the artifact so Gatekeeper can verify offline. Without stapling, Gatekeeper has to phone home on first launch, which fails on offline machines.
@@ -243,14 +243,14 @@ Both `.pkg` and `.dmg` must be notarized and stapled separately. The `.app` insi
 
 ```bash
 # Verify signature
-codesign --verify --deep --strict --verbose=2 MaeclyPrint.app
+codesign --verify --deep --strict --verbose=2 Pluryprint.app
 
 # Verify Gatekeeper acceptance
-spctl --assess --type execute --verbose MaeclyPrint.app
-spctl --assess --type install --verbose MaeclyPrint-1.1.0.pkg
+spctl --assess --type execute --verbose Pluryprint.app
+spctl --assess --type install --verbose Pluryprint-1.1.0.pkg
 
 # Verify notarization stapled
-stapler validate MaeclyPrint-1.1.0.pkg
+stapler validate Pluryprint-1.1.0.pkg
 ```
 
 All four commands must succeed before shipping.
@@ -291,7 +291,7 @@ jobs:
           SSL_COM_TOTP_SECRET: ${{ secrets.SSL_COM_TOTP_SECRET }}
         run: ./scripts/sign-windows.ps1
       - name: Verify signature
-        run: signtool verify /pa /v dist/MaeclyPrint-Setup.exe
+        run: signtool verify /pa /v dist/Pluryprint-Setup.exe
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64-signed
@@ -316,8 +316,8 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           ./installers/macos/codesign.sh
-          ./installers/macos/notarize.sh dist/MaeclyPrint-1.1.0.pkg
-          ./installers/macos/notarize.sh dist/MaeclyPrint-1.1.0.dmg
+          ./installers/macos/notarize.sh dist/Pluryprint-1.1.0.pkg
+          ./installers/macos/notarize.sh dist/Pluryprint-1.1.0.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: macos-universal-signed
@@ -335,7 +335,7 @@ Generation (one-time):
 ```powershell
 $cert = New-SelfSignedCertificate `
   -Type CodeSigningCert `
-  -Subject "CN=MaeclyPrint Nightly, O=MaeclyPrint Project, C=US" `
+  -Subject "CN=Pluryprint Nightly, O=Pluryprint Project, C=US" `
   -KeyAlgorithm RSA `
   -KeyLength 4096 `
   -HashAlgorithm SHA256 `

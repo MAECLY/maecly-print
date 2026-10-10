@@ -1,6 +1,6 @@
 # Timeline
 
-> **TL;DR.** With one developer at a sustained pace, MaeclyPrint reaches Windows 1.0 in roughly 14–18 weeks and macOS 1.1 another 4–6 weeks after that. All numbers below carry a 20% buffer and assume nobody else helps.
+> **TL;DR.** With one developer at a sustained pace, Pluryprint reaches Windows 1.0 in roughly 14–18 weeks and macOS 1.1 another 4–6 weeks after that. All numbers below carry a 20% buffer and assume nobody else helps.
 
 This document is a planning aid, not a contract. Estimates are honest but not promises. If a milestone slips, the buffer absorbs the first 20%; beyond that, the slip is visible and we replan rather than crunch. See [milestones.md](./milestones.md) for the scope each estimate covers and [release-strategy.md](./release-strategy.md) for how internal estimates relate to public version commitments.
 

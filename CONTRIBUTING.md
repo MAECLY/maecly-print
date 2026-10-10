@@ -1,4 +1,4 @@
-# Contributing to MaeclyPrint
+# Contributing to Pluryprint
 
 Thanks for your interest in contributing.
 

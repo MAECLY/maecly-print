@@ -263,7 +263,7 @@ Those numbers sit just under the measured tree (lines/statements 61.4%, function
 
 - **WebdriverIO** as the test framework (`@wdio/cli` + the Mocha framework adapter), configured in `e2e/wdio.conf.ts`.
 - **`tauri-driver`** (a cargo binary, `cargo install tauri-driver --locked`) as the WebDriver bridge to the Tauri webview. On Windows it proxies to the Edge WebDriver (`msedgedriver.exe`) matching the installed WebView2, passed via the `NATIVE_DRIVER` env var.
-- Tests run against an actual built `maeclyprint(.exe)` binary (`pnpm tauri build --debug`), not the dev server. Run locally with `pnpm test:e2e`.
+- Tests run against an actual built `pluryprint(.exe)` binary (`pnpm tauri build --debug`), not the dev server. Run locally with `pnpm test:e2e`.
 
 ### Platform support — Windows/Linux only
 
@@ -271,9 +271,9 @@ Those numbers sit just under the measured tree (lines/statements 61.4%, function
 
 ### Browser harness (macOS, or any host without a built binary)
 
-`pnpm dev:e2e` (`vite --mode e2e`; `MAECLY_E2E_STUB=1 pnpm dev` is equivalent) serves the real frontend at `http://localhost:1421` with a **fake Tauri host** injected ahead of the app. The `maeclyE2eStub` plugin in `vite.config.ts` (`e2e/browser/vite-plugin.ts`) is `apply: 'serve'` and inert without the flag, so neither `pnpm dev` nor any production build ever contains it. `e2e/browser/ipc-stub.ts` installs `window.__TAURI_INTERNALS__` (invoke, callbacks, the event plugin's listen/unlisten/emit, the dialog plugin, `convertFileSrc`, webview metadata), so `isTauri()` is true and the screens run their real code paths. Every command lands on `e2e/browser/fake-backend.ts`: in-memory printers, profiles (CRUD, default guard), settings (with the server's engine limits), folders and a queue seeded from `src/test/fixtures.ts`. Submitted jobs advance on a timer (queued → converting → converted → printing → done, a file named `*fail*` fails), emitting `queue-updated` and `job-progress-event`. A command it does not model rejects with `Internal`, never resolves `undefined`.
+`pnpm dev:e2e` (`vite --mode e2e`; `PLURY_E2E_STUB=1 pnpm dev` is equivalent) serves the real frontend at `http://localhost:1421` with a **fake Tauri host** injected ahead of the app. The `pluryE2eStub` plugin in `vite.config.ts` (`e2e/browser/vite-plugin.ts`) is `apply: 'serve'` and inert without the flag, so neither `pnpm dev` nor any production build ever contains it. `e2e/browser/ipc-stub.ts` installs `window.__TAURI_INTERNALS__` (invoke, callbacks, the event plugin's listen/unlisten/emit, the dialog plugin, `convertFileSrc`, webview metadata), so `isTauri()` is true and the screens run their real code paths. Every command lands on `e2e/browser/fake-backend.ts`: in-memory printers, profiles (CRUD, default guard), settings (with the server's engine limits), folders and a queue seeded from `src/test/fixtures.ts`. Submitted jobs advance on a timer (queued → converting → converted → printing → done, a file named `*fail*` fails), emitting `queue-updated` and `job-progress-event`. A command it does not model rejects with `Internal`, never resolves `undefined`.
 
-Drive it with any browser automation (Chrome DevTools MCP, Playwright) through `window.__MAECLY_E2E__`: `backend` (state, `tick()`, `openPaths` for the next file picker), `forwardSelection(sel)`, `dropFiles(paths)`, `emit(event, payload)`, `calls()`. URL flags: `?e2e-seed=1` (fixture queue with every job state), `?e2e-tick=0` (manual ticks), `?e2e-onboarded=1` (skip onboarding). It proves GUI ↔ IPC-contract behaviour, not the backend; the harness's own contract tests live in `e2e/browser/ipc-stub.test.ts` and run with `pnpm test`.
+Drive it with any browser automation (Chrome DevTools MCP, Playwright) through `window.__PLURY_E2E__`: `backend` (state, `tick()`, `openPaths` for the next file picker), `forwardSelection(sel)`, `dropFiles(paths)`, `emit(event, payload)`, `calls()`. URL flags: `?e2e-seed=1` (fixture queue with every job state), `?e2e-tick=0` (manual ticks), `?e2e-onboarded=1` (skip onboarding). It proves GUI ↔ IPC-contract behaviour, not the backend; the harness's own contract tests live in `e2e/browser/ipc-stub.test.ts` and run with `pnpm test`.
 
 ### Coverage scope
 
@@ -337,7 +337,7 @@ Flake handling: a spec that fails repeatedly on `main` is fixed within a week or
 | `ignored-tests` | macOS | no (advisory) | `cargo test -- --ignored`; **schedule/workflow_dispatch only**, weekly Mondays 05:00 UTC |
 | `build` | windows | yes | `pnpm tauri build --debug` + the Windows smoke launch; `needs: [frontend, backend]` |
 | `e2e` | windows | no | the WebdriverIO suite; `needs: [frontend, backend]` |
-| `shell-ext-win` | windows | yes | matrix over `x86_64-` and `aarch64-pc-windows-msvc`: fmt, clippy, release build with `MAECLYPRINT_REQUIRE_RESOURCES=1`, `cargo test` (x64 only — an x64 runner cannot execute an ARM64 test binary), and a `dumpbin /EXPORTS` check for `DllGetClassObject` + `DllCanUnloadNow` |
+| `shell-ext-win` | windows | yes | matrix over `x86_64-` and `aarch64-pc-windows-msvc`: fmt, clippy, release build with `PLURYPRINT_REQUIRE_RESOURCES=1`, `cargo test` (x64 only — an x64 runner cannot execute an ARM64 test binary), and a `dumpbin /EXPORTS` check for `DllGetClassObject` + `DllCanUnloadNow` |
 | `shell-ext-portable` | ubuntu | yes | proves the non-COM half of the shell extension is developable off Windows: `cargo test` on the host plus `cargo check --target x86_64-pc-windows-msvc` (type-checks the COM layer with no linker) |
 
 Every job except `ignored-tests` carries `if: github.event_name != 'schedule'`; `ignored-tests` carries the inverse. The workflow triggers are `push` to `main`, `pull_request` to `main`, `workflow_dispatch` and the weekly `schedule` — the last two exist solely for `ignored-tests`.

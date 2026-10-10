@@ -31,7 +31,7 @@ When installing VS Build Tools, select:
 
 **ATL is not required.** Earlier drafts of this document listed the C++ ATL components as mandatory for the shell extension. That was written when `shell-ext-win/` was planned as a C++ project; it is a Rust `cdylib` built with the `windows` crate, which needs no ATL. Installing ATL is harmless but buys nothing.
 
-What the shell extension *does* need is `rc.exe` (the Windows Resource Compiler, part of the Windows SDK). Its `build.rs` embeds `res/shellext.rc`, which carries the side-by-side `<msix>` manifest without which Explorer silently never loads the DLL. Set `MAECLYPRINT_REQUIRE_RESOURCES=1` to turn a missing `rc.exe` into a build failure instead of a DLL that registers fine and is never invoked — this is what CI does.
+What the shell extension *does* need is `rc.exe` (the Windows Resource Compiler, part of the Windows SDK). Its `build.rs` embeds `res/shellext.rc`, which carries the side-by-side `<msix>` manifest without which Explorer silently never loads the DLL. Set `PLURYPRINT_REQUIRE_RESOURCES=1` to turn a missing `rc.exe` into a build failure instead of a DLL that registers fine and is never invoked — this is what CI does.
 
 To cross-compile the ARM64 slice: `rustup target add aarch64-pc-windows-msvc`.
 
@@ -79,7 +79,7 @@ Run `make doctor` to confirm node, pnpm, rustc, cargo and the Tauri CLI are all 
 After this you should have:
 
 - `node_modules/` populated.
-- `src-tauri/target/debug/maeclyprint(.exe)` built.
+- `src-tauri/target/debug/pluryprint(.exe)` built.
 - `src/ipc/bindings.ts` unchanged in `git status` — the debug build regenerates it, and a diff here means the committed copy was stale.
 - No errors from either step.
 
@@ -137,8 +137,8 @@ On Windows, run `powershell -ExecutionPolicy Bypass -File scripts\fetch-sumatrap
 
 Output:
 
-- Windows: `src-tauri/target/release/bundle/nsis/` (NSIS is what `tauri.conf.json` configures today) and the binary at `src-tauri/target/release/maeclyprint.exe`.
-- macOS: `src-tauri/target/release/bundle/macos/MaeclyPrint.app`.
+- Windows: `src-tauri/target/release/bundle/nsis/` (NSIS is what `tauri.conf.json` configures today) and the binary at `src-tauri/target/release/pluryprint.exe`.
+- macOS: `src-tauri/target/release/bundle/macos/Pluryprint.app`.
 
 There is no separate installer script to run afterwards — `installers/windows/` and `installers/macos/` are empty placeholders. See [installer-windows.md](../07-build-and-release/installer-windows.md).
 
@@ -148,16 +148,16 @@ The same binary runs headlessly when the first non-flag argument is one of `prin
 
 ```powershell
 # Files are a COMMA-SEPARATED --files list, not positional arguments
-src-tauri\target\debug\maeclyprint.exe print --files sample.pdf --printer "Microsoft Print to PDF"
+src-tauri\target\debug\pluryprint.exe print --files sample.pdf --printer "Microsoft Print to PDF"
 
-# Several files, or a wildcard MaeclyPrint expands itself (so it behaves the
+# Several files, or a wildcard Pluryprint expands itself (so it behaves the
 # same in cmd.exe and in a POSIX shell)
-src-tauri\target\debug\maeclyprint.exe print --files "a.pdf,b.pdf" --profile draft
-src-tauri\target\debug\maeclyprint.exe print --files "*.pdf" --mono --duplex long
+src-tauri\target\debug\pluryprint.exe print --files "a.pdf,b.pdf" --profile draft
+src-tauri\target\debug\pluryprint.exe print --files "*.pdf" --mono --duplex long
 
 # Inspect without printing; --json is available on every subcommand
-src-tauri\target\debug\maeclyprint.exe printers list --json
-src-tauri\target\debug\maeclyprint.exe queue status
+src-tauri\target\debug\pluryprint.exe printers list --json
+src-tauri\target\debug\pluryprint.exe queue status
 ```
 
 This bypasses the GUI and is useful for backend debugging. Exit codes are the contract — see `src-tauri/src/cli/exit.rs` and `docs/04-architecture/ipc-and-cli.md`.
@@ -180,12 +180,12 @@ This bypasses the GUI and is useful for backend debugging. Exit codes are the co
       "request": "launch",
       "cargo": {
         "args": ["build", "--manifest-path=src-tauri/Cargo.toml", "--no-default-features"],
-        "filter": { "name": "maeclyprint", "kind": "bin" }
+        "filter": { "name": "pluryprint", "kind": "bin" }
       },
       "args": [],
       "cwd": "${workspaceFolder}",
       "env": {
-        "RUST_LOG": "maeclyprint=debug,tauri=info"
+        "RUST_LOG": "pluryprint=debug,tauri=info"
       }
     }
   ]
@@ -199,13 +199,13 @@ Set breakpoints in `src-tauri/src/`, hit F5. The debugger attaches to the Rust p
 Set `RUST_LOG`:
 
 ```powershell
-$env:RUST_LOG = "maeclyprint=debug,tauri=info,ureq=warn"
+$env:RUST_LOG = "pluryprint=debug,tauri=info,ureq=warn"
 pnpm tauri dev
 ```
 
-(The HTTP client is `ureq`, not `reqwest`.) The app also writes structured JSONL to its log directory — `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\` on Windows, `~/Library/Logs/MaeclyPrint/` on macOS. About → "Open logs folder" reveals the live path.
+(The HTTP client is `ureq`, not `reqwest`.) The app also writes structured JSONL to its log directory — `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\` on Windows, `~/Library/Logs/Pluryprint/` on macOS. About → "Open logs folder" reveals the live path.
 
-Module-specific filters: `maeclyprint::engine=trace` for very detailed output from the engine module.
+Module-specific filters: `pluryprint::engine=trace` for very detailed output from the engine module.
 
 ### TypeScript frontend
 
@@ -247,9 +247,9 @@ Install via `brew install cups-pdf`. Outputs `.pdf` to `~/Desktop` by default. m
 
 ### A real physical printer
 
-Install the manufacturer's driver. Test with the OS's standard print dialog first to confirm the driver works; then test through MaeclyPrint.
+Install the manufacturer's driver. Test with the OS's standard print dialog first to confirm the driver works; then test through Pluryprint.
 
-For driver-quirky printers (HP, Brother), be prepared for issues that aren't MaeclyPrint's fault. We track known-good printers in a separate compatibility matrix doc.
+For driver-quirky printers (HP, Brother), be prepared for issues that aren't Pluryprint's fault. We track known-good printers in a separate compatibility matrix doc.
 
 ## Verifying the install
 
@@ -288,10 +288,10 @@ Windows SDK missing. In VS Build Tools installer, add "Windows 11 SDK (10.0.2262
 
 ### Windows: the shell extension DLL builds but Explorer never loads it
 
-Almost always a missing embedded manifest. `shell-ext-win/build.rs` embeds `res/shellext.rc`, which carries the `<msix>` side-by-side element that grants the DLL package identity; without it Explorer loads nothing and `Package.Current` is null — with no error anywhere. Build with `MAECLYPRINT_REQUIRE_RESOURCES=1` so a missing `rc.exe` fails the build instead:
+Almost always a missing embedded manifest. `shell-ext-win/build.rs` embeds `res/shellext.rc`, which carries the `<msix>` side-by-side element that grants the DLL package identity; without it Explorer loads nothing and `Package.Current` is null — with no error anywhere. Build with `PLURYPRINT_REQUIRE_RESOURCES=1` so a missing `rc.exe` fails the build instead:
 
 ```powershell
-$env:MAECLYPRINT_REQUIRE_RESOURCES = "1"
+$env:PLURYPRINT_REQUIRE_RESOURCES = "1"
 cargo build --release --manifest-path shell-ext-win/Cargo.toml
 ```
 
@@ -322,7 +322,7 @@ First-time builds can take 5-15 minutes. Watch for cargo progress in the termina
 Some tests use temp files; antivirus on Windows or `tmpfs` quirks on macOS can interfere. Try setting `TMPDIR`:
 
 ```powershell
-$env:TMPDIR = "$env:TEMP\maeclyprint-test"
+$env:TMPDIR = "$env:TEMP\pluryprint-test"
 mkdir $env:TMPDIR -Force
 cargo test
 ```

@@ -1,6 +1,6 @@
 # Security Model
 
-> **TL;DR** — MaeclyPrint signs its release artifacts, runs without admin privileges, isolates the high-risk shell-extension code in a tiny Rust COM DLL, keeps the webview's Rust-facing surface closed, and ships with telemetry **off** by default (and, in this version, inert). The only outbound network destination in the shipped app is **`api.github.com`**, for a read-only update *check* — there is no in-app updater and no `updates.maecly.com`.
+> **TL;DR** — Pluryprint signs its release artifacts, runs without admin privileges, isolates the high-risk shell-extension code in a tiny Rust COM DLL, keeps the webview's Rust-facing surface closed, and ships with telemetry **off** by default (and, in this version, inert). The only outbound network destination in the shipped app is **`api.github.com`**, for a read-only update *check* — there is no in-app updater and no `updates.maecly.com`.
 
 ## 1. Threat model
 
@@ -38,10 +38,10 @@ From day 1 (`v0.1.0` GA), all release artifacts are signed with an **Extended Va
 
 Signed artifacts:
 
-- The main executable: `MaeclyPrint.exe`.
-- The shell-extension DLL: `shell_ext_win.dll` (the `cdylib` produced by the `maeclyprint-shellext` crate).
+- The main executable: `Pluryprint.exe`.
+- The shell-extension DLL: `shell_ext_win.dll` (the `cdylib` produced by the `pluryprint-shellext` crate).
 - The Windows installer produced by `tauri build` (NSIS, `installMode: currentUser`).
-- The Sparse MSIX package: `MaeclyPrint.msix` (signed via `signtool`).
+- The Sparse MSIX package: `Pluryprint.msix` (signed via `signtool`).
 
 Signing happens in the GitHub Actions release workflow on a Windows runner with the EV key residing in an Azure Key Vault HSM accessed through `signtool` and the Azure Code Signing extension. The key never lives on disk in CI.
 
@@ -75,7 +75,7 @@ Artifacts are minisign-signed; the manifest is not (see the residual risk above)
 
 The DLL runs **in the address space of `explorer.exe`**, which is the most dangerous place possible for code: a crash brings down Explorer; a vulnerability exposes the entire user session.
 
-It is written in **Rust**, not C++: the crate `maeclyprint-shellext` in `shell-ext-win/`, built as a `cdylib` implementing `IExplorerCommand` via the `windows` crate's `implement` feature.
+It is written in **Rust**, not C++: the crate `pluryprint-shellext` in `shell-ext-win/`, built as a `cdylib` implementing `IExplorerCommand` via the `windows` crate's `implement` feature.
 
 Mitigations:
 
@@ -83,7 +83,7 @@ Mitigations:
 - **Tiny code surface.** ~1,800 lines across fourteen small modules, with unit tests co-located and two integration tests (`handoff_roundtrip`, `strings_cache`). Auditable in an afternoon.
 - **Panics never cross the COM boundary.** Every entry point is wrapped by `guard::guard()`, which `catch_unwind`s and returns an HRESULT. This is why the crate pins `panic = "unwind"` in **both** its `dev` and `release` profiles, and why it is deliberately *not* a workspace member: `src-tauri`'s `panic = "abort"` would silently turn `catch_unwind` into a no-op and a panic would take Explorer down.
 - **Bounded file I/O only.** The DLL reads paths from `IShellItemArray` and writes one handoff JSON file under the **per-user data directory** (`<data dir>/handoff`), never a world-writable temp dir — so another user cannot plant a payload. It never opens, reads, or modifies the user's documents. The consumer independently refuses any handoff path that does not canonicalize inside that directory, and any payload that is stale, empty, over-long or of the wrong schema version.
-- **The handoff directory is derived, not hardcoded.** Both sides resolve it through the same `directories::ProjectDirs::from("com", "Maecly", "MaeclyPrint")` call, which is what guarantees producer and consumer agree on the path.
+- **The handoff directory is derived, not hardcoded.** Both sides resolve it through the same `directories::ProjectDirs::from("com", "Maecly", "Pluryprint")` call, which is what guarantees producer and consumer agree on the path.
 - **No networking.** The crate has no HTTP dependency; its whole dependency set is `serde`/`serde_json`, `uuid`, `time`, `directories`, and the Windows bindings.
 - **Hardened release profile:** `lto = true`, `codegen-units = 1`, `opt-level = "s"`, `strip = true`.
 
@@ -91,7 +91,7 @@ Mitigations:
 
 Runs as the user; not elevated. Has read/write access to:
 
-- `%APPDATA%\Maecly\MaeclyPrint\` and `%LOCALAPPDATA%\Maecly\MaeclyPrint\`.
+- `%APPDATA%\Maecly\Pluryprint\` and `%LOCALAPPDATA%\Maecly\Pluryprint\`.
 - The user's documents (because we are spawned by the user; no extra access).
 
 Does **not**:
@@ -153,7 +153,7 @@ Installation:
 
 - The bundler is Tauri's **NSIS** target with `installMode: "currentUser"` (`tauri.conf.json`), i.e. a per-user install under `%LOCALAPPDATA%` — not Inno Setup.
 - Sparse MSIX is registered via `Add-AppxPackage -Register -ExternalLocation`, which is per-user.
-- Registry entries (fallback shell ext) live in `HKCU\Software\Classes\*\shell\MaeclyPrint`.
+- Registry entries (fallback shell ext) live in `HKCU\Software\Classes\*\shell\Pluryprint`.
 - No services, no scheduled tasks, no drivers.
 
 Operation:
@@ -166,26 +166,26 @@ The one exception is **uninstalling the WebView2 Runtime** — but we don't ship
 ### 4.2 macOS
 
 - App installs to `/Applications` (user can drag-drop without admin if not present).
-- All state in `~/Library/Application Support/com.Maecly.MaeclyPrint/` and friends.
+- All state in `~/Library/Application Support/com.Maecly.Pluryprint/` and friends.
 - Finder Sync Extension requires the user to enable it in System Settings — explicit consent.
 
 ### 4.3 Enterprise policy (`policy.json`)
 
-An organization can pin a small set of MaeclyPrint behavior with an optional, admin-managed `policy.json`. The app **reads it but never writes it** — it is intentionally an inbound-only control, so a compromised or misbehaving webview cannot alter organization settings. Today it carries a single field, the enforced default printer. Implemented in `src-tauri/src/settings/policy.rs`; surfaced to the UI via the `get_printer_policy` IPC command.
+An organization can pin a small set of Pluryprint behavior with an optional, admin-managed `policy.json`. The app **reads it but never writes it** — it is intentionally an inbound-only control, so a compromised or misbehaving webview cannot alter organization settings. Today it carries a single field, the enforced default printer. Implemented in `src-tauri/src/settings/policy.rs`; surfaced to the UI via the `get_printer_policy` IPC command.
 
 **Sources** (first hit wins). The UI calls the result *managed by your organization*, so a source is only believed when a standard user could not have written it:
 
 | Platform | Sources, most authoritative first | Fallback (debug builds only) |
 | -------- | --------------------------------- | ---------------------------- |
-| Windows  | Registry `HKLM\SOFTWARE\Policies\Maecly\MaeclyPrint`, value `DefaultPrinter` (REG_SZ — Group Policy friendly); then `%ProgramData%\MaeclyPrint\policy.json`, **only if the file's owner is `BUILTIN\Administrators` or `SYSTEM`** | `<user config dir>\policy.json` |
-| macOS    | `/Library/Application Support/MaeclyPrint/policy.json` | `~/Library/Application Support/com.Maecly.MaeclyPrint/policy.json` |
-| Linux    | `/etc/maeclyprint/policy.json` | `<XDG config dir>/maeclyprint/policy.json` |
+| Windows  | Registry `HKLM\SOFTWARE\Policies\Maecly\Pluryprint`, value `DefaultPrinter` (REG_SZ — Group Policy friendly); then `%ProgramData%\Pluryprint\policy.json`, **only if the file's owner is `BUILTIN\Administrators` or `SYSTEM`** | `<user config dir>\policy.json` |
+| macOS    | `/Library/Application Support/Pluryprint/policy.json` | `~/Library/Application Support/com.Maecly.Pluryprint/policy.json` |
+| Linux    | `/etc/pluryprint/policy.json` | `<XDG config dir>/pluryprint/policy.json` |
 
 `%ProgramData%` is not admin-only: its default ACL lets any user create a folder there and own it. A `policy.json` a standard user created is therefore owned by that user and **ignored** (logged as `policy_untrusted`); otherwise any user could impose a "managed" default printer on every other account on the machine. A user cannot assign a file's ownership to Administrators without privileges they do not have.
 
 Two more rules close the gaps around that check:
 
-- **The folder must be admin-owned too.** `%ProgramData%\MaeclyPrint` must itself be owned by Administrators or SYSTEM. A standard user who created that folder first can rename and replace files inside it, so an admin-owned file in a user-owned folder is still ignored. Create the folder as an administrator.
+- **The folder must be admin-owned too.** `%ProgramData%\Pluryprint` must itself be owned by Administrators or SYSTEM. A standard user who created that folder first can rename and replace files inside it, so an admin-owned file in a user-owned folder is still ignored. Create the folder as an administrator.
 - **One handle for the check and the read.** The file is opened once. Its owner is read from the open handle (`GetSecurityInfo`), and the content is read from that same handle. If the path were checked and read separately, someone who controls the folder could show their own file during the read and put the admin's file back before the owner check.
 
 On macOS and Linux the location is admin/root-only, so it is the main check. The open handle must also be a regular file that is not world-writable, in a folder that is not world-writable.
@@ -206,14 +206,14 @@ Policy is read **at page load** (each time the Printers screen mounts). There is
 
 ## 5. Network egress audit
 
-MaeclyPrint makes exactly **two** possible requests, both to GitHub's public API, both unauthenticated `GET`s, and the second only on one branch:
+Pluryprint makes exactly **two** possible requests, both to GitHub's public API, both unauthenticated `GET`s, and the second only on one branch:
 
 ```
 GET https://api.github.com/repos/<owner>/<repo>/releases/latest
 GET https://api.github.com/repos/<owner>/<repo>            # only if the first returned 404
 ```
 
-`<owner>/<repo>` is compiled in from the crate's `repository` field; it is not configurable at runtime. Headers are `User-Agent: MaeclyPrint/<version>`, `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`. The request bodies are empty and carry no identifier of any kind. The client is `ureq` with a 10-second timeout; a system proxy is honoured from `HTTPS_PROXY`/`HTTP_PROXY` (either case) when set.
+`<owner>/<repo>` is compiled in from the crate's `repository` field; it is not configurable at runtime. Headers are `User-Agent: Pluryprint/<version>`, `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`. The request bodies are empty and carry no identifier of any kind. The client is `ureq` with a 10-second timeout; a system proxy is honoured from `HTTPS_PROXY`/`HTTP_PROXY` (either case) when set.
 
 Frequency: at most once per 24 h automatically (30 s after launch, off the main thread), plus whenever the user explicitly asks. Disabling `[updater].check_on_startup` removes the automatic one entirely — and the check is skipped *before* any socket is opened, which is asserted by test.
 
@@ -236,13 +236,13 @@ Nothing is collected, because nothing is transmitted. In particular the app neve
 
 ### 6.2 Logs
 
-Local-only. Files are named `maeclyprint-<UTC date>.jsonl` (and `maeclyprint-<date>.<n>.jsonl` for each size roll within one day) under `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\` (Windows) or `~/Library/Logs/MaeclyPrint/` (macOS). The user can delete them at any time, and the About screen has a button that reveals the folder.
+Local-only. Files are named `pluryprint-<UTC date>.jsonl` (and `pluryprint-<date>.<n>.jsonl` for each size roll within one day) under `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\` (Windows) or `~/Library/Logs/Pluryprint/` (macOS). The user can delete them at any time, and the About screen has a button that reveals the folder.
 
 Rotation and retention are implemented by `logging::RollingJsonl`, not by `tracing-appender`'s rolling appender (which only rotates on a clock boundary and never deletes): the current file rolls when the **UTC date changes or it passes 10 MB, whichever comes first**, and a sweep at startup and on every roll deletes anything older than **14 days** and then keeps only the **7 newest** files. Both bounds apply; whichever bites first wins. There is no `[logging]` section in `config.toml` — these are the whole policy.
 
 Logs are **never** uploaded. There is no "send logs to maintainers" upload path in this version; `report_issue` opens a prefilled GitHub issue in the browser with an environment block, and the user pastes whatever they choose.
 
-Default log level is `info` for every crate (`logging::DEFAULT_FILTER`, overridable with `RUST_LOG`). It used to be `info,maeclyprint=debug`, but an `EnvFilter` target is a string prefix, so that directive also matched `maeclyprint_lib`, where every event lives, and DEBUG (with full paths) was on by default. At `info`:
+Default log level is `info` for every crate (`logging::DEFAULT_FILTER`, overridable with `RUST_LOG`). It used to be `info,pluryprint=debug`, but an `EnvFilter` target is a string prefix, so that directive also matched `pluryprint_lib`, where every event lives, and DEBUG (with full paths) was on by default. At `info`:
 
 - Job IDs, profile IDs, printer names, exit codes, durations.
 - File extensions, and a job's **file name without its folder** (`report.docx`): FR-035 requires every job record to identify its file, and the file name is that identifier. Absolute paths and folders are **never** logged at `info`: the shell extension's `shellext.jsonl` records only the handoff file's name, and `log.file` / `log.module_path` (build-machine source paths that `tracing-log` attaches to records bridged from the `log` crate, such as the updater's) are stripped from every record before it is written (`logging::scrub_bridged_log_fields`).
@@ -261,7 +261,7 @@ At `trace`:
 Settings → Privacy panel:
 
 ```
-[ ] Send anonymized crash reports to MaeclyPrint maintainers
+[ ] Send anonymized crash reports to Pluryprint maintainers
     (off by default; you can change this any time)
 
 [ ] Send anonymous usage metrics

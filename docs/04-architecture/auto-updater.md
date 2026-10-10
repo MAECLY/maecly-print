@@ -1,6 +1,6 @@
 # Update Check and Install
 
-> **TL;DR** — Two steps. The **check** asks the GitHub Releases API (`https://api.github.com/repos/<owner>/<repo>/releases/latest`) whether a newer tag exists and compares it to the running version with semver precedence. The **install** runs only when the user asks for it (About → **Install now**, or `maeclyprint update install`): `tauri-plugin-updater` downloads the artifact named by `latest.json`, verifies its minisign signature against the public key in `tauri.conf.json`, and installs it per-user (§10, [ADR-0008](../adr/0008-installer-nsis-per-user.md)). `updates.maecly.com` does not exist and is not contacted.
+> **TL;DR** — Two steps. The **check** asks the GitHub Releases API (`https://api.github.com/repos/<owner>/<repo>/releases/latest`) whether a newer tag exists and compares it to the running version with semver precedence. The **install** runs only when the user asks for it (About → **Install now**, or `pluryprint update install`): `tauri-plugin-updater` downloads the artifact named by `latest.json`, verifies its minisign signature against the public key in `tauri.conf.json`, and installs it per-user (§10, [ADR-0008](../adr/0008-installer-nsis-per-user.md)). `updates.maecly.com` does not exist and is not contacted.
 
 ## 0. Status and scope
 
@@ -9,10 +9,10 @@
 | Check whether a newer release exists      | ✅            | `src-tauri/src/update/mod.rs` |
 | Launch-time check (delayed, throttled)    | ✅            | `src-tauri/src/lib.rs` `setup` |
 | Manual check from the About screen        | ✅            | `check_for_updates` IPC command |
-| Manual check from a script                | ✅            | `maeclyprint update check [--json]` |
+| Manual check from a script                | ✅            | `pluryprint update check [--json]` |
 | "Skip this version"                       | ✅            | `set_skipped_update_version`, FR-084 |
 | Download an update                        | ✅            | `update::install::find_update` / `install`, on explicit request only |
-| Install / replace the running binary      | ✅            | `install_update` IPC command, `maeclyprint update install [--yes]` |
+| Install / replace the running binary      | ✅            | `install_update` IPC command, `pluryprint update install [--yes]` |
 | Signature verification (minisign/Ed25519) | ✅            | `tauri-plugin-updater`, against `plugins.updater.pubkey` |
 | Major version needs explicit opt-in (FR-087) | ✅         | `update::install::is_major_bump` + `allowMajor` / `--yes` |
 | Separate `beta` / `nightly` release feeds | ❌            | the preference is stored; every check hits `releases/latest` |
@@ -30,7 +30,7 @@ Everything except the one network call is a pure function with co-located tests 
 
 ```
 GET https://api.github.com/repos/{owner}/{repo}/releases/latest
-User-Agent: MaeclyPrint/<version>
+User-Agent: Pluryprint/<version>
 Accept: application/vnd.github+json
 X-GitHub-Api-Version: 2022-11-28
 ```
@@ -123,10 +123,10 @@ The state is stamped whenever a check **completed**, including one that found no
 | Surface | How |
 | ------- | --- |
 | React (About screen) | `commands.checkForUpdates()`, `commands.getUpdateState()`, `commands.setSkippedUpdateVersion(v)`; passive notification via the `update-available` event |
-| CLI | `maeclyprint update check [--json]` — the same `evaluate()` over the same feed |
-| CLI | `maeclyprint update channel [stable\|beta\|nightly]` — reads/writes `updater.channel` in `config.toml` |
+| CLI | `pluryprint update check [--json]` — the same `evaluate()` over the same feed |
+| CLI | `pluryprint update channel [stable\|beta\|nightly]` — reads/writes `updater.channel` in `config.toml` |
 | React (About screen) | `commands.installUpdate(allowMajor)`, `commands.restartApp()`; progress via the `update-download-progress` event |
-| CLI | `maeclyprint update install [--yes]` — the same install core; exit 11 on failure, 12 when the prompt is declined; on Windows refused (exit 1) while the app is open, and the result printed at installer hand-off (see [ipc-and-cli.md](./ipc-and-cli.md#update-install)) |
+| CLI | `pluryprint update install [--yes]` — the same install core; exit 11 on failure, 12 when the prompt is declined; on Windows refused (exit 1) while the app is open, and the result printed at installer hand-off (see [ipc-and-cli.md](./ipc-and-cli.md#update-install)) |
 
 The wire shape is `UpdateCheck` (`current`, `latest`, `available`, `url`, `notes`, `checked_at`); `url` and `notes` are populated **only** when `available` is true. See [ipc-and-cli.md](./ipc-and-cli.md) §2.2.
 
@@ -164,7 +164,7 @@ There is no backoff ladder: the 24 h throttle *is* the rate limiter for the auto
 
 `src-tauri/src/update/install.rs` holds the policy, as pure functions with tests. The plugin does the download, signature check and platform install.
 
-1. **Find.** `find_update` builds an updater for the endpoint from `resolve_endpoint`: `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json`, or `MAECLYPRINT_UPDATE_ENDPOINT` when it is set (local end-to-end testing; release builds still refuse plain `http`). When the variable is set, the *check* (`update check`, About, the launch-time check) reads the same manifest instead of the GitHub releases API, so a test server drives every step (`update::fetch_configured_latest`). Without it, a `404` from a private or deleted repository is reported as `repo_missing` ("the releases could not be reached"), not as a broken build. No newer version gives `installed: null`.
+1. **Find.** `find_update` builds an updater for the endpoint from `resolve_endpoint`: `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json`, or `PLURYPRINT_UPDATE_ENDPOINT` when it is set (local end-to-end testing; release builds still refuse plain `http`). When the variable is set, the *check* (`update check`, About, the launch-time check) reads the same manifest instead of the GitHub releases API, so a test server drives every step (`update::fetch_configured_latest`). Without it, a `404` from a private or deleted repository is reported as `repo_missing` ("the releases could not be reached"), not as a broken build. No newer version gives `installed: null`.
 2. **Gate.** `install` refuses a major jump (`is_major_bump`) unless `allow_major` is set, which only the About confirmation dialog or the CLI's `--yes` / typed "yes" provide (FR-087). The confirmation is bound to its version (`check_confirmation`): the About screen asks about the release the GitHub API named and passes that version along, and `install` reads the manifest again, so a major jump to any *other* version (a newer major published in between, or a manifest that differs from the API) is refused with `major_update_changed` until the user confirms it. A typed "yes" in the CLI pins the version the prompt named; `--yes` is a blanket opt-in. Minor and patch updates are not compared. It refuses a binary that is not inside an installed `.app` bundle on macOS (`check_installable_location`), so a dev build never replaces its build directory. One install runs at a time per process.
 3. **Download and verify.** `Update::download` streams the artifact (progress goes out as `update-download-progress`) and verifies the minisign signature against `plugins.updater.pubkey` before returning any bytes. Every signature failure maps to `IpcError::UpdateSignatureInvalid`, whose message says the update was **not** installed and nothing changed (`classify_error`).
 4. **Install.** Windows runs the per-user NSIS setup passively, and the app exits so the installer can restart it. macOS swaps the `.app` in place and returns `restart_required: true`, and About offers **Restart now** (`restart_app`).

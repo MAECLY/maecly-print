@@ -1,8 +1,8 @@
 # Privacy Policy
 
-> **TL;DR.** MaeclyPrint does not collect telemetry, does not phone home, does not transmit your file contents, and does not have user accounts. The only network call it makes by default is an update **check** against the public GitHub Releases API (`api.github.com`) — no download, no identifiers, no payload. An update is downloaded only when you choose **Install now** (or run `maeclyprint update install`). **This version transmits nothing else at all: there is no crash reporter and no usage-metrics reporter in the shipped code**, opt-in or otherwise. Logs stay on your machine.
+> **TL;DR.** Pluryprint does not collect telemetry, does not phone home, does not transmit your file contents, and does not have user accounts. The only network call it makes by default is an update **check** against the public GitHub Releases API (`api.github.com`) — no download, no identifiers, no payload. An update is downloaded only when you choose **Install now** (or run `pluryprint update install`). **This version transmits nothing else at all: there is no crash reporter and no usage-metrics reporter in the shipped code**, opt-in or otherwise. Logs stay on your machine.
 
-This document describes what data MaeclyPrint collects, transmits, stores, and shares — which is nearly nothing. It is current as of **2026-07-21** and applies to all installed versions of MaeclyPrint on Windows and macOS.
+This document describes what data Pluryprint collects, transmits, stores, and shares — which is nearly nothing. It is current as of **2026-07-21** and applies to all installed versions of Pluryprint on Windows and macOS.
 
 ## Our principles
 
@@ -34,14 +34,14 @@ The list of things we explicitly do not do:
 
 ## Network calls we **do** make (by default)
 
-There is exactly one kind of outbound network call MaeclyPrint makes by default, and it goes to GitHub — **not** to any Maecly-operated server. MaeclyPrint does not run an update server; there is no `updates.maecly.com`.
+There is exactly one kind of outbound network call Pluryprint makes by default, and it goes to GitHub — **not** to any Maecly-operated server. Pluryprint does not run an update server; there is no `updates.maecly.com`.
 
 ### Update check
 
 - **Endpoint:** `https://api.github.com/repos/<owner>/<repo>/releases/latest`, where `<owner>/<repo>` is this build's own repository, compiled into the binary. If that request returns `404`, one follow-up request to `https://api.github.com/repos/<owner>/<repo>` distinguishes "no releases yet" from "the repository URL in this build is wrong". Those are the only two URLs the automatic check requests.
-- **Frequency:** at most once every 24 hours, and only 30 seconds after launch — never during startup. Plus on demand when you press "Check for updates" or run `maeclyprint update check`.
+- **Frequency:** at most once every 24 hours, and only 30 seconds after launch — never during startup. Plus on demand when you press "Check for updates" or run `pluryprint update check`.
 - **Request payload:** none. It is a plain unauthenticated HTTPS GET. No account, no token, no install id.
-- **Request headers:** `User-Agent: MaeclyPrint/<version>`, plus GitHub's `Accept` and API-version headers. The user agent carries the app version and nothing else — no OS string, no identifiers.
+- **Request headers:** `User-Agent: Pluryprint/<version>`, plus GitHub's `Accept` and API-version headers. The user agent carries the app version and nothing else — no OS string, no identifiers.
 - **Proxy:** if `HTTPS_PROXY` / `HTTP_PROXY` (or their lowercase forms) are set in your environment, the request goes through that proxy. Nothing else about your environment is read.
 - **What is downloaded:** only the release metadata JSON — a tag name, a link to the release page, and the release notes. The check never downloads a binary and never installs anything.
 - **What GitHub sees:** whatever any unauthenticated HTTPS request to `api.github.com` exposes — your IP address, the user agent above, and the requested URL. GitHub's privacy policy governs that; we operate no server in this path and therefore keep no logs of it.
@@ -49,9 +49,9 @@ There is exactly one kind of outbound network call MaeclyPrint makes by default,
 
 ### Installing an update (only when you ask)
 
-- **When:** only after you press **Install now** on the About screen or run `maeclyprint update install`. Nothing is installed automatically, and a major version asks you a second time.
+- **When:** only after you press **Install now** on the About screen or run `pluryprint update install`. Nothing is installed automatically, and a major version asks you a second time.
 - **Endpoint:** `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json` (a small manifest), then the installer file it names, both served by GitHub. The request carries the updater's own user agent and no identifiers.
-- **Verification:** the file is checked against MaeclyPrint's release signature before it is installed. A file that fails the check is discarded and nothing on your computer changes.
+- **Verification:** the file is checked against Pluryprint's release signature before it is installed. A file that fails the check is discarded and nothing on your computer changes.
 
 ### Things this version does **not** do over the network
 
@@ -80,23 +80,23 @@ These are the real file names and locations, as resolved by `src-tauri/src/util/
 
 | Data | Location (Windows) | Location (macOS) | Contents |
 |---|---|---|---|
-| Settings | `%APPDATA%\Maecly\MaeclyPrint\config\config.toml` | `~/Library/Application Support/com.Maecly.MaeclyPrint/config.toml` | Language, theme, engine limits, update channel, printer preferences, the two consent flags. |
-| Profiles | `%APPDATA%\Maecly\MaeclyPrint\config\profiles.toml` | `~/Library/Application Support/com.Maecly.MaeclyPrint/profiles.toml` | One TOML file holding the print presets **you** created. The three built-in presets live in code and are never written to disk. |
-| Print queue | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\queue.json` | `~/Library/Application Support/com.Maecly.MaeclyPrint/queue.json` | The live queue, so it survives a restart. Contains the **paths and names of files you queued**, their sizes and page counts. |
-| Update bookkeeping | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\update-state.json` | `~/Library/Application Support/com.Maecly.MaeclyPrint/update-state.json` | Two fields: when the last update check ran, and which version you chose to skip. |
-| Converted PDFs | `%LOCALAPPDATA%\Maecly\MaeclyPrint\cache\conversions\` | `~/Library/Caches/com.Maecly.MaeclyPrint/conversions/` | Temporary PDFs produced while printing non-PDF files. Swept by the app; deleting them by hand is safe. |
-| Shell-extension handoff | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\handoff\` | `~/Library/Application Support/com.Maecly.MaeclyPrint/handoff/` | Short-lived JSON files listing the paths you right-clicked. Consumed immediately; leftovers are swept at the next launch. Kept under your own user directory rather than a shared temp folder so another user cannot read or plant one. |
-| Logs | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\maeclyprint-<date>.jsonl` | `~/Library/Logs/MaeclyPrint/maeclyprint-<date>.jsonl` | JSON-lines tracing output. **May include file paths** of jobs you printed. Rolls on a new UTC day or at 10 MB, whichever comes first; a sweep at startup and on every roll deletes anything older than 14 days and then keeps only the 7 newest files. |
-| Enterprise policy (read-only) | `%ProgramData%\MaeclyPrint\policy.json` | `/Library/Application Support/MaeclyPrint/policy.json` | Provisioned by an administrator; the app only ever reads it. |
+| Settings | `%APPDATA%\Maecly\Pluryprint\config\config.toml` | `~/Library/Application Support/com.Maecly.Pluryprint/config.toml` | Language, theme, engine limits, update channel, printer preferences, the two consent flags. |
+| Profiles | `%APPDATA%\Maecly\Pluryprint\config\profiles.toml` | `~/Library/Application Support/com.Maecly.Pluryprint/profiles.toml` | One TOML file holding the print presets **you** created. The three built-in presets live in code and are never written to disk. |
+| Print queue | `%LOCALAPPDATA%\Maecly\Pluryprint\data\queue.json` | `~/Library/Application Support/com.Maecly.Pluryprint/queue.json` | The live queue, so it survives a restart. Contains the **paths and names of files you queued**, their sizes and page counts. |
+| Update bookkeeping | `%LOCALAPPDATA%\Maecly\Pluryprint\data\update-state.json` | `~/Library/Application Support/com.Maecly.Pluryprint/update-state.json` | Two fields: when the last update check ran, and which version you chose to skip. |
+| Converted PDFs | `%LOCALAPPDATA%\Maecly\Pluryprint\cache\conversions\` | `~/Library/Caches/com.Maecly.Pluryprint/conversions/` | Temporary PDFs produced while printing non-PDF files. Swept by the app; deleting them by hand is safe. |
+| Shell-extension handoff | `%LOCALAPPDATA%\Maecly\Pluryprint\data\handoff\` | `~/Library/Application Support/com.Maecly.Pluryprint/handoff/` | Short-lived JSON files listing the paths you right-clicked. Consumed immediately; leftovers are swept at the next launch. Kept under your own user directory rather than a shared temp folder so another user cannot read or plant one. |
+| Logs | `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\pluryprint-<date>.jsonl` | `~/Library/Logs/Pluryprint/pluryprint-<date>.jsonl` | JSON-lines tracing output. **May include file paths** of jobs you printed. Rolls on a new UTC day or at 10 MB, whichever comes first; a sweep at startup and on every roll deletes anything older than 14 days and then keeps only the 7 newest files. |
+| Enterprise policy (read-only) | `%ProgramData%\Pluryprint\policy.json` | `/Library/Application Support/Pluryprint/policy.json` | Provisioned by an administrator; the app only ever reads it. |
 
 This data stays on your device. We never transmit it. You can inspect or delete any of it manually at any time. Uninstalling the app prompts you to delete this data; the default is to preserve it (in case you reinstall).
 
 ## File contents
 
-When MaeclyPrint prints a file:
+When Pluryprint prints a file:
 
-- The file is read from disk by MaeclyPrint.
-- If it is not already a PDF, it is converted to one — images are converted **inside MaeclyPrint itself** (no external tool involved). HEIC photos are decoded by your operating system (`sips` on macOS, Windows Imaging Component on Windows). Other formats are handed to a converter installed on your machine (LibreOffice, Edge/Chrome/Chromium, Pandoc), which runs as a normal subprocess under your user account with a private, temporary profile that is deleted afterwards.
+- The file is read from disk by Pluryprint.
+- If it is not already a PDF, it is converted to one — images are converted **inside Pluryprint itself** (no external tool involved). HEIC photos are decoded by your operating system (`sips` on macOS, Windows Imaging Component on Windows). Other formats are handed to a converter installed on your machine (LibreOffice, Edge/Chrome/Chromium, Pandoc), which runs as a normal subprocess under your user account with a private, temporary profile that is deleted afterwards.
 - The resulting PDF is handed to the printing backend: SumatraPDF on Windows, the CUPS `lp` command on macOS/Linux.
 - The rendered output is sent to your printer (via the OS print spooler).
 
@@ -106,13 +106,13 @@ For network printers: the rendered output is sent **to the printer**, over your 
 
 ## Children's privacy
 
-MaeclyPrint is a desktop utility for printing files. We do not knowingly collect data from children under 13 because we do not knowingly collect data from anyone. If you are a parent and have concerns about your child using MaeclyPrint, the answer is: there is no data flow that reaches us at all.
+Pluryprint is a desktop utility for printing files. We do not knowingly collect data from children under 13 because we do not knowingly collect data from anyone. If you are a parent and have concerns about your child using Pluryprint, the answer is: there is no data flow that reaches us at all.
 
 ## GDPR posture
 
-The General Data Protection Regulation (GDPR) governs the processing of personal data of individuals in the European Union. MaeclyPrint:
+The General Data Protection Regulation (GDPR) governs the processing of personal data of individuals in the European Union. Pluryprint:
 
-- Does not process personal data, because we do not collect any. We operate no server that MaeclyPrint contacts.
+- Does not process personal data, because we do not collect any. We operate no server that Pluryprint contacts.
 - Does not require user accounts or identifiers.
 - Does not transfer personal data outside the EU because we don't have any to transfer.
 - Does not use personal data for profiling, automated decision-making, or marketing.
@@ -127,11 +127,11 @@ The California Consumer Privacy Act (CCPA) and similar state laws (Virginia VCDP
 
 ## Third-party services
 
-We use these services in the operation of the project. None of them receive user data from MaeclyPrint runtime by default; they are part of our infrastructure or development pipeline.
+We use these services in the operation of the project. None of them receive user data from Pluryprint runtime by default; they are part of our infrastructure or development pipeline.
 
 | Service | What for | Data they see |
 |---|---|---|
-| GitHub | Source hosting, CI/CD, releases — **and the update check the app performs** | Source code, CI logs (no user data). For the update check and for any release you download, GitHub sees the standard HTTP request including your IP and the `MaeclyPrint/<version>` user agent. |
+| GitHub | Source hosting, CI/CD, releases — **and the update check the app performs** | Source code, CI logs (no user data). For the update check and for any release you download, GitHub sees the standard HTTP request including your IP and the `Pluryprint/<version>` user agent. |
 | Apple (during macOS use) | Notarization checks (Gatekeeper phones home on first launch) | Apple sees the app bundle hash + your IP. This is OS behavior, not ours. Stapled tickets allow offline verification once notarized. |
 | Microsoft (during Windows use) | SmartScreen reputation lookup at install time | Microsoft sees the installer hash + your IP. This is OS behavior, not ours. |
 
@@ -150,13 +150,13 @@ Although unrelated to privacy directly, security is the foundation of any privac
 
 ## Logging on our infrastructure
 
-MaeclyPrint contacts no server we operate, so there is no application traffic for us to log. Any web-server logging that applies to the project website (`maecly.com`) is a property of that website and not of the app; the app never requests it.
+Pluryprint contacts no server we operate, so there is no application traffic for us to log. Any web-server logging that applies to the project website (`maecly.com`) is a property of that website and not of the app; the app never requests it.
 
 Release downloads and the update check are served by GitHub, whose logging practices are governed by GitHub's own privacy policy. We have no access to per-request logs for them.
 
 ## Children and accessibility
 
-Privacy considerations for accessibility tools: if you use a screen reader, eye tracker, or other assistive technology with MaeclyPrint, that interaction is between you and the assistive technology. MaeclyPrint does not log, transmit, or store information about the use of assistive technology.
+Privacy considerations for accessibility tools: if you use a screen reader, eye tracker, or other assistive technology with Pluryprint, that interaction is between you and the assistive technology. Pluryprint does not log, transmit, or store information about the use of assistive technology.
 
 ## Changes to this policy
 
@@ -167,7 +167,7 @@ If we change this policy in any way that adds collection or sharing, we will:
 3. Show a clear in-app notification on first launch of the new version asking the user to acknowledge.
 4. Update this document with a "Changes" section dating the previous version.
 
-We will **never** make a privacy-affecting change quietly. The principle: if you're surprised by something MaeclyPrint did with your data, we failed.
+We will **never** make a privacy-affecting change quietly. The principle: if you're surprised by something Pluryprint did with your data, we failed.
 
 For changes that *reduce* collection (e.g. removing an opt-in feature, reducing log retention), we may make the change in a normal MINOR or PATCH release without ceremony.
 

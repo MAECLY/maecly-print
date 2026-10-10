@@ -1,6 +1,6 @@
 # About
 
-> **TL;DR** — The **About** screen: app identity and version (authoritative from Rust), an on-demand **Check for updates** that reads the GitHub "latest release" and reports whether a newer one exists, with **Install now** (signature-verified, per-user), **Remind me later** and **Skip this version**, a Components card with the real MaeclyPrint / React / Tauri versions and the running OS · arch, the live filesystem paths with an **Open logs folder** button, and a row of allow-listed external links (release notes, license, docs, report an issue, repository).
+> **TL;DR** — The **About** screen: app identity and version (authoritative from Rust), an on-demand **Check for updates** that reads the GitHub "latest release" and reports whether a newer one exists, with **Install now** (signature-verified, per-user), **Remind me later** and **Skip this version**, a Components card with the real Pluryprint / React / Tauri versions and the running OS · arch, the live filesystem paths with an **Open logs folder** button, and a row of allow-listed external links (release notes, license, docs, report an issue, repository).
 
 This document is the source of truth for the **content and behavior** of the About screen (`src/screens/AboutScreen.tsx`). The update-check logic lives in `src-tauri/src/update/mod.rs`; the diagnostic/link commands in `src-tauri/src/ipc/diag.rs`. It satisfies FR-110 (an About surface showing version, a license link, and a documentation link).
 
@@ -10,7 +10,7 @@ A single scrolling column: an identity header, the update-check action and its r
 
 ```
 ┌─ About ──────────────────────────────────────────────────────────────────────┐
-│  ▣  MaeclyPrint                                                                │
+│  ▣  Pluryprint                                                                │
 │     0.1.0 · build 2026-07-12 · stable channel                                 │
 │     Open source batch printing for Windows and Mac. No 15-file limit…         │
 │                                                                                │
@@ -19,7 +19,7 @@ A single scrolling column: an identity header, the update-check action and its r
 │  │ ✓ You're up to date        version 0.1.0 · checked 14:22                │  │
 │  └─────────────────────────────────────────────────────────────────────────┘  │
 │  COMPONENTS                                                                     │
-│  │ MaeclyPrint   0.1.0     GPL-3.0          │                                  │
+│  │ Pluryprint   0.1.0     GPL-3.0          │                                  │
 │  │ React         18.x      MIT              │                                  │
 │  │ Tauri         2.x       MIT/Apache-2.0   │  Platform: macos · aarch64       │
 │  FILE LOCATIONS                                                                 │
@@ -28,7 +28,7 @@ A single scrolling column: an identity header, the update-check action and its r
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Identity header** — the app icon, `MaeclyPrint`, and a version line `{version} · build {build_date} · {channel} channel` (channel from the settings store). Outside the Tauri host (or until `app_info` answers) there is no version to show, so the line reads `— · standalone web preview` (`UNKNOWN_VERSION`); no frontend version literal exists to go stale.
+- **Identity header** — the app icon, `Pluryprint`, and a version line `{version} · build {build_date} · {channel} channel` (channel from the settings store). Outside the Tauri host (or until `app_info` answers) there is no version to show, so the line reads `— · standalone web preview` (`UNKNOWN_VERSION`); no frontend version literal exists to go stale.
 - **Update check** — the primary **Check for updates** button (a spinner while checking), followed by a result card once a check runs.
 - **Components / File locations / Links** — described below. User-facing copy names no implementation language or milestone: the paths section is titled *File locations*.
 
@@ -69,7 +69,7 @@ The result card is one state of a single machine (the `update` state in `AboutSc
 
 | Outcome | Card |
 | --- | --- |
-| Installed (macOS) | "{version} is installed — Restart MaeclyPrint to start using it." with **Restart now** (`restart_app`). |
+| Installed (macOS) | "{version} is installed — Restart Pluryprint to start using it." with **Restart now** (`restart_app`). |
 | Installed (Windows) | Nothing: the app exits into the per-user installer, which restarts it. |
 | Bad signature (`UpdateSignatureInvalid`) | "The downloaded update failed its signature check and was not installed. Nothing on this computer was changed…", with **Open logs folder** and **Release notes**. |
 | Nothing installable (`installed: null`) or any other failure | The reason, with the same two buttons. |
@@ -82,11 +82,11 @@ Rate-limit (`403`/`429`) and transport failures map to friendly strings (`GitHub
 
 ## Components
 
-A static-plus-live card. MaeclyPrint's version comes from `app_info`; React from its runtime `version` export; Tauri from `@tauri-apps/api/package.json` (the resolved dependency, so it stays honest as the lockfile bumps). A footer row shows `Platform: {os} · {arch}` from `app_info`.
+A static-plus-live card. Pluryprint's version comes from `app_info`; React from its runtime `version` export; Tauri from `@tauri-apps/api/package.json` (the resolved dependency, so it stays honest as the lockfile bumps). A footer row shows `Platform: {os} · {arch}` from `app_info`.
 
 | Component     | Value source                     | License         |
 | ------------- | -------------------------------- | --------------- |
-| MaeclyPrint   | `app_info().version`             | GPL-3.0         |
+| Pluryprint   | `app_info().version`             | GPL-3.0         |
 | React         | `react`'s `version` export       | MIT             |
 | Tauri         | `@tauri-apps/api` package version | MIT/Apache-2.0 |
 
@@ -106,7 +106,7 @@ A row of buttons, each opening an allow-listed external URL through `open_extern
 | **Report an issue** | `report_issue("")` — opens a prefilled GitHub new-issue page         |
 | repository (footer) | `open_external(REPO_URL)` — `github.com/MAECLY/maecly-print`         |
 
-`report_issue` seeds the issue body with the app version, build date, and OS/arch (percent-encoded so newlines and `#` survive), followed by the user's text. `open_external` is restricted to an **HTTPS allow-list**: exactly `github.com`, `maecly.com`, or any `*.maecly.com` subdomain — a bare host, no `userinfo@` and no `:port`, so `https://github.com@evil.example` or `https://github.com.evil.com` are rejected. Any other URL returns `InvalidRequest` rather than opening. All the URLs above live under `github.com/MAECLY/maecly-print` (`src/lib/repo.ts`), which the allow-list permits. `REPO_URL` must match the crate's `repository` in `src-tauri/Cargo.toml` (what Rust reads for the update check and the issue URL); `AboutScreen.test.tsx` fails if they drift apart. The footer under the links reads *MaeclyPrint is free software licensed under GPL-3.0. No telemetry, no cloud, no account. Source at* followed by the repository link.
+`report_issue` seeds the issue body with the app version, build date, and OS/arch (percent-encoded so newlines and `#` survive), followed by the user's text. `open_external` is restricted to an **HTTPS allow-list**: exactly `github.com`, `maecly.com`, or any `*.maecly.com` subdomain — a bare host, no `userinfo@` and no `:port`, so `https://github.com@evil.example` or `https://github.com.evil.com` are rejected. Any other URL returns `InvalidRequest` rather than opening. All the URLs above live under `github.com/MAECLY/maecly-print` (`src/lib/repo.ts`), which the allow-list permits. `REPO_URL` must match the crate's `repository` in `src-tauri/Cargo.toml` (what Rust reads for the update check and the issue URL); `AboutScreen.test.tsx` fails if they drift apart. The footer under the links reads *Pluryprint is free software licensed under GPL-3.0. No telemetry, no cloud, no account. Source at* followed by the repository link.
 
 ## Per-platform notes
 

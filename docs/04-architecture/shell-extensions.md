@@ -1,6 +1,6 @@
 # Shell Extensions
 
-> **TL;DR** — On Windows we ship a tiny C++ COM DLL implementing `IExplorerCommand`, registered through a **Sparse MSIX** package so the entry appears in the modern Win 11 context menu (not relegated to "Show more options"). On macOS the integration ships **inside the app bundle** as an `NSServices` declaration answered by a Rust/`objc2` provider — no `.appex`, no sandbox, no separate signature and nothing for the user to enable (see §3). In both cases the shell extension does *no real work*: it serializes the user's selection and spawns the main MaeclyPrint binary.
+> **TL;DR** — On Windows we ship a tiny C++ COM DLL implementing `IExplorerCommand`, registered through a **Sparse MSIX** package so the entry appears in the modern Win 11 context menu (not relegated to "Show more options"). On macOS the integration ships **inside the app bundle** as an `NSServices` declaration answered by a Rust/`objc2` provider — no `.appex`, no sandbox, no separate signature and nothing for the user to enable (see §3). In both cases the shell extension does *no real work*: it serializes the user's selection and spawns the main Pluryprint binary.
 
 ## 1. The problem we are solving
 
@@ -9,7 +9,7 @@ Right-clicking files in Windows Explorer and picking "Print" calls `IContextMenu
 1. **The ~15-file limit.** When you select more than about 15 files and right-click, Explorer hides or disables the Print verb. (The exact threshold depends on the file types and registry policy, but it is real and well-known.)
 2. **No batching, no profile, no queue.** Each file is printed independently, with whatever default printer + settings are active, and there is no progress UI.
 
-MaeclyPrint replaces this with a single context-menu entry — **"Print all with MaeclyPrint"** — that:
+Pluryprint replaces this with a single context-menu entry — **"Print all with Pluryprint"** — that:
 
 - Receives the *full* selection (no 15-file ceiling).
 - Opens a unified dialog with a profile selector and per-job overrides.
@@ -30,7 +30,7 @@ Registry-only entries (under `HKCR\*\shell\<verb>`) appear *only* in the legacy 
 2. Registered via a **packaged identity** — either a full MSIX install or a *sparse* MSIX package (which lets a non-MSIX app obtain identity without changing how it is installed).
 3. Declared in the package manifest with the `desktop4:Extension` element category `windows.fileExplorerContextMenuHandler`.
 
-This is documented but underexposed; most third-party apps still rely on the registry-only path and accept the legacy-menu demotion. MaeclyPrint takes the proper path because the right-click experience is the entire UX.
+This is documented but underexposed; most third-party apps still rely on the registry-only path and accept the legacy-menu demotion. Pluryprint takes the proper path because the right-click experience is the entire UX.
 
 ### 2.1 The COM DLL
 
@@ -64,7 +64,7 @@ private:
 };
 ```
 
-Only `Invoke` does meaningful work; the rest return localized strings, an icon resource ID, the canonical name (`MaeclyPrint.PrintAll`), and a state of `ECS_ENABLED` whenever the selection contains at least one file.
+Only `Invoke` does meaningful work; the rest return localized strings, an icon resource ID, the canonical name (`Pluryprint.PrintAll`), and a state of `ECS_ENABLED` whenever the selection contains at least one file.
 
 #### Inside `Invoke`
 
@@ -121,11 +121,11 @@ Notes:
 - We use `IShellItem::GetDisplayName(SIGDN_FILESYSPATH)` which gives a real absolute path, not a virtual or library-virtualized name.
 - The DLL **never reads file content**. It only handles paths.
 - The DLL does not allocate large buffers in the Explorer process beyond the path JSON.
-- Errors are returned as HRESULTs; Explorer surfaces them as a balloon, but we also write a single-line crash report into `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\shellext.log`.
+- Errors are returned as HRESULTs; Explorer surfaces them as a balloon, but we also write a single-line crash report into `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\shellext.log`.
 
 ### 2.2 Sparse MSIX package
 
-A *sparse* package is an MSIX package that declares package identity for an externally installed app. The user installs MaeclyPrint via Inno Setup (small `.exe` installer) into `%LOCALAPPDATA%\Programs\MaeclyPrint`, and as part of that install we register the sparse package. The OS then treats the externally located `.exe` and `.dll` as if they were inside a packaged app, granting the COM-server-as-shell-extension capability.
+A *sparse* package is an MSIX package that declares package identity for an externally installed app. The user installs Pluryprint via Inno Setup (small `.exe` installer) into `%LOCALAPPDATA%\Programs\Pluryprint`, and as part of that install we register the sparse package. The OS then treats the externally located `.exe` and `.dll` as if they were inside a packaged app, granting the COM-server-as-shell-extension capability.
 
 #### AppManifest.xml fragments
 
@@ -140,11 +140,11 @@ A *sparse* package is an MSIX package that declares package identity for an exte
     xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
     IgnorableNamespaces="uap uap3 com desktop4 desktop5">
 
-  <Identity Name="MaeclyPrint" Publisher="CN=MaeclyPrint" Version="1.0.0.0"/>
+  <Identity Name="Pluryprint" Publisher="CN=Pluryprint" Version="1.0.0.0"/>
 
   <Properties>
-    <DisplayName>MaeclyPrint</DisplayName>
-    <PublisherDisplayName>MaeclyPrint</PublisherDisplayName>
+    <DisplayName>Pluryprint</DisplayName>
+    <PublisherDisplayName>Pluryprint</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
@@ -159,9 +159,9 @@ A *sparse* package is an MSIX package that declares package identity for an exte
   </Resources>
 
   <Applications>
-    <Application Id="MaeclyPrint" Executable="MaeclyPrint.exe" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="Pluryprint" Executable="Pluryprint.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-          DisplayName="MaeclyPrint"
+          DisplayName="Pluryprint"
           Description="Print N files in batch from Explorer."
           BackgroundColor="transparent"
           Square150x150Logo="Assets\Square150x150Logo.png"
@@ -172,9 +172,9 @@ A *sparse* package is an MSIX package that declares package identity for an exte
         <!-- 1. Register the COM in-process server -->
         <com:Extension Category="windows.comServer">
           <com:ComServer>
-            <com:SurrogateServer DisplayName="MaeclyPrint Shell Extension">
+            <com:SurrogateServer DisplayName="Pluryprint Shell Extension">
               <com:Class Id="E63C5A1F-2E8B-4D7C-9F31-7B2C0F8E4A2D"
-                         Path="MaeclyPrintShellExt.dll"
+                         Path="PluryprintShellExt.dll"
                          ThreadingModel="STA"/>
             </com:SurrogateServer>
           </com:ComServer>
@@ -184,12 +184,12 @@ A *sparse* package is an MSIX package that declares package identity for an exte
         <desktop4:Extension Category="windows.fileExplorerContextMenuHandler">
           <desktop4:FileExplorerContextMenus>
             <desktop5:ItemType Type="*">
-              <desktop5:Verb Id="MaeclyPrintAll" Clsid="E63C5A1F-2E8B-4D7C-9F31-7B2C0F8E4A2D"/>
+              <desktop5:Verb Id="PluryprintAll" Clsid="E63C5A1F-2E8B-4D7C-9F31-7B2C0F8E4A2D"/>
             </desktop5:ItemType>
             <!-- Optionally, scope to specific extensions to avoid noise: -->
             <!--
             <desktop5:ItemType Type=".pdf">
-              <desktop5:Verb Id="MaeclyPrintAll" Clsid="..."/>
+              <desktop5:Verb Id="PluryprintAll" Clsid="..."/>
             </desktop5:ItemType>
             -->
           </desktop4:FileExplorerContextMenus>
@@ -211,8 +211,8 @@ A *sparse* package is an MSIX package that declares package identity for an exte
 Inno Setup runs this PowerShell snippet at install time:
 
 ```powershell
-$manifest = "$env:LOCALAPPDATA\Programs\MaeclyPrint\AppxManifest.xml"
-$externalLocation = "$env:LOCALAPPDATA\Programs\MaeclyPrint"
+$manifest = "$env:LOCALAPPDATA\Programs\Pluryprint\AppxManifest.xml"
+$externalLocation = "$env:LOCALAPPDATA\Programs\Pluryprint"
 
 Add-AppxPackage `
     -Path $manifest `
@@ -225,7 +225,7 @@ Add-AppxPackage `
 At uninstall time:
 
 ```powershell
-Get-AppxPackage MaeclyPrint | Remove-AppxPackage
+Get-AppxPackage Pluryprint | Remove-AppxPackage
 ```
 
 ### 2.3 Choice of `Type="*"` vs explicit list
@@ -240,15 +240,15 @@ The cost is a small amount of menu clutter for users who select files we can't h
 
 ### 2.4 Fallback: registry-only handler
 
-For users on Windows 10 (or who refuse MSIX), we ship a registry-only fallback that puts the same verb into `HKCU\Software\Classes\*\shell\MaeclyPrint`. This appears only in the legacy "Show more options" menu on Win 11 but works fully on Win 10. The installer asks during setup which mode is preferred; default is **Sparse MSIX on Win 11, registry on Win 10**.
+For users on Windows 10 (or who refuse MSIX), we ship a registry-only fallback that puts the same verb into `HKCU\Software\Classes\*\shell\Pluryprint`. This appears only in the legacy "Show more options" menu on Win 11 but works fully on Win 10. The installer asks during setup which mode is preferred; default is **Sparse MSIX on Win 11, registry on Win 10**.
 
 ```reg
-[HKEY_CURRENT_USER\Software\Classes\*\shell\MaeclyPrint]
-@="Print all with MaeclyPrint"
-"Icon"="C:\\Users\\<user>\\AppData\\Local\\Programs\\MaeclyPrint\\MaeclyPrint.exe,0"
+[HKEY_CURRENT_USER\Software\Classes\*\shell\Pluryprint]
+@="Print all with Pluryprint"
+"Icon"="C:\\Users\\<user>\\AppData\\Local\\Programs\\Pluryprint\\Pluryprint.exe,0"
 
-[HKEY_CURRENT_USER\Software\Classes\*\shell\MaeclyPrint\command]
-@="\"C:\\Users\\<user>\\AppData\\Local\\Programs\\MaeclyPrint\\MaeclyPrint.exe\" --invoke=context-menu --files=\"%1\""
+[HKEY_CURRENT_USER\Software\Classes\*\shell\Pluryprint\command]
+@="\"C:\\Users\\<user>\\AppData\\Local\\Programs\\Pluryprint\\Pluryprint.exe\" --invoke=context-menu --files=\"%1\""
 ```
 
 The registry path only receives one file at a time per `%1` substitution, which is exactly the limitation Windows imposes. To work around this, the second-and-later launches are detected by the Tauri exe via a named mutex and the additional paths are pushed into the running instance over a named pipe.
@@ -268,9 +268,9 @@ describes what exists.
 Selecting any number of files or folders in the Finder, right-clicking and
 opening the **Services** submenu offers:
 
-- **Print with MaeclyPrint** — opens the print dialog pre-loaded with the
+- **Print with Pluryprint** — opens the print dialog pre-loaded with the
   selection (`action = configure`);
-- **Print with MaeclyPrint (default profile)** — prints straight away with the
+- **Print with Pluryprint (default profile)** — prints straight away with the
   default profile (`action = print-default`).
 
 The entry is one level deeper than the Windows 11 top-level menu. That is the
@@ -291,9 +291,9 @@ needed — the file's presence is the whole mechanism.
 <key>NSServices</key>
 <array>
   <dict>
-    <key>NSMenuItem</key>     <dict><key>default</key><string>Print with MaeclyPrint</string></dict>
-    <key>NSMessage</key>      <string>printWithMaeclyPrint</string>
-    <key>NSPortName</key>     <string>MaeclyPrint</string>
+    <key>NSMenuItem</key>     <dict><key>default</key><string>Print with Pluryprint</string></dict>
+    <key>NSMessage</key>      <string>printWithPluryprint</string>
+    <key>NSPortName</key>     <string>Pluryprint</string>
     <key>NSUserData</key>     <string>configure</string>
     <key>NSSendTypes</key>    <array><string>public.file-url</string></array>
     <key>NSSendFileTypes</key><array><string>public.item</string></array>
@@ -308,8 +308,8 @@ Four keys carry the load:
 
 | Key | Why it is what it is |
 | --- | --- |
-| `NSMessage` | Names the provider method minus the `:userData:error:` tail AppKit appends: `printWithMaeclyPrint` ⇒ `-printWithMaeclyPrint:userData:error:`. Changing one without the other silently produces a menu entry that does nothing. |
-| `NSPortName` | Must be the app's `CFBundleName`, i.e. `MaeclyPrint`. |
+| `NSMessage` | Names the provider method minus the `:userData:error:` tail AppKit appends: `printWithPluryprint` ⇒ `-printWithPluryprint:userData:error:`. Changing one without the other silently produces a menu entry that does nothing. |
+| `NSPortName` | Must be the app's `CFBundleName`, i.e. `Pluryprint`. |
 | `NSUserData` | The official way to let two menu entries share one `NSMessage`. Its values are the CLI's `--action` vocabulary (`configure`, `print-default`), so the Finder and the command line cannot drift apart. |
 | `NSSendFileTypes` | `public.item` covers both files and folders, which is what FR-004 needs. |
 
@@ -319,17 +319,17 @@ omit it entirely, and an empty dictionary costs nothing.
 
 **Localization (FR-092).** The `NSMenuItem` `default` strings are the English
 titles. macOS translates them through `Resources/<lang>.lproj/ServicesMenu.strings`,
-keyed by the English title, so a Spanish system shows "Imprimir con MaeclyPrint"
-and "Imprimir con MaeclyPrint (perfil predeterminado)". The sources live in
+keyed by the English title, so a Spanish system shows "Imprimir con Pluryprint"
+and "Imprimir con Pluryprint (perfil predeterminado)". The sources live in
 `src-tauri/macos/{en,es}.lproj/ServicesMenu.strings`, are copied into the bundle
 by `bundle.macOS.files` in `tauri.conf.json`, and `CFBundleLocalizations` in
 `Info.plist` declares both languages. The Services menu follows the **system**
-language, not MaeclyPrint's own language setting, because the Finder draws it
+language, not Pluryprint's own language setting, because the Finder draws it
 before the app is involved. `tests/macos_services_l10n.rs` fails if a title is
 added to `Info.plist` without its translations or if the bundle mapping is lost.
 
 **Deliberately not declared: `CFBundleDocumentTypes`.** It would add a free
-"Open With → MaeclyPrint" entry, but Launch Services delivers those files
+"Open With → Pluryprint" entry, but Launch Services delivers those files
 through `application:openURLs:`, an AppKit delegate callback the app does not
 implement today. Declaring it would advertise a capability that silently drops
 the user's files. It is a follow-up, not a freebie.
@@ -337,7 +337,7 @@ the user's files. It is a follow-up, not a freebie.
 ### 3.3 The provider
 
 [`src-tauri/src/platform/macos/services.rs`](../../src-tauri/src/platform/macos/services.rs)
-defines `MaeclyPrintServicesProvider`, an Objective-C class built with `objc2`
+defines `PluryprintServicesProvider`, an Objective-C class built with `objc2`
 (the same `objc2 0.6` / `objc2-*` `0.3` versions `tao` already pulls in, so the
 integration adds **zero** new crates to the dependency graph). Tauri's `setup`
 hook registers it:
@@ -355,7 +355,7 @@ declarations — without it a freshly built app inherits the previous build's (o
 no) entries from the Services cache.
 
 When the user picks the menu entry, AppKit calls
-`-printWithMaeclyPrint:userData:error:` on the main thread. The handler:
+`-printWithPluryprint:userData:error:` on the main thread. The handler:
 
 1. maps `userData` onto a `ContextAction` (unknown ⇒ `configure`: never print
    something the user did not ask for);
@@ -380,7 +380,7 @@ test pinning this.
 
 The Windows extension is a DLL inside Explorer, so it *must* start or signal the
 app: it writes a handoff file and launches
-`maeclyprint --invoke=context-menu --files-from <PATH>`. On macOS the service is
+`pluryprint --invoke=context-menu --files-from <PATH>`. On macOS the service is
 answered by the app itself — Launch Services starts it if it is not running and
 reuses it if it is, which is the same single-instance guarantee
 `tauri-plugin-single-instance` gives on Windows. Relaunching our own binary from
@@ -405,7 +405,7 @@ does on Windows — and the main window is unminimized and focused.
 Finder selection
       │  (Services menu)
       ▼
-NSApplication ──► MaeclyPrintServicesProvider.printWithMaeclyPrint:userData:error:
+NSApplication ──► PluryprintServicesProvider.printWithPluryprint:userData:error:
                         │  NSPasteboard → Vec<PathBuf>
                         ▼
               platform::macos::handoff::write   ──►  <data_dir>/handoff/sel-<uuid>.json
@@ -435,7 +435,7 @@ automatable.
 
 ```
 +-----------+      +-------------------+      +----------------------+      +---------------+
-| Explorer  |      | MaeclyPrint       |      | MaeclyPrint.exe      |      | WebView2      |
+| Explorer  |      | Pluryprint       |      | Pluryprint.exe      |      | WebView2      |
 | (or       | ---> | shell ext DLL     | ---> | (Rust core)          | ---> | print dialog  |
 | Finder)   |      | (C++/Swift)       |      |                      |      | (React UI)    |
 +-----------+      +-------------------+      +----------------------+      +---------------+
@@ -465,14 +465,14 @@ automatable.
 
 - **Cheap DLL.** Anything beyond serialization in the DLL risks crashing Explorer.
 - **Single source of truth.** The Tauri exe is the only place that knows about profiles, supported formats, the queue, etc. The DLL doesn't need to be redeployed when a converter is added.
-- **Singleton.** A second right-click while the dialog is open routes new files into the existing instance (named pipe `\\.\pipe\MaeclyPrint`).
+- **Singleton.** A second right-click while the dialog is open routes new files into the existing instance (named pipe `\\.\pipe\Pluryprint`).
 
 ## 5. Logging and diagnostics
 
-The DLL logs only to `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\shellext.log`, one line per invocation:
+The DLL logs only to `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\shellext.log`, one line per invocation:
 
 ```
-2026-05-03T12:34:56Z INVOKE files=12 transport=args ok=true exe=...\MaeclyPrint.exe
+2026-05-03T12:34:56Z INVOKE files=12 transport=args ok=true exe=...\Pluryprint.exe
 2026-05-03T12:35:11Z INVOKE files=312 transport=files-from path=...\filelist-abc.json ok=true
 2026-05-03T12:36:02Z INVOKE files=1 transport=args ok=false hr=0x80004005
 ```

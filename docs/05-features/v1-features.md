@@ -1,6 +1,6 @@
 # v1 Features (v0.2.0 → v1.0.0)
 
-> **TL;DR** — Post-MVP additions that round MaeclyPrint into a polished v1: full Office and HTML support, more print settings, multilanguage UI, accessibility compliance, and code-signed updates with channels.
+> **TL;DR** — Post-MVP additions that round Pluryprint into a polished v1: full Office and HTML support, more print settings, multilanguage UI, accessibility compliance, and code-signed updates with channels.
 
 These features are sequenced into intermediate releases (`v0.2`, `v0.3`, …) before `v1.0`. The order may shift based on user feedback after MVP.
 
@@ -8,7 +8,7 @@ These features are sequenced into intermediate releases (`v0.2`, `v0.3`, …) be
 
 ## v0.2 — Multi-format
 
-The headline feature of v0.2 is **format breadth**. After v0.2, MaeclyPrint covers ~95% of the documents an office user needs to print.
+The headline feature of v0.2 is **format breadth**. After v0.2, Pluryprint covers ~95% of the documents an office user needs to print.
 
 ### New formats — **delivered early**
 
@@ -58,7 +58,7 @@ Partly delivered already: the probe itself exists (`engine::deps`, reported thro
 ### Profile import/export — **delivered in M1**
 
 - Export a profile to a TOML file, import one or many back (`export_profile` / `import_profiles`, wired to the Profiles screen).
-- Still open: importing by **drag-drop** onto the Profiles page, and the `maeclyprint profiles import|export <file>` CLI verbs — neither exists.
+- Still open: importing by **drag-drop** onto the Profiles page, and the `pluryprint profiles import|export <file>` CLI verbs — neither exists.
 
 ### Per-job overrides remembered
 
@@ -92,7 +92,7 @@ Partly delivered already: the probe itself exists (`engine::deps`, reported thro
 
 - **Stable** (default), **Beta**, **Nightly** channels.
 - User can switch in Settings; downgrading channel requires confirmation. *Partly present already: the selector and the persisted `updater.channel` field exist, but every value resolves to the same feed and there is no downgrade confirmation. The switch is inert until the feeds below exist.*
-- `https://updates.maecly.com/maeclyprint/{channel}.json` per channel.
+- `https://updates.maecly.com/pluryprint/{channel}.json` per channel.
 - Nightly: built every night from `main`, signed with self-signed cert.
 - Beta: cut from `main` weekly, EV-signed.
 - Stable: cut from `release/*` branches, EV-signed.

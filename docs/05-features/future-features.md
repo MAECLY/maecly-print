@@ -1,6 +1,6 @@
 # Future Features (v2 and beyond)
 
-> **TL;DR** — A wishlist of capabilities that **could** make MaeclyPrint useful for power users, IT departments, and print shops, once the v1 core is rock solid. None of these are committed; they exist to give shape to the long-term direction.
+> **TL;DR** — A wishlist of capabilities that **could** make Pluryprint useful for power users, IT departments, and print shops, once the v1 core is rock solid. None of these are committed; they exist to give shape to the long-term direction.
 
 The post-v1 roadmap is intentionally generous. We list ideas to attract contributors and align the architecture today with where we might go. Anything here can be cut, deferred indefinitely, or replaced based on what users actually want.
 
@@ -148,7 +148,7 @@ Apply a PDF letterhead/template as background overlay on every printed page.
 
 - Send a print job to a printer at the office from a laptop at home.
 - Requires a small relay service (self-hosted optional, hosted as opt-in paid service).
-- Encrypted end-to-end so MaeclyPrint can never see the document.
+- Encrypted end-to-end so Pluryprint can never see the document.
 
 ### Mobile companion
 

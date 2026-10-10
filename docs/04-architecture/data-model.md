@@ -1,27 +1,27 @@
 # Data Model
 
-> **TL;DR** — MaeclyPrint persists three kinds of state: human-editable **TOML** (`config.toml`, `profiles.toml`), machine-managed **JSON** (`queue.json`, `update-state.json`, and the transient shell-extension handoff files), and append-only **JSONL** (logs). Files live under XDG-equivalent paths on each OS. The two files that need it — `config.toml` and `queue.json` — carry a `schema_version` (both `1` today); `update-state.json` deliberately does not, because it is disposable bookkeeping that must degrade to "start over" rather than to a parse refusal. Its shape is documented in [auto-updater.md §4.1](./auto-updater.md#41-persisted-state).
+> **TL;DR** — Pluryprint persists three kinds of state: human-editable **TOML** (`config.toml`, `profiles.toml`), machine-managed **JSON** (`queue.json`, `update-state.json`, and the transient shell-extension handoff files), and append-only **JSONL** (logs). Files live under XDG-equivalent paths on each OS. The two files that need it — `config.toml` and `queue.json` — carry a `schema_version` (both `1` today); `update-state.json` deliberately does not, because it is disposable bookkeeping that must degrade to "start over" rather than to a parse refusal. Its shape is documented in [auto-updater.md §4.1](./auto-updater.md#41-persisted-state).
 
 ## 1. File locations
 
 | File                                | Windows                                                          | macOS                                                          |
 | ----------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------- |
-| Config                              | `%APPDATA%\Maecly\MaeclyPrint\config\config.toml`                              | `~/Library/Application Support/com.Maecly.MaeclyPrint/config.toml`        |
-| Profiles                            | `%APPDATA%\Maecly\MaeclyPrint\config\profiles.toml`                            | `~/Library/Application Support/com.Maecly.MaeclyPrint/profiles.toml`      |
-| Queue (live state)                  | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\queue.json`                          | `~/Library/Application Support/com.Maecly.MaeclyPrint/queue.json`         |
-| Update bookkeeping                  | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\update-state.json`                   | `~/Library/Application Support/com.Maecly.MaeclyPrint/update-state.json`  |
-| Shell-extension handoff             | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\handoff\`                            | `~/Library/Application Support/com.Maecly.MaeclyPrint/handoff/`           |
-| Logs (see §5.2 for rotation)        | `%LOCALAPPDATA%\Maecly\MaeclyPrint\data\logs\maeclyprint-YYYY-MM-DD.jsonl`   | `~/Library/Logs/MaeclyPrint/maeclyprint-YYYY-MM-DD.jsonl`      |
-| Cache (converted PDFs)              | `%LOCALAPPDATA%\Maecly\MaeclyPrint\cache\conversions\<job-id>.pdf`            | `~/Library/Caches/com.Maecly.MaeclyPrint/conversions/<job-id>.pdf`        |
-| Enterprise policy (**read-only**)   | `%ProgramData%\MaeclyPrint\policy.json`                          | `/Library/Application Support/MaeclyPrint/policy.json`         |
+| Config                              | `%APPDATA%\Maecly\Pluryprint\config\config.toml`                              | `~/Library/Application Support/com.Maecly.Pluryprint/config.toml`        |
+| Profiles                            | `%APPDATA%\Maecly\Pluryprint\config\profiles.toml`                            | `~/Library/Application Support/com.Maecly.Pluryprint/profiles.toml`      |
+| Queue (live state)                  | `%LOCALAPPDATA%\Maecly\Pluryprint\data\queue.json`                          | `~/Library/Application Support/com.Maecly.Pluryprint/queue.json`         |
+| Update bookkeeping                  | `%LOCALAPPDATA%\Maecly\Pluryprint\data\update-state.json`                   | `~/Library/Application Support/com.Maecly.Pluryprint/update-state.json`  |
+| Shell-extension handoff             | `%LOCALAPPDATA%\Maecly\Pluryprint\data\handoff\`                            | `~/Library/Application Support/com.Maecly.Pluryprint/handoff/`           |
+| Logs (see §5.2 for rotation)        | `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\pluryprint-YYYY-MM-DD.jsonl`   | `~/Library/Logs/Pluryprint/pluryprint-YYYY-MM-DD.jsonl`      |
+| Cache (converted PDFs)              | `%LOCALAPPDATA%\Maecly\Pluryprint\cache\conversions\<job-id>.pdf`            | `~/Library/Caches/com.Maecly.Pluryprint/conversions/<job-id>.pdf`        |
+| Enterprise policy (**read-only**)   | `%ProgramData%\Pluryprint\policy.json`                          | `/Library/Application Support/Pluryprint/policy.json`         |
 
 Note the **`conversions/` subdirectory** — converted PDFs are not written directly into the cache root. There is no updater staging directory, because nothing is ever downloaded (see [auto-updater.md](./auto-updater.md)).
 
-`update-state.json` and `handoff/` live under the **data** directory, alongside `queue.json`, because all three are live machine-managed state rather than user configuration. On Windows the data and cache directories are the `data\` and `cache\` subfolders of `%LOCALAPPDATA%\Maecly\MaeclyPrint\`, and config is the `config\` subfolder of the roaming `%APPDATA%\Maecly\MaeclyPrint\`; on macOS config and data share `com.Maecly.MaeclyPrint` under Application Support and the cache is a separate tree. The layout is `directories::ProjectDirs::from("com", "Maecly", "MaeclyPrint")`, which the shell extension uses too.
+`update-state.json` and `handoff/` live under the **data** directory, alongside `queue.json`, because all three are live machine-managed state rather than user configuration. On Windows the data and cache directories are the `data\` and `cache\` subfolders of `%LOCALAPPDATA%\Maecly\Pluryprint\`, and config is the `config\` subfolder of the roaming `%APPDATA%\Maecly\Pluryprint\`; on macOS config and data share `com.Maecly.Pluryprint` under Application Support and the cache is a separate tree. The layout is `directories::ProjectDirs::from("com", "Maecly", "Pluryprint")`, which the shell extension uses too.
 
 We do not write under `%PROGRAMFILES%` or `/Applications` after install — the user does not need admin rights at any time after setup, and uninstall does not orphan user-state.
 
-Unlike every file above, `policy.json` is **read-only to MaeclyPrint**: an administrator provisions it and the app only ever reads it. On Windows the registry policy `HKLM\SOFTWARE\Policies\Maecly\MaeclyPrint` (`DefaultPrinter`) wins, and the `%ProgramData%` file is honored only when Administrators or SYSTEM own it; a per-user copy at `<config dir>/policy.json` is honored in debug builds only. Its schema, precedence, and malformed-file behavior are documented in [security-model.md §4.3](./security-model.md#43-enterprise-policy-policyjson); the shape is a single optional field, `{ "default_printer": "<printer id>" }`.
+Unlike every file above, `policy.json` is **read-only to Pluryprint**: an administrator provisions it and the app only ever reads it. On Windows the registry policy `HKLM\SOFTWARE\Policies\Maecly\Pluryprint` (`DefaultPrinter`) wins, and the `%ProgramData%` file is honored only when Administrators or SYSTEM own it; a per-user copy at `<config dir>/policy.json` is honored in debug builds only. Its schema, precedence, and malformed-file behavior are documented in [security-model.md §4.3](./security-model.md#43-enterprise-policy-policyjson); the shape is a single optional field, `{ "default_printer": "<printer id>" }`.
 
 These paths are computed by the `directories` crate (XDG-conformant on Linux, `KnownFolderId` on Windows, `~/Library/...` on macOS) wrapped in a `paths` module that is the only place hardcoded names appear.
 
@@ -32,14 +32,14 @@ use std::path::PathBuf;
 
 const QUALIFIER: &str = "com";
 const ORG:       &str = "Maecly";
-const APP:       &str = "MaeclyPrint";
+const APP:       &str = "Pluryprint";
 
 pub fn config_dir() -> PathBuf { dirs().config_dir().to_path_buf() }
 pub fn data_dir()   -> PathBuf { dirs().data_local_dir().to_path_buf() }   // note: *local*
 pub fn cache_dir()  -> PathBuf { dirs().cache_dir().to_path_buf() }
 pub fn log_dir()    -> PathBuf {
     #[cfg(target_os = "macos")]
-    { /* ~/Library/Logs/MaeclyPrint, falling back to data_dir()/logs */ }
+    { /* ~/Library/Logs/Pluryprint, falling back to data_dir()/logs */ }
     #[cfg(not(target_os = "macos"))]
     { data_dir().join("logs") }
 }
@@ -153,16 +153,16 @@ pub struct TelemetryCfg {
 }
 ```
 
-The `Default` impl provides the values shown above. Reads go through `Config::load_from(path)` (`toml::from_str`), which degrades to `Config::default()` on any missing/unreadable/unparseable file (FR-101); writes go through `save_to(path)` — a tempfile-plus-rename atomic write (FR-102) serialized by a process-wide `CONFIG_LOCK` so concurrent section-writers can't clobber each other. Both are path-injected so integration tests point at a tempdir (`src-tauri/tests/settings_persist.rs`). The frontend sees the four-section `AppSettings` subset (`app`/`engine`/`updater`/`telemetry`) via `get_app_settings` / `set_app_settings` — `printers` and `schema_version` are excluded and preserved server-side. **Env-var overrides and `notify` hot-reload are not implemented** (an earlier draft described a `figment`/`MAECLYPRINT_*` layering that does not ship); the file is read on demand under the lock.
+The `Default` impl provides the values shown above. Reads go through `Config::load_from(path)` (`toml::from_str`), which degrades to `Config::default()` on any missing/unreadable/unparseable file (FR-101); writes go through `save_to(path)` — a tempfile-plus-rename atomic write (FR-102) serialized by a process-wide `CONFIG_LOCK` so concurrent section-writers can't clobber each other. Both are path-injected so integration tests point at a tempdir (`src-tauri/tests/settings_persist.rs`). The frontend sees the four-section `AppSettings` subset (`app`/`engine`/`updater`/`telemetry`) via `get_app_settings` / `set_app_settings` — `printers` and `schema_version` are excluded and preserved server-side. **Env-var overrides and `notify` hot-reload are not implemented** (an earlier draft described a `figment`/`PLURYPRINT_*` layering that does not ship); the file is read on demand under the lock.
 
 ### 2.3 `[printers]` — printer preferences (M1)
 
-MaeclyPrint-level printer state that must survive restarts, persisted as a `[printers]` table inside `config.toml` and exposed to the UI via the `get_printer_prefs` / `set_printer_prefs` IPC commands (see [ipc-and-cli.md](./ipc-and-cli.md) and [printers-management.md](../05-features/printers-management.md)). These are **preferences only — they never mutate the OS spooler**: "removing" a printer here soft-disables it in the app while leaving the OS queue installed.
+Pluryprint-level printer state that must survive restarts, persisted as a `[printers]` table inside `config.toml` and exposed to the UI via the `get_printer_prefs` / `set_printer_prefs` IPC commands (see [ipc-and-cli.md](./ipc-and-cli.md) and [printers-management.md](../05-features/printers-management.md)). These are **preferences only — they never mutate the OS spooler**: "removing" a printer here soft-disables it in the app while leaving the OS queue installed.
 
 ```toml
 [printers]
 default_printer = "EPSON_L15160"      # app default printer id; absent → use the OS default
-disabled = ["Old_Fax"]                # printer ids hidden in MaeclyPrint (still installed in the OS)
+disabled = ["Old_Fax"]                # printer ids hidden in Pluryprint (still installed in the OS)
 
 [printers.routes]
 ".pdf"  = "EPSON_L15160"              # file extension → printer id
@@ -311,7 +311,7 @@ The file lives at `<data_dir>/queue.json` (`paths::data_dir()`); its wire shape 
       "input_ext": "png",
       "input_bytes": 491520,
       "pages": 1,
-      "cache_pdf": "…\\MaeclyPrint\\cache\\conversions\\018f9c2e-…-7b3a.pdf",
+      "cache_pdf": "…\\Pluryprint\\cache\\conversions\\018f9c2e-…-7b3a.pdf",
       "settings": {
         "printer": null,
         "duplex": "none",
@@ -407,7 +407,7 @@ Rotation and retention are implemented by **`logging::RollingJsonl`**, not by `t
 
 `RollingJsonl` is a plain `Write`, so the JSON layer and the non-blocking writer are wired exactly as they would be otherwise. It does both halves of the requirement:
 
-- **Roll** when the **UTC date changes or the file passes `max_bytes` (10 MB), whichever comes first.** The day's first file is `maeclyprint-<date>.jsonl`; each size roll after it is `maeclyprint-<date>.<n>.jsonl` (n ≥ 2). So the documented daily name is what a user finds unless a single day is unusually chatty.
+- **Roll** when the **UTC date changes or the file passes `max_bytes` (10 MB), whichever comes first.** The day's first file is `pluryprint-<date>.jsonl`; each size roll after it is `pluryprint-<date>.<n>.jsonl` (n ≥ 2). So the documented daily name is what a user finds unless a single day is unusually chatty.
 - **Sweep** at startup, *before* the writer opens today's file, and again **after every roll** (the app is resident and can run for weeks, so retention cannot wait for a relaunch). The roll-time sweep runs once the new part is open, so the file about to be appended to is always the newest and is never dropped. It deletes anything older than `retain_days` (**14**) and then keeps only the newest `retain_files` (**7**). **Both** bounds apply; whichever bites first wins.
 
 Dates are **UTC** for both file names and the retention cutoff, so a machine crossing a timezone or a DST boundary never re-opens yesterday's file.
@@ -433,7 +433,7 @@ fn init_with(stdout: bool) -> io::Result<()> {
     let _ = GUARD.set(Mutex::new(Some(guard)));  // dropped by `flush()` (CLI exit)
 
     let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,maeclyprint=debug"));
+        .unwrap_or_else(|_| EnvFilter::new("info,pluryprint=debug"));
 
     let console = stdout.then(|| fmt::layer().compact().with_target(false));
     tracing_subscriber::registry()
@@ -446,11 +446,11 @@ fn init_with(stdout: bool) -> io::Result<()> {
 }
 ```
 
-Consequences worth knowing: the default filter is **`info,maeclyprint=debug`** (overridable with `RUST_LOG`), so our own crate logs at debug — including paths — out of the box; the GUI adds a `compact` layer on stdout for `pnpm tauri dev`. A **headless CLI run logs too**, to the same file with the same schema (`cli_invoked` / `cli_finished` / `cli_failed` records, plus whatever the shared cores log), but with **no stdout layer**: stdout is the CLI's output channel and `--json` callers parse it. `cli::execute` calls `logging::flush()` before returning because the process then ends in `std::process::exit`, which runs no destructors.
+Consequences worth knowing: the default filter is **`info,pluryprint=debug`** (overridable with `RUST_LOG`), so our own crate logs at debug — including paths — out of the box; the GUI adds a `compact` layer on stdout for `pnpm tauri dev`. A **headless CLI run logs too**, to the same file with the same schema (`cli_invoked` / `cli_finished` / `cli_failed` records, plus whatever the shared cores log), but with **no stdout layer**: stdout is the CLI's output channel and `--json` callers parse it. `cli::execute` calls `logging::flush()` before returning because the process then ends in `std::process::exit`, which runs no destructors.
 
 ### 5.4 Panics and frontend errors
 
-Release builds use `panic = "abort"`, and the Windows GUI binary has no console, so a panic would otherwise end the process without a trace. `logging::install_panic_hook` (installed in `run_with` right after `logging::init`) writes each panic **synchronously** as one record in the same JSON shape — `level: "ERROR"`, `target: "maeclyprint::panic"`, `fields.event: "panic"`, plus `location`, `payload` and `thread` — to the newest file for the day. It bypasses the non-blocking writer on purpose: the abort that follows would discard that writer's buffer.
+Release builds use `panic = "abort"`, and the Windows GUI binary has no console, so a panic would otherwise end the process without a trace. `logging::install_panic_hook` (installed in `run_with` right after `logging::init`) writes each panic **synchronously** as one record in the same JSON shape — `level: "ERROR"`, `target: "pluryprint::panic"`, `fields.event: "panic"`, plus `location`, `payload` and `thread` — to the newest file for the day. It bypasses the non-blocking writer on purpose: the abort that follows would discard that writer's buffer.
 
 Errors raised in the webview reach the same file through the `log_frontend_error` command (`event: "frontend_error"`): the React error boundary, `window` `error`/`unhandledrejection`, and the listener failures that used to go only to the devtools console.
 
@@ -460,13 +460,13 @@ Every persisted file carries a `schema_version: u32` at the top.
 
 ### 6.1 Forward compatibility
 
-When MaeclyPrint sees a file with `schema_version` *higher* than it knows about, it:
+When Pluryprint sees a file with `schema_version` *higher* than it knows about, it:
 
 1. Logs a warning.
 2. Refuses to write to that file (would otherwise downgrade it).
 3. Continues to function with in-memory defaults where possible (e.g., for `config.toml` it falls back to `Config::default()`).
 
-Specifically, profiles and queue with future versions block the relevant feature with a clear "this file was written by a newer MaeclyPrint" error rather than silently dropping fields.
+Specifically, profiles and queue with future versions block the relevant feature with a clear "this file was written by a newer Pluryprint" error rather than silently dropping fields.
 
 ### 6.2 Backward migrations
 
