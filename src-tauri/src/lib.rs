@@ -316,6 +316,17 @@ pub fn headless_updater_app() -> tauri::Result<tauri::App<tauri::Wry>> {
     Ok(app)
 }
 
+/// A windowless Tauri app with no plugins at all, for the hidden render
+/// worker (FR-055, D10): it only hosts the WebView2 window that prints a
+/// page to PDF ([`render::windows`]). No single-instance, updater, tray or
+/// menu, and the render window's label has no IPC capability.
+#[cfg(windows)]
+pub(crate) fn render_worker_app() -> tauri::Result<tauri::App<tauri::Wry>> {
+    let mut ctx = context();
+    ctx.config_mut().app.windows.clear();
+    tauri::Builder::default().build(ctx)
+}
+
 /// The single source of truth for the IPC command surface. Used by both the
 /// runtime (`run`) and the binding-export test so they never drift.
 fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {

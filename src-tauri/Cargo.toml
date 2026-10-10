@@ -162,13 +162,32 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
   "NSApplication",
   "NSPasteboard",
   "NSResponder",
+  # FR-055: the render worker's off-screen window and its print-to-file
+  # operation (engine render::macos).
+  "NSGraphics",
+  "NSPrintInfo",
+  "NSPrintOperation",
+  "NSRunningApplication",
+  "NSView",
+  "NSWindow",
 ] }
 objc2-foundation = { version = "0.3", default-features = false, features = [
   "std",
   "NSArray",
   "NSString",
   "NSURL",
+  # FR-055: the render worker pumps its own run loop (render::macos).
+  "NSData",
+  "NSDate",
+  "NSDictionary",
+  "NSError",
+  "NSGeometry",
+  "NSObjCRuntime",
+  "NSRunLoop",
 ] }
+# FR-055: completion handlers of WebKit's async calls (the content rule list
+# compiler) in the render worker. The same line objc2 0.6 uses. MIT.
+block2 = "0.6"
 # FR-055: HTML -> PDF through WKWebView in the hidden render worker (the same
 # objc2 line wry uses; see the note above). Zlib OR Apache-2.0 OR MIT.
 objc2-web-kit = { version = "0.3", default-features = false, features = [
@@ -183,6 +202,9 @@ objc2-web-kit = { version = "0.3", default-features = false, features = [
   "WKContentRuleListStore",
   "WKUserContentController",
   "WKWebpagePreferences",
+  "WKWebsiteDataStore",
+  "block2",
+  "objc2-core-foundation",
 ] }
 
 # --- Windows printer enumeration (winspool + GDI DeviceCapabilities) ---
@@ -225,6 +247,10 @@ windows = { version = "0.58", features = [
 # in the hidden render worker. Pinned to the line wry already uses, so the
 # COM bindings are shared rather than duplicated. MIT.
 webview2-com = "0.38"
+# The COM base types (HSTRING, BOOL, Interface::cast) of the line webview2-com
+# 0.38 is generated against; our own `windows` 0.58 types are not
+# interchangeable with them. Already in the tree through wry. MIT OR Apache-2.0.
+windows-core = "0.61"
 
 [features]
 # By default Tauri uses "custom-protocol" in release builds. Tauri's CLI passes this in.

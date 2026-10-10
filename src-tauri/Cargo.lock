@@ -3433,6 +3433,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "block2",
  "clap",
  "directories",
  "encoding_rs",
@@ -3476,6 +3477,7 @@ dependencies = [
  "walkdir",
  "webview2-com",
  "windows 0.58.0",
+ "windows-core 0.61.2",
  "zeroize",
 ]
 
