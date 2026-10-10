@@ -274,7 +274,7 @@ Every format in [supported-formats.md](../03-requirements/supported-formats.md) 
 
 ### Status (2026-10-10) — delivered except the certificates
 
-Signed in-app updates (FR-082/083/084/087), stable and beta manifests (FR-085; nightly follows beta), the release workflow that builds, signs, verifies and drafts the four targets with checksums and sources, and backend reasons translated in the UI (FR-092) are all in place. By decision ([ADR-0011](../adr/0011-release-channel.md)) there is no EV certificate and no Developer ID: SmartScreen and Gatekeeper warn, and the release notes explain both. Still open: no published release (the repository is private until the first stable one), no downgrade confirmation (FR-086), no `axe-core` gate, no silent background install (installs happen only when the user asks).
+Signed in-app updates (FR-082/083/084/087), stable and beta manifests (FR-085; nightly follows beta), the release workflow that builds, signs, verifies and drafts the four targets with checksums and sources, and backend reasons translated in the UI (FR-092) are all in place. By decision ([ADR-0011](../adr/0011-release-channel.md)) there is no EV certificate and no Developer ID: SmartScreen and Gatekeeper warn, and the release notes explain both. Still open: no published release (the repository is private until the first stable one), no `axe-core` gate, no silent background install (installs happen only when the user asks).
 
 ### Status (2026-07-20) — superseded by the entry above
 

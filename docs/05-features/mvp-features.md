@@ -126,7 +126,7 @@ Delivered:
 Not delivered — this is the honest part:
 
 - **No published release yet.** `release.yml` builds signed drafts on a tag ([releasing.md](../07-build-and-release/releasing.md)), but none has been published, so until then there is nothing to install.
-- Stable and beta read their own manifests; there are no nightly builds, so nightly follows beta. Switching to a lower channel asks for no confirmation.
+- Stable and beta read their own manifests; there are no nightly builds, so nightly follows beta. Switching to a lower channel asks for confirmation (FR-086).
 
 ### 10. Installer
 

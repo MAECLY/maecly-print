@@ -93,7 +93,7 @@ Partly delivered already: the probe itself exists (`engine::deps`, reported thro
 ## v0.6 — Update channels
 
 - **Stable** (default), **Beta**, **Nightly** channels.
-- User can switch in Settings; downgrading channel requires confirmation. *Mostly delivered (ADR-0011): stable reads `releases/latest/download/latest.json`, beta reads the `channel-beta` release's manifest, and nightly follows beta. There is no downgrade confirmation yet.*
+- User can switch in Settings; downgrading channel requires confirmation. *Delivered (ADR-0011): stable reads `releases/latest/download/latest.json`, beta reads the `channel-beta` release's manifest, and nightly follows beta. A move to a more stable channel asks for confirmation.*
 - ~~`https://updates.maecly.com/pluryprint/{channel}.json` per channel.~~ The manifests live on GitHub Releases.
 - Nightly: not built; the channel follows beta.
 - Beta and stable: cut from a `vX.Y.Z-beta.N` or `vX.Y.Z` tag by `release.yml` into a draft; installers carry no OS certificate (ADR-0011), updates are minisign-signed.

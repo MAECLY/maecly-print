@@ -56,7 +56,7 @@ If the call fails (the expected case in the standalone Vite dev server, which ha
 | ---------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Newer release (`available: true`)        | Accent "Version {latest} is available", noting that the download is signature-checked and needs no admin rights, with **Install now**, **Release notes** (opens `url`), **Remind me later** and **Skip this version**. |
 | Up to date (`available: false`, a release found) | Success "You're up to date — version {current} · checked {HH:MM}".                    |
-| No releases published on the channel (manifest `404`, also while the repository is private) | Treated as a **valid up-to-date state** (`latest: null`, `available: false`) — the up-to-date card. |
+| No releases published on the channel (manifest `404`, also while the repository is private) | `UpdateCheckFailed` / `channel_unavailable`: a neutral status card, "No updates published on the {channel} channel", with the release page and Retry. Not the up-to-date card and not the error card. |
 | Network / rate-limit / offline           | Error card with the short user-facing message and a **Retry** button.                       |
 
 The result card is one state of a single machine (the `update` state in `AboutScreen.tsx`): `idle` → `checking` → `done` / `error`, plus `deferred`, `skipped`, `installing`, `installed` and `installError`. Each replaces the card in place inside an `aria-live="polite"` region, so the change is announced (NFR-044).
@@ -126,7 +126,7 @@ The screen is platform-neutral. The three shell-outs (`open_logs_folder`, `open_
 | UI surface              | IPC command                          | Notes                                                        |
 | ----------------------- | ------------------------------------ | ------------------------------------------------------------ |
 | Identity + paths        | `app_info() => AppInfo`              | Version, build date, config/data/log dirs, os, arch.          |
-| Check for updates       | `check_for_updates() => UpdateCheck` | Read-only GitHub `releases/latest`; 404 = up-to-date. |
+| Check for updates       | `check_for_updates() => UpdateCheck` | Reads the channel's `latest.json`; 404 = `channel_unavailable`. |
 | Install now / Restart   | `install_update(allowMajor, confirmedVersion) => UpdateInstallResult`, `restart_app()` | Signed download + per-user install; `update-download-progress` events. |
 | Skip / Undo             | `get_update_state()`, `set_skipped_update_version(v)` | Persisted in `update-state.json`; stale skips are pruned. |
 | Open logs folder        | `open_logs_folder() => void`         | Creates the dir, reveals it in the OS file browser.           |

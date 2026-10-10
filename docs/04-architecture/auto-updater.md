@@ -48,7 +48,7 @@ Accept: application/json
 | ------ | ------- |
 | `200` + a manifest with a `version` | `Ok(Some(ReleaseInfo))` |
 | `200` + unparseable body or no version | **Error** (`bad_response`). Reporting "you're up to date" off an unreadable payload would be a lie. |
-| `404`                     | `Ok(None)` — nothing published on this channel yet. While the repository is private, every anonymous request lands here too. |
+| `404`                     | `UpdateCheckFailed` with reason `channel_unavailable` — nothing published on this channel yet, its pointer release is missing, or the repository is private. Never "up to date". About shows it as a neutral notice; the launch-time check logs it, stays silent and counts it for the 24 h throttle. |
 | `403` / `429`             | Error (`rate_limited`): "the update server is limiting requests — try again later" |
 | anything else             | Error (`bad_status`, with the status) |
 | transport failure         | Error (`offline`): "could not reach the update server — check your connection" |
@@ -147,7 +147,7 @@ Those are the only two `[updater]` keys `settings::UpdaterCfg` defines. There is
 | `beta` | the `latest.json` asset of the fixed `channel-beta` prerelease | Every prerelease **and** every stable release: `release-channels.yml` moves that manifest forward on every publish, so a beta user is offered the stable release of the same version (FR-086) |
 | `nightly` | same as beta | No nightly builds are published |
 
-Switching back to stable never offers an older version (semver precedence decides, §3). There is no confirmation when switching to a lower channel; the Settings note says what each channel receives.
+Switching back to stable never offers an older version (semver precedence decides, §3). Switching to a lower channel in Settings asks first (FR-086): the dialog says nothing is downgraded and the next update comes once that channel publishes a newer version. The Settings note says what each channel receives.
 
 ## 7. Failure modes
 
@@ -156,7 +156,7 @@ Switching back to stable never offers an older version (semver precedence decide
 | DNS / connection failure | `offline`. Automatic check: silent (`None`). Manual check: shown as `UpdateCheckFailed`; CLI exits 10. |
 | `403` / `429` | `rate_limited`. Same silent/loud split. |
 | `200` with an unreadable body | Error, never "up to date". |
-| `404` on the manifest | Nothing published on this channel (or the repository is still private): `available = false`. |
+| `404` on the manifest | `channel_unavailable`: nothing published on this channel (or the repository is still private). A neutral notice in About, a logged line at launch. |
 | Unparseable running version or tag | Logged; treated as "not newer". |
 | Corrupt `update-state.json` | Logged and ignored; degrades to "check again". |
 

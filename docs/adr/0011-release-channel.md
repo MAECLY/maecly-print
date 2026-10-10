@@ -101,7 +101,8 @@ The runbook, with the secrets and settings to add, is
 ### Negative
 
 - Until the repository is public, no installed copy can see an update: the
-  manifests answer 404 and the app reports that nothing is published.
+  manifests answer 404 and the app reports the channel as unavailable
+  (`channel_unavailable`), not as up to date.
 - Without OS code signing, first installs meet SmartScreen and Gatekeeper, and
   macOS may ask again for permissions after each update (ad hoc identity).
 - An x64 build running emulated on Windows on ARM keeps updating to x64; the
@@ -114,8 +115,8 @@ The runbook, with the secrets and settings to add, is
   re-run that build.
 - The endpoint URLs are compiled into every copy. Renaming or moving the
   repository relies on GitHub's redirects.
-- FR-086's confirmation when switching to a lower channel is not implemented;
-  only "no downgrade" is guaranteed.
+- FR-086's confirmation when switching to a lower channel is in Settings
+  (2026-10-10); "no downgrade" is guaranteed by the updater itself.
 - `releases/latest` follows creation date: a stable hotfix for an older line
   published after a newer stable becomes "latest". The updater never
   downgrades, but such a hotfix should be published as a prerelease or with
