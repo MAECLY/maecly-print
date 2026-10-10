@@ -46,7 +46,7 @@ The destination printer. On a profile, the sentinel `"<default>"` defers to the 
 
 **Identity.** A printer may be named by its spooler **queue id** or by its **display name** (CUPS `printer-info`); both resolve, through `ipc::printers::match_installed`, to the queue id, and the queue id is what is spooled. A display name shared by several queues is treated as unresolved rather than guessed.
 
-**Behavior on missing printer.** When the OS enumerates printers and none matches (or the name is ambiguous), the queue **pauses** the job with `PrinterMissing` so the user can pick a replacement, and the CLI exits with the `Printer` code. A failed or empty enumeration is not treated as proof of absence: the name is then handed to the spooler as is.
+**Behavior on missing printer.** When the OS enumerates printers and none matches (or the name is ambiguous), the queue **pauses** the job with `printer_unavailable` (reason `ambiguous` for a shared name) so the user can pick a replacement, and the CLI exits with the `Printer` code. A printer disabled in MaeclyPrint pauses it with `printer_disabled`. A failed or empty enumeration is not treated as proof of absence: the name is then handed to the spooler as is.
 
 ### `duplex`
 
@@ -56,7 +56,7 @@ The destination printer. On a profile, the sentinel `"<default>"` defers to the 
 | `long` (long-edge) | Duplex flip on long edge — typical for portrait documents. |
 | `short` (short-edge) | Duplex flip on short edge — typical for landscape or notepad-style. |
 
-If the printer does not support duplex, the job fails explicitly with `EngineError::UnsupportedSetting { setting: "duplex", printer }` rather than silently falling back to single-sided. (The error is the generic `UnsupportedSetting`, not a dedicated `DuplexNotSupported` variant — duplex is simply the only setting that currently reaches it.)
+If the printer reports that it cannot duplex, the job is **paused** with `EngineError::UnsupportedSetting { setting: "duplex", printer }` (`unsupported_setting`) rather than silently falling back to single-sided, so the user can change the setting or the printer and resume. A printer whose capabilities could not be read is treated as *unknown*, not as simplex (`PrinterCaps::unknown`), so a failed probe never blocks a duplex job. (The error is the generic `UnsupportedSetting`; paper sizes and, on CUPS, option values `lp` would split reach it too — see [Driver dependencies](#driver-dependencies).)
 
 ### `color_mode`
 
@@ -82,11 +82,13 @@ CUPS receives `-o collate=true|false` whenever more than one copy is printed (on
 
 A comma-separated range string: `"1-5,10,20-25"`. Whitespace is stripped before the string reaches SumatraPDF. Negative "count from the end" indices are **not** supported.
 
-Validation is split deliberately. `JobSettings::validate` owns only what that layer can know — it rejects an empty range string so the UI can show an inline error early (FR-042). The range *grammar* is parsed by `engine::pagerange`, which owns it. Document-bounds checking happens at neither layer today: a range past the last page is passed to the spooler.
+Validation is split deliberately. `JobSettings::validate` owns only what that layer can know — it rejects an empty range string so the UI can show an inline error early (FR-042). The range *grammar* is parsed by `engine::pagerange`, which owns it, and mirrored client-side by `parsePageRange` (`src/lib/profiles.ts`).
 
-### `paper_size` and `paper_size_custom`
+**Document bounds are checked at submission, on both surfaces.** The Print Job screen flags a range that runs past the last page of a file inline, naming the file (`findPageRangeOverflow`), and the backend refuses the same batch with `InvalidRequest` (`ipc::jobs::check_ranges_fit_documents`, which `maeclyprint print --range` calls too, so the CLI no longer spools zero pages in silence). Two deliberate narrowings, identical on both sides: only **PDFs** are checked (an image is one page and the range is dropped for it, `engine::print::effective_settings`), and only PDFs whose page count could be **measured** (too large or unparseable PDFs pass). Documents that are converted first (DOCX, HTML, …) take the range, but their page count exists only after conversion, so they are not bounded.
 
-Four sizes are supported: A4 (default), Letter, Legal, A3. Custom sizes are **not implemented** on either platform; when they are, CUPS can express them (`-o media=Custom.WxHmm`) and Windows will need preprocessing.
+### `paper_size_custom`
+
+Any size the printer itself reports can already be chosen (see [`paper_size`](#paper_size) above). Arbitrary *custom dimensions* (width × height) are **not implemented** on either platform; when they are, CUPS can express them (`-o media=Custom.WxHmm`) and Windows will need preprocessing.
 
 If the printer's tray does not have the requested paper, behavior is driver-dependent (most prompt the user at the device).
 
@@ -176,16 +178,21 @@ Pseudocode for the resolution chain:
 ```
 JobSettings  =  profile defaults, overridden by CLI/GUI flags
                 ↓
-JobSettings::validate      // copies in 1..=999, page_ranges non-empty
+JobSettings::validate      // copies in 1..=999, page_ranges / tray non-empty
                 ↓
-engine::print::check_supported(settings, printer, duplex_supported, color_supported)
+check_ranges_fit_documents // at submit: range within each measurable PDF
                 ↓
-sumatra::print_settings_string(settings)   |   cups::lp_opts(settings)
+engine::print::effective_settings(settings, ext)      // drop the range for images
+engine::print::apply_printer_overrides(settings, …)   // fill tray / auto paper
+                ↓
+engine::print::check_supported(settings, printer, caps)   // PrinterCaps
+                ↓
+sumatra::print_settings_string_with(…)   |   cups::lp_opts_for(settings, caps)
                 ↓
 spool(...)                                 // the only step that spawns anything
 ```
 
-There are no "OS defaults" and no per-file overrides. The rendering step is the only place that knows engine-specific flag syntax, and it is split into two pure functions — `sumatra::print_settings_string` and `cups::lp_opts` — that the UI's command preview calls with the same arguments the spooler will, so the preview cannot drift from what actually runs. Adding a new engine means adding one such function.
+There are no per-file overrides; the only defaults applied are the printer's own overrides from the Printers screen, and only where the job leaves a value open. The rendering step is the only place that knows engine-specific flag syntax, and it is split into two pure functions — `sumatra::print_settings_string` and `cups::lp_opts` — (with `_with` / `_for` variants that take the printer's paper token and capabilities) that the UI's command preview calls with the same arguments the spooler will, so the preview cannot drift from what actually runs. Adding a new engine means adding one such function.
 
 ## Driver dependencies
 
@@ -194,12 +201,14 @@ The rule, implemented in `engine::print::check_supported`, is narrower than earl
 **We hard-fail only where the failure would be invisible.**
 
 1. The dispatcher reads driver capabilities from printer enumeration and passes them in (`check_supported` itself is pure, so it is trivially testable).
-2. **Duplex is gated.** A driver that cannot duplex silently prints single-sided, and the user discovers it at the paper tray. A duplex request against a non-duplex printer therefore fails with `EngineError::UnsupportedSetting { setting, printer }`.
-3. **Colour is deliberately not gated.** A colour job on a mono printer prints in grey — visible, expected, and not worth blocking. `color_supported` is accepted without complaint.
+2. **Duplex is gated.** A driver that cannot duplex silently prints single-sided, and the user discovers it at the paper tray. A duplex request against a printer that reports no duplex therefore stops with `EngineError::UnsupportedSetting { setting, printer }`. Unknown capabilities (a failed probe) are not "no duplex".
+3. **Paper is gated.** A size the printer does not list would be substituted by the driver, or refused by the spooler, with nothing on screen to say so. When the printer reports a list and the size is not on it, the job stops the same way. With no list, nothing is checked.
+4. **CUPS option values are gated.** A paper or tray name `lp` would split into extra options (whitespace, quotes, a backslash, `=`, control characters) is refused rather than quoted (`cups::check_option_values`; see the CUPS table below).
+5. **Colour is deliberately not gated.** A colour job on a mono printer prints in grey — visible, expected, and not worth blocking.
 
-Nothing else is gated, because nothing else is rendered to a flag (see the *Stored, never applied* rows above).
+The settings that cannot be expressed on a platform (SumatraPDF: `quality`, `collate`, paper sizes it has no keyword for) are not gated either: the job runs and the preview and the job carry a note saying what was not applied.
 
-There is no `--strict=false` flag and no "prompt to override or skip" flow; a gated setting fails the job.
+There is no `--strict=false` flag and no "prompt to override or skip" flow. A gated setting **pauses** the job with `unsupported_setting` (never an automatic retry), so the user can fix the setting or the printer and resume; the CLI exits with the `Printer` code (`cli::exit`).
 
 ## Per-engine flag matrices
 
@@ -273,7 +282,7 @@ A profile's settings are serialized as `[[profile]]` entries in `profiles.toml`,
 
 **There is information loss**, in two specific places, and it is worth being precise about it:
 
-- `quality` cannot be expressed to SumatraPDF on Windows; the job reports that instead of applying it.
+- `quality` and `collate` cannot be expressed to SumatraPDF on Windows, and neither can a paper size outside its keyword list; the job reports each instead of applying it.
 - `scaling` loses the `fit`/`shrink` distinction on CUPS, which has only `fit-to-page`.
 
 For the other settings that reach a renderer on SumatraPDF, the mapping is lossless.
