@@ -552,6 +552,7 @@ fn ci_is_the_lean_pull_request_gate() {
         "pnpm typecheck",
         "pnpm format:check",
         "pnpm test",
+        "pnpm audit --prod --audit-level high",
     ] {
         assert!(frontend.contains(cmd), "frontend does not run {cmd}");
     }
@@ -569,6 +570,33 @@ fn ci_is_the_lean_pull_request_gate() {
     }
     // The full run is what keeps src/ipc/bindings.ts in sync: no filter.
     assert!(backend.contains("run: cargo test --manifest-path src-tauri/Cargo.toml\n"));
+
+    // Both locked Rust trees are audited, with a pinned cargo-audit, and
+    // only the ignores documented in src-tauri/.cargo/audit.toml apply (no
+    // `--ignore` on the command line, no warnings turned off).
+    assert!(backend.contains("tool: cargo-audit@0.22.2"), "{backend}");
+    for dir in ["src-tauri", "shell-ext-win"] {
+        assert!(
+            backend.contains(&format!(
+                "working-directory: {dir}\n        run: cargo audit\n"
+            )),
+            "backend does not audit {dir}"
+        );
+    }
+    assert!(!ci.contains("cargo audit --ignore") && !ci.contains("cargo audit -i"));
+    let audit = read("src-tauri/.cargo/audit.toml");
+    let ignored: Vec<&str> = audit
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("\"RUSTSEC-"))
+        .collect();
+    assert!(!ignored.is_empty(), "{audit}");
+    for id in ignored {
+        // Every ignored advisory carries its reason on the lines above it.
+        let at = audit.find(id).unwrap();
+        let above = audit[..at].trim_end().lines().last().unwrap_or("").trim();
+        assert!(above.starts_with('#'), "{id} is ignored without a reason");
+    }
 
     for gone in ["llvm-cov", "--ignored", "tauri build", "generate-notices"] {
         assert!(!ci.contains(gone), "ci.yml still runs {gone}");
