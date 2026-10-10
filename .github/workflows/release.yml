@@ -109,10 +109,13 @@ jobs:
       # requires, so no release is built from a stale copy.
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
-      # No dependency cache in a release (see the header): no `cache:` here.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning]
+      # No dependency cache in a release (see the header): no `cache:`, and
+      # the automatic package-manager cache setup-node gained in v5 is
+      # turned off by name rather than left to its npm-only default.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
+          package-manager-cache: false
 
       - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
         with:
@@ -187,11 +190,13 @@ jobs:
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
-      # No dependency cache in a release build (see the header). setup-node v4 caches only when `cache:` is given (the automatic
-      # package-manager cache came in v5), so nothing is cached here.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning]
+      # No dependency cache in a release (see the header): no `cache:`, and
+      # the automatic package-manager cache setup-node gained in v5 is
+      # turned off by name rather than left to its npm-only default.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
+          package-manager-cache: false
 
       # rustup is on every hosted runner, so the toolchain needs no action.
       # The Windows jobs also build the Explorer DLL for the other
@@ -378,11 +383,13 @@ jobs:
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
-      # setup-node v4 caches only when `cache:` is given (the automatic
-      # package-manager cache came in v5), so nothing is cached here.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning]
+      # No dependency cache in a release (see the header): no `cache:`, and
+      # the automatic package-manager cache setup-node gained in v5 is
+      # turned off by name rather than left to its npm-only default.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
+          package-manager-cache: false
 
       # The tauri CLI at the version the lockfile pins, with no install
       # script run.
