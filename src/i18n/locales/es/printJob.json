@@ -67,6 +67,7 @@
       "installed": "{{name}} está instalado. Los archivos que lo necesitaban ya se pueden imprimir.",
       "notDetected": "El instalador terminó, pero Pluryprint aún no detecta {{name}}. Reinicia Pluryprint y vuelve a intentarlo.",
       "opened": "Termina la instalación en la ventana que se ha abierto. Pluryprint lo vuelve a comprobar cuando regreses.",
+      "openedResumesJobs": "Termina la instalación en la ventana que se ha abierto. Pluryprint lo vuelve a comprobar cuando regreses y reanuda los trabajos que esperaban {{name}}.",
       "failed": "La instalación no terminó (código {{code}}). Prueba con la página de descarga.",
       "failedNoCode": "El instalador se detuvo sin indicar el motivo. Prueba con la página de descarga.",
       "timedOut": "El instalador tardaba demasiado y se detuvo. Vuelve a intentarlo o usa la página de descarga.",
@@ -76,7 +77,8 @@
     "background": "Seguir en segundo plano",
     "backgroundHint": "Puedes seguir usando Pluryprint: cerrar esta ventana no detiene la instalación y te avisaremos cuando termine.",
     "stop": "Detener la instalación",
-    "stopping": "Deteniendo la instalación…"
+    "stopping": "Deteniendo la instalación…",
+    "busyWith": "Pluryprint está instalando {{name}}. Podrás instalar este componente cuando termine; abre la instalación de {{name}} para detenerla."
   },
   "folders": {
     "title_one": "{{count}} carpeta añadida",

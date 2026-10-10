@@ -9,6 +9,7 @@ import type {
   InstallOutcome,
   InstallOption,
 } from '@/ipc/bindings';
+import { resetInstallStore } from '@/stores/installStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { fixtureAppSettings } from '@/test/fixtures';
 
@@ -53,6 +54,7 @@ function office(install: InstallOption[]): DependencyReport {
 const noProgress: InstallProgressSource = () => Promise.resolve(() => {});
 
 afterEach(() => {
+  resetInstallStore();
   useSettingsStore.setState({ settings: fixtureAppSettings });
   vi.restoreAllMocks();
 });
@@ -355,4 +357,212 @@ describe('DependencyInstallDialog', () => {
       expect(screen.getByRole('status')).not.toHaveTextContent('—');
     },
   );
+
+  it('FR-058: reopening the dialog on an install sent to the background shows it running, with Stop', async () => {
+    const user = userEvent.setup();
+    let emit: (id: 'libre-office', line: string) => void = () => {};
+    const progress: InstallProgressSource = (onLine) => {
+      emit = onLine;
+      return Promise.resolve(() => {});
+    };
+    const { run, finish } = pendingRun();
+    const cancel = vi.fn(() => Promise.resolve(true));
+    const first = render(
+      <DependencyInstallDialog
+        report={office([WEB, WINGET])}
+        onClose={() => {}}
+        onResolved={() => {}}
+        run={run}
+        cancel={cancel}
+        progress={progress}
+      />,
+    );
+    await user.click(screen.getByRole('radio', { name: /winget/ }));
+    await user.click(screen.getByRole('button', { name: 'Install' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Run in background' }),
+    );
+    first.unmount();
+    emit('libre-office', 'Downloading 40%');
+
+    const onResolved = vi.fn();
+    render(
+      <DependencyInstallDialog
+        report={office([WEB, WINGET])}
+        onClose={() => {}}
+        onResolved={onResolved}
+        run={run}
+        cancel={cancel}
+        progress={progress}
+      />,
+    );
+    // Not an idle dialog offering an Install the backend would refuse.
+    expect(screen.queryByRole('button', { name: 'Install' })).toBeNull();
+    expect(screen.getByText(/Downloading 40%/)).toBeVisible();
+    // The way it is being installed is the one shown.
+    expect(screen.getByTestId('install-command')).toHaveTextContent(
+      WINGET.command,
+    );
+    await user.click(screen.getByRole('button', { name: 'Stop installation' }));
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Stopping the installation…')).toBeVisible();
+
+    finish({ status: 'cancelled', exit_code: null, report: office([]) });
+    expect(
+      await screen.findByText(/You stopped the installation/),
+    ).toBeInTheDocument();
+    expect(onResolved).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('FR-058: while another component installs, the dialog names it instead of offering Install', async () => {
+    const user = userEvent.setup();
+    const { run } = pendingRun();
+    const first = render(
+      <DependencyInstallDialog
+        report={office([WINGET, WEB])}
+        onClose={() => {}}
+        onResolved={() => {}}
+        run={run}
+        progress={noProgress}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Install' }));
+    first.unmount();
+
+    render(
+      <DependencyInstallDialog
+        report={{
+          ...office([WEB]),
+          id: 'heif-codec',
+          name: 'HEIF Image Extensions',
+        }}
+        onClose={() => {}}
+        onResolved={() => {}}
+        run={run}
+        progress={noProgress}
+      />,
+    );
+    expect(screen.getByTestId('install-busy')).toHaveTextContent(
+      'Pluryprint is installing LibreOffice.',
+    );
+    expect(screen.getByRole('button', { name: 'Open' })).toBeDisabled();
+    expect(screen.queryByText(/Another component/)).toBeNull();
+  });
+
+  it.each([
+    [
+      'as the outcome reason',
+      {
+        status: 'cancelled',
+        reason: 'cancel_requested_installer_may_continue',
+      },
+    ],
+    ['as the status', { status: 'cancel-requested-installer-may-continue' }],
+  ])(
+    'FR-058: a stop the installer may outlive (%s) says so instead of "You stopped the installation"',
+    async (_how, end) => {
+      const user = userEvent.setup();
+      const { run, finish } = pendingRun();
+      const cancel = vi.fn(() => {
+        finish({
+          ...end,
+          exit_code: null,
+          report: office([]),
+        } as unknown as InstallOutcome);
+        return Promise.resolve(true);
+      });
+      render(
+        <DependencyInstallDialog
+          report={office([WINGET, WEB])}
+          onClose={() => {}}
+          onResolved={() => {}}
+          run={run}
+          cancel={cancel}
+          progress={noProgress}
+        />,
+      );
+      await user.click(screen.getByRole('button', { name: 'Install' }));
+      await user.click(
+        await screen.findByRole('button', { name: 'Stop installation' }),
+      );
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        /its window may still be open/,
+      );
+      expect(screen.queryByText(/You stopped the installation/)).toBeNull();
+    },
+  );
+
+  it('FR-058: in Spanish, a stop the installer may outlive is said honestly too', async () => {
+    useSettingsStore.setState({
+      settings: {
+        ...fixtureAppSettings,
+        app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+      },
+    });
+    const user = userEvent.setup();
+    const run = vi.fn(() =>
+      Promise.resolve({
+        status: 'cancelled',
+        reason: 'cancel_requested_installer_may_continue',
+        exit_code: null,
+        report: office([]),
+      } as unknown as InstallOutcome),
+    );
+    render(
+      <I18nProvider>
+        <DependencyInstallDialog
+          report={office([WINGET, WEB])}
+          onClose={() => {}}
+          onResolved={() => {}}
+          run={run}
+          progress={noProgress}
+        />
+      </I18nProvider>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Instalar' }));
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /puede seguir trabajando/,
+    );
+  });
+
+  it('FR-058: the "opened" result promises the jobs resume only where they do', async () => {
+    const user = userEvent.setup();
+    const run = vi.fn(() =>
+      Promise.resolve<InstallOutcome>({
+        status: 'opened',
+        exit_code: null,
+        report: office([WEB]),
+      }),
+    );
+    const { unmount } = render(
+      <DependencyInstallDialog
+        report={office([WEB])}
+        onClose={() => {}}
+        onResolved={() => {}}
+        run={run}
+        progress={noProgress}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('status')).not.toHaveTextContent(
+      /resumes the jobs/,
+    );
+    unmount();
+
+    render(
+      <DependencyInstallDialog
+        report={office([WEB])}
+        onClose={() => {}}
+        onResolved={() => {}}
+        resumesJobs
+        run={run}
+        progress={noProgress}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'resumes the jobs waiting for LibreOffice',
+    );
+  });
 });

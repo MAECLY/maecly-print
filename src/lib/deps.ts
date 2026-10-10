@@ -10,6 +10,7 @@
  */
 
 import { isMacPlatform } from '@/components/AppShell/MPAppShell';
+import type { InstallOutcome } from '@/ipc/bindings';
 import type { UiQueueJobView } from '@/lib/ipc';
 import {
   CATALOGS,
@@ -45,4 +46,23 @@ export function missingDependency(
   if (j.status !== 'paused') return null;
   if (j.errorInfo?.code !== 'dependency_missing') return null;
   return j.errorInfo.reason ?? null;
+}
+
+/**
+ * The honest end of a Stop the installer may outlive: Windows lets an
+ * elevated installer (or the msiexec service) carry on after its parent is
+ * killed. The backend names it with this reason, either as the install
+ * outcome's `reason` or as its status (kebab-case like the others), and no
+ * surface may then claim the install stopped.
+ */
+export const CANCEL_MAY_CONTINUE = 'cancel_requested_installer_may_continue';
+
+/** True when `o` is a stop the installer may have outlived. */
+export function cancelMayContinue(o: InstallOutcome): boolean {
+  const loose = o as unknown as { status: string; reason?: string | null };
+  return (
+    loose.reason === CANCEL_MAY_CONTINUE ||
+    loose.status === CANCEL_MAY_CONTINUE ||
+    loose.status === CANCEL_MAY_CONTINUE.replaceAll('_', '-')
+  );
 }
