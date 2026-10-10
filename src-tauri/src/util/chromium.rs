@@ -83,10 +83,87 @@ pub fn suppress_blank_password_probe(user_data_dir: &Path) -> std::io::Result<()
     std::fs::rename(&tmp, &path)
 }
 
+/// The browser arguments wry passes to WebView2 when a window sets none:
+/// no "mini menu" and no SmartScreen ping, plus Tauri's autoplay policy.
+pub const WRY_DEFAULT_ARGS: &str =
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+--autoplay-policy=no-user-gesture-required";
+
+/// The environment variable WebView2 reads extra browser arguments from.
+pub const WEBVIEW2_ARGS_ENV: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
+
+/// `defaults` plus `extra`, as one WebView2 argument string. Pure.
+///
+/// wry always hands WebView2 an explicit argument list, and WebView2 then
+/// ignores `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`. That variable is how the
+/// Edge WebDriver (`msedgedriver`, driven by `tauri-driver`) asks for
+/// `--remote-debugging-port`, so without this merge no WebDriver session could
+/// start (verified in a Windows 11 VM: `DevToolsActivePort file doesn't
+/// exist`). Chromium honours only the **last** `--disable-features` /
+/// `--enable-features` switch, so their lists are combined into one switch
+/// each instead of letting `extra` silently cancel the defaults.
+pub fn merge_browser_args(defaults: &str, extra: &str) -> String {
+    let mut disable: Vec<String> = Vec::new();
+    let mut enable: Vec<String> = Vec::new();
+    let mut rest: Vec<String> = Vec::new();
+    for arg in defaults.split_whitespace().chain(extra.split_whitespace()) {
+        let list = if let Some(v) = arg.strip_prefix("--disable-features=") {
+            Some((&mut disable, v))
+        } else {
+            arg.strip_prefix("--enable-features=")
+                .map(|v| (&mut enable, v))
+        };
+        match list {
+            Some((list, values)) => {
+                for v in values.split(',').filter(|v| !v.is_empty()) {
+                    if !list.iter().any(|x| x == v) {
+                        list.push(v.to_string());
+                    }
+                }
+            }
+            None => {
+                if !rest.iter().any(|x| x == arg) {
+                    rest.push(arg.to_string());
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    if !disable.is_empty() {
+        out.push(format!("--disable-features={}", disable.join(",")));
+    }
+    if !enable.is_empty() {
+        out.push(format!("--enable-features={}", enable.join(",")));
+    }
+    out.extend(rest);
+    out.join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The Edge WebDriver's arguments reach WebView2, and the defaults
+    /// survive: one `--disable-features` switch carrying both lists.
+    #[test]
+    fn webdriver_args_are_merged_with_the_defaults() {
+        let merged = merge_browser_args(
+            WRY_DEFAULT_ARGS,
+            "--remote-debugging-port=0 --disable-features=IgnoreDuplicateNavs,Prewarm --disable-sync",
+        );
+        assert_eq!(
+            merged,
+            "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,IgnoreDuplicateNavs,Prewarm \
+--autoplay-policy=no-user-gesture-required --remote-debugging-port=0 --disable-sync"
+        );
+        assert_eq!(merged.matches("--disable-features").count(), 1);
+        assert_eq!(merge_browser_args(WRY_DEFAULT_ARGS, ""), WRY_DEFAULT_ARGS);
+        assert_eq!(
+            merge_browser_args("--a", "--enable-features=X --a --enable-features=Y,X"),
+            "--enable-features=X,Y --a"
+        );
+    }
 
     #[test]
     fn fr_055_a_missing_local_state_gets_a_minimal_one() {

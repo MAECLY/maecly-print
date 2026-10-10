@@ -65,11 +65,30 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
         cli::handoff::ORPHAN_HANDOFF_AGE,
     );
 
-    let ctx = context();
+    #[allow(unused_mut)]
+    let mut ctx = context();
     // Before the webview exists: keep WebView2 from probing the account for a
     // blank password, a failed logon on every start (`util::chromium`).
     #[cfg(windows)]
     suppress_webview_logon_probe(&ctx.config().identifier);
+    // WebView2 ignores WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS once wry passes
+    // explicit arguments, and that variable is how the Edge WebDriver asks for
+    // a debugging port (e2e/). Fold it into the windows' own arguments.
+    #[cfg(windows)]
+    if let Some(extra) = std::env::var(util::chromium::WEBVIEW2_ARGS_ENV)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+    {
+        for window in ctx.config_mut().app.windows.iter_mut() {
+            let base = window
+                .additional_browser_args
+                .clone()
+                .unwrap_or_else(|| util::chromium::WRY_DEFAULT_ARGS.to_string());
+            window.additional_browser_args =
+                Some(util::chromium::merge_browser_args(&base, &extra));
+        }
+        tracing::info!(event = "webview_env_args_applied");
+    }
 
     let builder = specta_builder();
 
