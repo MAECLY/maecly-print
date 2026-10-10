@@ -1017,6 +1017,7 @@ describe('third-party inventory (docs/09-legal/third-party-licenses.md)', () => 
     return [
       ...tomlKeys(tomlSection(cargo, '[dependencies]')),
       ...tomlKeys(tomlSection(cargo, "[target.'cfg(windows)'.dependencies]")),
+      ...tomlKeys(tomlSection(cargo, "[target.'cfg(unix)'.dependencies]")),
       ...tomlKeys(
         tomlSection(cargo, `[target.'cfg(target_os = "macos")'.dependencies]`),
       ),
@@ -1088,6 +1089,7 @@ describe('third-party inventory (docs/09-legal/third-party-licenses.md)', () => 
         ...tomlKeys(tomlSection(cargo, '[dependencies]')),
         ...tomlKeys(tomlSection(cargo, '[dev-dependencies]')),
         ...tomlKeys(tomlSection(cargo, "[target.'cfg(windows)'.dependencies]")),
+        ...tomlKeys(tomlSection(cargo, "[target.'cfg(unix)'.dependencies]")),
         ...tomlKeys(
           tomlSection(
             cargo,

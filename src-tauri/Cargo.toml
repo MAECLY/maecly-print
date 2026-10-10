@@ -207,6 +207,13 @@ objc2-web-kit = { version = "0.3", default-features = false, features = [
   "objc2-core-foundation",
 ] }
 
+# --- SVG worker memory cap on Unix (security note 8) ---
+# setrlimit(RLIMIT_DATA) in the worker, and the parent's memory watchdog
+# (proc_pid_rusage on macOS, sysconf on Linux). Already in the tree through
+# tokio and many others. MIT OR Apache-2.0.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # --- Windows printer enumeration (winspool + GDI DeviceCapabilities) ---
 # Only pulled in on Windows targets; macOS/Linux enumerate via the CUPS CLI.
 [target.'cfg(windows)'.dependencies]
@@ -243,6 +250,12 @@ windows = { version = "0.58", features = [
   "Win32_System_Com_StructuredStorage",
   # AttachConsole / GetStdHandle / SetStdHandle (cli::console).
   "Win32_System_Console",
+  # The SVG worker's Job Object: per-process memory limit, kill on close, one
+  # process, and the completion port that reports the limit was hit
+  # (engine::convert::process::run_capped; IO_COUNTERS lives in Threading).
+  "Win32_System_IO",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
   # HKLM\SOFTWARE\Policies\Maecly\Pluryprint (settings::policy).
   "Win32_System_Registry",
   # SetForegroundWindow / AllowSetForegroundWindow / FlashWindowEx: raising the

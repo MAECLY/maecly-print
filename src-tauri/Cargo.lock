@@ -3439,6 +3439,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "image",
+ "libc",
  "lopdf",
  "objc2",
  "objc2-app-kit",

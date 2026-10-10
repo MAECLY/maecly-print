@@ -395,6 +395,369 @@ pub(crate) fn log_tail(log: &Path, max: usize) -> String {
     }
 }
 
+/// Why [`run_capped`] failed.
+#[derive(Debug)]
+pub enum CappedError {
+    /// The child needed more memory than its cap: it was killed by the
+    /// watchdog, an allocation was refused under the Job Object or
+    /// `RLIMIT_DATA`, or the Job Object reported the limit hit.
+    OverMemory,
+    /// Any other failure, as [`run_bounded`] reports it.
+    Engine(EngineError),
+}
+
+/// The environment variable that tells a capped child its memory cap, in
+/// bytes, so it can apply it from its own side too ([`apply_memory_cap`]).
+pub const MEMORY_CAP_ENV: &str = "PLURYPRINT_WORKER_MEMORY_CAP";
+
+/// How often a capped child's memory (and the cancel flag and deadline) is
+/// checked: a bomb can allocate fast, so more often than [`POLL`].
+const MEMORY_POLL: Duration = Duration::from_millis(20);
+
+/// [`run_bounded`] for a child that must also stay under `memory_cap` bytes
+/// (security note 8: the hidden SVG worker).
+///
+/// - **Windows:** the child is assigned to a Job Object with
+///   `JOB_OBJECT_LIMIT_PROCESS_MEMORY` (allocations past the cap fail, and
+///   Rust aborts on a failed allocation), `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`
+///   (the child dies with the job handle, even if this process crashes) and
+///   one active process (it cannot start helpers). The job's completion port
+///   says whether the limit was hit. The child waits until it is in the job
+///   before it reads its input ([`apply_memory_cap`]), so there is no window
+///   in which it runs uncapped.
+/// - **Unix:** the child sets `RLIMIT_DATA` itself before it reads its input
+///   ([`apply_memory_cap`]); macOS does not enforce that (nor `RLIMIT_AS`)
+///   for `mmap`, so this process also samples the child's memory every
+///   [`MEMORY_POLL`] (macOS: its physical footprint, compressed pages
+///   included; Linux: its resident set) and kills it past the cap.
+///
+/// A child that ran out of memory is [`CappedError::OverMemory`]; a cancel,
+/// a timeout or any other failure is what [`run_bounded`] would return.
+pub fn run_capped(
+    mut cmd: Command,
+    label: &str,
+    cancel: &AtomicBool,
+    timeout: Option<Duration>,
+    stderr_log: &Path,
+    memory_cap: u64,
+) -> Result<(), CappedError> {
+    let engine = CappedError::Engine;
+    let stderr = std::fs::File::create(stderr_log).map_err(|e| {
+        engine(EngineError::ConversionFailed(Failure::new(
+            "workdir_failed",
+            format!("cannot create a log for {label}: {e}"),
+        )))
+    })?;
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(stderr))
+        .env(MEMORY_CAP_ENV, memory_cap.to_string());
+    isolate_process_tree(&mut cmd);
+    let cannot_cap = |e: String| {
+        engine(EngineError::ConversionFailed(
+            Failure::new(
+                "converter_start_failed",
+                format!("{label} could not be given its memory limit: {e}"),
+            )
+            .param("tool", label),
+        ))
+    };
+    #[cfg(windows)]
+    let job = job::MemoryJob::new(memory_cap).map_err(cannot_cap)?;
+    let mut child = cmd.spawn().map_err(|e| engine(spawn_error(label, &e)))?;
+    #[cfg(windows)]
+    if let Err(e) = job.assign(&child) {
+        kill_tree(&mut child);
+        return Err(cannot_cap(e));
+    }
+    #[cfg(not(windows))]
+    let _ = &cannot_cap;
+
+    let started = Instant::now();
+    let status = loop {
+        if cancel.load(Ordering::Relaxed) {
+            kill_tree(&mut child);
+            return Err(engine(EngineError::Cancelled));
+        }
+        if timeout.is_some_and(|limit| started.elapsed() >= limit) {
+            kill_tree(&mut child);
+            return Err(engine(timed_out_error(label, timeout)));
+        }
+        #[cfg(unix)]
+        if memory_in_use(child.id()).is_some_and(|used| used > memory_cap) {
+            kill_tree(&mut child);
+            return Err(CappedError::OverMemory);
+        }
+        match child.wait_timeout(MEMORY_POLL) {
+            Ok(Some(status)) => break status,
+            Ok(None) => continue,
+            Err(e) => {
+                kill_tree(&mut child);
+                return Err(engine(stopped_error(
+                    Stopped::WaitFailed(e.to_string()),
+                    label,
+                    timeout,
+                )));
+            }
+        }
+    };
+    if status.success() {
+        return Ok(());
+    }
+    #[cfg(windows)]
+    if job.hit_memory_limit() {
+        return Err(CappedError::OverMemory);
+    }
+    if allocation_failed(stderr_log) {
+        return Err(CappedError::OverMemory);
+    }
+    Err(engine(EngineError::ConversionFailed(
+        Failure::new(
+            "converter_failed",
+            format!("{label} failed ({status}){}", stderr_suffix(stderr_log)),
+        )
+        .param("tool", label),
+    )))
+}
+
+/// Whether the child's log says an allocation failed: Rust's default
+/// allocation-error handler prints `memory allocation of N bytes failed`
+/// before it aborts, which is what a refused allocation under the Job Object
+/// or `RLIMIT_DATA` ends in.
+fn allocation_failed(log: &Path) -> bool {
+    std::fs::read(log).is_ok_and(|bytes| {
+        let text = String::from_utf8_lossy(&bytes);
+        text.lines()
+            .any(|l| l.contains("memory allocation of") && l.contains("failed"))
+    })
+}
+
+/// The memory process `pid` is using, in bytes: on macOS its physical
+/// footprint (what Activity Monitor shows, compressed pages included), on
+/// Linux its resident set. `None` when it cannot be read (the process is
+/// gone).
+#[cfg(unix)]
+pub fn memory_in_use(pid: u32) -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        let pid = libc::c_int::try_from(pid).ok()?;
+        // SAFETY: `info` is a plain C struct the call fills; the buffer it is
+        // given is that struct, of the flavour it asks for.
+        let mut info: libc::rusage_info_v2 = unsafe { std::mem::zeroed() };
+        let rc = unsafe {
+            libc::proc_pid_rusage(
+                pid,
+                libc::RUSAGE_INFO_V2,
+                (&mut info as *mut libc::rusage_info_v2).cast::<libc::rusage_info_t>(),
+            )
+        };
+        (rc == 0).then_some(info.ri_phys_footprint.max(info.ri_resident_size))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let statm = std::fs::read_to_string(format!("/proc/{pid}/statm")).ok()?;
+        let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
+        // SAFETY: sysconf has no preconditions.
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        Some(pages.saturating_mul(u64::try_from(page).ok()?))
+    }
+}
+
+/// Called by a capped child ([`run_capped`]) before it touches its input:
+/// apply the memory cap its parent passed in [`MEMORY_CAP_ENV`]. On Unix it
+/// lowers `RLIMIT_DATA` to the cap (never raises it; best effort on macOS,
+/// which does not enforce it and where the parent's watchdog is the cap). On
+/// Windows it waits
+/// (up to ten seconds) until the parent has put it in a Job Object whose
+/// per-process memory limit is at most the cap, and fails otherwise, so it
+/// never works uncapped. No variable (a hand-started worker): nothing to do.
+pub fn apply_memory_cap() -> Result<(), String> {
+    let Some(cap) = std::env::var_os(MEMORY_CAP_ENV) else {
+        return Ok(());
+    };
+    let cap: u64 = cap
+        .to_str()
+        .and_then(|c| c.parse().ok())
+        .ok_or_else(|| format!("{MEMORY_CAP_ENV} is not a byte count"))?;
+    #[cfg(unix)]
+    {
+        // SAFETY: get/setrlimit only read and write the struct they are
+        // given.
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        if unsafe { libc::getrlimit(libc::RLIMIT_DATA, &mut limit) } != 0 {
+            return Err("cannot read RLIMIT_DATA".into());
+        }
+        let cap = libc::rlim_t::try_from(cap).unwrap_or(libc::RLIM_INFINITY);
+        let lowered = libc::rlimit {
+            rlim_cur: limit.rlim_cur.min(cap),
+            rlim_max: limit.rlim_max.min(cap),
+        };
+        let set = unsafe { libc::setrlimit(libc::RLIMIT_DATA, &lowered) } == 0;
+        // macOS refuses (EINVAL) to lower RLIMIT_DATA below what the
+        // process already maps, and never enforces it on `mmap` anyway: there
+        // the parent's footprint watchdog is the cap. Elsewhere it must hold.
+        if !set && !cfg!(target_os = "macos") {
+            return Err("cannot set RLIMIT_DATA".into());
+        }
+        Ok(())
+    }
+    #[cfg(windows)]
+    {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if job::own_memory_limit().is_some_and(|limit| limit <= cap) {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        Err("the worker was not placed in its memory-limited job".into())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = cap;
+        Ok(())
+    }
+}
+
+/// The Windows Job Object behind [`run_capped`].
+#[cfg(windows)]
+mod job {
+    use std::os::windows::io::AsRawHandle;
+
+    use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+    use windows::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectAssociateCompletionPortInformation,
+        JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
+        JOBOBJECT_ASSOCIATE_COMPLETION_PORT, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_ACTIVE_PROCESS, JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_PROCESS_MEMORY,
+    };
+    use windows::Win32::System::IO::{
+        CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED,
+    };
+
+    /// `JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT` (winnt.h): a process in the job
+    /// tried to commit more than the per-process limit.
+    const MSG_PROCESS_MEMORY_LIMIT: u32 = 9;
+
+    /// A job whose processes may each commit at most a set number of bytes,
+    /// die with the handle, and number one. Closing it kills what is in it.
+    pub struct MemoryJob {
+        job: HANDLE,
+        port: HANDLE,
+    }
+
+    // SAFETY: the handles are owned by this value and only used through it.
+    unsafe impl Send for MemoryJob {}
+
+    impl MemoryJob {
+        /// A new job with a per-process memory limit of `cap` bytes.
+        pub fn new(cap: u64) -> Result<Self, String> {
+            // SAFETY: plain Win32 calls on handles this function owns; the
+            // structs passed are the ones the information classes name.
+            unsafe {
+                let job = CreateJobObjectW(None, None).map_err(|e| e.to_string())?;
+                let port = match CreateIoCompletionPort(INVALID_HANDLE_VALUE, None, 0, 1) {
+                    Ok(port) => port,
+                    Err(e) => {
+                        let _ = CloseHandle(job);
+                        return Err(e.to_string());
+                    }
+                };
+                let this = Self { job, port };
+                let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+                limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY
+                    | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                    | JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+                    | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION;
+                limits.BasicLimitInformation.ActiveProcessLimit = 1;
+                limits.ProcessMemoryLimit = usize::try_from(cap).unwrap_or(usize::MAX);
+                SetInformationJobObject(
+                    this.job,
+                    JobObjectExtendedLimitInformation,
+                    (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                )
+                .map_err(|e| e.to_string())?;
+                let assoc = JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
+                    CompletionKey: std::ptr::null_mut(),
+                    CompletionPort: this.port,
+                };
+                SetInformationJobObject(
+                    this.job,
+                    JobObjectAssociateCompletionPortInformation,
+                    (&assoc as *const JOBOBJECT_ASSOCIATE_COMPLETION_PORT).cast(),
+                    std::mem::size_of::<JOBOBJECT_ASSOCIATE_COMPLETION_PORT>() as u32,
+                )
+                .map_err(|e| e.to_string())?;
+                Ok(this)
+            }
+        }
+
+        /// Put `child` in the job.
+        pub fn assign(&self, child: &std::process::Child) -> Result<(), String> {
+            let process = HANDLE(child.as_raw_handle());
+            // SAFETY: `process` is the live child's handle, owned by `child`.
+            unsafe { AssignProcessToJobObject(self.job, process) }.map_err(|e| e.to_string())
+        }
+
+        /// Whether a process in the job hit its memory limit (read from the
+        /// job's completion port, without waiting).
+        pub fn hit_memory_limit(&self) -> bool {
+            loop {
+                let mut message = 0u32;
+                let mut key = 0usize;
+                let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
+                // SAFETY: out-pointers to locals; a zero timeout never blocks.
+                let got = unsafe {
+                    GetQueuedCompletionStatus(self.port, &mut message, &mut key, &mut overlapped, 0)
+                };
+                if got.is_err() {
+                    return false;
+                }
+                if message == MSG_PROCESS_MEMORY_LIMIT {
+                    return true;
+                }
+            }
+        }
+    }
+
+    impl Drop for MemoryJob {
+        fn drop(&mut self) {
+            // SAFETY: both handles are owned here and closed once. Closing
+            // the job kills whatever is still in it (KILL_ON_JOB_CLOSE).
+            unsafe {
+                let _ = CloseHandle(self.job);
+                let _ = CloseHandle(self.port);
+            }
+        }
+    }
+
+    /// The per-process memory limit of the job this process is in, if it is
+    /// in one that has one.
+    pub fn own_memory_limit() -> Option<u64> {
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        // SAFETY: a null job handle means "the job of the calling process";
+        // the buffer is the struct the class names.
+        unsafe {
+            QueryInformationJobObject(
+                HANDLE::default(),
+                JobObjectExtendedLimitInformation,
+                (&mut limits as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                None,
+            )
+        }
+        .ok()?;
+        let flags = limits.BasicLimitInformation.LimitFlags;
+        (flags & JOB_OBJECT_LIMIT_PROCESS_MEMORY == JOB_OBJECT_LIMIT_PROCESS_MEMORY)
+            .then_some(limits.ProcessMemoryLimit as u64)
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -648,5 +1011,66 @@ mod reason_tests {
                 "{id}"
             );
         }
+    }
+
+    /// Security note 8: the watchdog reads a child's memory, and a capped
+    /// child that grows past its cap is killed as `OverMemory`; one that
+    /// stays under it runs to the end; cancel and timeout behave as in
+    /// `run_bounded`.
+    #[cfg(unix)]
+    #[test]
+    fn nfr_security_run_capped_kills_a_child_over_its_memory_cap() {
+        let sh = |script: &str| {
+            let mut c = Command::new("/bin/sh");
+            c.args(["-c", script]);
+            c
+        };
+        assert!(memory_in_use(std::process::id()).is_some_and(|b| b > 0));
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("err.log");
+        let cancel = AtomicBool::new(false);
+        // `perl` ships with macOS and every Linux CI image: grow a string to
+        // ~400 MB, touching every page.
+        let grow = "exec perl -e '$x = q(a) x (400*1024*1024); sleep 30'";
+        let started = Instant::now();
+        let r = run_capped(sh(grow), "grow", &cancel, None, &log, 64 * 1024 * 1024);
+        assert!(matches!(r, Err(CappedError::OverMemory)), "{r:?}");
+        assert!(started.elapsed() < Duration::from_secs(20));
+
+        assert!(run_capped(sh("exit 0"), "ok", &cancel, None, &log, 64 << 20).is_ok());
+        let r = run_capped(sh("exit 3"), "bad", &cancel, None, &log, 64 << 20);
+        assert!(
+            matches!(&r, Err(CappedError::Engine(EngineError::ConversionFailed(f)))
+                if f.reason == Some("converter_failed")),
+            "{r:?}"
+        );
+        let r = run_capped(
+            sh("sleep 30"),
+            "slow",
+            &cancel,
+            Some(Duration::from_millis(200)),
+            &log,
+            64 << 20,
+        );
+        assert!(
+            matches!(
+                &r,
+                Err(CappedError::Engine(EngineError::ConversionTimedOut(_)))
+            ),
+            "{r:?}"
+        );
+        let cancelled = AtomicBool::new(true);
+        let r = run_capped(sh("sleep 30"), "c", &cancelled, None, &log, 64 << 20);
+        assert!(
+            matches!(r, Err(CappedError::Engine(EngineError::Cancelled))),
+            "{r:?}"
+        );
+
+        // A refused allocation (what the Job Object or RLIMIT_DATA end in)
+        // reads as out of memory.
+        std::fs::write(&log, "memory allocation of 1048576 bytes failed\n").unwrap();
+        assert!(allocation_failed(&log));
+        std::fs::write(&log, "panicked at src/x.rs\n").unwrap();
+        assert!(!allocation_failed(&log));
     }
 }
