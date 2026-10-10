@@ -19,7 +19,14 @@ const DONE_WITH_PASSWORD = new Set([
   'cancelled',
 ]);
 
-type Phase = 'idle' | 'sending' | 'checking';
+/**
+ * `waiting`: the backend took the password and the job left its password
+ * pause, but it is queued behind other work (or the queue is paused), so the
+ * password has not been tried yet. Nothing is in flight on this side: the
+ * dialog can be closed, and still reports a wrong password if it is open
+ * when the job comes back.
+ */
+type Phase = 'idle' | 'sending' | 'checking' | 'waiting';
 
 interface PdfPasswordDialogProps {
   /** The paused job asking for a password. */
@@ -37,8 +44,10 @@ interface PdfPasswordDialogProps {
  * stored on this side either. The dialog then follows the job: a wrong
  * password brings it back paused with `password_incorrect`, which re-arms the
  * field with an error so the user can try again; once the job converts (or
- * ends some other way) the dialog closes itself. "Not now" leaves the job
- * paused; "Cancel this job" cancels it.
+ * ends some other way) the dialog closes itself. While the job only waits
+ * its turn — slots busy, or the whole queue paused — the dialog says so (with
+ * a way to resume a paused queue) instead of "Checking…" with every button
+ * disabled. "Not now" leaves the job paused; "Cancel this job" cancels it.
  */
 export function PdfPasswordDialog({
   jobId,
@@ -46,12 +55,15 @@ export function PdfPasswordDialog({
   onClose,
 }: PdfPasswordDialogProps) {
   const t = useT('queue');
+  const tCommon = useT('common');
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputId = useId();
   const titleId = useId();
   const bodyId = useId();
   const errorId = useId();
   const cancelJob = useQueueStore((s) => s.cancelJob);
+  const queuePaused = useQueueStore((s) => s.queuePaused);
+  const resumeQueue = useQueueStore((s) => s.resumeQueue);
 
   const job = useQueueStore((s) =>
     s.snapshot?.jobs.find((j) => j.id === jobId),
@@ -83,6 +95,11 @@ export function PdfPasswordDialog({
   const watch = useRef({ active: false, left: false });
   const close = useRef(onClose);
   close.current = onClose;
+  /**
+   * Close from the job watcher, once: closing updates the store (the prompt
+   * lives there), and that update reaches the watcher again.
+   */
+  const closedByJob = useRef(false);
 
   useModalFocus(dialogRef, {
     onEscape: () => close.current(),
@@ -92,11 +109,16 @@ export function PdfPasswordDialog({
   // Follow the job through every snapshot the store adopts (a subscription,
   // not a render, so no intermediate state is missed).
   useEffect(() => {
+    const closeForJob = () => {
+      if (closedByJob.current) return;
+      closedByJob.current = true;
+      close.current();
+    };
     const onJob = (current: Job | undefined) => {
       const w = watch.current;
       if (!current || DONE_WITH_PASSWORD.has(current.state)) {
         w.active = false;
-        close.current();
+        closeForJob();
         return;
       }
       if (!w.active) return;
@@ -113,8 +135,12 @@ export function PdfPasswordDialog({
         // Paused for another reason (the queue's or the user's): the
         // password got through; the row says what is left to do.
         w.active = false;
-        close.current();
+        closeForJob();
+        return;
       }
+      // Queued: accepted, but not tried until a slot (or a paused queue)
+      // lets it convert. Converting: being tried right now.
+      setPhase(current.state === 'queued' ? 'waiting' : 'checking');
     };
     return useQueueStore.subscribe((s) =>
       onJob(s.snapshot?.jobs.find((j) => j.id === jobId)),
@@ -140,7 +166,16 @@ export function PdfPasswordDialog({
         secret,
         applyToBatch && otherProtected > 0,
       );
-      setPhase((p) => (p === 'sending' ? 'checking' : p));
+      setPhase((p) => {
+        if (p !== 'sending') return p;
+        // The snapshot that moved the job on may already be here.
+        const now = useQueueStore
+          .getState()
+          .snapshot?.jobs.find((j) => j.id === jobId);
+        return watch.current.left && now?.state === 'queued'
+          ? 'waiting'
+          : 'checking';
+      });
     } catch (err) {
       watch.current.active = false;
       setPhase('idle');
@@ -148,7 +183,15 @@ export function PdfPasswordDialog({
     }
   };
 
-  const busy = phase !== 'idle';
+  const busy = phase === 'sending' || phase === 'checking';
+  const waiting = phase === 'waiting';
+  const status = busy
+    ? t('password.checking')
+    : waiting
+      ? queuePaused
+        ? t('password.waitingPaused')
+        : t('password.waiting')
+      : '';
 
   return (
     <ModalOverlay
@@ -212,7 +255,7 @@ export function PdfPasswordDialog({
               setPassword(e.target.value);
               if (error) setError(null);
             }}
-            disabled={busy}
+            disabled={busy || waiting}
             fullWidth
             error={error !== null}
             aria-describedby={error ? errorId : undefined}
@@ -228,9 +271,9 @@ export function PdfPasswordDialog({
               color: error ? 'var(--mp-error)' : 'var(--mp-textMuted)',
             }}
           >
-            {error ?? (busy ? t('password.checking') : '')}
+            {error ?? status}
           </div>
-          {otherProtected > 0 && (
+          {otherProtected > 0 && !waiting && (
             <div style={{ marginTop: 6 }}>
               <MPCheckbox
                 checked={applyToBatch}
@@ -261,16 +304,29 @@ export function PdfPasswordDialog({
             </MPButton>
             <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
               <MPButton variant="ghost" size="sm" onClick={onClose}>
-                {t('password.later')}
+                {waiting ? tCommon('actions.close') : t('password.later')}
               </MPButton>
-              <MPButton
-                variant="primary"
-                size="sm"
-                type="submit"
-                disabled={busy}
-              >
-                {t('password.submit')}
-              </MPButton>
+              {waiting ? (
+                queuePaused && (
+                  <MPButton
+                    variant="primary"
+                    size="sm"
+                    icon="play"
+                    onClick={() => void resumeQueue()}
+                  >
+                    {t('actions.resumeQueue')}
+                  </MPButton>
+                )
+              ) : (
+                <MPButton
+                  variant="primary"
+                  size="sm"
+                  type="submit"
+                  disabled={busy}
+                >
+                  {t('password.submit')}
+                </MPButton>
+              )}
             </div>
           </div>
         </form>

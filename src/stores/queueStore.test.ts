@@ -110,6 +110,7 @@ function resetStore() {
     pendingIds: [],
     notifiedBatches: [],
     notifiedPaused: [],
+    passwordPrompt: null,
     uiJobs: [],
     counts: { active: 0, pending: 0, done: 0 },
     queuePaused: false,
@@ -560,11 +561,15 @@ describe('queueStore — batch completion notifications', () => {
     );
 
     expect(success).not.toHaveBeenCalled();
+    // The plural follows the unconfirmed count (1), not the batch size (2).
     expect(warning).toHaveBeenCalledWith(
-      '1 of 2 files were sent to the printer without confirmation that they printed',
+      '1 file (of 2) was sent to the printer without confirmation that it printed',
     );
     const ui = useQueueStore.getState().uiJobs.find((j) => j.id === 'a');
     expect(ui?.status).toBe('unconfirmed');
+    // Handed to the spooler in full: a full bar (in the warning colour).
+    expect(ui?.progress).toBe(1);
+    expect(ui?.indeterminate).toBeUndefined();
     expect(ui?.error).toContain('left the system print queue');
     expect(useQueueStore.getState().counts.done).toBe(2);
   });
@@ -925,6 +930,96 @@ describe('queueStore — jobs that stop and need the user (FR-071)', () => {
       stuck('interrupted_by_shutdown', 'Pluryprint closed mid-job'),
     );
     expect(error).not.toHaveBeenCalled();
+  });
+
+  const locked = (id: string, reason: string, batch = 'batch-1'): Job => ({
+    ...mkJob({
+      id,
+      state: 'paused',
+      file_name: `${id}.pdf`,
+      error: { code: 'pdf_protected', message: 'protected', reason },
+    }),
+    batch_id: batch,
+  });
+
+  it('FR-059: a wrong password is not announced again while its prompt is open', async () => {
+    mockQueue({ snapshot: running });
+    const error = vi.spyOn(toast, 'error').mockReturnValue('id');
+    await useQueueStore.getState().init();
+
+    emitQueueUpdated(snapshotOf([locked('a', 'password_required')]));
+    expect(error).toHaveBeenCalledTimes(1);
+
+    // The user opens the prompt and tries a wrong password (tried on the
+    // batch too): each job leaves the pause, then comes back incorrect.
+    useQueueStore.getState().openPasswordPrompt('a', 'a.pdf');
+    emitQueueUpdated(
+      snapshotOf([
+        mkJob({ id: 'a', state: 'queued', file_name: 'a.pdf' }),
+        mkJob({ id: 'b', state: 'queued', file_name: 'b.pdf' }),
+      ]),
+    );
+    emitQueueUpdated(
+      snapshotOf([
+        locked('a', 'password_incorrect'),
+        locked('b', 'password_incorrect'),
+      ]),
+    );
+    expect(error).toHaveBeenCalledTimes(1);
+
+    // Once the prompt is closed, a new stop is announced as usual.
+    useQueueStore.getState().closePasswordPrompt();
+    emitQueueUpdated(
+      snapshotOf([mkJob({ id: 'a', state: 'queued', file_name: 'a.pdf' })]),
+    );
+    emitQueueUpdated(snapshotOf([locked('a', 'password_incorrect')]));
+    expect(error).toHaveBeenCalledTimes(2);
+  });
+
+  it('FR-059: an open prompt does not silence other jobs or other batches', async () => {
+    mockQueue({ snapshot: running });
+    const error = vi.spyOn(toast, 'error').mockReturnValue('id');
+    await useQueueStore.getState().init();
+    useQueueStore.getState().openPasswordPrompt('a', 'a.pdf');
+    emitQueueUpdated(
+      snapshotOf([
+        locked('a', 'password_required'),
+        locked('z', 'password_required', 'other-batch'),
+        mkJob({
+          id: 'p',
+          state: 'paused',
+          file_name: 'p.pdf',
+          error: { code: 'printer_unavailable', message: 'gone' },
+        }),
+      ]),
+    );
+    const titles = error.mock.calls.map((c) => c[0]);
+    expect(titles).toEqual([
+      'Printing stopped: z.pdf needs your attention',
+      'Printing stopped: p.pdf needs your attention',
+    ]);
+  });
+
+  it('FR-059: a password stop offers to enter the password, which opens the prompt', async () => {
+    mockQueue({ snapshot: running });
+    const error = vi.spyOn(toast, 'error').mockReturnValue('id');
+    const openQueue = vi.fn();
+    setQueueNavigator(openQueue);
+    await useQueueStore.getState().init();
+
+    emitQueueUpdated(snapshotOf([locked('a', 'password_required')]));
+    const options = error.mock.calls[0]?.[1] as {
+      description: string;
+      action: { label: string; onClick: () => void };
+    };
+    expect(options.action.label).toBe('Enter password');
+    expect(options.description).not.toContain('resume the job');
+    options.action.onClick();
+    expect(openQueue).toHaveBeenCalledTimes(1);
+    expect(useQueueStore.getState().passwordPrompt).toEqual({
+      id: 'a',
+      file: 'a.pdf',
+    });
   });
 
   it('FR-071: a job already stuck when the session starts only seeds', async () => {

@@ -74,6 +74,7 @@ import {
   type UiQueueJobView,
 } from '@/lib/ipc';
 import { localizeJobError } from '@/lib/jobError';
+import { needsPassword } from '@/lib/pdfPassword';
 import { usePrinterNamesStore } from '@/stores/printerNamesStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -97,6 +98,12 @@ export interface QueueCounts {
  * number in the confirmation copy and tests don't have to guess it.
  */
 export const CLEAR_UNDO_MS = 5000;
+
+/** Which job the PDF password prompt is asking about. */
+export interface PasswordPrompt {
+  id: string;
+  file: string;
+}
 
 interface QueueState {
   snapshot: QueueSnapshot | null;
@@ -130,6 +137,13 @@ interface QueueState {
    * announces again.
    */
   notifiedPaused: string[];
+  /**
+   * The job whose PDF password prompt is open (FR-059), or `null`. Kept here
+   * rather than in the Queue screen so a toast can open it directly, any
+   * queue view can, and the store knows not to announce that job again while
+   * the user is already answering it.
+   */
+  passwordPrompt: PasswordPrompt | null;
   // Derived — recomputed on every snapshot change (memoized at the write).
   uiJobs: UiQueueJobView[];
   counts: QueueCounts;
@@ -138,6 +152,10 @@ interface QueueState {
   recentDone: UiQueueJobView[];
 
   init: () => Promise<void>;
+  /** Open the password prompt for a paused, encrypted PDF (FR-059). */
+  openPasswordPrompt: (id: string, file: string) => void;
+  /** Close it (the job stays as it is). */
+  closePasswordPrompt: () => void;
   pauseJob: (id: string) => Promise<void>;
   resumeJob: (id: string) => Promise<void>;
   /**
@@ -324,19 +342,37 @@ function jobErrorText(job: Job | undefined): string {
   }).replace(/\.$/, '');
 }
 
-/** Announce a job that stopped and is waiting for the user (FR-071). */
-function notifyJobNeedsAction(snapshot: QueueSnapshot, jobId: string): void {
+/**
+ * Announce a job that stopped and is waiting for the user (FR-071). A job
+ * waiting for its PDF password (FR-059) gets an action that opens the prompt
+ * itself, in whichever queue view is showing: it has no Resume to point at.
+ */
+function notifyJobNeedsAction(
+  snapshot: QueueSnapshot,
+  jobId: string,
+  openPrompt: (id: string, file: string) => void,
+): void {
   const job = snapshot.jobs.find((j) => j.id === jobId);
   if (!job) return;
+  const locked = needsPassword(job.state, job.error);
   const title = t('notify.jobNeedsAction', { file: job.file_name });
-  const description = t('notify.jobNeedsActionHint', {
-    error: jobErrorText(job),
-  });
+  const description = t(
+    locked ? 'notify.jobNeedsPasswordHint' : 'notify.jobNeedsActionHint',
+    { error: jobErrorText(job) },
+  );
   toast.error(title, {
     description,
     duration: 10000,
     action: navigateToQueue
-      ? { label: t('notify.openQueue'), onClick: () => navigateToQueue?.() }
+      ? locked
+        ? {
+            label: t('notify.enterPassword'),
+            onClick: () => {
+              openPrompt(job.id, job.file_name);
+              navigateToQueue?.();
+            },
+          }
+        : { label: t('notify.openQueue'), onClick: () => navigateToQueue?.() }
       : {
           label: tCommon('actions.openLogsFolder'),
           onClick: () => {
@@ -395,8 +431,9 @@ function notifyBatchComplete(jobs: readonly Job[]): void {
   if (unconfirmed > 0) {
     // Handed to the spooler, but nobody confirmed it printed: never announced
     // as printed, and not an error either — the user checks the printer.
+    // `count` is the unconfirmed count: the sentence is about those files.
     const summary = t('notify.batchUnconfirmed', {
-      count: total,
+      count: unconfirmed,
       unconfirmed,
       total,
     });
@@ -482,6 +519,22 @@ export const useQueueStore = create<QueueState>()((set, get) => {
     if (changed) set(derive({ ...cur, jobs }, get().pendingClear));
   }
 
+  /**
+   * Whether job `id` is back on a password pause while the user is already
+   * answering the prompt for it — or for its batch, when the password was
+   * tried on the whole batch. The dialog says "incorrect" itself; a second
+   * error toast and OS notification on top of it would only be noise.
+   */
+  function answering(next: QueueSnapshot, id: string): boolean {
+    const prompt = get().passwordPrompt;
+    if (!prompt) return false;
+    const job = next.jobs.find((j) => j.id === id);
+    if (!job || !needsPassword(job.state, job.error)) return false;
+    if (job.id === prompt.id) return true;
+    const asked = next.jobs.find((j) => j.id === prompt.id);
+    return asked !== undefined && asked.batch_id === job.batch_id;
+  }
+
   /** Adopt an authoritative snapshot and announce any batch that just ended. */
   function adopt(next: QueueSnapshot, announce: boolean): void {
     trackBatches(next, !seeded());
@@ -491,7 +544,7 @@ export const useQueueStore = create<QueueState>()((set, get) => {
     const stuck = needsActionIds(next);
     const knownStuck = get().notifiedPaused;
     const freshStuck = announce
-      ? stuck.filter((id) => !knownStuck.includes(id))
+      ? stuck.filter((id) => !knownStuck.includes(id) && !answering(next, id))
       : [];
     set({
       ...derive(next, get().pendingClear),
@@ -499,7 +552,11 @@ export const useQueueStore = create<QueueState>()((set, get) => {
       notifiedBatches: complete,
       notifiedPaused: stuck,
     });
-    for (const id of freshStuck) notifyJobNeedsAction(next, id);
+    for (const id of freshStuck) {
+      notifyJobNeedsAction(next, id, (jid, file) =>
+        set({ passwordPrompt: { id: jid, file } }),
+      );
+    }
     for (const id of fresh) {
       notifyBatchComplete([...(batchMembers.get(id)?.values() ?? [])]);
     }
@@ -573,6 +630,7 @@ export const useQueueStore = create<QueueState>()((set, get) => {
     pendingIds: [],
     notifiedBatches: [],
     notifiedPaused: [],
+    passwordPrompt: null,
     uiJobs: [],
     counts: { active: 0, pending: 0, done: 0 },
     queuePaused: false,
@@ -646,6 +704,9 @@ export const useQueueStore = create<QueueState>()((set, get) => {
         if (!seeded()) set({ status: 'error', error: message(e) });
       }
     },
+
+    openPasswordPrompt: (id, file) => set({ passwordPrompt: { id, file } }),
+    closePasswordPrompt: () => set({ passwordPrompt: null }),
 
     pauseJob: (id) => jobAction(id, pauseJobCmd),
     resumeJob: (id) => jobAction(id, resumeJobCmd),

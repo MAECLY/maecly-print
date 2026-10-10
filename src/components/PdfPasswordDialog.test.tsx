@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
@@ -46,8 +47,8 @@ const required: JobError = {
 };
 const incorrect: JobError = { ...required, reason: 'password_incorrect' };
 
-function snapshotOf(jobs: Job[]): QueueSnapshot {
-  return { schema_version: 1, queue_paused: false, jobs };
+function snapshotOf(jobs: Job[], queuePaused = false): QueueSnapshot {
+  return { schema_version: 1, queue_paused: queuePaused, jobs };
 }
 
 function locked(id: string, error: JobError = required): Job {
@@ -59,20 +60,34 @@ interface Call {
   args: Record<string, unknown>;
 }
 
-async function renderQueue(jobs: Job[]): Promise<Call[]> {
+async function renderQueue(
+  jobs: Job[],
+  view: 'list' | 'board' | 'timeline' = 'list',
+  queuePaused = false,
+): Promise<Call[]> {
   const calls: Call[] = [];
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
-    if (cmd === 'queue_status') return snapshotOf(jobs);
+    if (cmd === 'queue_status') return snapshotOf(jobs, queuePaused);
     return null;
   });
   await useQueueStore.getState().init();
-  render(<QueueScreen view="list" setView={() => {}} />);
+  render(<QueueScreen view={view} setView={() => {}} />);
   return calls;
 }
 
-function push(jobs: Job[]) {
-  act(() => bus.state.push?.(snapshotOf(jobs)));
+function push(jobs: Job[], queuePaused = false) {
+  act(() => bus.state.push?.(snapshotOf(jobs, queuePaused)));
+}
+
+async function submitPassword(calls: Call[], pw: string) {
+  fireEvent.change(screen.getByLabelText('PDF password'), {
+    target: { value: pw },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Unlock and print' }));
+  await waitFor(() =>
+    expect(calls.some((c) => c.cmd === 'job_supply_password')).toBe(true),
+  );
 }
 
 function resetStore() {
@@ -84,6 +99,7 @@ function resetStore() {
     pendingIds: [],
     notifiedBatches: [],
     notifiedPaused: [],
+    passwordPrompt: null,
     uiJobs: [],
     counts: { active: 0, pending: 0, done: 0 },
     queuePaused: false,
@@ -237,4 +253,78 @@ describe('PdfPasswordDialog (FR-059)', () => {
       ),
     ).toBe(false);
   });
+
+  it('FR-059: a password accepted while the queue is paused says so and offers to resume, instead of "Checking…" forever', async () => {
+    const calls = await renderQueue([locked('secret')], 'list', true);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Enter the password of secret.pdf' }),
+    );
+    await submitPassword(calls, 'pw');
+    push(
+      [mkJob({ id: 'secret', state: 'queued', file_name: 'secret.pdf' })],
+      true,
+    );
+    const dialog = await screen.findByRole('dialog');
+    await waitFor(() =>
+      expect(dialog).toHaveTextContent('the queue is paused'),
+    );
+    expect(dialog).not.toHaveTextContent('Checking the password');
+    // Nothing is in flight: the user can leave, cancel, or resume the queue.
+    expect(
+      screen.getByRole('button', { name: 'Cancel this job' }),
+    ).toBeEnabled();
+    const resume = within(dialog).getByRole('button', {
+      name: 'Resume queue',
+    });
+    fireEvent.click(resume);
+    await waitFor(() =>
+      expect(calls.some((c) => c.cmd === 'resume_queue')).toBe(true),
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('FR-059: a password waiting for a free slot is not stuck on "Checking…", and a wrong one is still reported', async () => {
+    const calls = await renderQueue([locked('secret')]);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Enter the password of secret.pdf' }),
+    );
+    await submitPassword(calls, 'wrong');
+    push([mkJob({ id: 'secret', state: 'queued', file_name: 'secret.pdf' })]);
+    const dialog = screen.getByRole('dialog');
+    await waitFor(() =>
+      expect(dialog).toHaveTextContent('waiting its turn in the queue'),
+    );
+    expect(
+      within(dialog).queryByRole('button', { name: 'Resume queue' }),
+    ).not.toBeInTheDocument();
+    // Its turn comes: it is tried, and the password was wrong.
+    push([
+      mkJob({ id: 'secret', state: 'converting', file_name: 'secret.pdf' }),
+    ]);
+    await waitFor(() =>
+      expect(dialog).toHaveTextContent('Checking the password'),
+    );
+    push([locked('secret', incorrect)]);
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'That password does not open this PDF',
+      ),
+    );
+  });
+
+  it.each(['board', 'timeline'] as const)(
+    'FR-059: the password prompt is reachable from the %s view too',
+    async (view) => {
+      await renderQueue([locked('secret')], view);
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: 'Enter the password of secret.pdf',
+        }),
+      );
+      expect(
+        screen.getByRole('dialog', { name: 'This PDF needs a password' }),
+      ).toBeInTheDocument();
+    },
+  );
 });
