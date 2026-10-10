@@ -219,7 +219,7 @@ Packages named in earlier drafts and **not** used: `@radix-ui/*`, `react-hook-fo
 | Tool          | Required version    |
 | ------------- | ------------------- |
 | Rust          | 1.78 stable+        |
-| Node.js       | 20 LTS+             |
+| Node.js       | 24 LTS (CI); 22.22.2+ minimum |
 | pnpm          | 9.x (preferred over npm/yarn) |
 | Tauri CLI     | 2.x                 |
 | Visual Studio Build Tools | 2022 (Win)         |
@@ -227,7 +227,7 @@ Packages named in earlier drafts and **not** used: `@radix-ui/*`, `react-hook-fo
 | WebView2 Runtime | Evergreen (auto-installed by Win 11; bootstrapper for Win 10) |
 | Xcode         | 15+ (Mac)           |
 
-`package.json` pins the package manager (`pnpm@9.15.0`) and declares `engines.node >= 20`; both `Cargo.toml`s declare `rust-version = "1.78"`. There is **no `rust-toolchain.toml`** in the repo, so the Rust version CI uses is whatever `.github/workflows/ci.yml` installs — adding one is an open item (see [`security-model.md`](./security-model.md) §9). Inno Setup is not part of the toolchain; the Windows installer comes from Tauri's NSIS target.
+`package.json` pins the package manager (`pnpm@9.15.0`) and declares `engines.node >= 22.22.2` (the floor jsdom 30 and Vitest 5 set for the test toolchain); both `Cargo.toml`s declare `rust-version = "1.78"`. There is **no `rust-toolchain.toml`** in the repo, so the Rust version CI uses is whatever `.github/workflows/ci.yml` installs — adding one is an open item (see [`security-model.md`](./security-model.md) §9). Inno Setup is not part of the toolchain; the Windows installer comes from Tauri's NSIS target.
 
 ## 7. Where this decision is recorded
 

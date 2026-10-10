@@ -6,7 +6,7 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "engines": {
-    "node": ">=20",
+    "node": ">=22.22.2",
     "pnpm": ">=9"
   },
   "packageManager": "pnpm@9.15.0",

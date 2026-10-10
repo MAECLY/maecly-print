@@ -61,7 +61,7 @@ See the [roadmap](./docs/06-roadmap/milestones.md) for the milestone path, and t
 
 ```powershell
 # Prerequisites (one-time):
-#   1. Node 24 LTS + pnpm 9    -> https://nodejs.org, then `npm i -g pnpm`
+#   1. Node 24 LTS (22.22.2+) + pnpm 9 -> https://nodejs.org, then `npm i -g pnpm`
 #   2. Rust stable 1.78+       -> https://rustup.rs
 #   3. Visual Studio Build Tools 2022 with the "Desktop development with C++"
 #      workload (incl. Windows 11 SDK + ATL + Spectre Mitigations)

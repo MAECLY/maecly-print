@@ -1,6 +1,6 @@
 # Local Setup
 
-> **TL;DR.** Install Rust stable, Node 24 LTS + pnpm, the platform's native build tools (Visual Studio Build Tools 2022 on Windows; Xcode CLT on macOS), then `pnpm install && pnpm tauri dev`. The app boots with hot reload in under 30 seconds on a typical dev machine.
+> **TL;DR.** Install Rust stable, Node 24 LTS (22.22.2 at least) + pnpm, the platform's native build tools (Visual Studio Build Tools 2022 on Windows; Xcode CLT on macOS), then `pnpm install && pnpm tauri dev`. The app boots with hot reload in under 30 seconds on a typical dev machine.
 
 This document is the developer onboarding checklist. Follow it once on a clean machine; afterward, daily work is `git pull && pnpm install && pnpm tauri dev`.
 
@@ -11,7 +11,7 @@ This document is the developer onboarding checklist. Follow it once on a clean m
 | Tool | Version | Install via |
 |---|---|---|
 | Rust | stable; `rust-version = "1.78"` is the crate's floor | [rustup.rs](https://rustup.rs/) — accepts default options |
-| Node.js | 24 LTS, what CI uses (`engines.node: ">=20"`) | [nodejs.org](https://nodejs.org/) or `winget install OpenJS.NodeJS.LTS` |
+| Node.js | 24 LTS, what CI uses; 22.22.2 is the floor (`engines.node: ">=22.22.2"`) | [nodejs.org](https://nodejs.org/) or `winget install OpenJS.NodeJS.LTS` |
 | pnpm | 9.x (`packageManager: pnpm@9.15.0`) | `npm install -g pnpm` or `corepack enable` |
 | Visual Studio Build Tools 2022 | latest | [VS Build Tools download](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) |
 | Windows SDK | 10.0.22621 or newer | Bundled with VS Build Tools |
