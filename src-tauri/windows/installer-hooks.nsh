@@ -23,6 +23,11 @@
 !define PLURYPRINT_SHELLEXT_CLSID "{B269B8DC-044F-4D65-8F1E-8F20A2E653EA}"
 !define PLURYPRINT_SHELLEXT_DLL "shell_ext_win.dll"
 !define PLURYPRINT_SHELLEXT_VERB "Pluryprint"
+; The app's data folders: %APPDATA% and %LOCALAPPDATA%\<org>\<app>, as
+; directories::ProjectDirs::from("com", "Maecly", "Pluryprint") resolves them
+; (src-tauri/src/util/paths.rs; tests/installer_hooks.rs checks they agree).
+!define PLURYPRINT_DATA_ORG "Maecly"
+!define PLURYPRINT_DATA_APP "Pluryprint"
 
 ; The DLL ships for BOTH Windows architectures, as bundle resources
 ; (src-tauri/resources/shellext/<arch>/, see the README there), and the one
@@ -113,6 +118,8 @@
 !define PLURY_LEGACY_PRODUCT "MaeclyPrint"
 !define PLURY_LEGACY_PUBLISHER "Maecly"
 !define PLURY_LEGACY_EXE "maeclyprint.exe"
+; Its bundle identifier, which named its web view profile folder.
+!define PLURY_LEGACY_IDENTIFIER "com.maecly.print"
 !define PLURY_LEGACY_UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PLURY_LEGACY_PRODUCT}"
 !define PLURY_LEGACY_PRODUCTKEY "Software\${PLURY_LEGACY_PUBLISHER}\${PLURY_LEGACY_PRODUCT}"
 !define PLURY_UNINSTROOT "Software\Microsoft\Windows\CurrentVersion\Uninstall"
@@ -172,7 +179,11 @@
   Push $R3
   Push $R4
   Push $R5
+  Push $R6
   Push $9
+
+  ; $R6: 1 when a MaeclyPrint install is still on this machine afterwards.
+  StrCpy $R6 0
 
   ; --- Per-user MaeclyPrint (HKCU) -------------------------------------------
   ReadRegStr $R0 HKCU "${PLURY_LEGACY_UNINSTKEY}" "UninstallString"
@@ -196,6 +207,7 @@
     ${If} $R1 == ""
       DetailPrint "$(PLURY_LEGACY_UNKNOWN_DIR)"
       StrCpy $R3 0
+      StrCpy $R6 1
     ${ElseIf} ${FileExists} "$R1\uninstall.exe"
       DetailPrint "$(PLURY_LEGACY_REMOVING)"
       ClearErrors
@@ -231,6 +243,7 @@
       ${Else}
         DetailPrint "$(PLURY_LEGACY_KEPT)"
         StrCpy $R3 0
+        StrCpy $R6 1
       ${EndIf}
     ${Else}
       ; Registered, but its uninstaller is gone: only the registration is left.
@@ -267,11 +280,13 @@
     ${StrLoc} $R2 $R0 "msiexec" ">"
     ${If} $R2 == ""
       DetailPrint "$(PLURY_MSI_NOT_MSI)"
+      StrCpy $R6 1
       Goto plury_hklm_done
     ${EndIf}
     DetailPrint "$(PLURY_MSI_FOUND)"
     MessageBox MB_YESNO|MB_ICONQUESTION "$(PLURY_MSI_ASK)" /SD IDNO IDYES plury_hklm_remove
     DetailPrint "$(PLURY_MSI_LEFT)"
+    StrCpy $R6 1
     Goto plury_hklm_done
   plury_hklm_remove:
     ClearErrors
@@ -282,9 +297,26 @@
     ${EndIf}
     ; 0: removed. 3010: removed, restart pending. 1602: the user declined.
     DetailPrint "$(PLURY_MSI_EXITED)"
+    ${If} $R2 != 0
+    ${AndIf} $R2 != 3010
+      StrCpy $R6 1
+    ${EndIf}
   plury_hklm_done:
 
+  ; --- MaeclyPrint's WebView2 profile ----------------------------------------
+  ; MaeclyPrint kept its web view's profile in %LOCALAPPDATA%\<its identifier>
+  ; (about 23 MB). Nothing reads it any more: the first-run flags it held
+  ; live in config.toml, which the app migrates (src-tauri/src/util/legacy.rs).
+  ; It is deleted only once no MaeclyPrint is left that could still be using
+  ; it; a half-deleted profile (a file still open) is only wasted space.
+  ${If} $R6 = 0
+  ${AndIf} ${FileExists} "$LOCALAPPDATA\${PLURY_LEGACY_IDENTIFIER}\*.*"
+    DetailPrint "Removing the unused ${PLURY_LEGACY_PRODUCT} web view profile"
+    RMDir /r "$LOCALAPPDATA\${PLURY_LEGACY_IDENTIFIER}"
+  ${EndIf}
+
   Pop $9
+  Pop $R6
   Pop $R5
   Pop $R4
   Pop $R3
@@ -344,4 +376,22 @@
   Delete /REBOOTOK "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old*"
   !insertmacro PLURY_REMOVE_SUMATRA_SETTINGS "$INSTDIR"
   RMDir /REBOOTOK "$INSTDIR"
+
+  ; "Delete the application data" (Tauri's checkbox) only removes
+  ; %APPDATA% and %LOCALAPPDATA%\<identifier>, which hold the web view's
+  ; profile. Settings, profiles, the queue, logs and the conversion cache live
+  ; where ProjectDirs::from("com", "Maecly", "Pluryprint") puts them
+  ; (src-tauri/src/util/paths.rs), so the box removes those too, and the old
+  ; MaeclyPrint web view profile with them. Never on an update, never on a
+  ; silent run (the box is unticked then).
+  ${If} $DeleteAppDataCheckboxState = 1
+  ${AndIf} $UpdateMode <> 1
+    SetShellVarContext current
+    RMDir /r "$APPDATA\${PLURYPRINT_DATA_ORG}\${PLURYPRINT_DATA_APP}"
+    RMDir /r "$LOCALAPPDATA\${PLURYPRINT_DATA_ORG}\${PLURYPRINT_DATA_APP}"
+    ; The organization folders only if nothing else of theirs is left.
+    RMDir "$APPDATA\${PLURYPRINT_DATA_ORG}"
+    RMDir "$LOCALAPPDATA\${PLURYPRINT_DATA_ORG}"
+    RMDir /r "$LOCALAPPDATA\${PLURY_LEGACY_IDENTIFIER}"
+  ${EndIf}
 !macroend

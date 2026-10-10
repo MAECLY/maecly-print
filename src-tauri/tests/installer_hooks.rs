@@ -213,6 +213,74 @@ fn nfr_070_the_registered_dll_matches_the_native_architecture() {
     );
 }
 
+/// The uninstaller's "delete the application data" box removes the real data
+/// folders (`ProjectDirs::from("com", "Maecly", "Pluryprint")`), not only the
+/// `%APPDATA%\<identifier>` Tauri knows about. Never on an update.
+#[test]
+fn fr_083_delete_app_data_removes_the_real_data_folders() {
+    let nsh = read("src-tauri/windows/installer-hooks.nsh");
+    let paths = read("src-tauri/src/util/paths.rs");
+    assert!(paths.contains("const ORG: &str = \"Maecly\";"));
+    assert!(paths.contains("const APP: &str = \"Pluryprint\";"));
+    assert!(nsh.contains("!define PLURYPRINT_DATA_ORG \"Maecly\""));
+    assert!(nsh.contains("!define PLURYPRINT_DATA_APP \"Pluryprint\""));
+
+    let post = nsh
+        .split("!macro NSIS_HOOK_POSTUNINSTALL")
+        .nth(1)
+        .and_then(|rest| rest.split("!macroend").next())
+        .expect("post-uninstall hook");
+    let guard = post
+        .find("${If} $DeleteAppDataCheckboxState = 1")
+        .expect("only when the user ticked the box");
+    let update = post
+        .find("${AndIf} $UpdateMode <> 1")
+        .expect("never on an update");
+    for dir in [
+        r"RMDir /r $APPDATA\${PLURYPRINT_DATA_ORG}\${PLURYPRINT_DATA_APP}",
+        r"RMDir /r $LOCALAPPDATA\${PLURYPRINT_DATA_ORG}\${PLURYPRINT_DATA_APP}",
+        r"RMDir /r $LOCALAPPDATA\${PLURY_LEGACY_IDENTIFIER}",
+    ] {
+        let dir = dir.replace("/r $", "/r \"$") + "\"";
+        let at = post.find(&dir).unwrap_or_else(|| panic!("missing {dir}"));
+        assert!(guard < at && update < at, "{dir} must be inside the guard");
+    }
+    // The shared organization folder goes only when empty (no /r).
+    assert!(post.contains(r#"RMDir "$APPDATA\${PLURYPRINT_DATA_ORG}""#));
+    assert!(post.contains(r#"RMDir "$LOCALAPPDATA\${PLURYPRINT_DATA_ORG}""#));
+}
+
+/// The takeover deletes MaeclyPrint's web view profile, which nothing reads
+/// any more, but only when no MaeclyPrint install is left to use it.
+#[test]
+fn adr_0009_takeover_removes_the_stale_web_view_profile_when_safe() {
+    let nsh = read("src-tauri/windows/installer-hooks.nsh");
+    assert!(nsh.contains("!define PLURY_LEGACY_IDENTIFIER \"com.maecly.print\""));
+    assert_ne!(
+        conf()["identifier"],
+        "com.maecly.print",
+        "never delete the current identifier's profile"
+    );
+    let pre = nsh
+        .split("!macro NSIS_HOOK_PREINSTALL")
+        .nth(1)
+        .and_then(|rest| rest.split("!macroend").next())
+        .expect("pre-install hook");
+    let guard = pre
+        .find("${If} $R6 = 0")
+        .expect("guarded by 'nothing left'");
+    let rm = pre
+        .find(r#"RMDir /r "$LOCALAPPDATA\${PLURY_LEGACY_IDENTIFIER}""#)
+        .expect("the profile is removed");
+    assert!(guard < rm);
+    // Every path that leaves an old install in place sets the flag.
+    assert!(
+        pre.matches("StrCpy $R6 1").count() >= 5,
+        "per-user kept (2 ways), non-MSI, MSI declined and MSI failed"
+    );
+    assert!(pre.contains("Push $R6") && pre.contains("Pop $R6"));
+}
+
 #[test]
 fn nfr_070_installer_scripts_are_ascii() {
     for rel in [
