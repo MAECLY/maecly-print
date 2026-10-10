@@ -16,24 +16,26 @@ All of these shipped ahead of v0.2 (FR-052..FR-057). See [supported-formats.md](
 
 | Format | Converter | Notes |
 |---|---|---|
-| `.docx`, `.doc` | LibreOffice headless → PDF | No first-run prompt: a job that needs a missing LibreOffice pauses with a download link (FR-058) |
+| `.docx`, `.doc` | LibreOffice headless → PDF | No first-run prompt: a job that needs a missing LibreOffice pauses, and the Print Job screen offers a consented install (FR-058) |
 | `.xlsx`, `.xls` | LibreOffice | |
 | `.pptx`, `.ppt` | LibreOffice | |
 | `.odt`, `.ods`, `.odp` | LibreOffice | |
-| `.rtf`, `.txt` | LibreOffice | TXT is read as UTF-8 |
-| `.html`, `.htm` | Edge / Chrome / Chromium headless `--print-to-pdf` | Local files only; remote HTML deferred |
-| `.md`, `.markdown` | Pandoc → HTML → the browser step | Pandoc required; no LaTeX |
-| `.heic`, `.heif` | OS decoder (`sips` / WIC) | Windows needs the Store *HEIF Image Extensions* |
+| `.rtf` | LibreOffice (Windows); `textutil` → the system web view (macOS) | |
+| `.txt` | decoded in-process → the system web view | BOM, UTF-8, else Windows-1252 |
+| `.html`, `.htm` | the system web view (WebView2 / WKWebView) in a worker | Local files only; no script, no network |
+| `.md`, `.markdown` | `pulldown-cmark` in-process → the system web view | No Pandoc, no LaTeX |
+| `.svg`, `.svgz` | `usvg` + `svg2pdf` in a worker | Vector output |
+| `.heic`, `.heif` | OS decoder (`sips` / WIC) | Windows needs the Store *HEIF Image Extensions* (and *HEVC Video Extensions* for `.heic`) |
 
 ### Dependency detection
 
-The Settings page gains a **Dependencies** panel showing the status of LibreOffice / Chromium / Pandoc / ImageMagick (✓ Found / ✗ Missing) with download links and a refresh button.
+The Settings page gains a **Dependencies** panel showing the status of every external dependency (✓ Found / ✗ Missing) with install options and a refresh button.
 
-Partly delivered already: the probe itself exists (`engine::deps`, reported through `app_info`) and covers LibreOffice, Chromium and Pandoc — not ImageMagick, which the MVP does not use. It surfaces on the **Print Job** screen, where only the dependencies that actually gate a file the user added are shown, with remediation text. What v0.2 still owes is the always-on Settings panel with links and a refresh button.
+Partly delivered already: the probe itself exists (`engine::deps`, reported through `app_info`) and covers SumatraPDF, LibreOffice and, on Windows, the HEIF and HEVC Store codecs; Edge/Chrome only matter for the hidden browser fallback, and Pandoc and ImageMagick are not used. It surfaces on the **Print Job** screen, where only the dependencies that actually gate a file the user added are shown, with remediation text and an **Install…** consent dialog (winget, Homebrew, the Store or the download page). What v0.2 still owes is the always-on Settings panel with a refresh button.
 
 ### New print settings
 
-- **Tray** (input bin) — pulled from driver capabilities at print time
+- **Tray** (input bin) — *delivered*: sent to CUPS as `InputSlot`/`media-source` and to SumatraPDF as the driver's bin id; the Printers screen sets a per-printer default
 - **Collate** (true/false)
 
 ### Quality of life
@@ -91,11 +93,10 @@ Partly delivered already: the probe itself exists (`engine::deps`, reported thro
 ## v0.6 — Update channels
 
 - **Stable** (default), **Beta**, **Nightly** channels.
-- User can switch in Settings; downgrading channel requires confirmation. *Partly present already: the selector and the persisted `updater.channel` field exist, but every value resolves to the same feed and there is no downgrade confirmation. The switch is inert until the feeds below exist.*
-- `https://updates.maecly.com/pluryprint/{channel}.json` per channel.
-- Nightly: built every night from `main`, signed with self-signed cert.
-- Beta: cut from `main` weekly, EV-signed.
-- Stable: cut from `release/*` branches, EV-signed.
+- User can switch in Settings; downgrading channel requires confirmation. *Mostly delivered (ADR-0011): stable reads `releases/latest/download/latest.json`, beta reads the `channel-beta` release's manifest, and nightly follows beta. There is no downgrade confirmation yet.*
+- ~~`https://updates.maecly.com/pluryprint/{channel}.json` per channel.~~ The manifests live on GitHub Releases.
+- Nightly: not built; the channel follows beta.
+- Beta and stable: cut from a `vX.Y.Z-beta.N` or `vX.Y.Z` tag by `release.yml` into a draft; installers carry no OS certificate (ADR-0011), updates are minisign-signed.
 
 ## v0.7 — N-up & custom paper
 
@@ -112,7 +113,7 @@ Partly delivered already: the probe itself exists (`engine::deps`, reported thro
 
 ## v0.8 — Quality, queue depth, history
 
-- **Quality** setting: draft / normal / high (~150 / ~300 / ~600 dpi hint). *A `quality` field already exists on a profile and the editor sets it, but no print backend reads it — this milestone is what makes it do something.*
+- **Quality** setting: draft / normal / high (~150 / ~300 / ~600 dpi hint). *Delivered early: CUPS gets `print-quality`/`cupsPrintQuality`, and Windows applies Draft/High through a temporary per-user default DEVMODE (decision D16).*
 - ~~**Queue concurrency**: configurable from 1–8 simultaneous jobs (default 2).~~ **Delivered in M1**, though it bounds concurrent *conversions*, not concurrent spooling: `engine.max_concurrent_conversions`, clamped to 1–8, default 2, read into the dispatcher at app start.
 - **Job history** persisted indefinitely (until user clears) with full search/filter. *Today the queue holds finished jobs until `clear_done` (with an undo window); there is no separate searchable history store.*
 - Export history to CSV.

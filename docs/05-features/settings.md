@@ -20,8 +20,8 @@ A single scrolling column (max 760 px) of labelled sections, each a stack of lab
 │   Native notifications  …while Pluryprint is in the background. [ ⬤——— ]   │
 │ PRINTING                                                                       │
 │   Default profile   Applied when no profile is chosen.   [ Quick        ▾ ]    │
-│   ⓘ macOS: Finder › Services › Print with Pluryprint. Windows: the Explorer   │
-│     entry is built but no installer registers it yet.                          │
+│   ⓘ The installer adds Pluryprint to the Explorer right-click menu: on        │
+│     Windows 11 under Show more options (macOS: Finder › Services).             │
 │ ENGINE                                                                         │
 │   Concurrent conversions   Applies to the next conv…     [ 2      ] jobs       │
 │   Conversion timeout       0 disables the timeout.       [ 60     ] seconds    │
@@ -29,7 +29,7 @@ A single scrolling column (max 760 px) of labelled sections, each a stack of lab
 │   Max file size            Largest input accepted…       [ 200    ] MB         │
 │ UPDATES                                                                        │
 │   Channel      [ Stable | Beta | Nightly ]                                     │
-│   ⓘ Every channel receives the stable releases for now…                        │
+│   ⓘ Stable receives final releases only. Beta also receives every pre-rel…    │
 │   Check on startup   Asks GitHub … 30 seconds after launch…  [ ⬤———  ]         │
 │   ⓘ The launch-time check only reads the number of the latest release…         │
 │ PRIVACY                                                                        │
@@ -94,7 +94,7 @@ These are not cosmetic: `max_file_size_mb` gates the Print Job screen's file ins
 
 ### Updates
 
-**Channel** (Stable / Beta / Nightly) is persisted but does not yet change behavior: every check reads the single GitHub `releases/latest` feed, and the note says every channel receives the stable releases until separate beta and nightly feeds are published. **Check on startup** (`[updater].check_on_startup`) toggles the launch-time check the backend runs **30 s after launch** (`STARTUP_CHECK_DELAY`), **at most once every 24 h** (`MIN_CHECK_INTERVAL_HOURS`; a manual check on the About screen also stamps the time). A newer release that is not the skipped version raises a toast (FR-080/FR-084). The note under it says the check only reads the latest release number, sends nothing about the user, and never installs anything on its own; installing is the About screen's **Install now** ([about.md](./about.md)). Turned off, no request is made at launch.
+**Channel** (Stable / Beta / Nightly) picks the update manifest (FR-085, [auto-updater.md §6](../04-architecture/auto-updater.md#6-channels)): Stable reads `releases/latest/download/latest.json`; Beta reads the `channel-beta` release's manifest, which carries every pre-release and moves on to the stable release of the same version; Nightly follows Beta, since no nightly builds are published. The note under it says exactly that. Switching to a lower channel asks for no confirmation. **Check on startup** (`[updater].check_on_startup`) toggles the launch-time check the backend runs **30 s after launch** (`STARTUP_CHECK_DELAY`), **at most once every 24 h** (`MIN_CHECK_INTERVAL_HOURS`; a manual check on the About screen also stamps the time). A newer release that is not the skipped version raises a toast (FR-080/FR-084). The note under it says the check only reads the latest release number, sends nothing about the user, and never installs anything on its own; installing is the About screen's **Install now** ([about.md](./about.md)). Turned off, no request is made at launch.
 
 ### Privacy — consent only
 
@@ -140,7 +140,8 @@ On the backend, `set_app_settings` takes the config lock, loads the full config,
 - **M1 (current)** — **settings are real and persisted.** Rust: `src-tauri/src/settings/mod.rs` (`Config`/`AppSettings` schema, atomic I/O, `CONFIG_LOCK`) + `src-tauri/src/ipc/settings.rs` (get/set + validation). Engine limits are consumed for real (`src-tauri/src/queue/{mod,dispatcher}.rs`, `src-tauri/src/ipc/jobs.rs`). Frontend: `settingsStore.ts`, `SettingsScreen.tsx`, `src/lib/theme.ts`. Integration coverage: `src-tauri/tests/settings_persist.rs` (FR-100…FR-103 — human-readable TOML, corrupt-file fallback, atomic write, embedded `schema_version`).
 - **Follow-ups**
   - The old **`[shell_extension]` switches were removed** for the MVP — shell-integration toggles land with **M2**, not here.
-  - **Beta/nightly channel feeds**; today the channel is persisted but the check always uses `releases/latest`. Installing an update is the About screen's job ([about.md](./about.md)).
+  - **Nightly builds**: the channel exists and follows beta until nightly builds are published. Installing an update is the About screen's job ([about.md](./about.md)).
+  - **`[engine] html_renderer`** is deliberately not on this screen: `"browser"`, set by hand in `config.toml`, brings back the headless Edge/Chrome renderer for one version (ADR-0012), and a settings save keeps whatever the file says.
   - **Telemetry transport** — the consent switches are wired but nothing is sent; a future build can honour them.
   - **Hot-reload / env overrides** of `config.toml` (via `notify` / `PLURYPRINT_*`) are deferred; the file is read on demand under `CONFIG_LOCK`.
 
