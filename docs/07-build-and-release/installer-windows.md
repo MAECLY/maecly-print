@@ -1,8 +1,8 @@
 # Installer (Windows)
 
-> **TL;DR.** [ADR-0006](../adr/0006-installer-inno-setup.md) accepted **Inno Setup 6 + a Sparse MSIX package** as the Windows install story. **That decision is not implemented.** `src-tauri/tauri.conf.json` packages with **NSIS** today (`bundle.windows.nsis`, `installMode: "currentUser"`), `installers/windows/` contains nothing but a `.gitkeep`, and there is no `.iss` file, no `AppxManifest.xml` and no `build.ps1` anywhere in the tree. This document describes the real state first, then keeps the ADR-0006 design as the specification to build against.
+> **TL;DR.** Windows ships **Tauri's per-user NSIS installer** ([ADR-0008](../adr/0008-installer-nsis-per-user.md), which superseded the Inno Setup + Sparse MSIX plan of [ADR-0006](../adr/0006-installer-inno-setup.md)): x64 and ARM64 `setup.exe`, installed under `%LOCALAPPDATA%\Pluryprint` without elevation, in English and Spanish, with SumatraPDF bundled and the Explorer command registered under `HKCU` for the operating system's native architecture. It is unsigned (ADR-0011). There is no `.iss`, no `AppxManifest.xml` and no sparse package (decision D3). This document describes the real state first, then keeps the ADR-0006 design below as history.
 
-## Status: an open contradiction
+## Status: the contradiction ADR-0008 resolved
 
 | Claim | Reality |
 |---|---|
@@ -60,9 +60,10 @@ That is the Windows 10 verb shape from `shell-ext-win/README.md`: the menu entry
 ```json
 "bundle": {
   "active": true,
-  "targets": ["nsis", "app", "dmg", "deb", "rpm", "appimage"],
+  "targets": ["nsis", "app", "dmg"],
   "resources": {
     "resources/sumatrapdf/*": "resources/sumatrapdf/",
+    "resources/shellext/": "resources/shellext/",
     "../LICENSE": "LICENSE",
     "../LICENSES/*": "LICENSES/",
     "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
@@ -71,24 +72,32 @@ That is the Windows 10 verb shape from `shell-ext-win/README.md`: the menu entry
   "windows": {
     "nsis": {
       "installMode": "currentUser",
-      "installerHooks": "windows/installer-hooks.nsh"
+      "installerHooks": "windows/installer-hooks.nsh",
+      "languages": ["English", "Spanish"]
     }
   },
   "createUpdaterArtifacts": true
 }
 ```
 
+(Abridged: icons, copyright and the macOS block are left out.)
+
 - `installMode: "currentUser"` is what keeps the no-admin requirement (NFR-020) satisfied: a per-user install under `%LOCALAPPDATA%`, `HKCU` only.
 - `targets` is an explicit list without `msi`. The bundler builds only the entries that apply to the host, so a Windows build produces the per-user NSIS `setup.exe` and nothing else. It used to be `"all"`, which also built a per-machine WiX MSI (Program Files, elevation) next to it. Installing that MSI and later updating through the NSIS-based `latest.json` left two installs and two Start-menu entries, which contradicts [ADR-0008](../adr/0008-installer-nsis-per-user.md). `fr_083_no_per_machine_msi_is_bundled` guards the list.
-- The crate has two binaries, `pluryprint` (the app) and `pluryprint-cli` (`src/bin/pluryprint-cli.rs`, the console-subsystem CLI front end scripts wait on). Tauri's bundler packages every binary of the crate, so the NSIS installer is expected to place `pluryprint-cli.exe` next to `pluryprint.exe`; **verify this on the first Windows build.** Neither is added to `PATH` yet.
+- The crate has two binaries, `pluryprint` (the app) and `pluryprint-cli` (`src/bin/pluryprint-cli.rs`, the console-subsystem CLI front end scripts wait on). The installer places `pluryprint-cli.exe` next to `pluryprint.exe` (verified on the ARM64 install above). Neither is added to `PATH`; Home's **Run from CLI** card copies the full path.
+- **Shortcuts.** Tauri's template creates a Start-menu shortcut on every install, and a desktop shortcut from the checkbox on the last page (always for a silent or passive run).
+- **Languages.** Tauri translates its own pages for `languages` (English, Spanish), and every message the hooks add (`DetailPrint`, `MessageBox`) is a `$(PLURY_*)` language string declared in both languages in `windows/installer-strings.nsh` (`tests/installer_i18n.rs`). The uninstaller of a bilingual installer first asks for the language.
+- **Uninstall.** Besides Tauri's own cleanup, the hooks remove the Explorer keys and DLL and, only when **Delete the application data** is ticked (never on an update or a silent run), `%APPDATA%\Maecly\Pluryprint` and `%LOCALAPPDATA%\Maecly\Pluryprint`, the `Maecly` folders when nothing else is left in them, and the stale MaeclyPrint web view profile `%LOCALAPPDATA%\com.maecly.print`.
 - `plugins.updater` and `createUpdaterArtifacts` are set: the NSIS setup is signed for the updater, and `tauri-plugin-updater` installs an update by running that same setup in `passive` mode (see [auto-update-flow.md](./auto-update-flow.md)).
 - `installerHooks` points at `src-tauri/windows/installer-hooks.nsh`, the one hooks file: besides registering the context menu (above), its `NSIS_HOOK_PREINSTALL` takes over an install made under the former name, MaeclyPrint (see [ADR-0009](../adr/0009-rename-to-pluryprint.md)). The app moves the user data itself on first launch.
   - **Per-user install (NSIS, HKCU).** The hook reads the old folder from the unquoted default value of `HKCU\Software\Maecly\MaeclyPrint`, falling back to the unquoted `InstallLocation` and then to the uninstaller's folder. It runs `uninstall.exe /S _?=<folder>`, so it waits for the uninstaller (user data is kept). Only when the uninstaller exits `0` and `maeclyprint.exe` is gone does it delete what registration remains: the `Uninstall\MaeclyPrint` and `HKCU\Software\Maecly\MaeclyPrint` keys, the `*\shell\MaeclyPrint` and `Directory\shell\MaeclyPrint` verbs, and the shortcuts. If the uninstaller fails, the old install keeps its registration, so it can still be removed from "Apps & features".
   - **Per-machine install (the WiX MSI that builds made before `c1466b4`, HKLM).** The setup runs without elevation, so it cannot remove this install by itself. It finds the MSI by `DisplayName`/`Publisher`, asks the user, and runs `msiexec /x <product code> /passive`, which asks for administrator approval (UAC). A silent install, a "No" or a declined UAC prompt leave the MSI install in place, and the setup log says so. The user then removes it from "Apps & features".
   - `bundle_identity.rs` checks the hook's structure and compiles it with `makensis -WX` when `makensis` is installed. **Verify the hook on the Windows VM** with a MaeclyPrint build installed, both per user and from the MSI.
-- Nothing is code-signed. See [ci-cd.md](./ci-cd.md) § *What does not exist yet*.
+  - The takeover also deletes the MaeclyPrint web view profile (`%LOCALAPPDATA%\com.maecly.print`, about 23 MB) when no MaeclyPrint install is left that could still use it. Files the old app wrote while running elevated belong to SYSTEM and Administrators; a per-user installer cannot delete them, so they can survive (16 of 276 files in the round-3 upgrade test) as wasted space.
+- Nothing is code-signed, by decision ([ADR-0011](../adr/0011-release-channel.md)): SmartScreen shows "Windows protected your PC" and the release notes say to choose **More info → Run anyway**. The updater artifacts are signed with the minisign key. See [releasing.md](./releasing.md).
+- **Not tested:** the x64 installer running emulated on Windows on ARM. The architecture choice is covered by the hooks' unit test and the native ARM64 install only.
 
-Everything from here down is **the ADR-0006 design, unimplemented**. Treat every file path in it as a path to be created.
+Everything from here down is **the ADR-0006 design, superseded and unimplemented**. It is kept as the record of what was weighed; do not build against it.
 
 ---
 
