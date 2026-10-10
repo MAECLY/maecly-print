@@ -290,8 +290,10 @@
     Goto plury_hklm_done
   plury_hklm_remove:
     ClearErrors
-    ; msiexec runs unelevated and asks for consent itself.
-    ExecWait 'msiexec.exe /x $R5 /passive /norestart' $R2
+    ; msiexec runs unelevated and asks for consent itself. By full path:
+    ; CreateProcess would look in this setup's own folder (Downloads, as a
+    ; rule) before the system one.
+    ExecWait '"$SYSDIR\msiexec.exe" /x $R5 /passive /norestart' $R2
     ${If} ${Errors}
       StrCpy $R2 "$(PLURY_NOT_STARTED)"
     ${EndIf}

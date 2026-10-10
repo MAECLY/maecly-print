@@ -238,7 +238,9 @@ fn nsis_hook_parks_a_loaded_legacy_dll_where_it_gets_cleaned_up() {
 }
 
 /// A per-machine MSI install from before c1466b4 is found by name and offered
-/// for removal (msiexec asks for elevation itself).
+/// for removal (msiexec asks for elevation itself). msiexec is run by its
+/// full system path: a bare `msiexec.exe` is looked up in the setup's own
+/// folder (Downloads, as a rule) first.
 #[test]
 fn nsis_hook_offers_to_remove_a_per_machine_msi_install() {
     let nsh = read("windows/installer-hooks.nsh");
@@ -248,7 +250,7 @@ fn nsis_hook_offers_to_remove_a_per_machine_msi_install() {
         .any(|l| l.starts_with(r#"EnumRegKey $R5 HKLM "${PLURY_UNINSTROOT}""#)));
     assert!(code
         .iter()
-        .any(|l| l.starts_with("ExecWait 'msiexec.exe /x $R5")));
+        .any(|l| l.starts_with(r#"ExecWait '"$SYSDIR\msiexec.exe" /x $R5"#)));
     assert!(
         code.iter()
             .any(|l| l.starts_with("MessageBox") && l.contains("/SD IDNO")),
