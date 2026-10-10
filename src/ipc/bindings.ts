@@ -667,7 +667,20 @@ density?: Density;
  * default; `#[serde(default)]` so a config written before this field
  * existed keeps notifications on.
  */
-native_notifications?: boolean }
+native_notifications?: boolean; 
+/**
+ * FR-093: the first-run OS-language detection is settled — it ran, the
+ * user picked a language, or the locale came over in an upgrade from the
+ * former product (ADR-0009) — so detection must never change `locale`
+ * again. Kept here rather than in the webview's storage, which a new
+ * bundle identifier starts empty.
+ */
+locale_detected?: boolean; 
+/**
+ * The first-run tour was completed or skipped (or this is an upgrade from
+ * the former product). Kept here for the same reason as `locale_detected`.
+ */
+onboarding_complete?: boolean }
 /**
  * What this build is and what it sees on this host: version, the resolved
  * app directories and the external-dependency probe. Backs the About page
