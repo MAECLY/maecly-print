@@ -71,7 +71,7 @@
     --border: #33302a; --border-strong: #7a756b; --text: #f0ede5; --text-mute: #a8a296;
     --accent: #f97316; --on-accent: #1a1814; --accent-soft: #3a1f0e;
     --success: #9ccb4a; --warn: #e0b341; --error: #f87171; --info: #4fc1d7;
-    color-scheme: dark; --lamp: 22%; --grain: none; --pr-rim: rgb(255 255 255 / .16);
+    color-scheme: dark; --lamp: 22%; --grain: none; --pr-rim: rgb(255 255 255 / .34); --ink-2: #57534e;
     --shadow-window: 0 1px 0 rgb(255 255 255 / .04), 0 28px 56px -32px rgb(0 0 0 / .7), 0 64px 120px -72px rgb(0 0 0 / .6);
     --shadow-card: 0 18px 40px -24px rgb(0 0 0 / .7);
   }
@@ -81,7 +81,7 @@
   --border: #33302a; --border-strong: #7a756b; --text: #f0ede5; --text-mute: #a8a296;
   --accent: #f97316; --on-accent: #1a1814; --accent-soft: #3a1f0e;
   --success: #9ccb4a; --warn: #e0b341; --error: #f87171; --info: #4fc1d7;
-  color-scheme: dark; --lamp: 22%; --grain: none; --pr-rim: rgb(255 255 255 / .16);
+  color-scheme: dark; --lamp: 22%; --grain: none; --pr-rim: rgb(255 255 255 / .34); --ink-2: #57534e;
   --shadow-window: 0 1px 0 rgb(255 255 255 / .04), 0 28px 56px -32px rgb(0 0 0 / .7), 0 64px 120px -72px rgb(0 0 0 / .6);
   --shadow-card: 0 18px 40px -24px rgb(0 0 0 / .7);
 }
@@ -447,7 +447,9 @@ figcaption { font-size: .84375rem; color: var(--text-mute); margin-top: 14px; }
 .answer p { margin: 0; }
 
 /* closing */
-.closing { background: var(--accent); color: var(--on-accent); padding: clamp(80px, 11vw, 150px) 0; text-align: center; margin-top: 0; position: relative; overflow: hidden; }
+/* The closing band keeps the deep brand orange in both themes: the dark
+   theme's brighter accent would glare as a full-bleed block. */
+.closing { --accent: #c2410c; --on-accent: #ffffff; background: var(--accent); color: var(--on-accent); padding: clamp(80px, 11vw, 150px) 0; text-align: center; margin-top: 0; position: relative; overflow: hidden; }
 .closing::before { content: ""; position: absolute; inset: 0; background: radial-gradient(60% 80% at 50% 0%, rgb(255 255 255 / .14), transparent 70%); pointer-events: none; }
 .closing-inner { position: relative; display: grid; justify-items: center; }
 .closing-mark { width: clamp(120px, 16vw, 180px); height: auto; overflow: visible; margin-bottom: 20px; filter: drop-shadow(0 18px 18px rgb(0 0 0 / .18)); }
@@ -457,7 +459,8 @@ figcaption { font-size: .84375rem; color: var(--text-mute); margin-top: 14px; }
 .closing .pr-body { stroke: none; }
 .closing h2 { font-size: clamp(2.5rem, 1.3rem + 4.4vw, 5rem); max-width: 16ch; margin-bottom: .3em; }
 .closing-sub { font-size: 1.125rem; opacity: .92; }
-.closing .assure { color: inherit; opacity: .85; margin-top: 4px; }
+.closing .assure { color: inherit; margin-top: 4px; }
+.closing :focus-visible { outline-color: var(--on-accent); }
 .closing .actions { justify-content: center; }
 
 /* footer */
