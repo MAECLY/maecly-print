@@ -293,7 +293,7 @@ jobs:
   build-and-sign-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         run: ./scripts/build-release.ps1
       - name: Sign with EV cert via SSL.com Cloud HSM
@@ -305,7 +305,7 @@ jobs:
         run: ./scripts/sign-windows.ps1
       - name: Verify signature
         run: signtool verify /pa /v dist/Pluryprint-Setup.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-x64-signed
           path: dist/
@@ -313,7 +313,7 @@ jobs:
   build-and-sign-macos:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup Apple certs
         env:
           APPLE_DEVELOPER_ID_APPLICATION_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_P12_BASE64 }}
@@ -331,7 +331,7 @@ jobs:
           ./installers/macos/codesign.sh
           ./installers/macos/notarize.sh dist/Pluryprint-1.1.0.pkg
           ./installers/macos/notarize.sh dist/Pluryprint-1.1.0.dmg
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-universal-signed
           path: dist/
