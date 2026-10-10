@@ -634,6 +634,78 @@ describe('PrintJobScreen', () => {
     );
   });
 
+  it('FR-044: an organization default decides where System default goes, not the removed OS default', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'list_printers')
+        return [
+          { ...printerRow('EPSON', 'EPSON L15160'), is_default: true },
+          printerRow('FRONT', 'Front desk'),
+        ];
+      if (cmd === 'get_printer_prefs') return { disabled: ['EPSON'] };
+      if (cmd === 'get_printer_policy') return { default_printer: 'FRONT' };
+      if (cmd === 'list_profiles') return fixtureProfiles;
+      if (cmd === 'take_pending_selections') return [];
+      return null;
+    });
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
+    await screen.findByRole('combobox', { name: 'Printer' });
+    await within(screen.getByRole('combobox', { name: 'Printer' })).findByText(
+      'Front desk',
+    );
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('FR-044: a removed organization default is named on System default', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'list_printers')
+        return [
+          { ...printerRow('EPSON', 'EPSON L15160'), is_default: true },
+          printerRow('FRONT', 'Front desk'),
+        ];
+      if (cmd === 'get_printer_prefs') return { disabled: ['FRONT'] };
+      if (cmd === 'get_printer_policy') return { default_printer: 'FRONT' };
+      if (cmd === 'list_profiles') return fixtureProfiles;
+      if (cmd === 'take_pending_selections') return [];
+      return null;
+    });
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
+    expect(await screen.findByRole('note')).toHaveTextContent(
+      'System default is Front desk, which is removed from Pluryprint',
+    );
+  });
+
+  it('FR-044: a profile pinned to a removed printer names it and says the job will pause', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'list_printers')
+        return [
+          printerRow('EPSON_L15160', 'EPSON L15160 Series'),
+          printerRow('FRONT', 'Front desk'),
+        ];
+      if (cmd === 'get_printer_prefs') return { disabled: ['EPSON_L15160'] };
+      if (cmd === 'list_profiles') return fixtureProfiles;
+      if (cmd === 'take_pending_selections') return [];
+      return null;
+    });
+    useProfilesStore.setState({
+      status: 'ready',
+      profiles: [
+        { ...BUILT_IN_PROFILES[0]!, id: 'p-office', printer: 'EPSON_L15160' },
+      ],
+      error: undefined,
+    });
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} profileId="p-office" />);
+
+    const select = await screen.findByRole('combobox', { name: 'Printer' });
+    expect(
+      await within(select).findByText(
+        'EPSON L15160 Series (removed from Pluryprint)',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'EPSON L15160 Series is removed from Pluryprint: this job will pause',
+    );
+  });
+
   it('FR-044: keeps a stored printer selectable even when it is not installed', async () => {
     // A profile saved against an offline (or pre-id) printer must not snap
     // silently to the system default.

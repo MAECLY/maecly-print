@@ -42,12 +42,15 @@ import { distinguishingFolders, fmtKb } from '@/lib/format';
 import { PRINTABLE_EXTENSIONS } from '@/lib/formats';
 import {
   fetchAppInfo,
+  getPrinterPolicy,
   getPrinterPrefs,
   isTauri,
   listPrinters,
   previewCommand,
+  type PrinterPolicy,
   type PrinterPrefs,
 } from '@/lib/ipc';
+import { resolvePrinterId } from '@/lib/printerIdentity';
 // Straight from the generated bindings: `lib/ipc` re-exports the wire types the
 // other screens use, and this one is not on that list yet.
 import type { DependencyReport } from '@/ipc/bindings';
@@ -81,6 +84,36 @@ function message(e: unknown): string {
 }
 
 /** A warning under a setting the chosen printer reports it cannot honour. */
+/**
+ * The name of the printer "System default" would print to, when that printer
+ * is removed from Pluryprint — else `null`. Mirrors the print path
+ * (`resolve_app_printer` after `with_policy`): an organization policy's
+ * default replaces the app default; with neither usable, the OS default
+ * applies. A policy-pinned printer that is removed is named too (the job
+ * pauses); one that is fine means nothing else matters.
+ */
+function removedSystemDefaultName(
+  printers: readonly { id: string; name: string; isDefault: boolean }[],
+  prefs: PrinterPrefs,
+  policy: PrinterPolicy | null,
+  disabled: ReadonlySet<string>,
+): string | null {
+  const policyId = resolvePrinterId(printers, policy?.default_printer);
+  if (policyId) {
+    return disabled.has(policyId)
+      ? (printers.find((p) => p.id === policyId)?.name ?? policyId)
+      : null;
+  }
+  const appDefault = prefs.default_printer ?? null;
+  const appDefaultUsable =
+    appDefault !== null &&
+    !disabled.has(appDefault) &&
+    printers.some((p) => p.id === appDefault);
+  if (appDefaultUsable) return null;
+  const osDefault = printers.find((p) => p.isDefault);
+  return osDefault && disabled.has(osDefault.id) ? osDefault.name : null;
+}
+
 function CapabilityNote({ children }: { children: ReactNode }) {
   return (
     <div
@@ -182,33 +215,38 @@ export function PrintJobScreen({
       duplexUnknown: boolean;
     }[]
   >([]);
-  // "System default" falls back to the OS default printer when Pluryprint
-  // has no usable default of its own. If that printer was removed from
+  // "System default" resolves at print time to the organization policy's
+  // default, else Pluryprint's own default, else the OS default — the order
+  // the print path uses. If the printer it lands on was removed from
   // Pluryprint the job is refused at print time, so name it here.
   const [removedSystemDefault, setRemovedSystemDefault] = useState<
     string | null
   >(null);
+  // Printers removed from Pluryprint, by id → display name. They are not
+  // offered, but a profile may still pin one: it is then labelled and
+  // explained instead of showing a bare queue id.
+  const [removedPrinters, setRemovedPrinters] = useState<Map<string, string>>(
+    () => new Map(),
+  );
   useEffect(() => {
     if (!isTauri()) return;
     let alive = true;
     Promise.all([
       listPrinters(),
       getPrinterPrefs().catch((): PrinterPrefs => ({})),
+      getPrinterPolicy().catch((): PrinterPolicy | null => null),
     ])
-      .then(([ps, prefs]) => {
+      .then(([ps, prefs, policy]) => {
         primePrinterNames(ps);
         if (!alive) return;
         const disabled = new Set(prefs.disabled ?? []);
-        const appDefault = prefs.default_printer ?? null;
-        const appDefaultUsable =
-          appDefault !== null &&
-          !disabled.has(appDefault) &&
-          ps.some((p) => p.id === appDefault);
-        const osDefault = ps.find((p) => p.isDefault);
         setRemovedSystemDefault(
-          !appDefaultUsable && osDefault && disabled.has(osDefault.id)
-            ? osDefault.name
-            : null,
+          removedSystemDefaultName(ps, prefs, policy, disabled),
+        );
+        setRemovedPrinters(
+          new Map(
+            ps.filter((p) => disabled.has(p.id)).map((p) => [p.id, p.name]),
+          ),
         );
         setPrinters(
           ps
@@ -243,6 +281,14 @@ export function PrintJobScreen({
     !printers.some((p) => p.id === currentPrinter)
       ? currentPrinter
       : null;
+  // The stored printer is one the user removed from Pluryprint (by id, or by
+  // a display name a profile saved): the job would pause with
+  // `printer_disabled`, so say so, by name.
+  const removedChoice = unknownPrinter
+    ? (removedPrinters.get(unknownPrinter) ??
+      [...removedPrinters.values()].find((n) => n === unknownPrinter) ??
+      null)
+    : null;
   // What the chosen printer reports it cannot do. Only an explicit choice is
   // checked: "System default" resolves at print time (routes, app default),
   // so naming a printer here could be wrong. A capability the OS could not
@@ -264,7 +310,14 @@ export function PrintJobScreen({
     { value: DEFAULT_PRINTER, label: t('settings.systemDefault') },
     ...printers.map((p) => ({ value: p.id, label: p.name })),
     ...(unknownPrinter
-      ? [{ value: unknownPrinter, label: unknownPrinter }]
+      ? [
+          {
+            value: unknownPrinter,
+            label: removedChoice
+              ? t('settings.removedPrinterOption', { name: removedChoice })
+              : unknownPrinter,
+          },
+        ]
       : []),
   ];
 
@@ -915,6 +968,11 @@ export function PrintJobScreen({
               {t('capability.systemDefaultRemoved', {
                 name: removedSystemDefault,
               })}
+            </CapabilityNote>
+          )}
+          {removedChoice && (
+            <CapabilityNote>
+              {t('capability.printerRemoved', { name: removedChoice })}
             </CapabilityNote>
           )}
           <div style={{ height: 14 }} />

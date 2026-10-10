@@ -75,7 +75,8 @@
     "orientation": "Orient.",
     "orientationLabel": "Orientación",
     "scaling": "Escalado",
-    "pageRange": "Intervalo de páginas"
+    "pageRange": "Intervalo de páginas",
+    "removedPrinterOption": "{{name}} (quitada de Pluryprint)"
   },
   "sides": {
     "single": "Una cara",
@@ -127,6 +128,7 @@
   "capability": {
     "noDuplex": "{{name}} no puede imprimir a doble cara: el trabajo quedará en pausa hasta que elijas Una cara u otra impresora.",
     "noColor": "{{name}} solo imprime en blanco y negro: las páginas en color saldrán en gris.",
-    "systemDefaultRemoved": "La predeterminada del sistema es {{name}}, que está quitada de Pluryprint: elige una impresora, o los archivos que no se envíen a otra por su tipo no se imprimirán."
+    "systemDefaultRemoved": "La predeterminada del sistema es {{name}}, que está quitada de Pluryprint: elige una impresora, o los archivos que no se envíen a otra por su tipo no se imprimirán.",
+    "printerRemoved": "{{name}} está quitada de Pluryprint: este trabajo se pausará hasta que la restaures en la pantalla Impresoras o elijas otra impresora."
   }
 }
