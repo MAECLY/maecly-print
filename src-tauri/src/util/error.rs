@@ -50,11 +50,35 @@ pub enum IpcErrorCode {
     UpdateInstallFailed,
     /// The downloaded update failed signature verification (FR-082).
     UpdateSignatureInvalid,
+    /// FR-059: the PDF is encrypted or forbids printing. The reason says which
+    /// (`password_required`, `password_incorrect`, `printing_not_allowed`,
+    /// `unsupported_encryption`); the first two are fixed by supplying a
+    /// password, the others are final.
+    PdfProtected,
     /// A bug or app-state failure the user cannot fix by changing input.
     Internal,
 }
 
 impl IpcErrorCode {
+    /// Every family, in declaration order (used by the catalog tests).
+    pub const ALL: &'static [IpcErrorCode] = &[
+        Self::FileNotFound,
+        Self::InvalidRequest,
+        Self::UnsupportedFormat,
+        Self::ConversionFailed,
+        Self::PrintFailed,
+        Self::UnsupportedSetting,
+        Self::DependencyMissing,
+        Self::JobNotFound,
+        Self::InvalidState,
+        Self::ProfileNotFound,
+        Self::UpdateCheckFailed,
+        Self::UpdateInstallFailed,
+        Self::UpdateSignatureInvalid,
+        Self::PdfProtected,
+        Self::Internal,
+    ];
+
     /// The English family prefix used by `Display` (logs, CLI human output).
     fn label(self) -> &'static str {
         match self {
@@ -71,6 +95,7 @@ impl IpcErrorCode {
             Self::UpdateCheckFailed => "Update check failed",
             Self::UpdateInstallFailed => "Update install failed",
             Self::UpdateSignatureInvalid => "Update signature invalid",
+            Self::PdfProtected => "Protected PDF",
             Self::Internal => "Internal error",
         }
     }
@@ -100,7 +125,14 @@ pub struct LocalizedError {
 impl LocalizedError {
     /// A localized error of family `code` with `reason` and no params yet; add
     /// them with [`LocalizedError::param`].
+    ///
+    /// `reason` must be registered in [`crate::util::reasons`] (checked in
+    /// debug builds), so it is sure to have a sentence in every language.
     pub fn new(code: IpcErrorCode, reason: &'static str, message: impl Into<String>) -> Self {
+        debug_assert!(
+            crate::util::reasons::is_ipc_reason(code, reason),
+            "unregistered IPC reason {code:?}.{reason}: add it to util::reasons and the catalogs"
+        );
         Self {
             code,
             reason,
@@ -369,16 +401,50 @@ impl From<crate::engine::EngineError> for IpcError {
     /// is defensive.
     fn from(err: crate::engine::EngineError) -> Self {
         use crate::engine::EngineError as E;
+        // A failure with a registered reason keeps it, in its own family, so
+        // the UI (and the CLI's JSON) can name it precisely.
+        let localized = |code: IpcErrorCode, f: crate::engine::Failure| match f.reason {
+            Some(reason) => {
+                let mut l = LocalizedError::new(code, reason, f.detail);
+                l.params = f.params;
+                IpcError::from(l)
+            }
+            None => plain(code, f.detail),
+        };
         match err {
-            E::ConversionFailed(m) | E::ConversionTimedOut(m) => IpcError::ConversionFailed(m),
-            E::PrintFailed(m) => IpcError::PrintFailed(m),
+            E::ConversionFailed(f) | E::ConversionTimedOut(f) => {
+                localized(IpcErrorCode::ConversionFailed, f)
+            }
+            E::PrintFailed(f) => localized(IpcErrorCode::PrintFailed, f),
             E::UnsupportedSetting { setting, printer } => IpcError::UnsupportedSetting(format!(
                 "the driver for '{printer}' does not support {setting}"
             )),
-            E::DependencyMissing(m) => IpcError::DependencyMissing(m),
-            E::UnsupportedFormat(m) => IpcError::UnsupportedFormat(m),
+            E::DependencyMissing(f) => localized(IpcErrorCode::DependencyMissing, f),
+            E::UnsupportedFormat(f) => localized(IpcErrorCode::UnsupportedFormat, f),
+            E::PdfProtected(p) => {
+                let message = format!("protected PDF: {p}");
+                let reason = p.reason();
+                let l = LocalizedError::new(IpcErrorCode::PdfProtected, reason, message);
+                match p {
+                    crate::engine::PdfProtection::Unsupported(detail) => {
+                        l.param("detail", detail).into()
+                    }
+                    _ => l.into(),
+                }
+            }
             E::Cancelled => IpcError::InvalidState("job cancelled".to_string()),
         }
+    }
+}
+
+/// The plain (reason-less) variant of an engine family.
+fn plain(code: IpcErrorCode, message: String) -> IpcError {
+    match code {
+        IpcErrorCode::ConversionFailed => IpcError::ConversionFailed(message),
+        IpcErrorCode::PrintFailed => IpcError::PrintFailed(message),
+        IpcErrorCode::DependencyMissing => IpcError::DependencyMissing(message),
+        IpcErrorCode::UnsupportedFormat => IpcError::UnsupportedFormat(message),
+        _ => IpcError::Internal(message),
     }
 }
 

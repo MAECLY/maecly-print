@@ -352,6 +352,7 @@ fn fr_009_exit_codes_are_the_documented_numbers() {
     assert_eq!(ExitCode::UpdateCheckFailed.code(), 10);
     assert_eq!(ExitCode::UpdateInstallFailed.code(), 11);
     assert_eq!(ExitCode::Cancelled.code(), 12);
+    assert_eq!(ExitCode::PdfProtected.code(), 13);
     // §3.7 reserves 64+ for sysexits.h; nothing we return may reach it.
     for code in [
         ExitCode::Success,
@@ -367,6 +368,7 @@ fn fr_009_exit_codes_are_the_documented_numbers() {
         ExitCode::UpdateCheckFailed,
         ExitCode::UpdateInstallFailed,
         ExitCode::Cancelled,
+        ExitCode::PdfProtected,
     ] {
         assert!(code.code() < 64, "{code:?} collides with sysexits.h");
     }

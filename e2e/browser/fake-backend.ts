@@ -84,6 +84,7 @@ const DEFAULT_OPEN_PATHS = [
 
 // The engine's own list, so the fake accepts exactly what the app offers.
 const SUPPORTED = new Set<string>(PRINTABLE_EXTENSIONS);
+// One-page inputs (pictures and drawings, as the engine's `is_single_page`).
 const IMAGE = new Set([
   'png',
   'jpg',
@@ -91,8 +92,9 @@ const IMAGE = new Set([
   'tif',
   'tiff',
   'bmp',
-  'gif',
   'webp',
+  'svg',
+  'svgz',
 ]);
 const MEDIA = { a4: 'A4', letter: 'Letter', legal: 'Legal', a3: 'A3' } as const;
 const TERMINAL: JobState[] = ['done', 'failed', 'cancelled'];

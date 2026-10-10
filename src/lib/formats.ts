@@ -7,10 +7,10 @@
  * can offer a format the engine rejects (or hide one it prints).
  *
  * Grouped by converter (see `docs/03-requirements/supported-formats.md`):
- * PDF passthrough; raster images and HEIC/HEIF; Office and OpenDocument, TXT
- * and RTF through LibreOffice; HTML through a headless browser; Markdown
- * through Pandoc and the browser. A format whose converter is missing is
- * still accepted — its job pauses with an install hint (FR-058).
+ * PDF passthrough; raster images, HEIC/HEIF and SVG/SVGZ; Office, OpenDocument
+ * and RTF through LibreOffice; TXT, HTML and Markdown through the system web
+ * view. GIF is refused on purpose (decision D9). A format whose converter is
+ * missing is still accepted — its job pauses with an install hint (FR-058).
  */
 export const PRINTABLE_EXTENSIONS = [
   'pdf',
@@ -23,6 +23,8 @@ export const PRINTABLE_EXTENSIONS = [
   'webp',
   'heic',
   'heif',
+  'svg',
+  'svgz',
   'docx',
   'doc',
   'xlsx',

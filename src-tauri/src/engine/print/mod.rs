@@ -336,9 +336,9 @@ pub fn wait_with_timeout(
     use wait_timeout::ChildExt;
 
     let spawn_failed = |e: std::io::Error| {
-        PrintError::Engine(EngineError::PrintFailed(format!(
-            "failed to wait for the print process: {e}"
-        )))
+        PrintError::Engine(EngineError::PrintFailed(
+            format!("failed to wait for the print process: {e}").into(),
+        ))
     };
 
     let Some(timeout) = timeout else {
@@ -371,7 +371,7 @@ pub fn effective_settings<'a>(settings: &'a JobSettings, input_ext: &str) -> Cow
     use crate::engine::convert::{route, Route};
     let paged = matches!(
         route(input_ext),
-        Some(Route::Passthrough | Route::Office | Route::Html | Route::Markdown)
+        Some(Route::Passthrough | Route::Office | Route::Html | Route::Markdown | Route::Text)
     );
     if paged || settings.page_ranges.is_none() {
         return Cow::Borrowed(settings);

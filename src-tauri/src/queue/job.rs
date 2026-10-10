@@ -411,8 +411,15 @@ impl JobError {
         }
     }
 
-    /// Tag the error with a stable variant of its `code`.
+    /// Tag the error with a stable variant of its `code`. The reason must be
+    /// registered in [`crate::util::reasons::JOB_REASONS`] (checked in debug
+    /// builds), so it is sure to have a sentence in every language.
     pub fn with_reason(mut self, reason: &str) -> Self {
+        debug_assert!(
+            crate::util::reasons::is_job_reason(&self.code, reason),
+            "unregistered job reason {}.{reason}: add it to util::reasons and the catalogs",
+            self.code
+        );
         self.reason = Some(reason.to_string());
         self
     }
@@ -512,6 +519,20 @@ pub struct Job {
 }
 
 impl Job {
+    /// FR-059: whether this job is paused waiting for the password of its
+    /// encrypted PDF (none given yet, or the one given was wrong). This is the
+    /// state the GUI offers "Enter password" for (`job_supply_password`).
+    pub fn needs_password(&self) -> bool {
+        self.state == JobState::Paused
+            && self.error.as_ref().is_some_and(|e| {
+                e.code == "pdf_protected"
+                    && matches!(
+                        e.reason.as_deref(),
+                        Some("password_required" | "password_incorrect")
+                    )
+            })
+    }
+
     /// Create a fresh [`JobState::Queued`] job for `input_path`.
     ///
     /// `file_name` and `input_ext` are derived from the path; the `id` is a new

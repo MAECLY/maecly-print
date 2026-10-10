@@ -26,9 +26,9 @@
 /// crate; a drift here only widens or narrows what the menu offers, never what
 /// actually prints.
 pub const SUPPORTED_EXTS: &[&str] = &[
-    "pdf", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp", "heic", "heif", "docx", "doc",
-    "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf", "txt", "html", "htm", "md",
-    "markdown",
+    "pdf", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp", "heic", "heif", "svg", "svgz",
+    "docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf", "txt", "html", "htm",
+    "md", "markdown",
 ];
 
 /// How many items of a selection are inspected before giving up and showing the

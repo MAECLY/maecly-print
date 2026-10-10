@@ -89,7 +89,7 @@ pub fn run_until(
     finished: Option<&dyn Fn() -> bool>,
 ) -> Result<(), EngineError> {
     let stderr = std::fs::File::create(stderr_log).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot create a log for {label}: {e}"))
+        EngineError::ConversionFailed(format!("cannot create a log for {label}: {e}").into())
     })?;
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -98,19 +98,18 @@ pub fn run_until(
 
     let mut child = cmd.spawn().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
-            EngineError::DependencyMissing(format!("{label} could not be started: {e}"))
+            EngineError::DependencyMissing(format!("{label} could not be started: {e}").into())
         } else {
-            EngineError::ConversionFailed(format!("{label} could not be started: {e}"))
+            EngineError::ConversionFailed(format!("{label} could not be started: {e}").into())
         }
     })?;
 
     match wait_bounded(&mut child, cancel, timeout, finished) {
         Ok(Exit::Finished) => Ok(()),
         Ok(Exit::Status(status)) if status.success() => Ok(()),
-        Ok(Exit::Status(status)) => Err(EngineError::ConversionFailed(format!(
-            "{label} failed ({status}){}",
-            stderr_suffix(stderr_log)
-        ))),
+        Ok(Exit::Status(status)) => Err(EngineError::ConversionFailed(
+            format!("{label} failed ({status}){}", stderr_suffix(stderr_log)).into(),
+        )),
         Err(stopped) => Err(stopped_error(stopped, label, timeout)),
     }
 }
@@ -119,13 +118,16 @@ pub fn run_until(
 pub fn stopped_error(stopped: Stopped, label: &str, timeout: Option<Duration>) -> EngineError {
     match stopped {
         Stopped::Cancelled => EngineError::Cancelled,
-        Stopped::TimedOut => EngineError::ConversionTimedOut(format!(
-            "{label} did not finish within {}s and was stopped",
-            timeout.map(|t| t.as_secs()).unwrap_or(0)
-        )),
-        Stopped::WaitFailed(e) => EngineError::ConversionFailed(format!(
-            "could not wait for {label} to finish ({e}); it was stopped"
-        )),
+        Stopped::TimedOut => EngineError::ConversionTimedOut(
+            format!(
+                "{label} did not finish within {}s and was stopped",
+                timeout.map(|t| t.as_secs()).unwrap_or(0)
+            )
+            .into(),
+        ),
+        Stopped::WaitFailed(e) => EngineError::ConversionFailed(
+            format!("could not wait for {label} to finish ({e}); it was stopped").into(),
+        ),
     }
 }
 

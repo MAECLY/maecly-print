@@ -93,12 +93,12 @@ pub fn classify_wic_failure(
             | WINCODEC_UNKNOWN_IMAGE_FORMAT
             | WINCODEC_COMPONENT_INIT_FAILURE
     ) {
-        return EngineError::DependencyMissing(WINDOWS_CODEC_MISSING.to_string());
+        return EngineError::DependencyMissing(WINDOWS_CODEC_MISSING.to_string().into());
     }
     if stage == WicStage::Decode && !hevc_available() {
-        return EngineError::DependencyMissing(WINDOWS_HEVC_MISSING.to_string());
+        return EngineError::DependencyMissing(WINDOWS_HEVC_MISSING.to_string().into());
     }
-    EngineError::ConversionFailed(format!("could not decode the HEIF image: {detail}"))
+    EngineError::ConversionFailed(format!("could not decode the HEIF image: {detail}").into())
 }
 
 /// Run `work` on its own thread and wait for it, honouring `cancel` and
@@ -123,7 +123,9 @@ pub fn run_abandonable<T: Send + 'static>(
         .spawn(move || {
             let _ = tx.send(work());
         })
-        .map_err(|e| EngineError::ConversionFailed(format!("could not start {label}: {e}")))?;
+        .map_err(|e| {
+            EngineError::ConversionFailed(format!("could not start {label}: {e}").into())
+        })?;
     let started = Instant::now();
     loop {
         if cancel.load(Ordering::SeqCst) {
@@ -131,19 +133,22 @@ pub fn run_abandonable<T: Send + 'static>(
         }
         if let Some(limit) = timeout {
             if started.elapsed() >= limit {
-                return Err(EngineError::ConversionFailed(format!(
-                    "{label} did not finish within {}s and was stopped",
-                    limit.as_secs()
-                )));
+                return Err(EngineError::ConversionFailed(
+                    format!(
+                        "{label} did not finish within {}s and was stopped",
+                        limit.as_secs()
+                    )
+                    .into(),
+                ));
             }
         }
         match rx.recv_timeout(POLL) {
             Ok(result) => return result,
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(EngineError::ConversionFailed(format!(
-                    "{label} stopped unexpectedly"
-                )))
+                return Err(EngineError::ConversionFailed(
+                    format!("{label} stopped unexpectedly").into(),
+                ))
             }
         }
     }
@@ -166,7 +171,9 @@ pub fn convert_with_sips(
     super::process::run_bounded(cmd, "sips", cancel, timeout, &log)?;
     if !png.is_file() {
         return Err(EngineError::ConversionFailed(
-            "the system image converter could not read this HEIC/HEIF file".to_string(),
+            "the system image converter could not read this HEIC/HEIF file"
+                .to_string()
+                .into(),
         ));
     }
     super::image::to_pdf(&png, output, progress)
@@ -187,7 +194,8 @@ pub fn convert(
         if !sips.is_file() {
             return Err(EngineError::DependencyMissing(
                 "sips (the macOS image tool) is missing — reinstall macOS command line tools"
-                    .to_string(),
+                    .to_string()
+                    .into(),
             ));
         }
         convert_with_sips(sips, input, output, work, cancel, timeout, progress)

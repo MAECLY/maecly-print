@@ -46,6 +46,12 @@ pub enum ExitCode {
     UpdateInstallFailed = 11,
     /// User cancelled.
     Cancelled = 12,
+    /// One or more PDFs are protected (FR-059): a password is needed or wrong
+    /// (`password_required` / `password_incorrect` — supply it through
+    /// `--password-file` or `--password-stdin`, never on the command line), or
+    /// the PDF forbids printing (`printing_not_allowed`,
+    /// `unsupported_encryption`).
+    PdfProtected = 13,
 }
 
 impl ExitCode {
@@ -103,6 +109,7 @@ pub fn exit_code_for(err: &IpcError) -> ExitCode {
         IpcErrorCode::DependencyMissing => ExitCode::Config,
         IpcErrorCode::ProfileNotFound => ExitCode::Profile,
         IpcErrorCode::UpdateCheckFailed => ExitCode::UpdateCheckFailed,
+        IpcErrorCode::PdfProtected => ExitCode::PdfProtected,
         IpcErrorCode::UpdateInstallFailed | IpcErrorCode::UpdateSignatureInvalid => {
             ExitCode::UpdateInstallFailed
         }
@@ -248,6 +255,14 @@ mod tests {
             (
                 EngineError::UnsupportedFormat("docx".into()),
                 ExitCode::UnsupportedFile,
+            ),
+            (
+                EngineError::PdfProtected(crate::engine::PdfProtection::PasswordRequired),
+                ExitCode::PdfProtected,
+            ),
+            (
+                EngineError::PdfProtected(crate::engine::PdfProtection::PrintingNotAllowed),
+                ExitCode::PdfProtected,
             ),
         ];
         for (engine_err, expected) in cases {

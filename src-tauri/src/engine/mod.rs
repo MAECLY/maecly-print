@@ -33,15 +33,16 @@ pub mod print;
 
 /// File extensions the engine can turn into a printable PDF, grouped by
 /// converter (see [`convert::route`]): PDF passthrough; raster images (the
-/// in-process `image` codecs); HEIC/HEIF (the OS decoder); Office, OpenDocument,
-/// TXT and RTF (LibreOffice); HTML (a Chromium-class browser); Markdown (Pandoc,
-/// then the browser). A format whose converter is not installed is accepted:
+/// in-process `image` codecs); HEIC/HEIF (the OS decoder); SVG/SVGZ (vector,
+/// in-process); Office, OpenDocument and RTF (LibreOffice); TXT, HTML and
+/// Markdown (the system web view). GIF is deliberately absent (decision D9):
+/// it is refused with its own reason, `gif_not_supported`. A format whose converter is not installed is accepted:
 /// its job pauses with the FR-058 remediation instead of being refused at drop
 /// time. The UI mirrors this list in `src/lib/formats.ts` (a test diffs them).
 pub const SUPPORTED_EXTS: &[&str] = &[
-    "pdf", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp", "heic", "heif", "docx", "doc",
-    "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf", "txt", "html", "htm", "md",
-    "markdown",
+    "pdf", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp", "heic", "heif", "svg", "svgz",
+    "docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf", "txt", "html", "htm",
+    "md", "markdown",
 ];
 
 /// Whether `ext` (with or without a leading dot, any case) names a format the
@@ -309,6 +310,163 @@ fn has_entries(dir: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// The payload of every message-carrying [`EngineError`] variant (FR-092).
+///
+/// `detail` is the English sentence for logs, the CLI and the UI's last-resort
+/// fallback. `reason` is the stable machine sub-code the UI translates (with
+/// `params` filled in): it is registered in [`crate::util::reasons`] under the
+/// job error code of its variant, and like every reason it is part of the
+/// contract (`queue.json`, the CLI's JSON) and is never renamed.
+///
+/// A plain string still converts (`"…".into()`, `format!(..).into()`): the
+/// failure then has no reason and the UI shows the family sentence with the
+/// detail, exactly as before reasons existed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Failure {
+    /// Stable, translatable sub-code within the variant's family.
+    pub reason: Option<&'static str>,
+    /// Interpolation values for the translated sentence.
+    pub params: std::collections::BTreeMap<String, String>,
+    /// English detail: logs, the CLI and the UI's fallback.
+    pub detail: String,
+}
+
+impl Failure {
+    /// A failure with a registered `reason` and its English `detail`.
+    pub fn new(reason: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            reason: Some(reason),
+            params: Default::default(),
+            detail: detail.into(),
+        }
+    }
+
+    /// Attach one interpolation value (builder style).
+    pub fn param(mut self, name: &str, value: impl ToString) -> Self {
+        self.params.insert(name.to_string(), value.to_string());
+        self
+    }
+}
+
+impl From<String> for Failure {
+    fn from(detail: String) -> Self {
+        Self {
+            detail,
+            ..Self::default()
+        }
+    }
+}
+
+impl From<&str> for Failure {
+    fn from(detail: &str) -> Self {
+        detail.to_string().into()
+    }
+}
+
+/// Existing callers read a failure as its detail (`m.contains(..)`).
+impl std::ops::Deref for Failure {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.detail
+    }
+}
+
+impl PartialEq<str> for Failure {
+    fn eq(&self, other: &str) -> bool {
+        self.detail == other
+    }
+}
+
+impl PartialEq<&str> for Failure {
+    fn eq(&self, other: &&str) -> bool {
+        self.detail == *other
+    }
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.detail)
+    }
+}
+
+/// Why a PDF cannot be printed as it is (FR-059). Never stripped: a PDF whose
+/// author forbade printing is refused, and a password is only ever supplied by
+/// the user, per job, and kept in memory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PdfProtection {
+    /// The PDF is encrypted with a user (open) password and none was given.
+    /// The job **needs a password**: it pauses, and the GUI asks for one
+    /// (`job_supply_password`) or the CLI takes `--password-file`/stdin.
+    PasswordRequired,
+    /// A password was given but it does not open the PDF. Also actionable:
+    /// the job pauses so the user can try again.
+    PasswordIncorrect,
+    /// The PDF opens, but its permissions forbid printing. Terminal.
+    PrintingNotAllowed,
+    /// The PDF uses a security handler the engine cannot read (detail says
+    /// which). Terminal.
+    Unsupported(String),
+}
+
+impl PdfProtection {
+    /// The stable reason of this protection under the `pdf_protected` job code
+    /// and the `PdfProtected` IPC family. Never renamed.
+    pub fn reason(&self) -> &'static str {
+        match self {
+            Self::PasswordRequired => "password_required",
+            Self::PasswordIncorrect => "password_incorrect",
+            Self::PrintingNotAllowed => "printing_not_allowed",
+            Self::Unsupported(_) => "unsupported_encryption",
+        }
+    }
+
+    /// Whether the user can unblock the job by supplying a (different)
+    /// password, as opposed to a refusal no password changes.
+    pub fn needs_password(&self) -> bool {
+        matches!(self, Self::PasswordRequired | Self::PasswordIncorrect)
+    }
+}
+
+impl std::fmt::Display for PdfProtection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PasswordRequired => f.write_str("the PDF is password-protected"),
+            Self::PasswordIncorrect => f.write_str("the password does not open the PDF"),
+            Self::PrintingNotAllowed => f.write_str("the PDF does not allow printing"),
+            Self::Unsupported(d) => write!(f, "the PDF uses unsupported encryption ({d})"),
+        }
+    }
+}
+
+/// A password the user typed to open an encrypted PDF (FR-059, NFR-082).
+///
+/// Lives only in memory: it is not `Serialize`, its `Debug` is redacted, and
+/// its buffer is wiped when the last copy is dropped. It reaches the engine
+/// per job (the GUI's `job_supply_password`, the CLI's `--password-file` /
+/// `--password-stdin`), never through `queue.json`, a profile, argv or a log.
+#[derive(Clone)]
+pub struct PdfPassword(zeroize::Zeroizing<String>);
+
+impl PdfPassword {
+    /// Wrap a typed password. `None` for an empty one, which is never a
+    /// password the user meant to give.
+    pub fn new(password: String) -> Option<Self> {
+        let password = zeroize::Zeroizing::new(password);
+        (!password.is_empty()).then_some(Self(password))
+    }
+
+    /// The password itself, for the one call that opens the PDF.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for PdfPassword {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PdfPassword(<redacted>)")
+    }
+}
+
 /// Every way the engine can fail. Messages are user-facing: they surface in the
 /// queue UI and the job log, so they are written for a person, not a developer.
 #[derive(Debug, thiserror::Error)]
@@ -316,18 +474,18 @@ pub enum EngineError {
     /// A converter could not turn the input into a valid PDF (bad/corrupt input,
     /// unreadable file, unsupported image sub-format such as CMYK JPEG).
     #[error("conversion failed: {0}")]
-    ConversionFailed(String),
+    ConversionFailed(Failure),
 
     /// A converter ran past the conversion timeout and was killed. Separate
     /// from [`EngineError::ConversionFailed`] because it is terminal: the queue
     /// fails the job with `conversion_timeout` instead of retrying a run that
     /// already used its whole budget (FR-034).
     #[error("conversion timed out: {0}")]
-    ConversionTimedOut(String),
+    ConversionTimedOut(Failure),
 
     /// The OS spooler/printer backend rejected the job.
     #[error("printing failed: {0}")]
-    PrintFailed(String),
+    PrintFailed(Failure),
 
     /// A requested setting the driver cannot honour and that would otherwise
     /// silently degrade the output (currently only duplex — see
@@ -340,15 +498,23 @@ pub enum EngineError {
         printer: String,
     },
 
-    /// A required external program (CUPS `lp`, SumatraPDF, LibreOffice, a
-    /// Chromium-class browser, Pandoc, the HEIF codec) is not installed or
-    /// could not be located. The message is the FR-058 remediation text.
+    /// A required external program (CUPS `lp`, SumatraPDF, LibreOffice, the
+    /// HEIF codec) is not installed or could not be located. The detail is
+    /// the FR-058 remediation text; the reason, when set, is the dependency id
+    /// (`common:deps.<id>.remediation`).
     #[error("missing dependency: {0}")]
-    DependencyMissing(String),
+    DependencyMissing(Failure),
 
-    /// The file's format is not one the engine can print at all.
+    /// The file's format is not one the engine can print at all. Terminal:
+    /// retrying never changes a file's format.
     #[error("unsupported file format: {0}")]
-    UnsupportedFormat(String),
+    UnsupportedFormat(Failure),
+
+    /// The PDF is encrypted or forbids printing (FR-059). A missing or wrong
+    /// password pauses the job until the user supplies one; the other cases
+    /// are terminal.
+    #[error("protected PDF: {0}")]
+    PdfProtected(PdfProtection),
 
     /// The job's cancellation flag was set; work stopped at a stage boundary.
     #[error("job cancelled")]
@@ -369,7 +535,9 @@ mod tests {
         assert!(is_supported("TIFF"));
         assert!(is_supported("DOCX"));
         assert!(is_supported(".md"));
-        assert!(!is_supported("gif")); // decodable by `image` but not enabled
+        assert!(is_supported("SVG"));
+        assert!(is_supported(".svgz"));
+        assert!(!is_supported("gif")); // D9: GIF is refused on purpose
         assert!(!is_supported("exe"));
         assert!(!is_supported(""));
     }
@@ -379,11 +547,60 @@ mod tests {
         assert_eq!(
             SUPPORTED_EXTS,
             &[
-                "pdf", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp", "heic", "heif", "docx",
-                "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf", "txt", "html",
-                "htm", "md", "markdown",
+                "pdf", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp", "heic", "heif", "svg",
+                "svgz", "docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf",
+                "txt", "html", "htm", "md", "markdown",
             ]
         );
+    }
+
+    /// FR-092: a failure keeps its stable reason and params next to the
+    /// English detail, and still reads as that detail.
+    #[test]
+    fn fr_092_failure_carries_reason_params_and_detail() {
+        let f = Failure::new("cannot_read_input", "cannot open a.pdf").param("file", "a.pdf");
+        assert_eq!(f.reason, Some("cannot_read_input"));
+        assert_eq!(f.params.get("file").map(String::as_str), Some("a.pdf"));
+        assert!(f.contains("cannot open"));
+        assert_eq!(f.to_string(), "cannot open a.pdf");
+
+        let plain: Failure = "boom".into();
+        assert_eq!(plain.reason, None);
+        assert!(plain == "boom");
+        let e = EngineError::ConversionFailed(format!("x{}", 1).into());
+        assert_eq!(e.to_string(), "conversion failed: x1");
+    }
+
+    /// FR-059: the protections that a password fixes are the ones the GUI
+    /// and the CLI act on; their reasons are the stable wire names.
+    #[test]
+    fn fr_059_pdf_protection_reasons_and_needs_password() {
+        use PdfProtection as P;
+        let all = [
+            (P::PasswordRequired, "password_required", true),
+            (P::PasswordIncorrect, "password_incorrect", true),
+            (P::PrintingNotAllowed, "printing_not_allowed", false),
+            (P::Unsupported("V9".into()), "unsupported_encryption", false),
+        ];
+        for (p, reason, needs) in all {
+            assert_eq!(p.reason(), reason);
+            assert_eq!(p.needs_password(), needs, "{p:?}");
+            assert!(crate::util::reasons::is_job_reason("pdf_protected", reason));
+        }
+        assert_eq!(
+            EngineError::PdfProtected(P::PasswordRequired).to_string(),
+            "protected PDF: the PDF is password-protected"
+        );
+    }
+
+    /// NFR-082: a supplied password never shows up in a log line or a debug
+    /// dump, and an empty one is not a password.
+    #[test]
+    fn fr_059_pdf_password_is_redacted_and_never_empty() {
+        let p = PdfPassword::new("s3cret".into()).unwrap();
+        assert_eq!(p.expose(), "s3cret");
+        assert!(!format!("{p:?}").contains("s3cret"));
+        assert!(PdfPassword::new(String::new()).is_none());
     }
 
     #[test]

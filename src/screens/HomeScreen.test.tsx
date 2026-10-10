@@ -107,6 +107,7 @@ describe('HomeScreen', () => {
       BMP: ['bmp'],
       WebP: ['webp'],
       HEIC: ['heic', 'heif'],
+      SVG: ['svg', 'svgz'],
       Word: ['docx', 'doc'],
       Excel: ['xlsx', 'xls'],
       PowerPoint: ['pptx', 'ppt'],
@@ -122,7 +123,7 @@ describe('HomeScreen', () => {
     const covered = Object.values(families).flat().sort();
     expect(covered).toEqual([...PRINTABLE_EXTENSIONS].sort());
     // Nothing the engine rejects is promised.
-    for (const absent of [/\bGIF\b/, /\bSVG\b/, /\bEPUB\b/]) {
+    for (const absent of [/\bGIF\b/, /\bEPUB\b/]) {
       expect(document.body.textContent ?? '').not.toMatch(absent);
     }
   });

@@ -10,9 +10,15 @@
 //! | [`Route::Passthrough`] | `pdf` | none — header, `%%EOF` and page check, printed in place |
 //! | [`Route::Image`] | [`IMAGE_EXTS`] | in-process [`image`] crate |
 //! | [`Route::Heif`] | [`heif::HEIF_EXTS`] | OS decoder: `sips` (macOS) / WIC (Windows) |
-//! | [`Route::Office`] | [`office::OFFICE_EXTS`] | LibreOffice headless |
-//! | [`Route::Html`] | [`html::HTML_EXTS`] | Edge / Chrome / Chromium headless |
-//! | [`Route::Markdown`] | [`markdown::MARKDOWN_EXTS`] | Pandoc → HTML → browser |
+//! | [`Route::Svg`] | [`svg::SVG_EXTS`] | in-process `usvg` + `svg2pdf` (FR-052a) |
+//! | [`Route::Office`] | [`office::OFFICE_EXTS`] | LibreOffice headless (`textutil` for RTF on macOS) |
+//! | [`Route::Html`] | [`html::HTML_EXTS`] | the system web view (render worker), browser fallback |
+//! | [`Route::Markdown`] | [`markdown::MARKDOWN_EXTS`] | Markdown → HTML → the HTML route |
+//! | [`Route::Text`] | [`text::TEXT_EXTS`] | decoded text → HTML → the HTML route |
+//!
+//! A PDF is inspected for encryption first ([`pdf_security`], FR-059): one
+//! that needs a password is refused with [`EngineError::PdfProtected`] unless
+//! the job carries one, in which case a decrypted copy is printed.
 //!
 //! External converters run in a private scratch directory ([`WorkDir`], removed
 //! when the conversion ends, success or not), are bounded by the conversion
@@ -25,14 +31,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use super::deps::{self, Dependency};
-use super::{extension_of, EngineError};
+use super::{extension_of, EngineError, Failure};
 
 pub mod heif;
 pub mod html;
 pub mod image;
 pub mod markdown;
 pub mod office;
+pub mod pdf_security;
 pub mod process;
+#[cfg(target_os = "macos")]
+pub mod rtf_mac;
+pub mod svg;
+pub mod text;
 
 #[cfg(test)]
 mod external_tests;
@@ -44,6 +55,8 @@ pub use heif::HEIF_EXTS;
 pub use html::HTML_EXTS;
 pub use markdown::MARKDOWN_EXTS;
 pub use office::OFFICE_EXTS;
+pub use svg::SVG_EXTS;
+pub use text::TEXT_EXTS;
 
 /// The page geometry a converter that lays pages out itself must honour.
 ///
@@ -143,10 +156,14 @@ pub enum Route {
     Heif,
     /// Office document, converted by LibreOffice.
     Office,
-    /// HTML page, rendered to PDF by a Chromium-class browser.
+    /// HTML page, rendered to PDF by the system web view.
     Html,
-    /// Markdown, turned into HTML by Pandoc and then printed by Chromium.
+    /// Markdown, turned into HTML and then rendered like an HTML page.
     Markdown,
+    /// SVG/SVGZ drawing, converted to a vector PDF in-process (FR-052a).
+    Svg,
+    /// Plain text, decoded and laid out as an HTML page (FR-057).
+    Text,
 }
 
 /// The converter for an extension (with or without a dot, any case), or
@@ -160,6 +177,10 @@ pub fn route(ext: &str) -> Option<Route> {
         Some(Route::Image)
     } else if HEIF_EXTS.contains(&ext) {
         Some(Route::Heif)
+    } else if SVG_EXTS.contains(&ext) {
+        Some(Route::Svg)
+    } else if TEXT_EXTS.contains(&ext) {
+        Some(Route::Text)
     } else if OFFICE_EXTS.contains(&ext) {
         Some(Route::Office)
     } else if HTML_EXTS.contains(&ext) {
@@ -172,9 +193,10 @@ pub fn route(ext: &str) -> Option<Route> {
 }
 
 /// Whether a file of this extension always becomes exactly one page (a
-/// picture). Documents have an unknown page count until they are converted.
+/// picture or a drawing). Documents have an unknown page count until they are
+/// converted.
 pub fn is_single_page(ext: &str) -> bool {
-    matches!(route(ext), Some(Route::Image | Route::Heif))
+    matches!(route(ext), Some(Route::Image | Route::Heif | Route::Svg))
 }
 
 /// A private scratch directory for one conversion, deleted on drop — so every
@@ -195,7 +217,10 @@ impl WorkDir {
             .tempdir()
             .map(WorkDir)
             .map_err(|e| {
-                EngineError::ConversionFailed(format!("cannot create a conversion folder: {e}"))
+                EngineError::ConversionFailed(Failure::new(
+                    "workdir_failed",
+                    format!("cannot create a conversion folder: {e}"),
+                ))
             })
     }
 
@@ -220,6 +245,12 @@ impl WorkDir {
 /// `cancel` when its conversion timeout fires. `progress` receives
 /// `0.0..=1.0` updates. `page` is the paper the job prints on, which the
 /// browser-based converters (HTML, Markdown) lay their pages out to.
+///
+/// `password` opens an encrypted PDF (FR-059). Without one, such a PDF fails
+/// with [`EngineError::PdfProtected`]`(`[`super::PdfProtection::PasswordRequired`]`)`;
+/// with one, the decrypted copy is written to `cache_dir/<job_id>.pdf` and
+/// returned like any converted file. It is ignored for every other input.
+#[allow(clippy::too_many_arguments)]
 pub fn convert_to_pdf(
     input: &Path,
     cache_dir: &Path,
@@ -228,47 +259,67 @@ pub fn convert_to_pdf(
     progress: &(dyn Fn(f32) + Send + Sync),
     timeout: Option<Duration>,
     page: &PageSetup,
+    password: Option<&super::PdfPassword>,
 ) -> Result<Option<PathBuf>, EngineError> {
     check_cancel(cancel)?;
 
     let ext = extension_of(input);
     if ext.is_empty() {
-        return Err(EngineError::UnsupportedFormat(format!(
-            "{} has no file extension",
-            input.display()
+        return Err(EngineError::UnsupportedFormat(Failure::new(
+            "no_extension",
+            format!("{} has no file extension", input.display()),
         )));
     }
     let Some(route) = route(&ext) else {
-        return Err(EngineError::UnsupportedFormat(ext));
+        let reason = if ext == "gif" {
+            "gif_not_supported"
+        } else {
+            "unsupported_type"
+        };
+        return Err(EngineError::UnsupportedFormat(
+            Failure::new(reason, ext.clone()).param("ext", &ext),
+        ));
     };
 
     if route == Route::Passthrough {
         validate_pdf_header(input)?;
-        validate_pdf_body(input)?;
+        let security = validate_pdf_body(input)?;
         check_cancel(cancel)?;
-        return Ok(None);
+        return match security {
+            pdf_security::PdfSecurity::NeedsPassword => {
+                let Some(password) = password else {
+                    return Err(EngineError::PdfProtected(
+                        super::PdfProtection::PasswordRequired,
+                    ));
+                };
+                let output = cache_output(cache_dir, job_id)?;
+                match pdf_security::decrypt_to(input, password, &output)
+                    .and_then(|()| check_cancel(cancel))
+                {
+                    Ok(()) => Ok(Some(output)),
+                    Err(e) => {
+                        let _ = std::fs::remove_file(&output);
+                        Err(e)
+                    }
+                }
+            }
+            _ => Ok(None),
+        };
     }
 
     // Resolve the converter before touching the disk, so a missing program
-    // pauses the job without leaving anything behind.
+    // pauses the job without leaving anything behind. The HTML, Markdown and
+    // text converters resolve whatever they need themselves.
     let tools = match route {
-        Route::Office => vec![locate(Dependency::LibreOffice)?],
-        Route::Html => vec![locate(Dependency::Chromium)?],
-        Route::Markdown => vec![locate(Dependency::Pandoc)?, locate(Dependency::Chromium)?],
+        Route::Office if !rtf_natively(&ext) => vec![locate(Dependency::LibreOffice)?],
         _ => Vec::new(),
     };
 
-    std::fs::create_dir_all(cache_dir).map_err(|e| {
-        EngineError::ConversionFailed(format!(
-            "cannot create cache directory {}: {e}",
-            cache_dir.display()
-        ))
-    })?;
-    let output = cache_dir.join(format!("{job_id}.pdf"));
+    let output = cache_output(cache_dir, job_id)?;
     check_cancel(cancel)?;
 
     let result = run_route(
-        route, &tools, input, &output, job_id, cancel, progress, timeout, page,
+        route, &ext, &tools, input, &output, job_id, cancel, progress, timeout, page,
     )
     .and_then(|()| check_cancel(cancel));
     match result {
@@ -281,9 +332,35 @@ pub fn convert_to_pdf(
     }
 }
 
+/// The cache PDF a conversion of `job_id` writes, its folder created.
+fn cache_output(cache_dir: &Path, job_id: &str) -> Result<PathBuf, EngineError> {
+    std::fs::create_dir_all(cache_dir).map_err(|e| {
+        EngineError::ConversionFailed(Failure::new(
+            "workdir_failed",
+            format!("cannot create cache directory {}: {e}", cache_dir.display()),
+        ))
+    })?;
+    Ok(cache_dir.join(format!("{job_id}.pdf")))
+}
+
+/// Whether this RTF is converted by the OS (`textutil` on macOS, FR-057)
+/// instead of LibreOffice.
+fn rtf_natively(ext: &str) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        ext == "rtf" && rtf_mac::available()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = ext;
+        false
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_route(
     route: Route,
+    ext: &str,
     tools: &[PathBuf],
     input: &Path,
     output: &Path,
@@ -295,7 +372,9 @@ fn run_route(
 ) -> Result<(), EngineError> {
     let tool = |i: usize| -> Result<&Path, EngineError> {
         tools.get(i).map(PathBuf::as_path).ok_or_else(|| {
-            EngineError::ConversionFailed("internal error: converter not resolved".to_string())
+            EngineError::ConversionFailed(
+                "internal error: converter not resolved".to_string().into(),
+            )
         })
     };
     match route {
@@ -305,33 +384,37 @@ fn run_route(
             let work = WorkDir::new(job_id)?;
             heif::convert(input, output, &work, cancel, timeout, progress)
         }
+        Route::Svg => svg::convert(input, output, cancel, timeout, progress),
         Route::Office => {
             let work = WorkDir::new(job_id)?;
             progress(0.0);
-            office::convert_with(tool(0)?, input, output, &work, cancel, timeout)?;
+            if rtf_natively(ext) {
+                #[cfg(target_os = "macos")]
+                rtf_mac::convert(input, output, &work, cancel, timeout, page)?;
+            } else {
+                office::convert_with(tool(0)?, input, output, &work, cancel, timeout)?;
+            }
             progress(1.0);
             Ok(())
         }
         Route::Html => {
             let work = WorkDir::new(job_id)?;
             progress(0.0);
-            html::convert_with(tool(0)?, input, output, &work, cancel, timeout, page)?;
+            html::convert(input, output, &work, cancel, timeout, page)?;
             progress(1.0);
             Ok(())
         }
         Route::Markdown => {
             let work = WorkDir::new(job_id)?;
             progress(0.0);
-            markdown::convert_with(
-                tool(0)?,
-                tool(1)?,
-                input,
-                output,
-                &work,
-                cancel,
-                timeout,
-                page,
-            )?;
+            markdown::convert(input, output, &work, cancel, timeout, page)?;
+            progress(1.0);
+            Ok(())
+        }
+        Route::Text => {
+            let work = WorkDir::new(job_id)?;
+            progress(0.0);
+            text::convert(input, output, &work, cancel, timeout, page)?;
             progress(1.0);
             Ok(())
         }
@@ -344,7 +427,7 @@ pub fn locate(dep: Dependency) -> Result<PathBuf, EngineError> {
     match deps::resolve_on_host(dep, os, None) {
         deps::Resolution::Found { path, .. } => Ok(path),
         deps::Resolution::Missing => Err(EngineError::DependencyMissing(
-            deps::spec(dep, os).remediation(),
+            deps::spec(dep, os).remediation().into(),
         )),
     }
 }
@@ -359,16 +442,22 @@ pub(crate) fn take_output(
 ) -> Result<(), EngineError> {
     if validate_pdf_header(produced).is_err() {
         let detail = process::log_tail(log, 400);
-        return Err(EngineError::ConversionFailed(if detail.is_empty() {
+        let message = if detail.is_empty() {
             format!("{label} could not convert this file to PDF")
         } else {
             format!("{label} could not convert this file to PDF: {detail}")
-        }));
+        };
+        return Err(EngineError::ConversionFailed(
+            Failure::new("converter_failed", message).param("tool", label),
+        ));
     }
     if std::fs::rename(produced, output).is_err() {
         // Scratch and cache can sit on different volumes; fall back to a copy.
         std::fs::copy(produced, output).map_err(|e| {
-            EngineError::ConversionFailed(format!("cannot write {}: {e}", output.display()))
+            EngineError::ConversionFailed(Failure::new(
+                "cannot_write_output",
+                format!("cannot write {}: {e}", output.display()),
+            ))
         })?;
     }
     Ok(())
@@ -414,17 +503,18 @@ pub fn file_url_from(path: &str, windows: bool) -> String {
 /// spooler.
 fn validate_pdf_header(input: &Path) -> Result<(), EngineError> {
     use std::io::Read;
-    let mut file = std::fs::File::open(input).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot open {}: {e}", input.display()))
-    })?;
+    let mut file = std::fs::File::open(input).map_err(|e| cannot_read(input, "open", e))?;
     let mut header = [0u8; 5];
-    let read = file.read(&mut header).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot read {}: {e}", input.display()))
-    })?;
+    let read = file
+        .read(&mut header)
+        .map_err(|e| cannot_read(input, "read", e))?;
     if read == 5 && &header == b"%PDF-" {
         Ok(())
     } else {
-        Err(EngineError::ConversionFailed("not a valid PDF".to_string()))
+        Err(EngineError::ConversionFailed(Failure::new(
+            "pdf_invalid",
+            "not a valid PDF",
+        )))
     }
 }
 
@@ -443,34 +533,46 @@ const PDF_EOF_WINDOW: u64 = 8 * 1024;
 /// - when the file is small enough to parse ([`crate::queue::MAX_PDF_PROBE_BYTES`])
 ///   and parses, it must have at least one page. A file `lopdf` cannot parse
 ///   is still handed to the spooler, which reads more PDF dialects than it.
-fn validate_pdf_body(input: &Path) -> Result<(), EngineError> {
+///
+/// Encryption is inspected in between (FR-059), **before** the page check: an
+/// encrypted file loads with no readable pages, which must not read as "the
+/// document has no pages". A PDF that forbids printing is refused here; one
+/// that needs a password is reported back so the caller can decrypt it.
+fn validate_pdf_body(input: &Path) -> Result<pdf_security::PdfSecurity, EngineError> {
     use std::io::{Read, Seek, SeekFrom};
-    let fail = |why: &str| EngineError::ConversionFailed(format!("not a valid PDF: {why}"));
-    let mut file = std::fs::File::open(input).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot open {}: {e}", input.display()))
-    })?;
+    let fail = |reason: &'static str, why: &str| {
+        EngineError::ConversionFailed(Failure::new(reason, format!("not a valid PDF: {why}")))
+    };
+    let mut file = std::fs::File::open(input).map_err(|e| cannot_read(input, "open", e))?;
     let size = file
         .metadata()
-        .map_err(|e| {
-            EngineError::ConversionFailed(format!("cannot read {}: {e}", input.display()))
-        })?
+        .map_err(|e| cannot_read(input, "read", e))?
         .len();
     let window = size.min(PDF_EOF_WINDOW);
     let mut tail = Vec::with_capacity(window as usize);
     file.seek(SeekFrom::End(-(window as i64)))
         .and_then(|_| file.read_to_end(&mut tail))
-        .map_err(|e| {
-            EngineError::ConversionFailed(format!("cannot read {}: {e}", input.display()))
-        })?;
+        .map_err(|e| cannot_read(input, "read", e))?;
     if !tail.windows(5).any(|w| w == b"%%EOF") {
         return Err(fail(
+            "pdf_truncated",
             "the file is truncated or damaged (it has no end-of-file marker)",
         ));
+    }
+    let security = pdf_security::inspect(input, size)?;
+    match &security {
+        pdf_security::PdfSecurity::OwnerOnly { print: false } => {
+            return Err(EngineError::PdfProtected(
+                super::PdfProtection::PrintingNotAllowed,
+            ));
+        }
+        pdf_security::PdfSecurity::NeedsPassword => return Ok(security),
+        _ => {}
     }
     if size <= crate::queue::MAX_PDF_PROBE_BYTES {
         match lopdf::Document::load(input) {
             Ok(doc) if doc.get_pages().is_empty() => {
-                return Err(fail("the document has no pages"));
+                return Err(fail("pdf_no_pages", "the document has no pages"));
             }
             Ok(_) => {}
             Err(e) => {
@@ -478,7 +580,22 @@ fn validate_pdf_body(input: &Path) -> Result<(), EngineError> {
             }
         }
     }
-    Ok(())
+    Ok(security)
+}
+
+/// `input` could not be opened or read (`verb`), with its name for the UI.
+fn cannot_read(input: &Path, verb: &str, e: std::io::Error) -> EngineError {
+    let name = input
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| input.display().to_string());
+    EngineError::ConversionFailed(
+        Failure::new(
+            "cannot_read_input",
+            format!("cannot {verb} {}: {e}", input.display()),
+        )
+        .param("file", name),
+    )
 }
 
 fn check_cancel(cancel: &AtomicBool) -> Result<(), EngineError> {
@@ -581,6 +698,7 @@ mod tests {
                 &progress,
                 None,
                 &PageSetup::default(),
+                None,
             )
             .unwrap_or_else(|e| panic!("convert {name}: {e}"));
             let pdf = out.expect("image conversion yields a cache PDF");
@@ -604,6 +722,7 @@ mod tests {
             &progress,
             None,
             &PageSetup::default(),
+            None,
         )
         .unwrap();
         assert!(out.is_none(), "a real PDF is printed in place");
@@ -635,12 +754,14 @@ mod tests {
                 &progress,
                 None,
                 &PageSetup::default(),
+                None,
             )
         };
 
         let err = run(b"%PDF-1.4 broken").unwrap_err();
         assert!(
-            matches!(&err, EngineError::ConversionFailed(m) if m.contains("truncated")),
+            matches!(&err, EngineError::ConversionFailed(m)
+                if m.contains("truncated") && m.reason == Some("pdf_truncated")),
             "{err:?}"
         );
 
@@ -661,7 +782,8 @@ mod tests {
         empty.save_to(&mut bytes).unwrap();
         let err = run(&bytes).unwrap_err();
         assert!(
-            matches!(&err, EngineError::ConversionFailed(m) if m.contains("no pages")),
+            matches!(&err, EngineError::ConversionFailed(m)
+                if m.contains("no pages") && m.reason == Some("pdf_no_pages")),
             "{err:?}"
         );
 
@@ -686,6 +808,7 @@ mod tests {
             &progress,
             None,
             &PageSetup::default(),
+            None,
         )
         .unwrap_err();
         assert!(matches!(err, EngineError::ConversionFailed(_)));
@@ -707,6 +830,7 @@ mod tests {
             &progress,
             None,
             &PageSetup::default(),
+            None,
         )
         .unwrap_err();
         assert!(matches!(err, EngineError::ConversionFailed(_)));
@@ -727,9 +851,42 @@ mod tests {
             &progress,
             None,
             &PageSetup::default(),
+            None,
         )
         .unwrap_err();
-        assert!(matches!(err, EngineError::UnsupportedFormat(_)));
+        assert!(
+            matches!(&err, EngineError::UnsupportedFormat(f)
+                if f.reason == Some("unsupported_type") && f.params["ext"] == "exe"),
+            "{err:?}"
+        );
+    }
+
+    /// Decision D9: GIF stays unsupported, and says so with its own reason
+    /// (the UI's "convert it to PNG or JPEG first").
+    #[test]
+    fn fr_052_gif_is_refused_with_its_own_reason() {
+        assert!(!crate::engine::is_supported("gif"));
+        assert_eq!(route("gif"), None);
+        let dir = tempfile::tempdir().unwrap();
+        let gif = dir.path().join("anim.gif");
+        std::fs::write(&gif, b"GIF89a").unwrap();
+        let cancel = AtomicBool::new(false);
+        let progress = |_p: f32| {};
+        let err = convert_to_pdf(
+            &gif,
+            dir.path(),
+            "job",
+            &cancel,
+            &progress,
+            None,
+            &PageSetup::default(),
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, EngineError::UnsupportedFormat(f) if f.reason == Some("gif_not_supported")),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -744,6 +901,8 @@ mod tests {
             .chain(OFFICE_EXTS)
             .chain(HTML_EXTS)
             .chain(MARKDOWN_EXTS)
+            .chain(SVG_EXTS)
+            .chain(TEXT_EXTS)
             .chain(&["pdf"]);
         for ext in routed {
             assert!(
@@ -755,6 +914,9 @@ mod tests {
         assert_eq!(route(".htm"), Some(Route::Html));
         assert_eq!(route("markdown"), Some(Route::Markdown));
         assert_eq!(route("heif"), Some(Route::Heif));
+        assert_eq!(route("SVGZ"), Some(Route::Svg));
+        assert_eq!(route("txt"), Some(Route::Text));
+        assert_eq!(route("rtf"), Some(Route::Office));
         assert_eq!(route("exe"), None);
     }
 
@@ -762,6 +924,9 @@ mod tests {
     fn only_pictures_are_known_to_be_one_page() {
         assert!(is_single_page("png"));
         assert!(is_single_page("HEIC"));
+        assert!(is_single_page("svg"));
+        assert!(is_single_page("svgz"));
+        assert!(!is_single_page("txt"));
         assert!(!is_single_page("pdf"));
         assert!(!is_single_page("docx"));
         assert!(!is_single_page("md"));
@@ -830,6 +995,7 @@ mod tests {
             &progress,
             None,
             &PageSetup::default(),
+            None,
         )
         .unwrap_err();
         assert!(matches!(err, EngineError::UnsupportedFormat(_)));
@@ -849,6 +1015,7 @@ mod tests {
             &progress,
             None,
             &PageSetup::default(),
+            None,
         )
         .unwrap_err();
         assert!(matches!(err, EngineError::Cancelled));

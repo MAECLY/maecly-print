@@ -41,12 +41,18 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `tauri-specta` | `=2.0.0-rc.21` | MIT / Apache-2.0 | Typed command/event bindings | Yes |
 | `printpdf` | 0.9.1 (`default-features = false`) | MIT | PDF primitives | Yes |
 | `image` | 0.25 (jpeg/png/tiff/bmp/webp only) | MIT / Apache-2.0 | **In-process** image decoding | Yes |
-| `lopdf` | 0.34 | MIT | PDF parsing + hand-built image PDFs | Yes |
+| `lopdf` | 0.39 | MIT | PDF parsing, hand-built image PDFs, encrypted-PDF detection and decryption (FR-059) | Yes |
+| `svg2pdf`, `usvg` | 0.13 / `=0.45.1` | MIT / Apache-2.0 | SVG/SVGZ → vector PDF (FR-052a); pulls in `resvg`, `fontdb`, `tiny-skia` (BSD-3-Clause), `roxmltree` | Yes |
+| `pulldown-cmark` | 0.13 (`html` only) | MIT | Markdown → HTML without Pandoc (FR-056) | Yes |
+| `encoding_rs` | 0.8 | MIT / Apache-2.0 (+ BSD-3-Clause data) | Decoding text files that are not UTF-8 (FR-057) | Yes |
+| `zeroize` | 1 | MIT / Apache-2.0 | Wiping a PDF password from memory (FR-059, NFR-082) | Yes |
 | `uuid` | 1 (`v7`) | MIT / Apache-2.0 | Time-sortable job ids | Yes |
 | `time` | 0.3 | MIT / Apache-2.0 | RFC 3339 timestamps | Yes |
-| `windows` *(Windows targets only)* | 0.58 | MIT / Apache-2.0 | winspool + GDI `DeviceCapabilities`, console attach, policy registry/owner checks | Yes |
+| `windows` *(Windows targets only)* | 0.58 | MIT / Apache-2.0 | winspool + GDI `DeviceCapabilities`, PrintTicket ↔ DEVMODE, console attach, policy registry/owner checks | Yes |
+| `webview2-com` *(Windows targets only)* | 0.38 | MIT | WebView2 `PrintToPdf` in the render worker (FR-055) | Yes |
 | `objc2` *(macOS only)* | 0.6 | MIT | Objective-C runtime for the NSServices provider | Yes |
 | `objc2-app-kit`, `objc2-foundation` *(macOS only)* | 0.3 | MIT | AppKit/Foundation bindings (feature-narrowed) | Yes |
+| `objc2-web-kit` *(macOS only)* | 0.3 | Zlib / Apache-2.0 / MIT | WKWebView printing in the render worker (FR-055) | Yes |
 
 ### Rust — `shell-ext-win` (the Windows Explorer handler, a separate `cdylib`)
 

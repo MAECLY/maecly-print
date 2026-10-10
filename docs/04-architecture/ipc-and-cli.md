@@ -521,6 +521,7 @@ Frozen public surface, defined by `ExitCode` in `src-tauri/src/cli/exit.rs` and 
 | 10   | `UpdateCheckFailed`   | Update check failed (network, rate limit, misconfigured repository). |
 | 11   | `UpdateInstallFailed` | Update install failed: download, a rejected signature (`UpdateSignatureInvalid`), the installer, or a copy of the app that cannot update itself. |
 | 12   | `Cancelled`           | User cancelled. |
+| 13   | `PdfProtected`        | One or more PDFs are protected (FR-059). Reasons `password_required` / `password_incorrect`: supply the password with `--password-file <path>` or `--password-stdin` (never as an argument, so it stays out of `ps` and shell history). Reasons `printing_not_allowed` / `unsupported_encryption`: final, no password changes them. |
 
 For batches, `ExitCode::worst` returns the highest code among the files, so one failure in fifty is never reported as success.
 

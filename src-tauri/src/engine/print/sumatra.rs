@@ -347,9 +347,9 @@ pub fn locate() -> Result<PathBuf, EngineError> {
     }
 
     Err(EngineError::DependencyMissing(if spec.applicable() {
-        spec.remediation()
+        spec.remediation().into()
     } else {
-        "SumatraPDF is only used on Windows".to_string()
+        "SumatraPDF is only used on Windows".to_string().into()
     }))
 }
 

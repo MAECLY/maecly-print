@@ -35,8 +35,9 @@ use crate::engine::EngineError;
 
 /// Extensions LibreOffice converts for us. Legacy binary Office formats ride
 /// the same path at no extra cost.
+/// Plain text left this route for [`super::text`] (FR-057).
 pub const OFFICE_EXTS: &[&str] = &[
-    "docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf", "txt",
+    "docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf",
 ];
 
 /// The argument vector for one conversion (everything after the program).
@@ -78,12 +79,12 @@ pub fn convert_with(
     let ext = crate::engine::extension_of(input);
     let staged = work.path().join(format!("input.{ext}"));
     std::fs::copy(input, &staged).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot read {}: {e}", input.display()))
+        EngineError::ConversionFailed(format!("cannot read {}: {e}", input.display()).into())
     })?;
     let profile = work.path().join("profile");
     let out_dir = work.path().join("out");
     std::fs::create_dir_all(&out_dir).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot prepare the conversion folder: {e}"))
+        EngineError::ConversionFailed(format!("cannot prepare the conversion folder: {e}").into())
     })?;
 
     let mut cmd = Command::new(soffice);

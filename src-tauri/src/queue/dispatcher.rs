@@ -93,12 +93,12 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::engine::print::{OsJobState, PrintError, PrinterCaps, SpoolOutcome, TrackError};
-use crate::engine::EngineError;
+use crate::engine::{EngineError, PdfPassword};
 use crate::queue::job::{
     now_rfc3339, Job, JobError, JobProgress, JobState, QueueSnapshot, SCHEMA_VERSION,
 };
 use crate::queue::QueueState;
-use crate::util::error::IpcError;
+use crate::util::error::{IpcError, IpcErrorCode};
 
 /// Default cap on conversions running concurrently, used when the config does
 /// not override it (and as the value the `EngineCfg` default mirrors).
@@ -241,6 +241,14 @@ pub(crate) enum Cmd {
         id: String,
         reply: oneshot::Sender<Result<(), IpcError>>,
     },
+    /// FR-059: the user typed the password of a job's encrypted PDF. With
+    /// `apply_to_batch`, it is also tried on the batch's other protected PDFs.
+    SupplyPassword {
+        id: String,
+        password: PdfPassword,
+        apply_to_batch: bool,
+        reply: oneshot::Sender<Result<(), IpcError>>,
+    },
     PauseQueue,
     ResumeQueue,
     /// Replace the engine limits at run time — sent by `set_app_settings` so a
@@ -304,12 +312,16 @@ pub(crate) trait JobRunner: Send + Sync + 'static {
     /// force when *this* attempt started, handed over per call rather than
     /// fixed when the queue booted, so a conversion timeout changed in
     /// Settings reaches the very next conversion.
+    ///
+    /// `password` is the one the user supplied for this job's encrypted PDF
+    /// (FR-059), held only in the dispatcher's memory.
     fn convert(
         &self,
         job: &Job,
         cancel: Arc<AtomicBool>,
         progress: Box<dyn Fn(f32) + Send + Sync>,
         timeout: Option<Duration>,
+        password: Option<PdfPassword>,
     ) -> Result<Option<PathBuf>, EngineError>;
 
     /// Spool the job's PDF to `printer`, waiting at most `timeout` for the
@@ -383,6 +395,7 @@ impl JobRunner for EngineRunner {
         cancel: Arc<AtomicBool>,
         progress: Box<dyn Fn(f32) + Send + Sync>,
         timeout: Option<Duration>,
+        password: Option<PdfPassword>,
     ) -> Result<Option<PathBuf>, EngineError> {
         // The dispatcher's own conversion timer raises the cancel flag at the
         // same limit, which also kills the converter; passing the limit here
@@ -395,6 +408,7 @@ impl JobRunner for EngineRunner {
             &*progress,
             timeout,
             &crate::engine::convert::PageSetup::for_settings(&job.settings),
+            password.as_ref(),
         )
     }
 
@@ -638,6 +652,11 @@ pub(crate) struct Dispatcher {
     /// Whether the last `queue.json` write failed, so persistence trouble is
     /// logged loudly once per streak instead of on every transition.
     persist_failing: bool,
+    /// FR-059 / NFR-082: passwords the user supplied for encrypted PDFs, by
+    /// job id. Memory only — never persisted, never logged — and dropped as
+    /// soon as the job no longer needs it (decrypted, refused, finished,
+    /// cleared). After a restart the job simply asks again.
+    passwords: HashMap<String, PdfPassword>,
 }
 
 impl Dispatcher {
@@ -667,6 +686,7 @@ impl Dispatcher {
             retry_generation: 0,
             progress_last: Arc::new(Mutex::new(HashMap::new())),
             persist_failing: false,
+            passwords: HashMap::new(),
         }
     }
 
@@ -674,6 +694,7 @@ impl Dispatcher {
     /// is the unit the run loop and the tests both drive.
     pub(crate) fn dispatch_one(&mut self, cmd: Cmd) {
         self.handle(cmd);
+        self.forget_unneeded_passwords();
         self.schedule();
         self.commit();
     }
@@ -757,6 +778,14 @@ impl Dispatcher {
             }
             Cmd::Retry { id, reply } => {
                 let _ = reply.send(self.on_retry(&id));
+            }
+            Cmd::SupplyPassword {
+                id,
+                password,
+                apply_to_batch,
+                reply,
+            } => {
+                let _ = reply.send(self.on_supply_password(&id, password, apply_to_batch));
             }
             Cmd::PauseQueue => self.set_queue_paused(true),
             Cmd::ResumeQueue => self.set_queue_paused(false),
@@ -993,6 +1022,78 @@ impl Dispatcher {
             tracing::info!(event = "job_resumed", job_id = %id);
         }
         result
+    }
+
+    /// FR-059: take the password the user typed for `id`'s encrypted PDF and
+    /// resume the job with it. Only a job that is waiting for a password
+    /// ([`Job::needs_password`]) takes one. With `apply_to_batch`, the same
+    /// password is also tried on every other job of the batch that is waiting
+    /// for one (they resume too) or has not been converted yet (it is used if
+    /// that PDF turns out to be protected).
+    fn on_supply_password(
+        &mut self,
+        id: &str,
+        password: PdfPassword,
+        apply_to_batch: bool,
+    ) -> Result<(), IpcError> {
+        let (waiting, pending) = {
+            let st = self.state.read().unwrap();
+            let Some(job) = st.jobs.iter().find(|j| j.id == id) else {
+                return Err(IpcError::JobNotFound(id.to_string()));
+            };
+            if !job.needs_password() {
+                return Err(IpcError::localized(
+                    IpcErrorCode::InvalidState,
+                    "job_not_waiting_password",
+                    format!("job {id} is not waiting for a password"),
+                ));
+            }
+            let mut waiting = vec![id.to_string()];
+            let mut pending = Vec::new();
+            if apply_to_batch {
+                let batch = job.batch_id.clone();
+                for other in st.jobs.iter().filter(|j| j.batch_id == batch && j.id != id) {
+                    if other.needs_password() {
+                        waiting.push(other.id.clone());
+                    } else if matches!(other.state, JobState::Queued | JobState::Paused)
+                        && other.cache_pdf.is_none()
+                    {
+                        pending.push(other.id.clone());
+                    }
+                }
+            }
+            (waiting, pending)
+        };
+        for jid in waiting.iter().chain(&pending) {
+            self.passwords.insert(jid.clone(), password.clone());
+        }
+        for jid in &waiting {
+            self.on_resume(jid, PrinterFix::NotNeeded)?;
+        }
+        tracing::info!(
+            event = "job_password_supplied",
+            job_id = %id,
+            resumed = waiting.len(),
+            batch = apply_to_batch
+        );
+        Ok(())
+    }
+
+    /// Drop every stored password its job no longer needs: the job is gone or
+    /// finished, or its PDF is already decrypted into the cache.
+    fn forget_unneeded_passwords(&mut self) {
+        if self.passwords.is_empty() {
+            return;
+        }
+        let st = self.state.read().unwrap();
+        self.passwords.retain(|id, _| {
+            st.jobs.iter().any(|j| {
+                j.id == *id
+                    && !j.state.is_terminal()
+                    && j.cache_pdf.is_none()
+                    && !j.error.as_ref().is_some_and(|e| e.code == "pdf_protected")
+            })
+        });
     }
 
     fn on_retry(&mut self, id: &str) -> Result<(), IpcError> {
@@ -1516,6 +1617,7 @@ impl Dispatcher {
         // below and to the converter process itself (`set_limits` may have
         // changed it since the queue started).
         let timeout = self.limits.conversion_timeout;
+        let password = self.passwords.get(&job.id).cloned();
         // Arm a timeout for THIS attempt, capturing its exact cancel-flag Arc so
         // the handler can tell it apart from a later attempt's flag by identity.
         if let Some(timeout) = timeout {
@@ -1531,7 +1633,7 @@ impl Dispatcher {
             });
         }
         self.spawner.spawn_blocking(Box::new(move || {
-            let result = runner.convert(&job, flag, progress, timeout);
+            let result = runner.convert(&job, flag, progress, timeout, password);
             let pages = match &result {
                 Ok(Some(pdf)) => converted_page_count(pdf),
                 _ => None,
@@ -2044,32 +2146,28 @@ fn record_print_failure(job: &mut Job, e: PrintError, post: &mut Post) {
 /// Apply the FR-034 failure policy to `job`, recording any follow-up in `post`.
 fn record_failure(job: &mut Job, e: &EngineError, is_conversion: bool, post: &mut Post) {
     match e {
-        // User-fixable: pause and wait for the user, no automatic retry.
+        // User-fixable: pause and wait for the user, no automatic retry. A
+        // PDF that needs a (different) password is one of these: the GUI asks
+        // for it and resumes the job (`QueueHandle::supply_password`).
         EngineError::UnsupportedSetting { .. } | EngineError::DependencyMissing(_) => {
-            job.state = JobState::Paused;
-            job.error = Some(to_job_error(e));
-            job.progress = None;
-            let f = JobLog::of(job);
-            tracing::warn!(
-                event = "job_paused_needs_fix",
-                job_id = %job.id,
-                file = %f.file,
-                profile = %f.profile,
-                printer = %f.printer,
-                pages = f.pages,
-                status = %f.status,
-                started_at = %f.started_at,
-                finished_at = %f.finished_at,
-                attempts = job.attempts,
-                error = %f.error,
-                message = %e
-            );
+            pause_needs_fix(job, e);
+        }
+        EngineError::PdfProtected(p) if p.needs_password() => {
+            pause_needs_fix(job, e);
         }
         // The converter itself ran out of time (its own bound, which can fire
         // a moment before the dispatcher's timer does). Terminal, exactly like
         // the dispatcher's `conversion_timeout`: a retry would only burn the
-        // same budget again.
-        EngineError::ConversionTimedOut(_) => {
+        // same budget again. So are a format the engine cannot print and a
+        // PDF that forbids printing or uses unreadable encryption (FR-058,
+        // FR-059): retrying never changes the file.
+        EngineError::ConversionTimedOut(_)
+        | EngineError::UnsupportedFormat(_)
+        | EngineError::PdfProtected(_) => {
+            let event = match e {
+                EngineError::ConversionTimedOut(_) => "job_conversion_timeout",
+                _ => "job_failed_terminal",
+            };
             job.state = JobState::Failed;
             job.error = Some(to_job_error(e));
             job.finished_at = Some(now_rfc3339());
@@ -2079,7 +2177,7 @@ fn record_failure(job: &mut Job, e: &EngineError, is_conversion: bool, post: &mu
             }
             let f = JobLog::of(job);
             tracing::warn!(
-                event = "job_conversion_timeout",
+                event,
                 job_id = %job.id,
                 file = %f.file,
                 profile = %f.profile,
@@ -2155,6 +2253,29 @@ fn record_failure(job: &mut Job, e: &EngineError, is_conversion: bool, post: &mu
     }
 }
 
+/// Pause `job` on a failure the user has to fix (a setting, a dependency, a
+/// PDF password), with no automatic retry.
+fn pause_needs_fix(job: &mut Job, e: &EngineError) {
+    job.state = JobState::Paused;
+    job.error = Some(to_job_error(e));
+    job.progress = None;
+    let f = JobLog::of(job);
+    tracing::warn!(
+        event = "job_paused_needs_fix",
+        job_id = %job.id,
+        file = %f.file,
+        profile = %f.profile,
+        printer = %f.printer,
+        pages = f.pages,
+        status = %f.status,
+        started_at = %f.started_at,
+        finished_at = %f.finished_at,
+        attempts = job.attempts,
+        error = %f.error,
+        message = %e
+    );
+}
+
 /// Page count of a freshly converted cache PDF, with the same size ceiling as
 /// the submit-time probe. `None` when it cannot be measured.
 fn converted_page_count(pdf: &Path) -> Option<u32> {
@@ -2166,25 +2287,27 @@ fn converted_page_count(pdf: &Path) -> Option<u32> {
 /// the reason and params the UI needs to say it in the user's language
 /// (FR-092). `detail` is the tool's own (English) output, interpolated as is.
 fn to_job_error(e: &EngineError) -> JobError {
-    let code = match e {
-        EngineError::ConversionFailed(_) => "conversion_failed",
-        EngineError::ConversionTimedOut(_) => "conversion_timeout",
-        EngineError::PrintFailed(_) => "print_failed",
-        EngineError::UnsupportedSetting { .. } => "unsupported_setting",
-        EngineError::DependencyMissing(_) => "dependency_missing",
-        EngineError::UnsupportedFormat(_) => "unsupported_format",
-        EngineError::Cancelled => "cancelled",
-    };
+    let code = crate::util::reasons::job_code_of(e);
     let error = JobError::new(code, e.to_string());
     match e {
-        EngineError::ConversionFailed(d)
-        | EngineError::PrintFailed(d)
-        | EngineError::DependencyMissing(d)
-        | EngineError::UnsupportedFormat(d) => error.with_param("detail", d),
+        EngineError::ConversionFailed(f)
+        | EngineError::PrintFailed(f)
+        | EngineError::DependencyMissing(f)
+        | EngineError::UnsupportedFormat(f) => with_failure(error, f),
         // The converter's own bound fired: its message names the tool and the
         // limit, so it is the detail (the dispatcher's own timer sets `secs`).
-        EngineError::ConversionTimedOut(d) => {
-            error.with_reason("converter").with_param("detail", d)
+        EngineError::ConversionTimedOut(f) => match f.reason {
+            Some(_) => with_failure(error, f),
+            None => error
+                .with_reason("converter")
+                .with_param("detail", &f.detail),
+        },
+        EngineError::PdfProtected(p) => {
+            let error = error.with_reason(p.reason());
+            match p {
+                crate::engine::PdfProtection::Unsupported(d) => error.with_param("detail", d),
+                _ => error,
+            }
         }
         EngineError::UnsupportedSetting { setting, printer } => {
             let error = error.with_param("printer", printer);
@@ -2198,6 +2321,23 @@ fn to_job_error(e: &EngineError) -> JobError {
         }
         EngineError::Cancelled => error,
     }
+}
+
+/// Copy an engine [`crate::engine::Failure`]'s reason and params onto `error`.
+/// The English detail always rides along as `params.detail`, the sentence of
+/// last resort (and the technical line under a translated one).
+fn with_failure(error: JobError, f: &crate::engine::Failure) -> JobError {
+    let mut error = match f.reason {
+        Some(reason) => error.with_reason(reason),
+        None => error,
+    };
+    for (k, v) in &f.params {
+        error = error.with_param(k, v);
+    }
+    if !f.params.contains_key("detail") {
+        error = error.with_param("detail", &f.detail);
+    }
+    error
 }
 
 /// Best-effort cache-file deletion; a missing file is not an error.
@@ -2218,6 +2358,7 @@ fn delete_cache_file(path: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::PdfProtection;
     use crate::queue::job::{Duplex, JobSettings};
     use std::collections::{HashSet, VecDeque};
     use std::sync::atomic::AtomicUsize;
@@ -2233,6 +2374,8 @@ mod tests {
         Fail,
         /// The converter process outlived its own bound and was killed.
         TimedOut,
+        /// The engine failed with this error (any variant).
+        Error(EngineError),
     }
 
     /// Write a minimal valid PDF with `n` empty pages.
@@ -2291,6 +2434,8 @@ mod tests {
         print_timeouts: Mutex<Vec<Option<Duration>>>,
         /// Timeouts handed to each `convert` call.
         convert_timeouts: Mutex<Vec<Option<Duration>>>,
+        /// The password handed to each `convert` call, exposed (tests only).
+        convert_passwords: Mutex<Vec<Option<String>>>,
         /// The settings the fake was handed for each `print` call, so a test can
         /// assert what would have reached the spooler.
         print_settings: Mutex<Vec<JobSettings>>,
@@ -2324,6 +2469,7 @@ mod tests {
                 print_calls: AtomicUsize::new(0),
                 print_timeouts: Mutex::new(Vec::new()),
                 convert_timeouts: Mutex::new(Vec::new()),
+                convert_passwords: Mutex::new(Vec::new()),
                 print_settings: Mutex::new(Vec::new()),
                 resolve_file_names: Mutex::new(Vec::new()),
                 papers: Mutex::new(Vec::new()),
@@ -2341,9 +2487,14 @@ mod tests {
             cancel: Arc<AtomicBool>,
             progress: Box<dyn Fn(f32) + Send + Sync>,
             timeout: Option<Duration>,
+            password: Option<PdfPassword>,
         ) -> Result<Option<PathBuf>, EngineError> {
             self.convert_calls.fetch_add(1, Ordering::Relaxed);
             self.convert_timeouts.lock().unwrap().push(timeout);
+            self.convert_passwords
+                .lock()
+                .unwrap()
+                .push(password.map(|p| p.expose().to_string()));
             if cancel.load(Ordering::Relaxed) {
                 return Err(EngineError::Cancelled);
             }
@@ -2368,9 +2519,12 @@ mod tests {
                     Ok(Some(p))
                 }
                 ConvertStep::Passthrough => Ok(None),
-                ConvertStep::Fail => Err(EngineError::ConversionFailed("boom".to_string())),
+                ConvertStep::Fail => Err(EngineError::ConversionFailed("boom".to_string().into())),
+                ConvertStep::Error(e) => Err(e),
                 ConvertStep::TimedOut => Err(EngineError::ConversionTimedOut(
-                    "LibreOffice did not finish within 60s and was stopped".to_string(),
+                    "LibreOffice did not finish within 60s and was stopped"
+                        .to_string()
+                        .into(),
                 )),
             }
         }
@@ -2397,7 +2551,7 @@ mod tests {
                 .unwrap_or(PrintStep::Ok(None));
             match step {
                 PrintStep::Ok(os_job_id) => Ok(SpoolOutcome { os_job_id }),
-                PrintStep::Fail => Err(EngineError::PrintFailed("boom".to_string()).into()),
+                PrintStep::Fail => Err(EngineError::PrintFailed("boom".to_string().into()).into()),
                 PrintStep::Timeout => Err(PrintError::TimedOut {
                     seconds: timeout.map(|t| t.as_secs()).unwrap_or(0),
                 }),
@@ -2942,6 +3096,233 @@ mod tests {
             1,
             "not re-converted on print retry"
         );
+    }
+
+    fn push_error(h: &Harness, e: EngineError) {
+        h.runner
+            .convert_steps
+            .lock()
+            .unwrap()
+            .push_back(ConvertStep::Error(e));
+    }
+
+    fn password(p: &str) -> PdfPassword {
+        PdfPassword::new(p.to_string()).unwrap()
+    }
+
+    /// FR-058: a file whose format the engine cannot print fails at once.
+    /// Retrying never changes a file's format, so it used to burn three
+    /// pointless retries first.
+    #[tokio::test]
+    async fn fr_058_unsupported_format_is_terminal() {
+        let mut h = harness();
+        push_error(&h, EngineError::UnsupportedFormat("exe".into()));
+        let j = make_job("setup.exe");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+
+        let job = h.job(&id);
+        assert_eq!(job.state, JobState::Failed);
+        assert_eq!(job.error.unwrap().code, "unsupported_format");
+        assert_eq!(h.runner.convert_calls.load(Ordering::Relaxed), 1);
+        assert!(!h.d.delayed.contains_key(&id), "no retry is scheduled");
+    }
+
+    /// FR-059: a PDF that forbids printing, or whose encryption cannot be
+    /// read, fails at once with its reason; no retry and no password changes
+    /// that.
+    #[tokio::test]
+    async fn fr_059_printing_not_allowed_is_terminal() {
+        for (protection, reason) in [
+            (PdfProtection::PrintingNotAllowed, "printing_not_allowed"),
+            (
+                PdfProtection::Unsupported("V9".into()),
+                "unsupported_encryption",
+            ),
+        ] {
+            let mut h = harness();
+            push_error(&h, EngineError::PdfProtected(protection));
+            let j = make_job("locked.pdf");
+            let id = j.id.clone();
+            h.submit(vec![j]);
+            h.run_to_idle();
+
+            let job = h.job(&id);
+            assert_eq!(job.state, JobState::Failed);
+            assert!(!job.needs_password());
+            let err = job.error.unwrap();
+            assert_eq!(err.code, "pdf_protected");
+            assert_eq!(err.reason.as_deref(), Some(reason));
+            assert_eq!(h.runner.convert_calls.load(Ordering::Relaxed), 1);
+        }
+    }
+
+    /// FR-059: a PDF that needs a password pauses (no retry, never "no
+    /// pages") in the state the GUI acts on; the password the user then
+    /// supplies reaches the converter and the job resumes. It lives in memory
+    /// only: once used it is forgotten.
+    #[tokio::test]
+    async fn fr_059_password_required_pauses_until_a_password_is_supplied() {
+        let mut h = harness();
+        push_error(
+            &h,
+            EngineError::PdfProtected(PdfProtection::PasswordRequired),
+        );
+        let j = make_job("secret.pdf");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+
+        let job = h.job(&id);
+        assert_eq!(job.state, JobState::Paused);
+        assert!(job.needs_password(), "{:?}", job.error);
+        assert_eq!(job.attempts, 0, "no retry for a missing password");
+        assert_eq!(
+            job.error.as_ref().unwrap().reason.as_deref(),
+            Some("password_required")
+        );
+
+        let pid = id.clone();
+        h.request(|reply| Cmd::SupplyPassword {
+            id: pid,
+            password: password("hunter2"),
+            apply_to_batch: false,
+            reply,
+        })
+        .await
+        .unwrap();
+        h.run_to_idle();
+
+        assert_eq!(h.job(&id).state, JobState::Done);
+        assert_eq!(
+            *h.runner.convert_passwords.lock().unwrap(),
+            vec![None, Some("hunter2".to_string())]
+        );
+        assert!(h.d.passwords.is_empty(), "the password is not kept");
+        let persisted = std::fs::read_to_string(&h.d.queue_file).unwrap_or_default();
+        assert!(
+            !persisted.contains("hunter2"),
+            "never written to queue.json"
+        );
+    }
+
+    /// FR-059: a wrong password pauses the job again, asking anew, and the
+    /// wrong password is forgotten.
+    #[tokio::test]
+    async fn fr_059_a_wrong_password_asks_again() {
+        let mut h = harness();
+        push_error(
+            &h,
+            EngineError::PdfProtected(PdfProtection::PasswordRequired),
+        );
+        push_error(
+            &h,
+            EngineError::PdfProtected(PdfProtection::PasswordIncorrect),
+        );
+        let j = make_job("secret.pdf");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        let pid = id.clone();
+        h.request(|reply| Cmd::SupplyPassword {
+            id: pid,
+            password: password("wrong"),
+            apply_to_batch: false,
+            reply,
+        })
+        .await
+        .unwrap();
+        h.run_to_idle();
+
+        let job = h.job(&id);
+        assert_eq!(job.state, JobState::Paused);
+        assert!(job.needs_password());
+        assert_eq!(
+            job.error.unwrap().reason.as_deref(),
+            Some("password_incorrect")
+        );
+        assert!(h.d.passwords.is_empty());
+    }
+
+    /// FR-059: only a job that is waiting for a password takes one, and
+    /// "apply to the batch" resumes the batch's other waiting PDFs with it.
+    #[tokio::test]
+    async fn fr_059_supply_password_checks_state_and_applies_to_the_batch() {
+        let mut h = harness();
+        let plain = make_job("plain.pdf");
+        let plain_id = plain.id.clone();
+        h.submit(vec![plain]);
+        h.run_to_idle();
+        let pid = plain_id.clone();
+        let err = h
+            .request(|reply| Cmd::SupplyPassword {
+                id: pid,
+                password: password("x"),
+                apply_to_batch: false,
+                reply,
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.reason(), Some("job_not_waiting_password"));
+        let missing = h
+            .request(|reply| Cmd::SupplyPassword {
+                id: "nope".into(),
+                password: password("x"),
+                apply_to_batch: false,
+                reply,
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(missing, IpcError::JobNotFound(_)));
+
+        push_error(
+            &h,
+            EngineError::PdfProtected(PdfProtection::PasswordRequired),
+        );
+        push_error(
+            &h,
+            EngineError::PdfProtected(PdfProtection::PasswordRequired),
+        );
+        let a = make_job("a.pdf");
+        let b = make_job("b.pdf");
+        let (a_id, b_id) = (a.id.clone(), b.id.clone());
+        h.submit(vec![a, b]);
+        h.run_to_idle();
+        assert!(h.job(&a_id).needs_password() && h.job(&b_id).needs_password());
+
+        let aid = a_id.clone();
+        h.request(|reply| Cmd::SupplyPassword {
+            id: aid,
+            password: password("same"),
+            apply_to_batch: true,
+            reply,
+        })
+        .await
+        .unwrap();
+        h.run_to_idle();
+        assert_eq!(h.job(&a_id).state, JobState::Done);
+        assert_eq!(h.job(&b_id).state, JobState::Done);
+    }
+
+    /// FR-092: an engine failure's stable reason and params reach the job
+    /// error, with the English detail kept as the fallback.
+    #[test]
+    fn fr_092_engine_failure_reason_reaches_the_job_error() {
+        let e = to_job_error(&EngineError::ConversionFailed(
+            crate::engine::Failure::new("cannot_read_input", "cannot open a.pdf: denied")
+                .param("file", "a.pdf"),
+        ));
+        assert_eq!(e.code, "conversion_failed");
+        assert_eq!(e.reason.as_deref(), Some("cannot_read_input"));
+        assert_eq!(
+            params(&e),
+            [("detail", "cannot open a.pdf: denied"), ("file", "a.pdf")]
+        );
+
+        let e = to_job_error(&EngineError::PdfProtected(PdfProtection::PasswordRequired));
+        assert_eq!(e.code, "pdf_protected");
+        assert_eq!(e.reason.as_deref(), Some("password_required"));
     }
 
     #[tokio::test]

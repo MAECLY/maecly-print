@@ -100,6 +100,22 @@ pub const SANDBOX_ARGS: &[&str] = &[
     "--disable-features=NetworkPrediction",
 ];
 
+/// Convert the HTML page at `input` into a PDF at `output`, laid out on the
+/// job's paper. The route's entry point: it resolves what it needs itself
+/// (today a Chromium-class browser; the system web view once lane L4 lands,
+/// with the browser as the fallback of D15).
+pub fn convert(
+    input: &Path,
+    output: &Path,
+    work: &WorkDir,
+    cancel: &AtomicBool,
+    timeout: Option<Duration>,
+    setup: &PageSetup,
+) -> Result<(), EngineError> {
+    let browser = super::locate(crate::engine::deps::Dependency::Chromium)?;
+    convert_with(&browser, input, output, work, cancel, timeout, setup)
+}
+
 /// Render the local HTML file `page` with the browser at `browser` into
 /// `output`, on the paper `setup` names.
 ///
@@ -145,7 +161,7 @@ fn staged_page(page: &Path, work: &WorkDir, setup: &PageSetup) -> Result<PathBuf
         return Ok(page.to_path_buf());
     };
     let html = std::fs::read(page).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot read {}: {e}", page.display()))
+        EngineError::ConversionFailed(format!("cannot read {}: {e}", page.display()).into())
     })?;
     let mut base = file_url(page.parent().unwrap_or_else(|| Path::new(".")));
     if !base.ends_with('/') {
@@ -156,7 +172,7 @@ fn staged_page(page: &Path, work: &WorkDir, setup: &PageSetup) -> Result<PathBuf
     };
     let staged = work.path().join("page.html");
     std::fs::write(&staged, staged_html).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot prepare the conversion folder: {e}"))
+        EngineError::ConversionFailed(format!("cannot prepare the conversion folder: {e}").into())
     })?;
     Ok(staged)
 }

@@ -271,6 +271,13 @@ impl Spec {
 /// output is printed by the same browser.
 const CHROMIUM_BLOCKS: &[&str] = &["html", "htm", "md", "markdown"];
 
+/// What a missing LibreOffice blocks: the Office route, plus plain text, which
+/// the text route's interim converter still hands to LibreOffice (FR-057's
+/// native decoder replaces it; `txt` leaves this list with it).
+const LIBREOFFICE_BLOCKS: &[&str] = &[
+    "docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp", "rtf", "txt",
+];
+
 /// The facts about `dep` on `os`.
 pub fn spec(dep: Dependency, os: Os) -> Spec {
     match dep {
@@ -299,7 +306,7 @@ pub fn spec(dep: Dependency, os: Os) -> Spec {
                 _ => &["soffice"],
             },
             bundle_subdir: "libreoffice",
-            blocks: crate::engine::convert::OFFICE_EXTS,
+            blocks: LIBREOFFICE_BLOCKS,
             effect: "Office, OpenDocument, TXT and RTF files cannot be printed until \
                      it is installed. Download it free from https://www.libreoffice.org/download",
         },

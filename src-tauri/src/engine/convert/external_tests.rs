@@ -380,6 +380,7 @@ fn convert_real_on(input: &Path, cache: &Path, job: &str, page: &PageSetup) -> P
         &no_progress(),
         REAL_TIMEOUT,
         page,
+        None,
     )
     .unwrap_or_else(|e| panic!("convert {}: {e}", input.display()))
     .expect("a converted document yields a cache PDF")
@@ -687,6 +688,7 @@ fn fr_052_corrupt_heic_is_a_conversion_failure_not_a_crash() {
         &no_progress(),
         REAL_TIMEOUT,
         &PageSetup::default(),
+        None,
     )
     .unwrap_err();
     assert!(matches!(err, EngineError::ConversionFailed(_)), "{err:?}");

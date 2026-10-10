@@ -381,7 +381,9 @@ pub fn spool(
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| {
-            EngineError::DependencyMissing(format!("failed to run `lp` (is CUPS installed?): {e}"))
+            EngineError::DependencyMissing(
+                format!("failed to run `lp` (is CUPS installed?): {e}").into(),
+            )
         })?;
 
     let status = super::wait_with_timeout(&mut child, timeout)?;
@@ -403,9 +405,9 @@ pub fn spool(
     } else {
         let msg = stderr.trim();
         Err(EngineError::PrintFailed(if msg.is_empty() {
-            format!("lp exited with {status}")
+            format!("lp exited with {status}").into()
         } else {
-            msg.to_string()
+            msg.to_string().into()
         })
         .into())
     }

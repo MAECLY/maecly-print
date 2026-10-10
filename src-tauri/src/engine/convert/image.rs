@@ -55,7 +55,7 @@ pub fn to_pdf(
     let (width, height) = (rgb.width(), rgb.height());
     if width == 0 || height == 0 {
         return Err(EngineError::ConversionFailed(
-            "image has zero width or height".to_string(),
+            "image has zero width or height".to_string().into(),
         ));
     }
 
@@ -73,7 +73,7 @@ pub fn to_pdf(
 pub fn rgb_to_pdf(width: u32, height: u32, rgb: Vec<u8>, output: &Path) -> Result<(), EngineError> {
     if width == 0 || height == 0 || rgb.len() != width as usize * height as usize * 3 {
         return Err(EngineError::ConversionFailed(
-            "decoded image has an inconsistent size".to_string(),
+            "decoded image has an inconsistent size".to_string().into(),
         ));
     }
     write_pdf(build_single_page_pdf(width, height, rgb), output)
@@ -84,7 +84,7 @@ pub fn rgb_to_pdf(width: u32, height: u32, rgb: Vec<u8>, output: &Path) -> Resul
 /// default).
 fn decode_rgb8(input: &Path) -> Result<RgbImage, EngineError> {
     let mut reader = ImageReader::open(input).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot open image {}: {e}", input.display()))
+        EngineError::ConversionFailed(format!("cannot open image {}: {e}", input.display()).into())
     })?;
 
     let mut limits = Limits::default();
@@ -96,12 +96,12 @@ fn decode_rgb8(input: &Path) -> Result<RgbImage, EngineError> {
     // Sniff the real format from magic bytes rather than trusting the
     // extension, so e.g. a JPEG saved as `.png` still decodes.
     let reader = reader.with_guessed_format().map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot read image {}: {e}", input.display()))
+        EngineError::ConversionFailed(format!("cannot read image {}: {e}", input.display()).into())
     })?;
 
     let decoded = reader
         .decode()
-        .map_err(|e| EngineError::ConversionFailed(e.to_string()))?;
+        .map_err(|e| EngineError::ConversionFailed(e.to_string().into()))?;
 
     Ok(decoded.to_rgb8())
 }
@@ -185,10 +185,10 @@ fn page_size_pt(width: u32, height: u32) -> (f32, f32) {
 
 fn write_pdf(mut doc: Document, output: &Path) -> Result<(), EngineError> {
     let mut file = std::fs::File::create(output).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot create {}: {e}", output.display()))
+        EngineError::ConversionFailed(format!("cannot create {}: {e}", output.display()).into())
     })?;
     doc.save_to(&mut file).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot write PDF {}: {e}", output.display()))
+        EngineError::ConversionFailed(format!("cannot write PDF {}: {e}", output.display()).into())
     })?;
     Ok(())
 }

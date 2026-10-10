@@ -136,6 +136,25 @@ pub fn pandoc_args(
         input.to_string_lossy().into_owned(),
     ]
 }
+/// Convert the Markdown file at `input` into a PDF at `output`, laid out on
+/// the job's paper. The route's entry point: it resolves what it needs itself
+/// (today Pandoc and a browser; `pulldown-cmark` and the system web view once
+/// lane L4 lands).
+pub fn convert(
+    input: &Path,
+    output: &Path,
+    work: &WorkDir,
+    cancel: &AtomicBool,
+    timeout: Option<Duration>,
+    page_setup: &PageSetup,
+) -> Result<(), EngineError> {
+    use crate::engine::deps::Dependency;
+    let pandoc = super::locate(Dependency::Pandoc)?;
+    let browser = super::locate(Dependency::Chromium)?;
+    convert_with(
+        &pandoc, &browser, input, output, work, cancel, timeout, page_setup,
+    )
+}
 
 /// Convert `input` with Pandoc at `pandoc`, then print the page with the
 /// browser at `browser` into `output`. The whole pipeline shares one
@@ -158,7 +177,9 @@ pub fn convert_with(
     std::fs::write(&header, head_fragment(source_dir, page_setup))
         .and_then(|()| std::fs::write(&filter, LOCAL_IMAGES_LUA))
         .map_err(|e| {
-            EngineError::ConversionFailed(format!("cannot prepare the conversion folder: {e}"))
+            EngineError::ConversionFailed(
+                format!("cannot prepare the conversion folder: {e}").into(),
+            )
         })?;
     let page = work.path().join("page.html");
     let title = input
@@ -173,14 +194,18 @@ pub fn convert_with(
     run_bounded(cmd, "Pandoc", cancel, timeout, &log)?;
     if !page.is_file() {
         return Err(EngineError::ConversionFailed(
-            "Pandoc finished without producing a page".to_string(),
+            "Pandoc finished without producing a page"
+                .to_string()
+                .into(),
         ));
     }
 
     let remaining = timeout.map(|t| t.saturating_sub(started.elapsed()));
     if remaining == Some(Duration::ZERO) {
         return Err(EngineError::ConversionFailed(
-            "Pandoc used the whole conversion time budget".to_string(),
+            "Pandoc used the whole conversion time budget"
+                .to_string()
+                .into(),
         ));
     }
     // The page already carries the paper size in its header.
