@@ -59,6 +59,7 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
+    /// The headless subcommand; `None` means "open the app".
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -96,27 +97,33 @@ impl std::fmt::Display for ContextAction {
     }
 }
 
+/// The headless subcommands (§3.2). Each runs to completion and exits
+/// without creating a window.
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum Command {
     /// Print one or more files.
     Print(PrintArgs),
     /// Inspect the printers installed on this machine.
     Printers {
+        /// Which printers action to run.
         #[command(subcommand)]
         cmd: PrintersCmd,
     },
     /// Manage print profiles.
     Profiles {
+        /// Which profiles action to run.
         #[command(subcommand)]
         cmd: ProfilesCmd,
     },
     /// Inspect and control the persisted print queue.
     Queue {
+        /// Which queue action to run.
         #[command(subcommand)]
         cmd: QueueCmd,
     },
     /// Check for a newer MaeclyPrint release.
     Update {
+        /// Which update action to run.
         #[command(subcommand)]
         cmd: UpdateCmd,
     },
@@ -145,6 +152,7 @@ pub struct PrintArgs {
     #[arg(long, value_name = "NAME")]
     pub printer: Option<String>,
 
+    /// Per-job overrides layered on top of the chosen profile.
     #[command(flatten)]
     pub settings: SettingFlags,
 
@@ -207,12 +215,14 @@ pub struct SettingFlags {
     pub no_collate: bool,
 }
 
+/// `maeclyprint printers …` actions.
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum PrintersCmd {
     /// List every printer the OS spooler knows about.
     List,
 }
 
+/// `maeclyprint profiles …` actions.
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum ProfilesCmd {
     /// List every profile, built-ins first.
@@ -239,6 +249,7 @@ pub enum ProfilesCmd {
         /// Input tray.
         #[arg(long, value_name = "TRAY")]
         tray: Option<String>,
+        /// Settings stored in the new profile, on top of `--from`'s.
         #[command(flatten)]
         settings: SettingFlags,
     },
@@ -254,6 +265,7 @@ pub enum ProfilesCmd {
     },
 }
 
+/// `maeclyprint queue …` actions.
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum QueueCmd {
     /// Show the persisted queue.
@@ -271,6 +283,7 @@ pub enum QueueCmd {
     CancelAll,
 }
 
+/// `maeclyprint update …` actions.
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum UpdateCmd {
     /// Ask whether a newer release exists (GitHub releases, or the manifest
@@ -300,14 +313,19 @@ pub enum UpdateCmd {
 // the translation lives in exactly one place.
 // ---------------------------------------------------------------------------
 
+/// `--duplex` values, in the profile vocabulary the UI shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CliDuplex {
+    /// Single-sided.
     Off,
+    /// Two-sided, flipped on the long edge (book style).
     LongEdge,
+    /// Two-sided, flipped on the short edge (notepad style).
     ShortEdge,
 }
 
 impl CliDuplex {
+    /// The engine's spelling of this mode.
     pub fn to_engine(self) -> Duplex {
         match self {
             CliDuplex::Off => Duplex::None,
@@ -316,6 +334,7 @@ impl CliDuplex {
         }
     }
 
+    /// The profile's spelling of this mode.
     pub fn to_profile(self) -> ProfileDuplex {
         match self {
             CliDuplex::Off => ProfileDuplex::Off,
@@ -333,15 +352,19 @@ pub fn parse_paper(name: &str) -> Result<PaperSize, String> {
     PaperSize::parse(name)
 }
 
+/// `--scale` values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CliScale {
+    /// Scale every page to fill the printable area.
     Fit,
+    /// Shrink pages that do not fit; leave smaller pages at their size.
     Shrink,
     /// The engine's `none`: print at the source's actual size.
     Actual,
 }
 
 impl CliScale {
+    /// The engine's spelling of this mode.
     pub fn to_engine(self) -> Scaling {
         match self {
             CliScale::Fit => Scaling::Fit,
@@ -351,14 +374,19 @@ impl CliScale {
     }
 }
 
+/// `--orientation` values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CliOrientation {
+    /// Pick per page from its aspect ratio.
     Auto,
+    /// Force portrait.
     Portrait,
+    /// Force landscape.
     Landscape,
 }
 
 impl CliOrientation {
+    /// The engine's spelling of this orientation.
     pub fn to_engine(self) -> Orientation {
         match self {
             CliOrientation::Auto => Orientation::Auto,
@@ -368,14 +396,19 @@ impl CliOrientation {
     }
 }
 
+/// `--quality` values for `profiles create`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CliQuality {
+    /// Fastest, lowest ink use.
     Draft,
+    /// The driver's standard quality.
     Normal,
+    /// Best quality the driver offers.
     High,
 }
 
 impl CliQuality {
+    /// The profile's spelling of this quality.
     pub fn to_profile(self) -> Quality {
         match self {
             CliQuality::Draft => Quality::Draft,
@@ -385,14 +418,20 @@ impl CliQuality {
     }
 }
 
+/// `update channel` values (FR-085). Persisted only: today every channel
+/// resolves to the same release feed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CliChannel {
+    /// Final releases (the default).
     Stable,
+    /// Beta pre-releases.
     Beta,
+    /// Nightly builds.
     Nightly,
 }
 
 impl CliChannel {
+    /// The settings' spelling of this channel.
     pub fn to_settings(self) -> crate::settings::UpdateChannel {
         use crate::settings::UpdateChannel;
         match self {

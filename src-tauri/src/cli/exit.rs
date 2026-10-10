@@ -116,7 +116,9 @@ pub fn exit_code_for(err: &IpcError) -> ExitCode {
 /// code it produces.
 #[derive(Debug)]
 pub struct CliError {
+    /// Process exit code this failure maps to.
     pub exit: ExitCode,
+    /// What went wrong, in the same vocabulary the IPC layer uses.
     pub error: IpcError,
 }
 

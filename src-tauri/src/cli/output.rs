@@ -16,10 +16,12 @@ use crate::cli::exit::CliError;
 /// flag and threaded through the command implementations.
 #[derive(Debug, Clone, Copy)]
 pub struct Emitter {
+    /// `--json` was given: print JSON documents instead of human text.
     pub json: bool,
 }
 
 impl Emitter {
+    /// An emitter for the given `--json` setting.
     pub fn new(json: bool) -> Self {
         Self { json }
     }

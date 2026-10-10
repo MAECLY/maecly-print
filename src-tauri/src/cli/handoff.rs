@@ -55,6 +55,7 @@ pub const ORPHAN_HANDOFF_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 /// The selection a shell extension serialized for us.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Handoff {
+    /// Payload format version; must equal [`HANDOFF_SCHEMA_VERSION`].
     pub schema_version: u32,
     /// Which integration wrote the file, e.g. `windows-explorer`, `macos-services`.
     #[serde(default)]
@@ -64,11 +65,13 @@ pub struct Handoff {
     /// an *unknown* value is a parse error, never a silent default.
     #[serde(default)]
     pub action: Option<super::args::ContextAction>,
+    /// Profile to apply, when the menu entry named one (overrides `--profile`).
     #[serde(default)]
     pub profile_id: Option<String>,
     /// RFC 3339 UTC timestamp of the invocation.
     #[serde(default)]
     pub invoked_at: String,
+    /// The selected files and folders, as the shell reported them.
     pub paths: Vec<String>,
     /// How many items the user actually selected, when the writer had to cut
     /// the selection down to [`MAX_HANDOFF_PATHS`]. `None` (or absent, for an

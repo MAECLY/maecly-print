@@ -84,6 +84,7 @@ pub enum Startup {
     Exit(i32),
     /// Boot the GUI, pre-loading `selection` when there is one.
     Gui {
+        /// The parsed context-menu selection, or `None` for a plain launch.
         selection: Option<Selection>,
         /// The handoff file `selection` was read out of, still on disk.
         ///

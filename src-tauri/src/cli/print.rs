@@ -63,6 +63,7 @@ pub(crate) fn load_config(path: &Path) -> Result<crate::settings::Config, CliErr
 /// What happened to one file.
 #[derive(Debug, Clone, Serialize)]
 pub struct FileOutcome {
+    /// The input path as given (after wildcard and folder expansion).
     pub path: String,
     /// Where this file actually went. Per file because a file-type routing rule
     /// can split one batch across printers.
@@ -73,6 +74,7 @@ pub struct FileOutcome {
     pub state: String,
     /// The spooler's own job id, when the backend reports one (CUPS does).
     pub os_job_id: Option<String>,
+    /// Why the file failed, when `state` is `failed`.
     pub error: Option<JobError>,
 }
 
@@ -80,13 +82,17 @@ pub struct FileOutcome {
 /// one row per file.
 #[derive(Debug, Clone, Serialize)]
 pub struct PrintReport {
+    /// Id of the queue batch this run created.
     pub batch_id: String,
     /// The batch target: the shared printer, or `<per file type>` when routing
     /// rules split the batch. The authoritative per-file value lives in
     /// [`FileOutcome::printer`].
     pub printer: String,
+    /// Name of the profile the settings came from, if one was used.
     pub profile_name: Option<String>,
+    /// The settings every file was printed with.
     pub settings: JobSettings,
+    /// One row per input file, in input order.
     pub files: Vec<FileOutcome>,
     /// The exit code the process will return (the worst among the files).
     pub exit_code: i32,
@@ -340,7 +346,9 @@ fn check_ranges(settings: &JobSettings, files: &[String]) -> Result<(), CliError
 /// whenever the print budget was disabled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Timeouts {
+    /// Budget for one conversion (`None` = unbounded).
     pub conversion: Option<std::time::Duration>,
+    /// Budget for one spooler submission (`None` = unbounded).
     pub print: Option<std::time::Duration>,
 }
 
