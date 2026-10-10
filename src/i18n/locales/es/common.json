@@ -68,7 +68,8 @@
       "UpdateCheckFailed": "No se pudo comprobar si hay actualizaciones: {{detail}}",
       "UpdateInstallFailed": "No se pudo instalar la actualización: {{detail}}",
       "UpdateSignatureInvalid": "La actualización descargada no superó la comprobación de firma y no se instaló.",
-      "Internal": "Error interno: {{detail}}"
+      "Internal": "Error interno: {{detail}}",
+      "PdfProtected": "Este PDF está protegido y no se puede imprimir tal cual."
     },
     "reasons": {
       "UpdateCheckFailed": {
@@ -84,7 +85,12 @@
         "open_link_failed": "No se pudo abrir el enlace en el navegador.",
         "config_corrupt": "No se pudo leer config.toml. Corrígelo o elimínalo; tu configuración no ha cambiado.",
         "profiles_corrupt": "No se pudo leer profiles.toml. Corrígelo o elimínalo; no se ha cambiado nada.",
-        "profiles_invalid_entries": "profiles.toml tiene entradas duplicadas o no válidas. Corrígelo o elimínalo; no se ha cambiado nada."
+        "profiles_invalid_entries": "profiles.toml tiene entradas duplicadas o no válidas. Corrígelo o elimínalo; no se ha cambiado nada.",
+        "path_unresolvable": "No se pudo abrir «{{path}}».",
+        "printer_list_unstable": "La lista de impresoras cambió mientras se leía. Vuelve a intentarlo.",
+        "printer_query_failed": "Windows notificó un error al leer las impresoras.",
+        "discovery_failed": "Falló la búsqueda de impresoras en la red.",
+        "update_state_save_failed": "No se pudo guardar tu elección sobre la actualización."
       },
       "InvalidRequest": {
         "url_not_allowed": "Ese enlace no está en la lista de sitios permitidos.",
@@ -107,14 +113,39 @@
         "add_printer_unsupported_scheme": "Pluryprint no puede añadir una impresora mediante {{scheme}}://. Añádela desde la configuración de impresoras del sistema.",
         "major_update_unconfirmed": "{{version}} es una actualización mayor desde {{current}}; solo se instala cuando la confirmas.",
         "major_update_changed": "Confirmaste {{confirmed}}, pero la actualización disponible ahora es {{version}}. Vuelve a buscar actualizaciones y confirma esa versión.",
-        "reserved_id": "Los identificadores de perfil que empiezan por «builtin-» están reservados."
+        "reserved_id": "Los identificadores de perfil que empiezan por «builtin-» están reservados.",
+        "no_files": "No se ha seleccionado ningún archivo para imprimir.",
+        "not_a_file": "«{{name}}» no es un archivo.",
+        "file_too_large": "«{{name}}» supera el límite de {{limit}} MB.",
+        "page_range_empty": "El intervalo de páginas está vacío.",
+        "tray_empty": "Elige una bandeja de entrada.",
+        "page_range_empty_entry": "El intervalo de páginas tiene una entrada vacía en la posición {{position}}.",
+        "page_range_incomplete": "«{{entry}}» no es un intervalo completo; escríbelo como «2-5».",
+        "page_range_backwards": "El intervalo «{{entry}}» va al revés: {{start}} es mayor que {{end}}.",
+        "page_number_invalid": "«{{token}}» no es un número de página válido.",
+        "page_number_zero": "Los números de página empiezan en 1, no en 0.",
+        "page_range_outside_one": "«{{name}}»: {{span}} queda fuera del documento, que solo tiene 1 página.",
+        "page_range_outside_other": "«{{name}}»: {{span}} queda fuera del documento, que solo tiene {{count}} páginas.",
+        "setting_out_of_range": "{{field}} debe estar entre {{min}} y {{max}}.",
+        "setting_out_of_range_or_off": "{{field}} debe ser 0 (desactivado) o estar entre {{min}} y {{max}}.",
+        "locale_empty": "Elige un idioma.",
+        "path_empty": "La ruta está vacía.",
+        "path_not_absolute": "«{{path}}» no es una ruta completa.",
+        "printer_uri_invalid": "La dirección de la impresora no es válida.",
+        "printer_option_invalid": "El tamaño de papel o la bandeja configurados para esta impresora no son válidos.",
+        "password_empty": "Escribe la contraseña del PDF."
       },
       "DependencyMissing": {
         "ippfind_missing": "La detección en red necesita las herramientas cliente de CUPS (ippfind), que no están instaladas."
       },
       "PrintFailed": {
         "set_default_failed": "Windows no pudo establecer la impresora predeterminada.",
-        "add_printer_needs_admin": "Añadir una impresora puede requerir permisos de administrador. Usa «Abrir la configuración de impresoras» para añadirla desde Windows."
+        "add_printer_needs_admin": "Añadir una impresora puede requerir permisos de administrador. Usa «Abrir la configuración de impresoras» para añadirla desde Windows.",
+        "spooler_down": "El servicio Cola de impresión de Windows no se está ejecutando. Inícialo (Servicios → Cola de impresión) y vuelve a intentarlo.",
+        "add_printer_no_ippurl": "Esta versión de Windows no puede añadir una impresora IPP desde Pluryprint. Usa «Abrir la configuración de impresoras» para añadirla desde Windows.",
+        "add_printer_failed": "El sistema no pudo añadir la impresora. La carpeta de registros tiene los detalles.",
+        "cups_unavailable": "El servicio de impresión del sistema (CUPS) no respondió.",
+        "test_page_failed": "No se pudo preparar la página de prueba."
       },
       "UpdateSignatureInvalid": {
         "signature_rejected": "La actualización descargada no superó la comprobación de firma y NO se instaló. Puede haber sido manipulada o haberse dañado durante la descarga; no se ha cambiado nada en este equipo. Inténtalo más tarde o descarga la versión desde la página de versiones."
@@ -122,14 +153,33 @@
       "UpdateInstallFailed": {
         "download_failed": "No se pudo descargar la actualización. Comprueba la conexión e inténtalo de nuevo.",
         "no_platform_update": "Esta versión todavía no ofrece una actualización para esta plataforma.",
-        "not_an_installed_app": "Esta copia de Pluryprint no es una aplicación instalada, así que no puede actualizarse sola. Descarga la versión desde la página de versiones."
+        "not_an_installed_app": "Esta copia de Pluryprint no es una aplicación instalada, así que no puede actualizarse sola. Descarga la versión desde la página de versiones.",
+        "install_failed": "No se pudo instalar la actualización. La carpeta de registros tiene los detalles.",
+        "bad_endpoint": "La dirección de actualizaciones de esta versión no es válida.",
+        "app_not_located": "Pluryprint no encontró su propia instalación para actualizarla."
       },
       "InvalidState": {
         "update_in_progress": "Ya se está instalando una actualización.",
         "resume_no_printer": "No hay ninguna impresora configurada. Añade una o elige una predeterminada en la pantalla Impresoras y reanuda este trabajo.",
         "resume_printer_missing": "La impresora «{{printer}}» sigue sin estar instalada y no hay otra configurada. Vuelve a instalarla o reasígnala en la pantalla Impresoras y reanuda este trabajo.",
         "resume_printer_ambiguous": "Hay varias impresoras con el nombre «{{printer}}». Elige una en la pantalla Impresoras o elimina la duplicada y reanuda este trabajo.",
-        "resume_printer_disabled": "La impresora «{{printer}}» está desactivada en Pluryprint. Actívala en la pantalla Impresoras y reanuda este trabajo."
+        "resume_printer_disabled": "La impresora «{{printer}}» está desactivada en Pluryprint. Actívala en la pantalla Impresoras y reanuda este trabajo.",
+        "job_finished": "Este trabajo ya ha terminado.",
+        "job_printing": "Este trabajo ya se está imprimiendo y no se puede pausar.",
+        "job_not_paused": "Solo se puede reanudar un trabajo en pausa.",
+        "job_not_failed": "Solo se puede reintentar un trabajo que ha fallado.",
+        "job_cancelled": "Se canceló el trabajo.",
+        "job_not_waiting_password": "Este trabajo no está esperando ninguna contraseña."
+      },
+      "UnsupportedFormat": {
+        "not_printable": "Pluryprint no puede imprimir archivos como «{{name}}».",
+        "gif_not_supported": "«{{name}}» es una imagen GIF y el formato GIF no se admite. Conviértela antes a PNG o JPEG."
+      },
+      "PdfProtected": {
+        "password_required": "Este PDF está protegido con contraseña. Escríbela para imprimir el archivo.",
+        "password_incorrect": "Esa contraseña no abre este PDF. Revísala y vuelve a intentarlo.",
+        "printing_not_allowed": "El autor de este PDF no permite imprimirlo.",
+        "unsupported_encryption": "Este PDF usa un tipo de cifrado que Pluryprint no puede abrir."
       }
     },
     "noHost": "Esto necesita la aplicación de escritorio (se está ejecutando en una vista previa del navegador)."
@@ -143,5 +193,37 @@
   },
   "dialog": {
     "close": "Cerrar el diálogo"
+  },
+  "deps": {
+    "sumatra-pdf": {
+      "remediation": "Falta SumatraPDF, así que no se puede imprimir ningún archivo en Windows. Instala SumatraPDF o coloca SumatraPDF.exe junto a Pluryprint.exe."
+    },
+    "libre-office": {
+      "remediation": "Falta LibreOffice, así que no se pueden imprimir archivos de Office, OpenDocument ni RTF. Descárgalo gratis desde https://www.libreoffice.org/download"
+    },
+    "chromium": {
+      "remediation": "Falta Microsoft Edge o Google Chrome, así que no se pueden imprimir archivos HTML ni Markdown. Instala Microsoft Edge (https://www.microsoft.com/edge) o Google Chrome (https://www.google.com/chrome)."
+    },
+    "pandoc": {
+      "remediation": "Falta Pandoc, así que no se pueden imprimir archivos Markdown. Descárgalo desde https://pandoc.org/installing.html"
+    },
+    "heif-codec": {
+      "remediation": "Falta el descodificador de imágenes HEIF, así que no se pueden imprimir fotos HEIC/HEIF. Instala «Extensiones de imagen HEIF» (y «Extensiones de vídeo HEVC» para .heic) desde Microsoft Store y vuelve a intentar el trabajo."
+    },
+    "hevc-codec": {
+      "remediation": "Falta el descodificador de vídeo HEVC que necesita esta foto HEIC. Instala «Extensiones de vídeo HEVC» desde Microsoft Store y vuelve a intentar el trabajo."
+    },
+    "no-heif-decoder": {
+      "remediation": "No hay ningún descodificador de imágenes HEIF en este sistema. Convierte antes la foto a JPEG o PNG."
+    },
+    "sips": {
+      "remediation": "No se encontró sips, la herramienta de imágenes de macOS."
+    },
+    "cups": {
+      "remediation": "No se pudo iniciar el servicio de impresión del sistema (CUPS). Comprueba que la impresión está configurada en este equipo."
+    },
+    "no-print-backend": {
+      "remediation": "La impresión no está disponible en esta plataforma."
+    }
   }
 }

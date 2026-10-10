@@ -134,11 +134,13 @@
       "printer_disabled": "Printer “{{printer}}” was removed from Pluryprint. Restore it on the Printers screen, or choose another printer.",
       "os_cancelled": "The job was cancelled in the system print queue.",
       "print_aborted": "The printer aborted the job. Check the printer, then retry.",
-      "interrupted_by_shutdown": "Pluryprint was closed while this job was in progress."
+      "interrupted_by_shutdown": "Pluryprint was closed while this job was in progress.",
+      "pdf_protected": "This PDF is protected and cannot be printed as it is."
     },
     "reasons": {
       "conversion_timeout": {
-        "converter": "The converter did not finish in time and was stopped: {{detail}}"
+        "converter": "The converter did not finish in time and was stopped: {{detail}}",
+        "tool_timed_out": "{{tool}} did not finish within {{secs}} s and was stopped."
       },
       "print_timeout": {
         "spooler": "Sending the job to the printer took longer than {{secs}} s and was stopped."
@@ -150,6 +152,44 @@
       "unsupported_setting": {
         "duplex": "The driver for “{{printer}}” cannot print two-sided.",
         "paper": "The driver for “{{printer}}” does not offer the paper size {{paper}}."
+      },
+      "conversion_failed": {
+        "cannot_read_input": "“{{file}}” could not be read.",
+        "workdir_failed": "Pluryprint could not prepare a temporary folder for the conversion. Check the free disk space.",
+        "cannot_write_output": "The converted PDF could not be saved. Check the free disk space.",
+        "converter_failed": "{{tool}} could not convert this file to PDF.",
+        "converter_start_failed": "{{tool}} is installed but could not be started.",
+        "converter_crashed": "{{tool}} stopped unexpectedly.",
+        "converter_no_output": "{{tool}} finished without producing a page.",
+        "pdf_invalid": "This is not a valid PDF file.",
+        "pdf_truncated": "The PDF is truncated or damaged.",
+        "pdf_no_pages": "The PDF has no pages.",
+        "pdf_decrypt_failed": "The PDF was unlocked but could not be prepared for printing.",
+        "image_damaged": "The image is damaged or uses a variant of its format that cannot be read.",
+        "heif_decode_failed": "The HEIC/HEIF photo could not be decoded; it may be damaged.",
+        "heif_size_unsupported": "HEIC/HEIF images of {{width}}×{{height}} are not supported.",
+        "svg_invalid": "This SVG file is damaged or is not a valid SVG image.",
+        "svg_too_large": "This SVG image is larger than the {{limit}} MB limit once uncompressed.",
+        "svg_convert_failed": "The SVG image could not be converted to PDF.",
+        "render_failed": "The page could not be laid out for printing.",
+        "text_unreadable": "The text file could not be read as text."
+      },
+      "print_failed": {
+        "sumatra_start_failed": "SumatraPDF could not be started.",
+        "sumatra_exit": "SumatraPDF could not send the job to the printer (exit code {{status}}).",
+        "spooler_rejected": "The system print service rejected the job.",
+        "wait_failed": "Pluryprint lost track of the print process. Check the printer before retrying."
+      },
+      "unsupported_format": {
+        "no_extension": "This file has no extension, so its type is unknown.",
+        "unsupported_type": ".{{ext}} files cannot be printed.",
+        "gif_not_supported": "GIF images are not supported. Convert the image to PNG or JPEG first."
+      },
+      "pdf_protected": {
+        "password_required": "This PDF is protected with a password. Enter it to print the file.",
+        "password_incorrect": "That password does not open this PDF. Check it and try again.",
+        "printing_not_allowed": "The author of this PDF does not allow it to be printed.",
+        "unsupported_encryption": "This PDF uses a type of encryption Pluryprint cannot open."
       }
     }
   }

@@ -134,11 +134,13 @@
       "printer_disabled": "La impresora «{{printer}}» ya no se gestiona en Pluryprint. Restáurala en la pantalla Impresoras o elige otra impresora.",
       "os_cancelled": "El trabajo se canceló en la cola de impresión del sistema.",
       "print_aborted": "La impresora interrumpió el trabajo. Revisa la impresora y vuelve a intentarlo.",
-      "interrupted_by_shutdown": "Pluryprint se cerró mientras este trabajo estaba en curso."
+      "interrupted_by_shutdown": "Pluryprint se cerró mientras este trabajo estaba en curso.",
+      "pdf_protected": "Este PDF está protegido y no se puede imprimir tal cual."
     },
     "reasons": {
       "conversion_timeout": {
-        "converter": "El conversor no terminó a tiempo y se detuvo: {{detail}}"
+        "converter": "El conversor no terminó a tiempo y se detuvo: {{detail}}",
+        "tool_timed_out": "{{tool}} no terminó en {{secs}} s y se detuvo."
       },
       "print_timeout": {
         "spooler": "El envío del trabajo a la impresora tardó más de {{secs}} s y se detuvo."
@@ -150,6 +152,44 @@
       "unsupported_setting": {
         "duplex": "El controlador de «{{printer}}» no puede imprimir a doble cara.",
         "paper": "El controlador de «{{printer}}» no ofrece el tamaño de papel {{paper}}."
+      },
+      "conversion_failed": {
+        "cannot_read_input": "No se pudo leer «{{file}}».",
+        "workdir_failed": "Pluryprint no pudo preparar una carpeta temporal para la conversión. Comprueba el espacio libre en disco.",
+        "cannot_write_output": "No se pudo guardar el PDF convertido. Comprueba el espacio libre en disco.",
+        "converter_failed": "{{tool}} no pudo convertir este archivo a PDF.",
+        "converter_start_failed": "{{tool}} está instalado, pero no se pudo iniciar.",
+        "converter_crashed": "{{tool}} se detuvo de forma inesperada.",
+        "converter_no_output": "{{tool}} terminó sin generar ninguna página.",
+        "pdf_invalid": "Este archivo no es un PDF válido.",
+        "pdf_truncated": "El PDF está incompleto o dañado.",
+        "pdf_no_pages": "El PDF no tiene páginas.",
+        "pdf_decrypt_failed": "El PDF se desbloqueó, pero no se pudo preparar para imprimirlo.",
+        "image_damaged": "La imagen está dañada o usa una variante de su formato que no se puede leer.",
+        "heif_decode_failed": "No se pudo descodificar la foto HEIC/HEIF; puede estar dañada.",
+        "heif_size_unsupported": "No se admiten imágenes HEIC/HEIF de {{width}}×{{height}}.",
+        "svg_invalid": "Este archivo SVG está dañado o no es una imagen SVG válida.",
+        "svg_too_large": "Esta imagen SVG supera el límite de {{limit}} MB una vez descomprimida.",
+        "svg_convert_failed": "No se pudo convertir la imagen SVG a PDF.",
+        "render_failed": "No se pudo maquetar la página para imprimirla.",
+        "text_unreadable": "No se pudo leer el archivo como texto."
+      },
+      "print_failed": {
+        "sumatra_start_failed": "No se pudo iniciar SumatraPDF.",
+        "sumatra_exit": "SumatraPDF no pudo enviar el trabajo a la impresora (código de salida {{status}}).",
+        "spooler_rejected": "El servicio de impresión del sistema rechazó el trabajo.",
+        "wait_failed": "Pluryprint perdió el control del proceso de impresión. Revisa la impresora antes de reintentarlo."
+      },
+      "unsupported_format": {
+        "no_extension": "Este archivo no tiene extensión, así que no se sabe de qué tipo es.",
+        "unsupported_type": "Los archivos .{{ext}} no se pueden imprimir.",
+        "gif_not_supported": "Las imágenes GIF no se admiten. Convierte antes la imagen a PNG o JPEG."
+      },
+      "pdf_protected": {
+        "password_required": "Este PDF está protegido con contraseña. Escríbela para imprimir el archivo.",
+        "password_incorrect": "Esa contraseña no abre este PDF. Revísala y vuelve a intentarlo.",
+        "printing_not_allowed": "El autor de este PDF no permite imprimirlo.",
+        "unsupported_encryption": "Este PDF usa un tipo de cifrado que Pluryprint no puede abrir."
       }
     }
   }
