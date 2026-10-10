@@ -1,6 +1,6 @@
 # About
 
-> **TL;DR** — The **About** screen: app identity and version (authoritative from Rust), an on-demand **Check for updates** that reads the GitHub "latest release" and reports whether a newer one exists, with **Install now** (signature-verified, per-user), **Remind me later** and **Skip this version**, a Components card with the real Pluryprint / React / Tauri versions and the running OS · arch, the live filesystem paths with an **Open logs folder** button, and a row of allow-listed external links (release notes, license, docs, report an issue, repository).
+> **TL;DR** — The **About** screen: app identity and version (authoritative from Rust), an on-demand **Check for updates** that reads the update manifest of the user's channel and reports whether a newer one exists, with **Install now** (signature-verified, per-user), **Remind me later** and **Skip this version**, a Components card with the real Pluryprint / React / Tauri versions and the running OS · arch, the live filesystem paths with an **Open logs folder** button, and a row of allow-listed external links (release notes, license, docs, report an issue, repository).
 
 This document is the source of truth for the **content and behavior** of the About screen (`src/screens/AboutScreen.tsx`). The update-check logic lives in `src-tauri/src/update/mod.rs`; the diagnostic/link commands in `src-tauri/src/ipc/diag.rs`. It satisfies FR-110 (an About surface showing version, a license link, and a documentation link).
 
@@ -50,13 +50,13 @@ If the call fails (the expected case in the standalone Vite dev server, which ha
 
 **Check for updates** runs `check_for_updates`, an explicit state machine — `idle` (no card) → `checking` (spinner) → `done` (result card) or `error` (message + Retry). The button is disabled outside the Tauri host.
 
-`check_for_updates` is the **check**: it resolves the project's GitHub slug from the crate's `repository`, fetches `releases/latest` via `ureq` (10-second timeout), and folds it against the running version with a semver compare into an `UpdateCheck { current, latest, available, url, notes, checked_at }`. Nothing is downloaded by a check.
+`check_for_updates` is the **check**: it reads the updater manifest (`latest.json`) of the user's channel from GitHub Releases via `ureq` (10-second timeout) — the same manifest **Install now** uses — and folds its `version` against the running version with a semver compare into an `UpdateCheck { current, latest, available, url, notes, checked_at }`. Nothing is downloaded by a check.
 
 | Result                                   | Card shown                                                                                  |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Newer release (`available: true`)        | Accent "Version {latest} is available", noting that the download is signature-checked and needs no admin rights, with **Install now**, **Release notes** (opens `url`), **Remind me later** and **Skip this version**. |
 | Up to date (`available: false`, a release found) | Success "You're up to date — version {current} · checked {HH:MM}".                    |
-| No releases published (GitHub `404`)     | Treated as a **valid up-to-date state** (`latest: null`, `available: false`) — the up-to-date card. |
+| No releases published on the channel (manifest `404`, also while the repository is private) | Treated as a **valid up-to-date state** (`latest: null`, `available: false`) — the up-to-date card. |
 | Network / rate-limit / offline           | Error card with the short user-facing message and a **Retry** button.                       |
 
 The result card is one state of a single machine (the `update` state in `AboutScreen.tsx`): `idle` → `checking` → `done` / `error`, plus `deferred`, `skipped`, `installing`, `installed` and `installError`. Each replaces the card in place inside an `aria-live="polite"` region, so the change is announced (NFR-044).

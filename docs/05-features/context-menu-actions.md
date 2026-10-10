@@ -79,26 +79,25 @@ The shell extension code path runs synchronously in Explorer's UI thread. To sta
 
 ## Differences across menu environments
 
-### Windows 11 modern menu (default)
+### Windows 11 modern menu (default) — not shipped
 
-- Submenu appears at the same level as Open / Share / Copy.
-- Iconography rendered with system theme adaptation (light/dark).
-- Achieved via the Sparse MSIX + IExplorerCommand approach. See [shell-extensions.md](../04-architecture/shell-extensions.md).
+- The design: the submenu at the same level as Open / Share / Copy, with icons adapted to the system theme.
+- It needs a sparse package signed with a certificate the machine trusts, and there is no certificate yet ([ADR-0013](../adr/0013-explorer-command-per-user-verb.md), decision D3). The entry is therefore not in the top-level menu today.
 
-### Windows 11 classic menu (Show more options)
+### Windows 11 classic menu (Show more options) — shipped
 
-- The same submenu also appears here as a fallback registered via `HKCU\Software\Classes\*\shell\Pluryprint`.
-- Identical content, slightly different icon rendering (standard 16×16 ICO vs SVG-equivalent).
+- The installer registers the `IExplorerCommand` handler per user as an `ExplorerCommandHandler` verb under `HKCU\Software\Classes\*\shell\Pluryprint` and `Directory\shell\Pluryprint`, so the submenu appears under **Show more options** (or Shift+F10, or Shift+right-click). Verified with real right-clicks on Windows 11 24H2 ARM64.
+- The app says where it is (Home, the first-run tour, Settings).
 
 ### Windows 10
 
-- Has only the classic menu; the registry-based registration handles it natively.
+- Has only the classic menu; the same per-user registration shows the submenu there. Not yet run on a Windows 10 machine.
 - Same submenu content.
 
-### macOS Finder (M5+)
+### macOS Finder — shipped
 
-- Quick Action approach in M5: a Service in `~/Library/Services/` named "Print with Pluryprint" appears under the **Services** submenu of the right-click context menu. Single item only — no cascading.
-- Finder Sync Extension approach (deferred to v1.1+): adds a proper submenu equivalent to Windows.
+- An `NSServices` declaration inside the app bundle (no `~/Library/Services` workflow, no extension to enable) adds two items to the **Services** submenu of the right-click menu: **Print with Pluryprint** (opens the print dialog with the selection) and **Print with Pluryprint (default profile)** (prints at once). No per-profile rows. See [shell-extensions.md §3](../04-architecture/shell-extensions.md).
+- A Finder Sync extension (a submenu equivalent to Windows) stays deferred.
 - macOS shortcuts conventionally appear under **Quick Actions** in modern Finder, which is acceptable but slightly less discoverable than Windows.
 
 ### Linux (potential v2)
