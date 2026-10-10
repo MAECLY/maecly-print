@@ -91,6 +91,8 @@ Localization is **in-house** (`src/i18n/`), not `react-i18next`; there is no i18
 
 `vite`, `typescript`, `tailwindcss`, `postcss`, `autoprefixer`, `eslint` (+ plugins), `prettier`, `vitest`, `@vitest/coverage-v8`, `jsdom`, `@testing-library/*`, `@wdio/*` (WebDriver e2e), `husky`, `lint-staged`, `@commitlint/*`, `@tauri-apps/cli` — all MIT or ISC.
 
+Vite 8 builds with Rolldown and Oxc (MIT) and minifies CSS with Lightning CSS (`lightningcss`, MPL-2.0). They run only at build time: no Lightning CSS code ends up in the bundle, and the MPL does not reach the CSS it emits.
+
 Two notes: **Tailwind CSS is MIT and its generated CSS *is* distributed** in the bundle (it is listed here because the tool is build-time; the output is ours). **WebDriverIO (`@wdio/*`) is the e2e driver**, not Playwright.
 
 ### Non-crate components
