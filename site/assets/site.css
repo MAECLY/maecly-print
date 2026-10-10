@@ -150,13 +150,12 @@ main:focus { outline: none; }
 .brand:hover { color: var(--text); }
 .wordmark { font-size: 1.0625rem; }
 .wordmark b { font-weight: 650; color: var(--accent); }
-.mark { width: 26px; height: 26px; color: var(--text); flex: none; }
-.mark .mk-s rect, .mark .mk-sheets rect { fill: var(--bg); stroke: currentColor; stroke-width: 5; }
-.mark .mk-ink { fill: currentColor; }
-.mark .mk-led { fill: var(--led); }
+/* The mark is the app icon itself (tile, fanned sheets, printer) with its own
+   fixed colours, so it reads the same on light and dark pages. */
+.mark { width: 30px; height: 30px; flex: none; overflow: visible; filter: drop-shadow(0 1px 1.5px rgb(60 30 0 / .18)); }
 .mark-live .mk-s { transform-box: view-box; transform-origin: 0 0; }
-.mark-live .mk-l { transform: rotate(-36deg); }
-.mark-live .mk-r { transform: rotate(36deg); }
+.mark-live .mk-l { transform: rotate(-34deg); }
+.mark-live .mk-r { transform: rotate(34deg); }
 .topnav { display: none; gap: 22px; margin-left: auto; font-size: .9375rem; }
 .topnav a { text-decoration: none; color: var(--text-soft); }
 .topnav a:hover { color: var(--accent); }
@@ -390,7 +389,7 @@ figcaption { font-size: .84375rem; color: var(--text-mute); margin-top: 14px; }
 .vs thead .is-us { border-radius: 14px 14px 0 0; box-shadow: inset 0 1px var(--border), inset 1px 0 var(--border), inset -1px 0 var(--border), 0 -10px 30px -18px rgb(60 30 0 / .35); }
 .vs tbody tr:last-child .is-us { border-radius: 0 0 14px 14px; box-shadow: inset 0 -1px var(--border), inset 1px 0 var(--border), inset -1px 0 var(--border), 0 18px 30px -22px rgb(60 30 0 / .35); }
 .vs-us-name { display: inline-flex; align-items: center; gap: 8px; font-size: 1.0625rem; color: var(--accent); }
-.vs-us-name .mark { width: 22px; height: 22px; }
+.vs-us-name .mark { width: 24px; height: 24px; }
 .vs-num { position: relative; display: inline-block; font: 560 1.5rem/1.1 var(--font-display); font-variant-numeric: lining-nums; }
 .vs-ring { position: absolute; left: -22%; top: -24%; width: 144%; height: 148%; overflow: visible; }
 .vs-ring path { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-dasharray: 1 2; stroke-dashoffset: 0; vector-effect: non-scaling-stroke; }
@@ -476,8 +475,8 @@ html.vt-ink::view-transition-new(root) { animation: ink-spread 520ms var(--ease-
 /* ---------- motion ---------- */
 @keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes mk-fan-l { from { transform: rotate(0deg) translateY(16px); } to { transform: rotate(-36deg) translateY(0); } }
-@keyframes mk-fan-r { from { transform: rotate(0deg) translateY(16px); } to { transform: rotate(36deg) translateY(0); } }
+@keyframes mk-fan-l { from { transform: rotate(0deg) translateY(16px); } to { transform: rotate(-34deg) translateY(0); } }
+@keyframes mk-fan-r { from { transform: rotate(0deg) translateY(16px); } to { transform: rotate(34deg) translateY(0); } }
 @keyframes mk-rise { from { transform: translateY(16px); } to { transform: translateY(0); } }
 @keyframes num-pop { 0% { transform: translateY(.18em) scale(.82); } 60% { transform: translateY(-.04em) scale(1.08); } 100% { transform: none; } }
 @keyframes fly {
