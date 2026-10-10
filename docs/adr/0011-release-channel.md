@@ -4,6 +4,8 @@
 
 Accepted.
 
+Update (2026-10-10): the repository went public with the 0.0.1 preview instead of waiting for the first stable release, so D1 below no longer holds; everything else stands.
+
 ## Date
 
 2026-10-10

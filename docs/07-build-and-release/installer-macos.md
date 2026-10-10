@@ -10,7 +10,7 @@ The design below (Universal binary, `.pkg`, Developer ID, notarization) is **not
 |---|---|
 | One Universal `.app` (`lipo`) | Two builds, `aarch64-apple-darwin` and `x86_64-apple-darwin`, published as separate `Pluryprint_X.Y.Z_apple_silicon.dmg` and `Pluryprint_X.Y.Z_apple_intel.dmg`, each with its `.app.tar.gz` updater archive and `.sig` |
 | `.pkg` + `.dmg` | `.dmg` only (Tauri's `app,dmg` bundles) |
-| Developer ID + notarization | Ad hoc signature (`signingIdentity: "-"`), no notarization ([ADR-0011](../adr/0011-release-channel.md)); the release notes give the `xattr -rd com.apple.quarantine` step Gatekeeper needs |
+| Developer ID + notarization | Ad hoc signature (`signingIdentity: "-"`), no notarization ([ADR-0011](../adr/0011-release-channel.md)); the release notes give the `xattr -dr com.apple.quarantine` step Gatekeeper needs |
 | macOS 13+ | Unchanged: `bundle.macOS.minimumSystemVersion` is `13.0` |
 
 The right-click integration is the in-bundle `NSServices` declaration (*Services › Print with Pluryprint*), not a Finder Sync extension; see [shell-extensions.md §3](../04-architecture/shell-extensions.md). The runbook is [releasing.md](./releasing.md). Read the rest of this document as the plan for a Developer ID build.

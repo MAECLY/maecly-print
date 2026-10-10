@@ -13,16 +13,14 @@ installers, a beta channel.
 
 Where things stand on 2026-10-10:
 
-- **Nothing has been published.** The repository is **private** (decision D1:
-  it goes public with the first stable release). While it is private, every
-  anonymous request for a release file answers 404, so the app's update check
-  reports that no update is published on the channel (`channel_unavailable`,
-  a neutral notice in About; the launch-time check only logs it), and
-  `releases/latest/...` links do not download for anyone without access.
-- **The pipeline is ready**: `.github/workflows/release.yml` (build, sign,
-  draft with checksums) and `.github/workflows/release-channels.yml` (moves the beta
-  channel when a draft is published). It has not run yet: it needs the secrets
-  in section 2.
+- **0.0.1 preview is published** (2026-10-10), and the repository is
+  **public**: it went public with this first preview rather than waiting for
+  the first stable release (decision D1, revised). Release files and the
+  `latest.json` manifests download anonymously.
+- **The pipeline has run**: `.github/workflows/release.yml` (build, sign,
+  draft with checksums) built the 0.0.1 draft, and
+  `.github/workflows/release-channels.yml` moves the beta channel when a draft
+  is published.
 - **Verified by hand**: the ARM64 installer built natively on Windows 11 ARM
   (13.48 MiB), installed silently, carried SumatraPDF 3.6.1 ARM64 with its
   licence and source offer, printed to a paused queue, and uninstalled clean;
@@ -280,8 +278,7 @@ gh release edit vX.Y.Z --repo MAECLY/maecly-print --draft=false
 ```
 
 Publishing runs `release-channels.yml`, which points the beta channel at the
-release (section 3). While the repository is private, publishing makes the
-release visible to collaborators only.
+release (section 3).
 
 ## 7. The install notices
 
@@ -297,7 +294,7 @@ support answers).
 > Pluryprint to Applications, clear the quarantine flag once, in Terminal:
 >
 > ```
-> xattr -rd com.apple.quarantine /Applications/Pluryprint.app
+> xattr -dr com.apple.quarantine /Applications/Pluryprint.app
 > ```
 >
 > Do it only with a copy you downloaded from this release page: that flag is

@@ -135,7 +135,7 @@ Every screen was audited against its spec and completed end to end; the items be
 
 ### Notes
 
-- M1 "Print Core": the desktop GUI enumerates real printers, prints every supported format end to end through the queue, and persists profiles and app settings; the CLI, SumatraPDF bundling, the signed per-user update install, the installer's Explorer registration and the release workflow have since landed. Still open: no release has been published (the repository stays private until the first stable one), there are no nightly builds (the nightly channel follows beta), the Windows 11 top-level menu needs a signed sparse package that waits for a certificate, and nothing is signed with an Apple or Microsoft certificate (ADR-0011).
+- M1 "Print Core": the desktop GUI enumerates real printers, prints every supported format end to end through the queue, and persists profiles and app settings; the CLI, SumatraPDF bundling, the signed per-user update install, the installer's Explorer registration and the release workflow have since landed. Since then, 0.0.1 preview has been published (2026-10-10) and the repository is public. Still open: there are no nightly builds (the nightly channel follows beta), the Windows 11 top-level menu needs a signed sparse package that waits for a certificate, and nothing is signed with an Apple or Microsoft certificate (ADR-0011).
 - Local prerequisites for running `pnpm tauri dev`: Rust stable 1.78+, Node 20 LTS, pnpm 9, Visual Studio Build Tools 2022 with C++ workload + Windows 11 SDK + ATL. See `docs/08-development/local-setup.md`.
 
 ### Added — initial commit (2026-04-26)

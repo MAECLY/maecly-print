@@ -22,7 +22,7 @@
 
 ## 1. One source of truth
 
-The check answers the only question a user actually asks — "am I running the current version?" — from the **same file the installer uses**. Reading the updater manifest rather than the GitHub REST API means the version the About screen announces is the version `update install` installs, the beta channel works for both, there is no anonymous 60-requests-an-hour limit, and nothing asks `api.github.com` about a repository that is private until the first stable release.
+The check answers the only question a user actually asks — "am I running the current version?" — from the **same file the installer uses**. Reading the updater manifest rather than the GitHub REST API means the version the About screen announces is the version `update install` installs, the beta channel works for both, there is no anonymous 60-requests-an-hour limit, and nothing depends on `api.github.com`.
 
 Everything except the one network call is a pure function with co-located tests (`parse_manifest` / `interpret_manifest_response` / `is_newer` / `evaluate` / `due_for_check` / `should_check_on_startup` / `should_notify`). `fetch_manifest` is the only part that touches the network and is kept tiny so the rest is reasoned about — and tested — entirely offline.
 
