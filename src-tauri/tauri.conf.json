@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Pluryprint",
-  "version": "0.0.1",
   "identifier": "com.maecly.pluryprint",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -32,7 +31,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "app", "dmg", "deb", "rpm", "appimage"],
+    "targets": ["nsis", "app", "dmg"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -42,6 +41,7 @@
     ],
     "resources": {
       "resources/sumatrapdf/*": "resources/sumatrapdf/",
+      "resources/shellext/": "resources/shellext/",
       "../LICENSE": "LICENSE",
       "../LICENSES/*": "LICENSES/",
       "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
@@ -52,6 +52,8 @@
     "copyright": "Copyright (C) 2026 Maecly. Licensed under AGPL-3.0-only.",
     "publisher": "Maecly",
     "macOS": {
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": "-",
       "files": {
         "Resources/en.lproj/ServicesMenu.strings": "macos/en.lproj/ServicesMenu.strings",
         "Resources/es.lproj/ServicesMenu.strings": "macos/es.lproj/ServicesMenu.strings"
@@ -60,7 +62,8 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "installerHooks": "windows/installer-hooks.nsh"
+        "installerHooks": "windows/installer-hooks.nsh",
+        "languages": ["English", "Spanish"]
       }
     },
     "createUpdaterArtifacts": true

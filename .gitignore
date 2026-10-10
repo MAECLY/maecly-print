@@ -66,3 +66,6 @@ src-tauri/windows/*.dll
 
 # Local MCP browser-tool residue (screenshots, snapshots, console logs)
 .playwright-mcp/
+# Built by scripts/build-shell-ext.ps1 at packaging time; never committed.
+src-tauri/resources/shellext/*
+!src-tauri/resources/shellext/README.md
