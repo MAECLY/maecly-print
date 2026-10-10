@@ -18,12 +18,21 @@ const webview = vi.hoisted(() => ({
   handler: null as
     | null
     | ((e: { payload: { type: string; paths?: string[] } }) => void),
+  /** Every handler registered, in order (the shell's comes first). */
+  handlers: [] as ((e: {
+    payload: { type: string; paths?: string[] };
+  }) => void)[],
+  /** Registrations never complete while set (a slow `listen`). */
+  hold: false,
 }));
 vi.mock('@tauri-apps/api/webview', () => ({
   getCurrentWebview: () => ({
     onDragDropEvent: (cb: (e: { payload: { type: string } }) => void) => {
       webview.handler = cb as typeof webview.handler;
-      return Promise.resolve(() => {});
+      webview.handlers.push(cb as (typeof webview.handlers)[number]);
+      return webview.hold
+        ? new Promise<() => void>(() => {})
+        : Promise.resolve(() => {});
     },
   }),
 }));
@@ -130,6 +139,8 @@ describe('App', () => {
       recentDone: [],
     });
     webview.handler = null;
+    webview.handlers = [];
+    webview.hold = false;
     for (const set of Object.values(eventMock.registry)) set.clear();
   });
   afterEach(() => clearMocks());
@@ -966,6 +977,47 @@ describe('App', () => {
       await waitFor(() =>
         expect(calls.some((c) => c.cmd === 'print_files')).toBe(true),
       );
+    });
+
+    /**
+     * Round-6 e2e flake: a drop made right after clicking Print Job did
+     * nothing. The screen's own listener was still registering, and the
+     * shell's stood down because the screen was active, so neither took it.
+     */
+    it('FR-007: a drop made while Print Job is still registering its listener is not lost', async () => {
+      const calls = recordShell();
+      render(<App />);
+      await waitFor(() => expect(webview.handler).not.toBeNull());
+      const shell = webview.handler!;
+      // The Print Job screen's listener never finishes registering.
+      webview.hold = true;
+      press('n');
+      expect(await screen.findByText('Add files')).toBeInTheDocument();
+      await act(async () => {
+        shell({ payload: { type: 'drop', paths: ['/tmp/Report.pdf'] } });
+      });
+      expect(
+        (await screen.findAllByRole('button', { name: /Report\.pdf/ })).length,
+      ).toBeGreaterThan(0);
+      expect(calls.filter((c) => c.cmd === 'inspect_files')).toHaveLength(1);
+    });
+
+    it('FR-007: once Print Job listens, one drop is taken once', async () => {
+      const calls = recordShell();
+      render(<App />);
+      await waitFor(() => expect(webview.handlers).toHaveLength(1));
+      press('n');
+      await waitFor(() => expect(webview.handlers).toHaveLength(2));
+      // Let the screen's registration complete.
+      await act(async () => {});
+      const drop = { payload: { type: 'drop', paths: ['/tmp/Report.pdf'] } };
+      await act(async () => {
+        for (const h of webview.handlers) h(drop);
+      });
+      expect(
+        (await screen.findAllByRole('button', { name: /Report\.pdf/ })).length,
+      ).toBeGreaterThan(0);
+      expect(calls.filter((c) => c.cmd === 'inspect_files')).toHaveLength(1);
     });
 
     it('NFR-033: a failed print from a shortcut offers the logs folder', async () => {

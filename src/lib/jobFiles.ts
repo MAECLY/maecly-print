@@ -135,6 +135,32 @@ function toUiFile(fi: FileInfo): UiFile {
 }
 
 // ---------------------------------------------------------------------------
+// Who takes a native file drop (FR-007)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the Print Job screen's own drop listener is registered. Two
+ * listeners hear every native drop: the app shell's (always mounted) and the
+ * Print Job screen's (it also drives the drop overlay). Exactly one may add
+ * the files. Registering a listener is asynchronous, so between the screen
+ * mounting and its listener being in place a drop reaches only the shell's:
+ * the shell must take it then, or the drop is lost (a drop made right after
+ * clicking Print Job did nothing at all). Both listeners read this flag when
+ * the drop arrives, so they always agree on which one takes it.
+ */
+let jobDropListenerReady = false;
+
+/** The Print Job screen's drop listener is (no longer) registered. */
+export function setJobDropListenerReady(ready: boolean): void {
+  jobDropListenerReady = ready;
+}
+
+/** True while the Print Job screen takes the drops itself. */
+export function isJobDropListenerReady(): boolean {
+  return jobDropListenerReady;
+}
+
+// ---------------------------------------------------------------------------
 // Pending folders (FR-004)
 // ---------------------------------------------------------------------------
 

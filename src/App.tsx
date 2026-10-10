@@ -28,6 +28,7 @@ import {
   addPathsToJob,
   clearPendingFolders,
   getExpandingCount,
+  isJobDropListenerReady,
   resolveSelectionFiles,
   subscribeExpanding,
 } from '@/lib/jobFiles';
@@ -278,11 +279,11 @@ function App() {
 
   // App-level drag & drop (FR-007): the Home screen advertises "drag them
   // here", so drops must work from any screen, not only while the Print Job
-  // screen (which owns its own listener + overlay) is mounted. When the job
-  // screen is active its listener handles the drop, so this one stands down to
-  // avoid double-adding.
-  const activeRef = useRef(active);
-  activeRef.current = active;
+  // screen (which owns its own listener + overlay) is mounted. Once the job
+  // screen's listener is registered it handles the drop, so this one stands
+  // down to avoid double-adding — but only then: until it is registered (just
+  // after navigating there) a drop reaches this listener alone and must not
+  // be lost.
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
@@ -291,7 +292,7 @@ function App() {
       .then(({ getCurrentWebview }) =>
         getCurrentWebview().onDragDropEvent((event) => {
           if (event.payload.type !== 'drop') return;
-          if (activeRef.current === 'job') return;
+          if (isJobDropListenerReady()) return;
           void addPathsToJob(event.payload.paths, setFiles, currentPaths);
           setActive('job');
         }),

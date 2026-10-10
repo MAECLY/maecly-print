@@ -38,7 +38,7 @@ A two-pane split: the file list fills the main area; a fixed settings panel sits
 Two input paths, both funnelling through one `addPaths` routine:
 
 1. **Add files button** — opens the OS file picker via `@tauri-apps/plugin-dialog`, filtered to the supported extensions (multi-select).
-2. **Native drag & drop** — dragging files from Explorer/Finder onto the window (`getCurrentWebview().onDragDropEvent`, FR-007). The pane highlights on `over` and ingests paths on `drop`.
+2. **Native drag & drop** — dragging files from Explorer/Finder onto the window (`getCurrentWebview().onDragDropEvent`, FR-007). The pane highlights on `over` and ingests paths on `drop`. A drop on another screen is taken by the app shell, which adds the files and opens Print Job; the shell keeps taking drops until Print Job's own listener has finished registering, so a drop made right after opening the screen is never lost (and only one listener takes each drop).
 
 `addPaths` calls `inspect_files` for the dropped/picked paths, then:
 

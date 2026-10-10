@@ -67,7 +67,9 @@ import {
   expandFolderIntoJob,
   getExpandingCount,
   getPendingFolders,
+  isJobDropListenerReady,
   resolvePendingFolder,
+  setJobDropListenerReady,
   subscribeExpanding,
   subscribePendingFolders,
 } from '@/lib/jobFiles';
@@ -451,11 +453,14 @@ export function PrintJobScreen({
 
   // Native OS drag & drop of files onto the window (FR-007). Registered once;
   // addPaths dedupes inside a functional update, so a stable listener is safe.
+  // Until the registration completes the app shell's listener takes the drops
+  // (see `setJobDropListenerReady`), so none is lost while this one starts.
   const [dragging, setDragging] = useState(false);
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
+    let ready = false;
     import('@tauri-apps/api/webview')
       .then(({ getCurrentWebview }) =>
         getCurrentWebview().onDragDropEvent((event) => {
@@ -463,21 +468,29 @@ export function PrintJobScreen({
             setDragging(true);
           } else if (event.payload.type === 'drop') {
             setDragging(false);
-            void addPaths(event.payload.paths);
+            if (ready && isJobDropListenerReady()) {
+              void addPaths(event.payload.paths);
+            }
           } else {
             setDragging(false);
           }
         }),
       )
       .then((un) => {
-        if (cancelled) un();
-        else unlisten = un;
+        if (cancelled) {
+          un();
+        } else {
+          unlisten = un;
+          ready = true;
+          setJobDropListenerReady(true);
+        }
       })
       .catch((e) => {
         console.error('drag-drop listener failed', e);
       });
     return () => {
       cancelled = true;
+      if (ready) setJobDropListenerReady(false);
       unlisten?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
