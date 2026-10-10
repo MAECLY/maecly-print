@@ -43,28 +43,42 @@ const ES_COMMON: &str = include_str!("../../src/i18n/locales/es/common.json");
 /// The cache document. Field names are the reader's contract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ShellMenuCache {
+    /// Format version; must equal [`CACHE_SCHEMA_VERSION`].
     pub schema_version: u32,
     /// Language subtag of the labels (`en`, `es`). Diagnostics only.
     pub lang: String,
+    /// The localized menu labels.
     pub labels: Labels,
+    /// Profiles offered under "Print with …", in menu order (at most
+    /// [`MAX_MENU_PROFILES`]).
     pub profiles: Vec<MenuProfile>,
 }
 
 /// Labels in the reader's placeholder syntax (`{count}`, `{name}`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Labels {
+    /// The top-level menu entry ("MaeclyPrint").
     pub root: String,
+    /// "Print" entry for a single selected file.
     pub print_one: String,
+    /// "Print" entry for several files; `{count}` is the number selected.
     pub print_many: String,
+    /// One entry per profile; `{name}` is the profile name.
     pub print_with_profile: String,
+    /// Entry that opens the print dialog with the selection.
     pub configure: String,
+    /// Entry that adds the selection to the queue without printing.
     pub queue: String,
+    /// Hover text of the top-level entry.
     pub tooltip: String,
 }
 
+/// A profile the menu offers by name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MenuProfile {
+    /// Profile id the extension writes into the handoff's `profile_id`.
     pub id: String,
+    /// Display name shown in the menu entry.
     pub name: String,
 }
 
