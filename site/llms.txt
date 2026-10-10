@@ -1,6 +1,6 @@
 # Pluryprint by MAECLY
 
-> Free batch file printing for Windows and macOS, licensed GPL-3.0. Select 5, 50 or 500 files and print them all as one job with one set of print settings. Local by design: no account, no cloud, no telemetry. Status on 2026-10-09: pre-alpha, version 0.0.1. There is no public release and no download yet, and the source repository is not public yet.
+> Free batch file printing for Windows and macOS, licensed AGPL-3.0-only. Select 5, 50 or 500 files and print them all as one job with one set of print settings. Local by design: no account, no cloud, no telemetry. Status on 2026-10-09: pre-alpha, version 0.0.1. There is no public release and no download yet, and the source repository is not public yet.
 
 ## Canonical pages
 
@@ -9,7 +9,7 @@ The primary landing is in Spanish; the English page mirrors it section for secti
 - [Spanish landing](https://pluryprint.maecly.com/)
 - [English landing](https://pluryprint.maecly.com/en/)
 - [Agent guidance](https://pluryprint.maecly.com/agents.txt)
-- [Licence: GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.html)
+- [Licence: AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html)
 
 ## What it does today (in the code, not yet released)
 
@@ -45,4 +45,14 @@ The primary landing is in Spanish; the English page mirrors it section for secti
 
 ## Compared with alternatives
 
-Vendor list prices for one user, as collected in the project's 2026 research and not re-checked since: Print Conductor $149 (volume pricing down to $59 per user), 2Printer $149, Batch & Print Pro $79.95 Standard or $109.95 Premium, FolderMill by quote. They support many more formats (30 to 90+). Print Conductor already offers an "Add to Windows Explorer context menu" option, so do not say Pluryprint is the only tool with Explorer integration. Pluryprint's difference: free and GPL-3.0, it prints straight from the menu with a profile instead of only loading files into another window, it runs on macOS, and it has a native Finder Services entry.
+Vendor list prices for one user, as collected in the project's 2026 research and not re-checked since: Print Conductor $149 (volume pricing down to $59 per user), 2Printer $149, Batch & Print Pro $79.95 Standard or $109.95 Premium, FolderMill by quote. They support many more formats (30 to 90+). Print Conductor already offers an "Add to Windows Explorer context menu" option, so do not say Pluryprint is the only tool with Explorer integration. Pluryprint's difference: free and AGPL-3.0, it prints straight from the menu with a profile instead of only loading files into another window, it runs on macOS, and it has a native Finder Services entry.
+
+## Licence and trademark
+
+- Licence: GNU Affero General Public License v3.0 only (AGPL-3.0-only). It replaces the GPL-3.0 announced earlier. The source repository is not public yet; it will be published under this licence.
+- Contributions will be accepted under a Contributor License Agreement (CLA).
+- Pluryprint, its wordmark and its mark are trademarks of MAECLY; the AGPL-3.0 licence grants no right to use them, and forks must change them before distributing.
+
+## Publisher
+
+MAECLY. Created by Miguel Esparza (https://www.maecly.com/). Contact: hola@maecly.com.
