@@ -1,0 +1,39 @@
+# cargo-audit configuration for the app crate (read from `src-tauri/` by
+# `cargo audit`, locally and in CI's Backend job).
+#
+# CI fails on any vulnerability not listed here. Every entry says why it is
+# accepted and when to drop it; nothing is ignored "for now" without a reason.
+# Advisories are ignored by ID, so a *new* advisory against the same crate is
+# still reported. Review this list whenever Cargo.lock moves.
+#
+# Fixed rather than ignored (October 2026): RUSTSEC-2026-0187 (lopdf 0.39,
+# stack overflow on nested PDF objects: lopdf 0.44 + printpdf 0.12),
+# RUSTSEC-2026-0285 (rustls 0.23.45), RUSTSEC-2026-0194/0195 (quick-xml 0.42
+# through plist 1.10), RUSTSEC-2026-0190 (anyhow 1.0.104) and
+# RUSTSEC-2026-0221 (event-listener 5.4.2).
+
+[advisories]
+ignore = [
+  # glib 0.18 — unsound `VariantStrIter`. Linux-only: it comes in through
+  # Tauri's GTK/WebKitGTK stack (muda, tao, wry), which is never compiled for
+  # the targets we ship (Windows and macOS). Fixed in glib 0.20, which only a
+  # Tauri release moving off gtk-rs 0.18 can bring in.
+  "RUSTSEC-2024-0429",
+  # proc-macro-error 1.0 — unmaintained. Linux-only and build-time only: a
+  # proc-macro of glib-macros in the same GTK stack as above.
+  "RUSTSEC-2024-0370",
+  # paste 1.0 — unmaintained (finished, no known issue). Build-time only: a
+  # proc-macro of specta, which tauri-specta pins to an exact release
+  # candidate. Drop when specta stops depending on it.
+  "RUSTSEC-2024-0436",
+  # ttf-parser 0.25 — unmaintained (succeeded by skrifa/read-fonts). Comes in
+  # through usvg/fontdb for the SVG converter (svg2pdf 0.13, the latest
+  # release, is built on usvg 0.45). It parses the fonts of the user's own
+  # system, not input from the file being printed; SVG text is converted with
+  # those fonts. Drop when svg2pdf moves to a usvg without it.
+  "RUSTSEC-2026-0192",
+  # rustybuzz 0.20 — unmaintained (succeeded by harfrust). Text shaping inside
+  # usvg, same path and same exit as ttf-parser above.
+  "RUSTSEC-2026-0206",
+]
+informational_warnings = ["unmaintained", "unsound", "notice"]
