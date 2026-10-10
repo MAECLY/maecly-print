@@ -314,7 +314,7 @@
   ; Administrators only (seen in the round-3 VM: 16 of 276 files left).
   ${If} $R6 = 0
   ${AndIf} ${FileExists} "$LOCALAPPDATA\${PLURY_LEGACY_IDENTIFIER}\*.*"
-    DetailPrint "Removing the unused ${PLURY_LEGACY_PRODUCT} web view profile"
+    DetailPrint "$(PLURY_LEGACY_PROFILE_REMOVING)"
     RMDir /r "$LOCALAPPDATA\${PLURY_LEGACY_IDENTIFIER}"
   ${EndIf}
 
@@ -346,10 +346,10 @@
   CopyFiles /SILENT "$INSTDIR\resources\shellext\$R8\${PLURYPRINT_SHELLEXT_DLL}" "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}"
   ${If} ${Errors}
   ${OrIfNot} ${FileExists} "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}"
-    DetailPrint "This installer carries no $R8 context-menu DLL; the Explorer menu is not registered"
+    DetailPrint "$(PLURY_SHELLEXT_MISSING)"
     Goto pluryprint_register_done
   ${EndIf}
-  DetailPrint "Registering the $R8 Explorer context menu"
+  DetailPrint "$(PLURY_SHELLEXT_REGISTERING)"
 
   ; The in-process COM server, per user.
   WriteRegStr HKCU "Software\Classes\CLSID\${PLURYPRINT_SHELLEXT_CLSID}" "" "Pluryprint context menu"

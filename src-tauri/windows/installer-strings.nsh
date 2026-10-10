@@ -54,3 +54,12 @@ LangString PLURY_MSI_LEFT ${PLURY_LANG_ES} "Se dej${U+00F3} la instalaci${U+00F3
 
 LangString PLURY_MSI_EXITED ${PLURY_LANG_EN} "${PLURY_LEGACY_PRODUCT} (per machine) uninstall exited with $R2"
 LangString PLURY_MSI_EXITED ${PLURY_LANG_ES} "La desinstalaci${U+00F3}n de ${PLURY_LEGACY_PRODUCT} (para todos los usuarios) termin${U+00F3} con $R2"
+
+LangString PLURY_LEGACY_PROFILE_REMOVING ${PLURY_LANG_EN} "Removing the unused ${PLURY_LEGACY_PRODUCT} web view profile"
+LangString PLURY_LEGACY_PROFILE_REMOVING ${PLURY_LANG_ES} "Quitando el perfil de vista web de ${PLURY_LEGACY_PRODUCT}, que ya no se usa"
+
+LangString PLURY_SHELLEXT_MISSING ${PLURY_LANG_EN} "This installer carries no $R8 context-menu DLL; the Explorer menu is not registered"
+LangString PLURY_SHELLEXT_MISSING ${PLURY_LANG_ES} "Este instalador no trae la DLL del men${U+00FA} contextual para $R8; el men${U+00FA} del Explorador no se registra"
+
+LangString PLURY_SHELLEXT_REGISTERING ${PLURY_LANG_EN} "Registering the $R8 Explorer context menu"
+LangString PLURY_SHELLEXT_REGISTERING ${PLURY_LANG_ES} "Registrando el men${U+00FA} contextual del Explorador ($R8)"
