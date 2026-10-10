@@ -9,8 +9,8 @@ Directories marked **(placeholder)** exist with only a `.gitkeep`/`README.md` in
 ## Top-level layout
 
 ```
-maecly-print/
-├── README.md                    # Landing page for github.com/MAECLY/maecly-print
+pluryprint/
+├── README.md                    # Landing page for github.com/MAECLY/pluryprint
 ├── LICENSE                      # AGPL-3.0 (the canonical legal text; ships in the bundle)
 ├── LICENSES/                    # Third-party licence texts the notices point at (ship in the bundle)
 ├── THIRD-PARTY-NOTICES.md       # Notices for everything the app ships (ships in the bundle)

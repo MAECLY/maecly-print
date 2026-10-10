@@ -90,8 +90,8 @@ Repository settings:
 
 | Channel | Manifest the app reads | What it gets |
 |---|---|---|
-| stable (default) | `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json` | the newest published release that is not a prerelease. GitHub resolves `latest` |
-| beta | `https://github.com/MAECLY/maecly-print/releases/download/channel-beta/latest.json` | every published release, prerelease or stable, moving forward only |
+| stable (default) | `https://github.com/MAECLY/pluryprint/releases/latest/download/latest.json` | the newest published release that is not a prerelease. GitHub resolves `latest` |
+| beta | `https://github.com/MAECLY/pluryprint/releases/download/channel-beta/latest.json` | every published release, prerelease or stable, moving forward only |
 | nightly | the beta manifest | no nightly builds are published |
 
 The endpoints are compiled into the app (`update::install::default_endpoint`),
@@ -262,7 +262,7 @@ run.
 3. **Checksums**:
 
    ```bash
-   gh release download vX.Y.Z --repo MAECLY/maecly-print --dir /tmp/rel --clobber
+   gh release download vX.Y.Z --repo MAECLY/pluryprint --dir /tmp/rel --clobber
    (cd /tmp/rel && shasum -a 256 -c SHA256SUMS)
    ```
 
@@ -277,7 +277,7 @@ run.
 Then publish, in the web UI or:
 
 ```bash
-gh release edit vX.Y.Z --repo MAECLY/maecly-print --draft=false
+gh release edit vX.Y.Z --repo MAECLY/pluryprint --draft=false
 ```
 
 Publishing runs `release-channels.yml`, which points the beta channel at the

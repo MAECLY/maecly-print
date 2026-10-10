@@ -29,8 +29,8 @@ Everything except the one network call is a pure function with co-located tests 
 ## 2. The request
 
 ```
-GET https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json          # stable
-GET https://github.com/MAECLY/maecly-print/releases/download/channel-beta/latest.json    # beta, nightly
+GET https://github.com/MAECLY/pluryprint/releases/latest/download/latest.json          # stable
+GET https://github.com/MAECLY/pluryprint/releases/download/channel-beta/latest.json    # beta, nightly
 User-Agent: Pluryprint/<version>
 Accept: application/json
 ```

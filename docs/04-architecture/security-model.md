@@ -221,8 +221,8 @@ Policy is read **at page load** (each time the Printers screen mounts). There is
 On its own, Pluryprint makes exactly **one** request, an unauthenticated `GET` of the update manifest of the user's channel:
 
 ```
-GET https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json          # stable
-GET https://github.com/MAECLY/maecly-print/releases/download/channel-beta/latest.json    # beta, nightly
+GET https://github.com/MAECLY/pluryprint/releases/latest/download/latest.json          # stable
+GET https://github.com/MAECLY/pluryprint/releases/download/channel-beta/latest.json    # beta, nightly
 ```
 
 The URLs are compiled in; only `PLURYPRINT_UPDATE_ENDPOINT` (for local testing; release builds require `https`) replaces them. Headers are `User-Agent: Pluryprint/<version>` and `Accept: application/json`. The request bodies are empty and carry no identifier of any kind. The client is `ureq` with a 10-second timeout; a system proxy is honoured from `HTTPS_PROXY`/`HTTP_PROXY` (either case) when set.

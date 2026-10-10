@@ -38,7 +38,7 @@ There is exactly one kind of outbound network call Pluryprint makes by default, 
 
 ### Update check
 
-- **Endpoint:** the updater manifest of your update channel, compiled into the binary: `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json` for **Stable**, `https://github.com/MAECLY/maecly-print/releases/download/channel-beta/latest.json` for **Beta** and **Nightly**. GitHub answers with a redirect to its own download host. That is the only URL the automatic check requests; it no longer calls the GitHub REST API (`api.github.com`).
+- **Endpoint:** the updater manifest of your update channel, compiled into the binary: `https://github.com/MAECLY/pluryprint/releases/latest/download/latest.json` for **Stable**, `https://github.com/MAECLY/pluryprint/releases/download/channel-beta/latest.json` for **Beta** and **Nightly**. GitHub answers with a redirect to its own download host. That is the only URL the automatic check requests; it no longer calls the GitHub REST API (`api.github.com`).
 - **Frequency:** at most once every 24 hours, and only 30 seconds after launch — never during startup. Plus on demand when you press "Check for updates" or run `pluryprint update check`.
 - **Request payload:** none. It is a plain unauthenticated HTTPS GET. No account, no token, no install id.
 - **Request headers:** `User-Agent: Pluryprint/<version>` and `Accept: application/json`. The user agent carries the app version and nothing else — no OS string, no identifiers.
