@@ -244,7 +244,7 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 # Win32_Graphics_Imaging + Win32_System_Com: WIC decodes HEIC/HEIF (FR-052)
 # through the OS codec instead of a bundled libheif.
-windows = { version = "0.58", features = [
+windows = { version = "0.62", features = [
   "Win32_Foundation",
   # GetUserDefaultUILanguage / LCIDToLocaleName: the first-run language
   # (settings::locale).
