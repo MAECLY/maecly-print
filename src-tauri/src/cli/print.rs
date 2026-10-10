@@ -69,8 +69,9 @@ pub struct FileOutcome {
     /// can split one batch across printers.
     pub printer: String,
     /// `done` (the spooler accepted the job), `held` (accepted, but the
-    /// printer is paused or offline, so nothing prints until it is back), or
-    /// `failed`.
+    /// printer is paused, offline or stopped on an error, so nothing prints
+    /// until it is fixed), `unconfirmed` (accepted, but the printers could not
+    /// be read, so whether it prints now is unknown), or `failed`.
     pub state: String,
     /// The spooler's own job id, when the backend reports one (CUPS does).
     pub os_job_id: Option<String>,
@@ -202,20 +203,19 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
         batch.record(file, target, outcome);
     }
 
-    // "done" is "the spooler took it". When the target queue is paused or
-    // offline nothing comes out until someone fixes it, and a script must be
-    // able to tell (the spooler itself still calls such a job "normal").
+    // "done" is "the spooler took it". When the target queue is paused,
+    // offline or stopped on an error nothing comes out until someone fixes it,
+    // and a script must be able to tell (the spooler itself still calls such a
+    // job "normal"). When the printers cannot be read at all, nobody can say,
+    // and "done" would be a guess.
     if batch.has_done() {
-        let not_printing: std::collections::HashSet<String> = crate::platform::list_printers()
-            .map(|printers| {
-                printers
-                    .into_iter()
-                    .filter(|p| matches!(p.status, crate::ipc::printers::PrinterStatus::Offline))
-                    .map(|p| p.id)
-                    .collect()
-            })
-            .unwrap_or_default();
-        batch.mark_held(&not_printing);
+        match crate::platform::list_printers() {
+            Ok(printers) => batch.mark_held(&not_printing(&printers)),
+            Err(e) => {
+                tracing::warn!(event = "cli_printer_state_unknown", error = %e);
+                batch.mark_unconfirmed();
+            }
+        }
     }
 
     let worst = batch.worst();
@@ -229,6 +229,20 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
     };
     emitter.emit(&report, || render(&report));
     Ok(worst)
+}
+
+/// The printers that will not print a job right now: paused or offline
+/// (`Offline`), or stopped on an error someone must clear (`Error`: out of
+/// paper, a jam, a door open, a CUPS queue that stopped). Pure.
+pub fn not_printing(
+    printers: &[crate::ipc::printers::Printer],
+) -> std::collections::HashSet<String> {
+    use crate::ipc::printers::PrinterStatus;
+    printers
+        .iter()
+        .filter(|p| matches!(p.status, PrinterStatus::Offline | PrinterStatus::Error))
+        .map(|p| p.id.clone())
+        .collect()
 }
 
 /// One batch's per-file outcomes plus the code the process will return.
@@ -273,7 +287,10 @@ impl BatchOutcomes {
                 let error = job_error(&err.error);
                 // The queue logs `job_failed`; a headless run must leave the
                 // same trace, or a failed scripted print cannot be explained
-                // afterwards. The file name, never its folder (NFR-082).
+                // afterwards. The file name, never its folder, and the stable
+                // code, never the message: messages quote absolute paths and
+                // SumatraPDF's own log, which names the staged copy (NFR-082).
+                // The message is in the report the caller receives.
                 let name = Path::new(path)
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
@@ -284,8 +301,8 @@ impl BatchOutcomes {
                     ext = %crate::engine::extension_of(Path::new(path)),
                     printer = %printer,
                     code = %error.code,
+                    reason = %err.error.reason().unwrap_or_default(),
                     exit_code = err.exit.code(),
-                    error = %error.message,
                 );
                 FileOutcome {
                     path: path.to_string(),
@@ -304,9 +321,21 @@ impl BatchOutcomes {
         self.files.iter().any(|f| f.state == "done")
     }
 
+    /// Turn `done` into `unconfirmed` for every file: the spooler took them,
+    /// but the printers could not be read, so whether they print now is
+    /// unknown. The exit code is unchanged.
+    pub fn mark_unconfirmed(&mut self) {
+        for f in &mut self.files {
+            if f.state == "done" {
+                f.state = "unconfirmed".to_string();
+            }
+        }
+    }
+
     /// Turn `done` into `held` for every file spooled to a queue in
-    /// `not_printing` (paused or offline). The exit code is unchanged: the job
-    /// is safely queued and prints once the printer is back.
+    /// `not_printing` ([`not_printing`]: paused, offline or stopped on an
+    /// error). The exit code is unchanged: the job is safely queued and prints
+    /// once the printer is back.
     pub fn mark_held(&mut self, not_printing: &std::collections::HashSet<String>) {
         for f in &mut self.files {
             if f.state == "done" && not_printing.contains(&f.printer) {
@@ -1105,6 +1134,129 @@ mod tests {
         let states: Vec<_> = batch.into_files().into_iter().map(|f| f.state).collect();
         assert_eq!(states, ["held", "done", "failed"]);
         assert_eq!(worst.code(), ExitCode::PrintFailed.code());
+    }
+
+    fn printer(
+        id: &str,
+        status: crate::ipc::printers::PrinterStatus,
+    ) -> crate::ipc::printers::Printer {
+        use crate::ipc::printers::{Printer, PrinterKind, Supplies};
+        Printer {
+            id: id.into(),
+            name: id.into(),
+            kind: PrinterKind::Laser,
+            color: false,
+            duplex: true,
+            status,
+            is_default: false,
+            location: String::new(),
+            connection: String::new(),
+            driver: String::new(),
+            shared: false,
+            queued_jobs: 0,
+            max_dpi: None,
+            papers: vec![],
+            trays: vec![],
+            supplies: Supplies::default(),
+            default_tray: None,
+            default_paper: None,
+        }
+    }
+
+    /// FR-008: a printer stopped on an error (out of paper, a jam, a stopped
+    /// CUPS queue) prints nothing until someone fixes it, like an offline one:
+    /// the file is `held`, not `done`.
+    #[test]
+    fn fr_008_a_job_on_a_printer_in_error_is_held_not_done() {
+        use crate::ipc::printers::PrinterStatus;
+        let printers = vec![
+            printer("Jammed", PrinterStatus::Error),
+            printer("Away", PrinterStatus::Offline),
+            printer("Fine", PrinterStatus::Ready),
+            printer("Working", PrinterStatus::Busy),
+        ];
+        let stopped = not_printing(&printers);
+        assert!(stopped.contains("Jammed"));
+        assert!(stopped.contains("Away"));
+        assert!(!stopped.contains("Fine"));
+        assert!(!stopped.contains("Working"));
+
+        let mut batch = BatchOutcomes::with_capacity(2);
+        batch.record("/d/a.pdf", "Jammed".to_string(), Ok(None));
+        batch.record("/d/b.pdf", "Fine".to_string(), Ok(None));
+        batch.mark_held(&stopped);
+        let states: Vec<_> = batch.into_files().into_iter().map(|f| f.state).collect();
+        assert_eq!(states, ["held", "done"]);
+    }
+
+    /// FR-008: when the printer list cannot be read, "done" would be a guess:
+    /// the accepted files are `unconfirmed`, failures stay failed, and the
+    /// exit code is unchanged.
+    #[test]
+    fn fr_008_an_unreadable_printer_list_makes_accepted_files_unconfirmed() {
+        let mut batch = BatchOutcomes::with_capacity(2);
+        batch.record("/d/a.pdf", "P".to_string(), Ok(Some("1".into())));
+        batch.record(
+            "/d/b.pdf",
+            "P".to_string(),
+            Err(CliError::from(IpcError::PrintFailed("x".into()))),
+        );
+        let worst = batch.worst();
+        batch.mark_unconfirmed();
+        assert_eq!(batch.worst(), worst);
+        let states: Vec<_> = batch.into_files().into_iter().map(|f| f.state).collect();
+        assert_eq!(states, ["unconfirmed", "failed"]);
+    }
+
+    /// NFR-082: the WARN record of a failed headless print names the file and
+    /// the stable code, never the message, which can quote the absolute path
+    /// or SumatraPDF's log of the staged copy.
+    #[test]
+    fn nfr_082_cli_job_failed_does_not_log_the_message_or_folder() {
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::layer::SubscriberExt;
+
+        #[derive(Clone, Default)]
+        struct Grab(Arc<Mutex<Vec<String>>>);
+        struct Fields<'a>(&'a mut Vec<String>);
+        impl tracing::field::Visit for Fields<'_> {
+            fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn std::fmt::Debug) {
+                self.0.push(format!("{}={v:?}", f.name()));
+            }
+        }
+        impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Grab {
+            fn on_event(
+                &self,
+                event: &tracing::Event<'_>,
+                _: tracing_subscriber::layer::Context<'_, S>,
+            ) {
+                let mut out = Vec::new();
+                event.record(&mut Fields(&mut out));
+                self.0.lock().unwrap().push(out.join(" "));
+            }
+        }
+
+        let grab = Grab::default();
+        let subscriber = tracing_subscriber::registry().with(grab.clone());
+        let secret = "/Users/ana/Confidencial/nómina.docx";
+        tracing::subscriber::with_default(subscriber, || {
+            let mut batch = BatchOutcomes::with_capacity(1);
+            batch.record(
+                secret,
+                "P".to_string(),
+                Err(CliError::from(IpcError::PrintFailed(format!(
+                    "SumatraPDF exited with 1: cannot open {secret}"
+                )))),
+            );
+        });
+        let records = grab.0.lock().unwrap().clone();
+        let rec = records
+            .iter()
+            .find(|r| r.contains("cli_job_failed"))
+            .expect("the failure is logged");
+        assert!(rec.contains("code=PrintFailed"), "{rec}");
+        assert!(!rec.contains("Confidencial"), "no folder: {rec}");
+        assert!(!rec.contains("SumatraPDF exited"), "no message: {rec}");
     }
 
     #[test]
