@@ -125,7 +125,7 @@ Delivered:
 
 Not delivered — this is the honest part:
 
-- **No published release yet.** `release.yml` builds signed drafts on a tag ([releasing.md](../07-build-and-release/releasing.md)), but none has been published, so until then there is nothing to install.
+- **No update has shipped yet.** 0.0.1 preview, the first release built by `release.yml` ([releasing.md](../07-build-and-release/releasing.md)), was published on 2026-10-10, so the in-app install path has not yet run against a real newer release.
 - Stable and beta read their own manifests; there are no nightly builds, so nightly follows beta. Switching to a lower channel asks for confirmation (FR-086).
 
 ### 10. Installer

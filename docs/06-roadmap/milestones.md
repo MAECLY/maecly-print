@@ -12,7 +12,7 @@ This document is the source of truth for what each milestone contains. Anything 
 | M1 | Print Core (Win) | `0.1.0-alpha` (internal) | Scope delivered, exit criteria unverified |
 | M2 | Shell Integration (Win) | `0.1.0-beta` (public) | Installer and classic-menu entry shipped; Windows 11 top-level menu waits for a certificate (D3) |
 | M3 | Multi-format (Win) | `0.2.0` | Adapters delivered (every format but GIF, which is refused by decision); Settings dependency panel owed |
-| M4 | Auto-update + Polish (Win) | `1.0.0` GA | Update install, channels, release pipeline and i18n delivered; no OS certificates by decision (ADR-0011); no release published |
+| M4 | Auto-update + Polish (Win) | `1.0.0` GA | Update install, channels, release pipeline and i18n delivered; no OS certificates by decision (ADR-0011); 0.0.1 preview published 2026-10-10 |
 | M5 | macOS Port | `1.1.0` | Printing, Finder entry and per-architecture `.dmg` delivered; no notarization by decision |
 
 Milestones are strictly sequential. We do not start M(n+1) work until M(n) exit criteria are met. Spillover items roll forward and reduce the next milestone's headroom.
@@ -70,7 +70,7 @@ None. M0 is the bootstrap.
 
 ### Status (2026-10-10) — scope delivered
 
-Round 3 closed the items the entry below left open: the **per-user NSIS installer** bundles SumatraPDF 3.6.1 for x64 and ARM64 ([installer-windows.md](../07-build-and-release/installer-windows.md)); `tray` and `quality` **reach the printer** (CUPS options; on Windows the driver's bin id and a temporary per-user quality default, D16); the **release pipeline** signs, verifies and drafts releases on a tag, and the **channels** read their own manifests ([ADR-0011](../adr/0011-release-channel.md)). A print nobody confirmed now ends `unconfirmed`, never done. Still open: the exit criteria below (no fixture-diff print test, no `clippy::panic` gate), no published release, and no per-profile notification mute (FR-073).
+Round 3 closed the items the entry below left open: the **per-user NSIS installer** bundles SumatraPDF 3.6.1 for x64 and ARM64 ([installer-windows.md](../07-build-and-release/installer-windows.md)); `tray` and `quality` **reach the printer** (CUPS options; on Windows the driver's bin id and a temporary per-user quality default, D16); the **release pipeline** signs, verifies and drafts releases on a tag, and the **channels** read their own manifests ([ADR-0011](../adr/0011-release-channel.md)). A print nobody confirmed now ends `unconfirmed`, never done. Still open: the exit criteria below (no fixture-diff print test, no `clippy::panic` gate) and no per-profile notification mute (FR-073). 0.0.1 preview was published on 2026-10-10.
 
 ### Status (2026-07-20) — superseded by the entry above
 
@@ -274,7 +274,7 @@ Every format in [supported-formats.md](../03-requirements/supported-formats.md) 
 
 ### Status (2026-10-10) — delivered except the certificates
 
-Signed in-app updates (FR-082/083/084/087), stable and beta manifests (FR-085; nightly follows beta), the release workflow that builds, signs, verifies and drafts the four targets with checksums and sources, and backend reasons translated in the UI (FR-092) are all in place. By decision ([ADR-0011](../adr/0011-release-channel.md)) there is no EV certificate and no Developer ID: SmartScreen and Gatekeeper warn, and the release notes explain both. Still open: no published release (the repository is private until the first stable one), no `axe-core` gate, no silent background install (installs happen only when the user asks).
+Signed in-app updates (FR-082/083/084/087), stable and beta manifests (FR-085; nightly follows beta), the release workflow that builds, signs, verifies and drafts the four targets with checksums and sources, and backend reasons translated in the UI (FR-092) are all in place. By decision ([ADR-0011](../adr/0011-release-channel.md)) there is no EV certificate and no Developer ID: SmartScreen and Gatekeeper warn, and the release notes explain both. 0.0.1 preview was published on 2026-10-10 and the repository is public. Still open: no `axe-core` gate, no silent background install (installs happen only when the user asks).
 
 ### Status (2026-07-20) — superseded by the entry above
 
