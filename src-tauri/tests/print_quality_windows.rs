@@ -223,6 +223,41 @@ fn print_settings_quality_null_user_devmode_restored_windows() {
     }
 }
 
+/// E1 with a user who has their own default (High): a Draft job gets Draft,
+/// and their High default comes back byte for byte.
+#[test]
+#[ignore = "submits to paused Windows queues; set MAECLY_REAL_PRINTER=1"]
+fn print_settings_quality_own_user_devmode_restored_bytewise_windows() {
+    let Some(queues) = queues() else { return };
+    for queue in &queues {
+        let _keep = KeepDefault::new(queue);
+        let Some(high) = swap::build_job_devmode(queue, Target::High).unwrap() else {
+            println!("OWNDM queue={queue} skipped: the driver offers no high quality");
+            continue;
+        };
+        SpoolerDefaults.set(queue, Some(&high)).unwrap();
+        let theirs = SpoolerDefaults.get(queue).unwrap();
+        assert!(theirs.is_some());
+        let id = spool(queue, &settings(Quality::Draft), "owndm");
+        let _guard = CancelOnDrop(queue.clone(), id.clone());
+        let outcome = job_quality(queue, id.parse().unwrap(), Target::Draft);
+        println!(
+            "OWNDM queue={queue} outcome={outcome:?} restored={}",
+            SpoolerDefaults.get(queue).unwrap() == theirs
+        );
+        assert_eq!(outcome, QualityOutcome::Applied, "{queue}");
+        assert_eq!(SpoolerDefaults.get(queue).unwrap(), theirs, "{queue}");
+        // And a Normal job simply inherits the user's own High.
+        let id = spool(queue, &settings(Quality::Normal), "owndm-normal");
+        let _guard = CancelOnDrop(queue.clone(), id.clone());
+        assert_eq!(
+            job_quality(queue, id.parse().unwrap(), Target::High),
+            QualityOutcome::Applied,
+            "{queue}: SumatraPDF starts from the per-user default"
+        );
+    }
+}
+
 /// E5: a change made to the default while the swap is in place is kept.
 #[test]
 #[ignore = "changes the per-user default of paused Windows queues; set MAECLY_REAL_PRINTER=1"]
