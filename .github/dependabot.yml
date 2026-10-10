@@ -1,3 +1,20 @@
+# Weekly dependency updates, one pull request per ecosystem for every minor
+# and patch release, and majors on their own.
+#
+# - Titles: `prefix` plus `include: scope` gives "chore(deps): ...",
+#   "chore(deps-dev): ..." and "ci(deps): ..." (Dependabot adds the scope;
+#   a prefix that already carries one would read "chore(deps)(deps): ...").
+# - Groups: a dependency joins the first group that matches it. The
+#   `*-minor-patch` group comes first and takes every minor and patch
+#   release; the groups after it only see majors, so related packages that
+#   must move together (tauri and its plugins, react and its types, the
+#   eslint toolchain, vite and its React plugin, vitest and its DOM,
+#   WebdriverIO, commitlint) still arrive in one pull request, and any other
+#   major arrives alone.
+# - Cooldown: a release is proposed once it is a week old, so a compromised or
+#   yanked version has time to be caught before it reaches a pull request.
+# - GitHub Actions stay pinned to full commit SHAs; Dependabot moves the SHA
+#   and the version comment after it together.
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -5,11 +22,19 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
-      prefix: 'chore(deps)'
+      prefix: chore
       include: scope
     groups:
+      cargo-minor-patch:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
       tauri:
         patterns:
           - 'tauri*'
@@ -20,34 +45,78 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
-      prefix: 'chore(deps)'
+      prefix: chore
       include: scope
     groups:
+      npm-minor-patch:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+      tauri:
+        patterns:
+          - '@tauri-apps/*'
       react:
         patterns:
-          - 'react*'
-          - '@types/react*'
+          - 'react'
+          - 'react-dom'
+          - '@types/react'
+          - '@types/react-dom'
       eslint:
         patterns:
-          - 'eslint*'
-          - '@typescript-eslint/*'
-      typescript-eslint:
-        patterns:
+          - 'eslint'
+          - 'eslint-*'
+          - '@eslint/*'
           - 'typescript-eslint'
+          - '@typescript-eslint/*'
+          - 'globals'
+      vite:
+        patterns:
+          - 'vite'
+          - '@vitejs/*'
       vitest:
         patterns:
           - 'vitest'
+          - '@vitest/*'
           - '@testing-library/*'
           - 'jsdom'
+      wdio:
+        patterns:
+          - '@wdio/*'
+      commitlint:
+        patterns:
+          - '@commitlint/*'
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
     commit-message:
-      prefix: 'ci(deps)'
+      prefix: ci
       include: scope
+    groups:
+      actions-minor-patch:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # v5 is v4.4.0 again (both run on Node.js 24); v6 installs pnpm 11
+      # first and then self-updates to the packageManager pin, which has
+      # failed intermittently with ERR_PNPM_PNPM_ENGINE_IDENTITY_MISMATCH
+      # (pnpm/action-setup#268) and would put a second pnpm download in
+      # front of every release build. Revisit when package.json moves to
+      # pnpm 11 or the action installs the pinned version directly.
+      - dependency-name: pnpm/action-setup
+        update-types:
+          - version-update:semver-major
