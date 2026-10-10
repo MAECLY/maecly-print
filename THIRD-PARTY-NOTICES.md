@@ -352,7 +352,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 
 ## Rust crates
 
-493 crates are compiled into the shipped binaries. The table names each one, the licence it is offered under, the licence Pluryprint uses it under, and where it ships; the licence texts follow, each with the crates that ship it.
+478 crates are compiled into the shipped binaries. The table names each one, the licence it is offered under, the licence Pluryprint uses it under, and where it ships; the licence texts follow, each with the crates that ship it.
 
 | Crate                               | Version          | Offered under                                       | Used under               | Ships in                          |
 | ----------------------------------- | ---------------- | --------------------------------------------------- | ------------------------ | --------------------------------- |
@@ -386,7 +386,6 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `block-buffer`                      | 0.12.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `block-padding`                     | 0.4.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `block2`                            | 0.6.2            | MIT                                                 | MIT                      | app                               |
-| `brotli`                            | 8.0.2            | BSD-3-Clause AND MIT                                | BSD-3-Clause, MIT        | app                               |
 | `brotli`                            | 9.0.0            | BSD-3-Clause AND MIT                                | BSD-3-Clause, MIT        | app                               |
 | `brotli-decompressor`               | 5.0.0            | BSD-3-Clause OR MIT                                 | MIT                      | app                               |
 | `brotli-decompressor`               | 6.0.1            | BSD-3-Clause OR MIT                                 | MIT                      | app                               |
@@ -400,7 +399,6 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `cargo_metadata`                    | 0.19.2           | MIT                                                 | MIT                      | app                               |
 | `cbc`                               | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `cfb`                               | 0.14.0           | MIT                                                 | MIT                      | app                               |
-| `cfb`                               | 0.7.3            | MIT                                                 | MIT                      | app                               |
 | `cfg-if`                            | 1.0.4            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `chacha20`                          | 0.10.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `cipher`                            | 0.5.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
@@ -440,7 +438,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `digest`                            | 0.10.7           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `digest`                            | 0.11.3           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `directories`                       | 6.0.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `dirs`                              | 6.0.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `dirs`                              | 7.0.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `dirs-sys`                          | 0.5.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `dispatch2`                         | 0.3.1            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
 | `displaydoc`                        | 0.2.5            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
@@ -515,18 +513,15 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `image-webp`                        | 0.2.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `imagesize`                         | 0.13.0           | MIT                                                 | MIT                      | app                               |
 | `indexmap`                          | 2.14.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `infer`                             | 0.19.0           | MIT                                                 | MIT                      | app                               |
 | `infer`                             | 0.22.0           | MIT                                                 | MIT                      | app                               |
 | `inout`                             | 0.2.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `ipnet`                             | 2.12.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `iri-string`                        | 0.7.12           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `is_terminal_polyfill`              | 1.70.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `itoa`                              | 1.0.18           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `json-patch`                        | 3.0.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `json-patch`                        | 4.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `jsonptr`                           | 0.6.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `jsonptr`                           | 0.7.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `keyboard-types`                    | 0.7.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `keyboard-types`                    | 0.8.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `kurbo`                             | 0.11.3           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `kurbo`                             | 0.13.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `lazy_static`                       | 1.5.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
@@ -550,7 +545,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `miniz_oxide`                       | 0.9.1            | MIT OR Zlib OR Apache-2.0                           | Apache-2.0               | app                               |
 | `mio`                               | 1.2.0            | MIT                                                 | MIT                      | app                               |
 | `moxcms`                            | 0.8.1            | BSD-3-Clause OR Apache-2.0                          | Apache-2.0               | app                               |
-| `muda`                              | 0.19.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `muda`                              | 0.20.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `multiversion_no_op`                | 1.0.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `new_debug_unreachable`             | 1.0.6            | MIT                                                 | MIT                      | app                               |
 | `nom`                               | 8.0.0            | MIT                                                 | MIT                      | app                               |
@@ -691,19 +686,19 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `synstructure`                      | 0.13.2           | MIT                                                 | MIT                      | app                               |
 | `system-configuration`              | 0.7.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `system-configuration-sys`          | 0.6.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `tao`                               | 0.35.0           | Apache-2.0                                          | Apache-2.0               | app                               |
+| `tao`                               | 0.37.1           | Apache-2.0                                          | Apache-2.0               | app                               |
 | `tar`                               | 0.4.46           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `tauri`                             | 2.11.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-codegen`                     | 2.6.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-macros`                      | 2.6.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-dialog`               | 2.7.3            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-fs`                   | 2.5.2            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-notification`         | 2.4.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-opener`               | 2.5.5            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-single-instance`      | 2.4.3            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-updater`              | 2.12.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-runtime`                     | 2.11.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-runtime-wry`                 | 2.11.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri`                             | 2.12.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-codegen`                     | 2.7.2            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-macros`                      | 2.7.2            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-dialog`               | 2.8.1            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-fs`                   | 2.7.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-notification`         | 2.5.1            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-opener`               | 2.7.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-single-instance`      | 2.5.2            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-updater`              | 2.13.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-runtime`                     | 2.12.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-runtime-wry`                 | 2.12.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `tauri-specta`                      | 2.0.0-rc.21      | MIT                                                 | MIT                      | app                               |
 | `tauri-specta-macros`               | 2.0.0-rc.16      | MIT                                                 | MIT                      | app                               |
 | `tauri-utils`                       | 2.10.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
@@ -780,45 +775,35 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `web-time`                          | 1.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `web_atoms`                         | 0.2.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `webpki-roots`                      | 1.0.8            | CDLA-Permissive-2.0                                 | CDLA-Permissive-2.0      | app                               |
-| `webview2-com`                      | 0.38.2           | MIT                                                 | MIT                      | app                               |
+| `webview2-com`                      | 0.39.1           | MIT                                                 | MIT                      | app                               |
 | `webview2-com-macros`               | 0.8.1            | MIT                                                 | MIT                      | app                               |
-| `webview2-com-sys`                  | 0.38.2           | MIT                                                 | MIT                      | app                               |
+| `webview2-com-sys`                  | 0.39.1           | MIT                                                 | MIT                      | app                               |
 | `weezl`                             | 0.1.12           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `weezl`                             | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `winapi-util`                       | 0.1.11           | Unlicense OR MIT                                    | MIT                      | app                               |
-| `window-vibrancy`                   | 0.6.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `window-vibrancy`                   | 0.8.1            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `windows`                           | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows`                           | 0.61.3           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows`                           | 0.62.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-collections`               | 0.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-collections`               | 0.3.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-core`                      | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows-core`                      | 0.61.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-core`                      | 0.62.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-future`                    | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-future`                    | 0.3.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-implement`                 | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows-implement`                 | 0.60.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-interface`                 | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows-interface`                 | 0.59.3           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-link`                      | 0.1.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-link`                      | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows-numerics`                  | 0.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-numerics`                  | 0.3.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-registry`                  | 0.6.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-result`                    | 0.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows-result`                    | 0.3.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-result`                    | 0.4.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-strings`                   | 0.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows-strings`                   | 0.4.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-strings`                   | 0.5.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-sys`                       | 0.52.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-sys`                       | 0.59.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-sys`                       | 0.60.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-sys`                       | 0.61.2           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows-targets`                   | 0.52.6           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows-targets`                   | 0.53.5           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-threading`                 | 0.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-threading`                 | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-version`                   | 0.1.7            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows_aarch64_msvc`              | 0.52.6           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
@@ -828,7 +813,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `winnow`                            | 1.0.2            | MIT                                                 | MIT                      | app                               |
 | `write-fonts`                       | 0.48.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `writeable`                         | 0.6.3            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `wry`                               | 0.55.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `wry`                               | 0.57.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
 | `xattr`                             | 1.6.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `xmlwriter`                         | 0.1.0            | MIT                                                 | MIT                      | app                               |
 | `yansi`                             | 1.0.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
@@ -1310,7 +1295,6 @@ Used by:
 - `foreign-types-macros` 0.2.3 (https://github.com/sfackler/foreign-types), by Steven Fackler
 - `foreign-types-shared` 0.3.1 (https://github.com/sfackler/foreign-types), by Steven Fackler
 - `is_terminal_polyfill` 1.70.2 (https://github.com/polyfill-rs/is_terminal_polyfill)
-- `json-patch` 3.0.1 (https://github.com/idubrov/json-patch), by Ivan Dubrov
 - `json-patch` 4.2.0 (https://github.com/idubrov/json-patch), by Ivan Dubrov
 - `notify-rust` 4.18.2 (https://github.com/hoodie/notify-rust), by Hendrik Sollich
 - `once_cell_polyfill` 1.70.2 (https://github.com/polyfill-rs/once_cell_polyfill)
@@ -1530,7 +1514,7 @@ Used by:
 
 - `anyhow` 1.0.104 (https://github.com/dtolnay/anyhow), by David Tolnay
 - `directories` 6.0.0 (https://github.com/soc/directories-rs), by Simon Ochsenreither
-- `dirs` 6.0.0 (https://github.com/soc/dirs-rs), by Simon Ochsenreither
+- `dirs` 7.0.0 (https://codeberg.org/dirs/dirs-rs), by Simon Ochsenreither
 - `dirs-sys` 0.5.0 (https://github.com/dirs-dev/dirs-sys-rs), by Simon Ochsenreither
 - `dispatch2` 0.3.1 (https://github.com/madsmtm/objc2), by Mads Marquart, Mary
 - `dtoa` 1.0.11 (https://github.com/dtolnay/dtoa), by David Tolnay
@@ -1593,17 +1577,17 @@ Used by:
 - `syn` 3.0.2 (https://github.com/dtolnay/syn), by David Tolnay
 - `syn` 3.0.6 (https://github.com/dtolnay/syn), by David Tolnay
 - `sync_wrapper` 1.0.2 (https://github.com/Actyx/sync_wrapper), by Actyx AG
-- `tauri` 2.11.0 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
-- `tauri-codegen` 2.6.0 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
-- `tauri-macros` 2.6.0 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
-- `tauri-plugin-dialog` 2.7.3 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
-- `tauri-plugin-fs` 2.5.2 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
-- `tauri-plugin-notification` 2.4.0 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
-- `tauri-plugin-opener` 2.5.5 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
-- `tauri-plugin-single-instance` 2.4.3 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
-- `tauri-plugin-updater` 2.12.0 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
-- `tauri-runtime` 2.11.0 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
-- `tauri-runtime-wry` 2.11.0 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
+- `tauri` 2.12.1 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
+- `tauri-codegen` 2.7.2 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
+- `tauri-macros` 2.7.2 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
+- `tauri-plugin-dialog` 2.8.1 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
+- `tauri-plugin-fs` 2.7.0 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
+- `tauri-plugin-notification` 2.5.1 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
+- `tauri-plugin-opener` 2.7.0 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
+- `tauri-plugin-single-instance` 2.5.2 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
+- `tauri-plugin-updater` 2.13.1 (https://github.com/tauri-apps/plugins-workspace), by Tauri Programme within The Commons Conservancy
+- `tauri-runtime` 2.12.1 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
+- `tauri-runtime-wry` 2.12.1 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
 - `tauri-utils` 2.10.1 (https://github.com/tauri-apps/tauri), by Tauri Programme within The Commons Conservancy
 - `tauri-winrt-notification` 0.8.1 (https://github.com/tauri-apps/winrt-notification), by allenbenz, Tauri Programme within The Commons Conservancy
 - `thiserror` 1.0.69 (https://github.com/dtolnay/thiserror), by David Tolnay
@@ -1741,13 +1725,13 @@ Used by:
 - `idna` 1.1.0 (https://github.com/servo/rust-url/), by The rust-url developers
 - `idna_adapter` 1.2.2 (https://github.com/hsivonen/idna_adapter), by The rust-url developers
 - `indexmap` 2.14.0 (https://github.com/indexmap-rs/indexmap)
-- `keyboard-types` 0.7.0 (https://github.com/pyfisch/keyboard-types), by Pyfisch
+- `keyboard-types` 0.8.3 (https://github.com/rust-windowing/keyboard-types), by Pyfisch
 - `lazy_static` 1.5.0 (https://github.com/rust-lang-nursery/lazy-static.rs), by Marvin Löbel
 - `lock_api` 0.4.14 (https://github.com/Amanieu/parking_lot), by Amanieu d'Antras
 - `log` 0.4.29 (https://github.com/rust-lang/log), by The Rust Project Developers
 - `markup5ever` 0.39.0 (https://github.com/servo/html5ever), by The html5ever Project Developers
 - `mime` 0.3.17 (https://github.com/hyperium/mime), by Sean McArthur
-- `muda` 0.19.1 (https://github.com/tauri-apps/muda)
+- `muda` 0.20.0 (https://github.com/tauri-apps/muda)
 - `num-traits` 0.2.19 (https://github.com/rust-num/num-traits), by The Rust Project Developers
 - `once_cell` 1.21.4 (https://github.com/matklad/once_cell), by Aleksey Kladov
 - `parking_lot` 0.12.5 (https://github.com/Amanieu/parking_lot), by Amanieu d'Antras
@@ -1799,8 +1783,8 @@ Used by:
 - `web_atoms` 0.2.4 (https://github.com/servo/html5ever), by The html5ever Project Developers
 - `weezl` 0.1.12 (https://github.com/image-rs/weezl), by The image-rs Developers
 - `weezl` 0.2.1 (https://github.com/image-rs/weezl), by The image-rs Developers
-- `window-vibrancy` 0.6.0 (https://github.com/tauri-apps/tauri-plugin-vibrancy), by Tauri Programme within The Commons Conservancy
-- `wry` 0.55.0 (https://github.com/tauri-apps/wry), by Tauri Programme within The Commons Conservancy
+- `window-vibrancy` 0.8.1 (https://github.com/tauri-apps/tauri-plugin-vibrancy), by Tauri Programme within The Commons Conservancy
+- `wry` 0.57.0 (https://github.com/tauri-apps/wry), by Tauri Programme within The Commons Conservancy
 - `xattr` 1.6.1 (https://github.com/Stebalien/xattr), by Steven Allen
 
 ```text
@@ -2741,7 +2725,7 @@ Used by:
 
 - `ctor` 1.0.13 (https://github.com/mmastrac/linktime), by Matt Mastracci
 - `dpi` 0.1.2 (https://github.com/rust-windowing/winit)
-- `tao` 0.35.0 (https://github.com/tauri-apps/tao), by Tauri Programme within The Commons Conservancy, The winit contributors
+- `tao` 0.37.1 (https://github.com/tauri-apps/tao), by Tauri Programme within The Commons Conservancy, The winit contributors
 
 ```text
 Apache License
@@ -4243,7 +4227,6 @@ limitations under the License.
 
 Used by:
 
-- `jsonptr` 0.6.3 (https://github.com/chanced/jsonptr), by chance dinkins, André Sá de Mello
 - `jsonptr` 0.7.1 (https://github.com/chanced/jsonptr), by chance dinkins, André Sá de Mello, Oliver Wangler
 
 ```text
@@ -8089,37 +8072,27 @@ limitations under the License.
 Used by:
 
 - `windows` 0.58.0 (https://github.com/microsoft/windows-rs), by Microsoft
-- `windows` 0.61.3 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows` 0.62.2 (https://github.com/microsoft/windows-rs)
-- `windows-collections` 0.2.0 (https://github.com/microsoft/windows-rs)
 - `windows-collections` 0.3.2 (https://github.com/microsoft/windows-rs)
 - `windows-core` 0.58.0 (https://github.com/microsoft/windows-rs), by Microsoft
-- `windows-core` 0.61.2 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-core` 0.62.2 (https://github.com/microsoft/windows-rs)
-- `windows-future` 0.2.1 (https://github.com/microsoft/windows-rs)
 - `windows-future` 0.3.2 (https://github.com/microsoft/windows-rs)
 - `windows-implement` 0.58.0 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-implement` 0.60.2 (https://github.com/microsoft/windows-rs)
 - `windows-interface` 0.58.0 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-interface` 0.59.3 (https://github.com/microsoft/windows-rs)
-- `windows-link` 0.1.3 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-link` 0.2.1 (https://github.com/microsoft/windows-rs)
-- `windows-numerics` 0.2.0 (https://github.com/microsoft/windows-rs)
 - `windows-numerics` 0.3.1 (https://github.com/microsoft/windows-rs)
 - `windows-registry` 0.6.1 (https://github.com/microsoft/windows-rs)
 - `windows-result` 0.2.0 (https://github.com/microsoft/windows-rs), by Microsoft
-- `windows-result` 0.3.4 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-result` 0.4.1 (https://github.com/microsoft/windows-rs)
 - `windows-strings` 0.1.0 (https://github.com/microsoft/windows-rs), by Microsoft
-- `windows-strings` 0.4.2 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-strings` 0.5.1 (https://github.com/microsoft/windows-rs)
 - `windows-sys` 0.52.0 (https://github.com/microsoft/windows-rs), by Microsoft
-- `windows-sys` 0.59.0 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-sys` 0.60.2 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-sys` 0.61.2 (https://github.com/microsoft/windows-rs)
 - `windows-targets` 0.52.6 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-targets` 0.53.5 (https://github.com/microsoft/windows-rs)
-- `windows-threading` 0.1.0 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-threading` 0.2.1 (https://github.com/microsoft/windows-rs)
 - `windows-version` 0.1.7 (https://github.com/microsoft/windows-rs)
 - `windows_aarch64_msvc` 0.52.6 (https://github.com/microsoft/windows-rs), by Microsoft
@@ -8834,7 +8807,6 @@ Used by:
 
 - `alloc-stdlib` 0.2.2 (https://github.com/dropbox/rust-alloc-no-stdlib), by Daniel Reiter Horn
 - `alloc-stdlib` 0.3.0 (https://github.com/dropbox/rust-alloc-no-stdlib), by Daniel Reiter Horn
-- `brotli` 8.0.2 (https://github.com/dropbox/rust-brotli), by Daniel Reiter Horn, The Brotli Authors
 
 ```text
 Copyright (c) <year> <owner>.
@@ -9843,9 +9815,9 @@ Used by:
 - `specta-typescript` 0.0.9 (https://github.com/oscartbeaumont/specta), by Oscar Beaumont
 - `tauri-specta` 2.0.0-rc.21 (https://github.com/oscartbeaumont/tauri-specta), by Oscar Beaumont
 - `tauri-specta-macros` 2.0.0-rc.16 (https://github.com/oscartbeaumont/tauri-specta), by Oscar Beaumont
-- `webview2-com` 0.38.2 (https://github.com/wravery/webview2-rs)
+- `webview2-com` 0.39.1 (https://github.com/wravery/webview2-rs)
 - `webview2-com-macros` 0.8.1 (https://github.com/wravery/webview2-rs)
-- `webview2-com-sys` 0.38.2 (https://github.com/wravery/webview2-rs)
+- `webview2-com-sys` 0.39.1 (https://github.com/wravery/webview2-rs)
 
 ```text
 MIT License
@@ -9872,7 +9844,6 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Used by:
 
-- `brotli` 8.0.2 (https://github.com/dropbox/rust-brotli), by Daniel Reiter Horn, The Brotli Authors
 - `brotli` 9.0.0 (https://github.com/dropbox/rust-brotli), by Daniel Reiter Horn, The Brotli Authors
 
 ```text
@@ -9970,7 +9941,6 @@ DEALINGS IN THE SOFTWARE.
 Used by:
 
 - `cfb` 0.14.0 (https://github.com/mdsteele/rust-cfb), by Matthew D. Steele
-- `cfb` 0.7.3 (https://github.com/mdsteele/rust-cfb), by Matthew D. Steele
 
 ```text
 MIT License
@@ -10447,7 +10417,6 @@ SOFTWARE.
 
 Used by:
 
-- `infer` 0.19.0 (https://github.com/bojand/infer), by Bojan
 - `infer` 0.22.0 (https://github.com/bojand/infer), by Bojan
 
 ```text
@@ -12670,8 +12639,8 @@ the following restrictions:
 
 | Package                     | Version | Licence           |
 | --------------------------- | ------- | ----------------- |
-| `@tauri-apps/api`           | 2.11.0  | Apache-2.0 OR MIT |
-| `@tauri-apps/plugin-dialog` | 2.7.1   | MIT OR Apache-2.0 |
+| `@tauri-apps/api`           | 2.12.1  | Apache-2.0 OR MIT |
+| `@tauri-apps/plugin-dialog` | 2.8.1   | MIT OR Apache-2.0 |
 | `csstype`                   | 3.2.3   | MIT               |
 | `react`                     | 19.3.0  | MIT               |
 | `react-dom`                 | 19.3.0  | MIT               |
@@ -12680,7 +12649,7 @@ the following restrictions:
 | `tailwindcss`               | 3.4.19  | MIT               |
 | `zustand`                   | 5.0.15  | MIT               |
 
-### `@tauri-apps/api` 2.11.0
+### `@tauri-apps/api` 2.12.1
 
 Apache-2.0 OR MIT. https://github.com/tauri-apps/tauri#readme
 
@@ -12863,7 +12832,7 @@ TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
 END OF TERMS AND CONDITIONS
 ```
 
-### `@tauri-apps/plugin-dialog` 2.7.1
+### `@tauri-apps/plugin-dialog` 2.8.1
 
 MIT OR Apache-2.0. https://github.com/tauri-apps/plugins-workspace#readme
 
