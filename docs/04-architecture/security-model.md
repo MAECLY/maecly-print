@@ -139,7 +139,7 @@ The image decoder is hardened against decompression bombs independently of any s
 
 The converters (LibreOffice, Chromium-class browser, Pandoc, `sips`) are a far larger attack surface than `lp`. They all go through `engine::convert::process::run_bounded`:
 
-- each gets a **dedicated scratch folder** in the OS temp directory. It holds LibreOffice's throwaway `-env:UserInstallation` profile and the browser's private `--user-data-dir`, and it is removed on every exit path;
+- each gets a **dedicated scratch folder** in the OS temp directory. It holds LibreOffice's throwaway `-env:UserInstallation` profile and the browser's private `--user-data-dir`, and it is removed on every exit path. The browser profile is seeded so that Edge does not try an empty-password logon for the user, which on Windows counts as a failed logon toward account lockout (see [print-engine.md](print-engine.md));
 - each runs under a **deadline and the job's cancel flag**, and on either the **whole process tree** is killed (process group on Unix, `taskkill /T` on Windows);
 - LibreOffice works on a private copy of the input, so a hostile file name never reaches its command line. The browser keeps its sandbox (no `--no-sandbox`).
 

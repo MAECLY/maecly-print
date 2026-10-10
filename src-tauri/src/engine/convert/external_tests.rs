@@ -202,6 +202,47 @@ done"#,
         assert!(file_url(&page).contains("my%20page.html"));
     }
 
+    /// The browser starts on a profile whose `Local State` already disables
+    /// the blank-password logon probe (one failed Windows logon per run
+    /// otherwise; ten lock the account).
+    #[test]
+    fn fr_055_the_browser_profile_is_seeded_before_launch() {
+        let dir = tempfile::tempdir().unwrap();
+        let seen = dir.path().join("local-state");
+        let browser = script(
+            dir.path(),
+            "chrome",
+            &format!(
+                r#"for a in "$@"; do
+  case "$a" in
+    --user-data-dir=*) cat "${{a#--user-data-dir=}}/Local State" > '{seen}';;
+    --print-to-pdf=*) printf '%%PDF-1.4\n%%%%EOF\n' > "${{a#--print-to-pdf=}}";;
+  esac
+done"#,
+                seen = seen.display()
+            ),
+        );
+        let page = dir.path().join("p.html");
+        std::fs::write(&page, "<p>x</p>").unwrap();
+        let work = WorkDir::new("job").unwrap();
+        html::convert_with(
+            &browser,
+            &page,
+            &dir.path().join("out.pdf"),
+            &work,
+            &AtomicBool::new(false),
+            None,
+            &PageSetup::default(),
+        )
+        .unwrap();
+        let state: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&seen).unwrap()).unwrap();
+        assert_eq!(
+            state["password_manager"]["os_password_last_changed"],
+            crate::util::chromium::FAR_FUTURE_LAST_CHANGED
+        );
+    }
+
     #[test]
     fn fr_056_markdown_runs_pandoc_then_the_browser_on_the_generated_page() {
         let dir = tempfile::tempdir().unwrap();

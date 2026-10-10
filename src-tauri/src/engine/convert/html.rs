@@ -11,7 +11,10 @@
 //!   resolve exactly as they do when the user opens the file in a browser.
 //! - `--user-data-dir` points at a throwaway directory: the user's running
 //!   browser and its profile are never touched, and a headless run cannot
-//!   attach to (or be blocked by) an open browser window.
+//!   attach to (or be blocked by) an open browser window. Its `Local State`
+//!   is seeded first so Edge skips its blank-password logon probe, which
+//!   otherwise records a failed Windows logon per conversion and locks the
+//!   account after ten ([`crate::util::chromium`]).
 //! - The step ends when the PDF is complete, not when the browser exits:
 //!   some Chrome builds (156 on macOS, at least) write the file in a second
 //!   and then idle forever. [`pdf_is_complete`] waits for the `%%EOF`
@@ -118,6 +121,11 @@ pub fn convert_with(
     let produced = work.path().join("out.pdf");
     let profile = work.path().join("browser");
     let target = staged_page(page, work, setup)?;
+    // Without this, every conversion records a failed Windows logon for the
+    // user (Chromium's blank-password probe) and ten of them lock the account.
+    if let Err(e) = crate::util::chromium::suppress_blank_password_probe(&profile) {
+        tracing::warn!(event = "browser_logon_probe_suppress_failed", error = %e);
+    }
     let mut cmd = Command::new(browser);
     cmd.args(browser_args(&profile, &produced, &file_url(&target)))
         .current_dir(work.path());

@@ -65,6 +65,12 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
         cli::handoff::ORPHAN_HANDOFF_AGE,
     );
 
+    let ctx = context();
+    // Before the webview exists: keep WebView2 from probing the account for a
+    // blank password, a failed logon on every start (`util::chromium`).
+    #[cfg(windows)]
+    suppress_webview_logon_probe(&ctx.config().identifier);
+
     let builder = specta_builder();
 
     // Regenerate the typed bindings on every debug launch as a convenience;
@@ -227,8 +233,24 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
             }
             Ok(())
         })
-        .run(context())
+        .run(ctx)
         .expect("error while running tauri application");
+}
+
+/// Stamp the app's WebView2 profile (`%LOCALAPPDATA%\<identifier>\EBWebView`,
+/// where Tauri keeps it) so its browser process skips the blank-password
+/// logon probe that otherwise records a failed Windows logon on every start
+/// and, with the default lockout policy, locks the account (`util::chromium`).
+/// A failure only costs that protection, so it is logged, never fatal.
+#[cfg(windows)]
+fn suppress_webview_logon_probe(identifier: &str) {
+    let Some(base) = directories::BaseDirs::new() else {
+        return;
+    };
+    let dir = base.data_local_dir().join(identifier).join("EBWebView");
+    if let Err(e) = util::chromium::suppress_blank_password_probe(&dir) {
+        tracing::warn!(event = "webview_logon_probe_suppress_failed", error = %e);
+    }
 }
 
 /// The compiled-in app context (config, assets, icons). One function so the
