@@ -1,6 +1,6 @@
 # Print Settings
 
-> **TL;DR** — Every printing setting Pluryprint exposes, mapped to the underlying engine flag (SumatraPDF on Windows, CUPS **`lp -o`** on macOS/Linux), with default value, implementation status, and driver-dependency notes. Eleven settings reach the spooler today, `quality`, `tray` and `collate` included (SumatraPDF cannot express `quality` or `collate`, and the job says so); per-printer tray/paper defaults from the Printers screen fill whatever a job leaves open; the rest are unimplemented.
+> **TL;DR** — Every printing setting Pluryprint exposes, mapped to the underlying engine flag (SumatraPDF on Windows, CUPS **`lp -o`** on macOS/Linux), with default value, implementation status, and driver-dependency notes. Eleven settings reach the spooler today, `quality`, `tray` and `collate` included. On Windows, paper and tray go to SumatraPDF by the driver's numeric id, Draft and High quality go through a temporary per-user default (SumatraPDF has no quality switch), and `collate` cannot be expressed, which the job says; per-printer tray/paper defaults from the Printers screen fill whatever a job leaves open; the rest are unimplemented.
 
 A print setting is anything that can be different per job: the printer, paper, duplex, color, copies, range, etc. Some settings are universally supported by the OS spooler; others depend on the specific printer driver; a few would have to be synthesized via PDF preprocessing.
 
@@ -15,11 +15,11 @@ A print setting is anything that can be different per job: the printer, paper, d
 | `color_mode` | enum: color / monochrome | color | `color` / `monochrome` | `-o ColorModel=Gray` for mono; colour sends `-o ColorModel=RGB` **only when the printer lists `RGB`**, else nothing (driver default) | **Shipped** | yes |
 | `copies` | int 1–999 | 1 | `<N>x`, e.g. `3x` (only when N > 1) | `-n N` (only when N > 1) | **Shipped** | no |
 | `page_ranges` | string `1-5,10` | all | bare `1-5,10`, prepended, no key | `-o page-ranges=1-5,10` | **Shipped** | no |
-| `paper_size` | string: any size the printer reports (`A4`, `Letter`, `A6`, `4x6`, `Tabloid`…), or `auto` | A4 | `paper=<A2…A6, letter, legal, tabloid, statement>`; any other size is **not applied** and the preview says so; `auto` emits nothing | `-o media=<the printer's own keyword>`; `auto` emits nothing | **Shipped** | yes — validated against the printer's list when it reports one (`unsupported_setting` pause otherwise) |
+| `paper_size` | string: any size the printer reports (`A4`, `Letter`, `A6`, `4x6`, `Tabloid`…), or `auto` | A4 | `paperkind=<DMPAPER id>` (the driver's id for its own paper name, else the standard id); a size with no id is **not applied** and the preview says so; `auto` emits nothing | `-o media=<the printer's own keyword>`; `auto` emits nothing | **Shipped** | yes — validated against the printer's list when it reports one (`unsupported_setting` pause otherwise) |
 | `orientation` | enum: portrait / landscape / auto | auto | `landscape` / `portrait`; **auto emits nothing** | `-o orientation-requested=3` (portrait) / `=4` (landscape); **auto emits nothing** | **Shipped** | no |
 | `scaling` | enum: fit / shrink / none | fit | `fit` / `shrink` / `noscale` | `-o fit-to-page` for fit **and** shrink; none emits nothing | **Shipped** | no |
-| `quality` | enum: draft / normal / high | normal | **not expressible**; the job carries a note saying so | `-o print-quality=3\|4\|5 -o cupsPrintQuality=Draft\|Normal\|High` | **Shipped** (CUPS); reported, not applied (Windows) | yes |
-| `tray` | string | the printer's override, else driver default | `bin=<name>`; `auto` emits nothing | `-o InputSlot=<bin> -o media-source=<bin>`; `auto` emits nothing | **Shipped** | yes |
+| `quality` | enum: draft / normal / high | normal | no token: Draft/High become the printer's per-user default only while the job is handed over (see [`quality`](#quality)); Normal sends nothing | `-o print-quality=3\|4\|5 -o cupsPrintQuality=Draft\|Normal\|High` | **Shipped** (Windows: when the driver offers the level) | yes |
+| `tray` | string | the printer's override, else driver default | `bin=<DMBIN id>` for the driver's bin name; a name the driver does not list is **not applied** and the preview says so; `auto` emits nothing | `-o InputSlot=<bin> -o media-source=<bin>`; `auto` emits nothing | **Shipped** | yes |
 | `paper_size_custom` | width × height (mm) | — | would need preprocessing | `-o media=Custom.WxHmm` | Not implemented | yes |
 | `n_up` | enum: 1 / 2 / 4 / 6 / 9 | 1 | would need `qpdf`/`pdfjam` preprocessing | `-o number-up=N` | Not implemented | yes |
 | `collate` | bool | true | **not expressible** — a `# note:` says the driver's collation is used | `-o collate=true\|false` (only when copies > 1) | **Shipped** (CUPS) | yes |
@@ -31,7 +31,7 @@ Three things in that table contradict earlier drafts and are worth stating plain
 
 - **`duplex` defaults to `none`, not to anything inherited.** `sides=` is emitted on every CUPS invocation precisely so an explicit "none" beats a driver default that duplexes.
 - **Per-printer defaults fill gaps, never override choices.** The Printers screen's tray and paper defaults (`PrinterPrefs::overrides`) apply to a job only where it leaves the value open — no tray, or paper **Printer default** (`auto`). Precedence is explicit job/profile value → printer override → the printer's own default (nothing sent). The dispatcher, the CLI and the honesty preview all apply them the same way (`engine::print::apply_printer_overrides`).
-- **`quality` and `tray` travel with every job.** `toJobSettings` (`src/lib/profiles.ts`) sends both from the profile. CUPS applies both; SumatraPDF applies the tray and states in the job that it cannot apply the quality. The tray is the driver's own bin name, passed verbatim, so a typo reaches the driver as typed. The Print Job screen offers no per-job override for either (see FR-041).
+- **`quality` and `tray` travel with every job.** `toJobSettings` (`src/lib/profiles.ts`) sends both from the profile. CUPS applies both. On Windows the tray is sent as the driver's bin id and Draft/High go through the temporary per-user default described under [`quality`](#quality). The tray is the driver's own bin name: CUPS gets it verbatim, so a typo reaches the driver as typed; on Windows a name the driver does not list is not applied, and the preview says so. The Print Job screen offers no per-job override for either (see FR-041).
 - **CUPS cannot distinguish `fit` from `shrink`.** It has a single `fit-to-page` toggle, so both map to it. Only SumatraPDF honours the distinction (`fit` vs `shrink`).
 
 ### `paper_size`
@@ -76,7 +76,7 @@ There is no `auto` value. On CUPS, `color` emits no flag at all — the driver's
 - `collate = true` (default): full document repeated. (1,2,3 / 1,2,3)
 - `collate = false`: each page repeated. (1,1 / 2,2 / 3,3)
 
-CUPS receives `-o collate=true|false` whenever more than one copy is printed (one copy has nothing to collate, so nothing is sent). SumatraPDF's `-print-settings` has no collate keyword; with several copies the preview carries a `# note:` saying the driver's own collation is used, in the same spirit as the quality gap.
+CUPS receives `-o collate=true|false` whenever more than one copy is printed (one copy has nothing to collate, so nothing is sent). SumatraPDF's `-print-settings` has no collate keyword; with several copies the preview carries a `# note:` saying the driver's own collation is used.
 
 ### `page_ranges`
 
@@ -110,11 +110,11 @@ If the printer's tray does not have the requested paper, behavior is driver-depe
 
 ### `tray`
 
-> **Shipped.** `tray` is on `JobSettings`. `auto` (or blank) emits nothing, so the printer's default bin wins. Any other value is the driver's bin name, passed verbatim: CUPS gets `-o InputSlot=<bin> -o media-source=<bin>`, SumatraPDF gets `bin=<bin>` (a bin name containing a comma is dropped and the drop is logged).
+> **Shipped.** `tray` is on `JobSettings`. `auto` (or blank) emits nothing, so the printer's default bin wins. Any other value is the driver's bin name: CUPS gets `-o InputSlot=<bin> -o media-source=<bin>`, SumatraPDF gets `bin=<id>`, the driver's `DMBIN_*` id for that name.
 
 An identifier for the printer's input bin, as the driver names it (Windows `DC_BINNAMES`, CUPS `InputSlot`) — useful for offices with letterhead in tray 2 and plain paper in tray 1. A blank name means "the printer's default bin".
 
-- **SumatraPDF (Windows):** `bin=<name>`. When the job names no tray, the printer's saved default tray (Printers → *Defaults for this printer*) is used, as [printers-management](../05-features/printers-management.md) promises; the honesty preview shows the same `bin=`. A name containing a comma cannot be expressed in the comma-separated `-print-settings` list, so it is dropped and logged rather than split into wrong tokens.
+- **SumatraPDF (Windows):** `bin=<id>`. SumatraPDF looks a bin *name* up in the driver's localized list, so the name is resolved to the driver's numeric id first (`DeviceCapabilities`, `DC_BINNAMES`/`DC_BINS`) and only the id is sent. A name with a comma in it therefore works too. When the job names no tray, the printer's saved default tray (Printers → *Defaults for this printer*) is used, as [printers-management](../05-features/printers-management.md) promises; the honesty preview shows the same `bin=`. A name the driver does not list cannot be sent: it is left out and a `# note:` says so.
 - **CUPS:** `-o InputSlot=<name> -o media-source=<name>` for the job's tray, else the printer's saved default tray (the queue, the CLI and the preview fill it in through `apply_printer_overrides`).
 
 ### `n_up` (pages-per-sheet)
@@ -127,7 +127,16 @@ CUPS implements n-up natively (`number-up`); nothing emits that flag today. On W
 
 ### `quality`
 
-> **Shipped on CUPS, reported on Windows.** `quality` is on `JobSettings` (`Draft`/`Normal`/`High`, defaulting to `Normal`). CUPS gets `-o print-quality=3|4|5` plus `-o cupsPrintQuality=Draft|Normal|High`. SumatraPDF has no quality switch, so a non-normal preset is not applied and the job carries a note saying so.
+> **Shipped.** `quality` is on `JobSettings` (`Draft`/`Normal`/`High`, defaulting to `Normal`). CUPS gets `-o print-quality=3|4|5` plus `-o cupsPrintQuality=Draft|Normal|High`. On Windows it goes through a temporary per-user default, described below, and only when the printer's driver offers that level.
+
+**Windows (decision D16, `engine::print::devmode_swap`).** SumatraPDF has no quality switch, but it starts every job from the printer's **per-user default DEVMODE**. For Draft and High (Normal is never forced):
+
+1. A DEVMODE carrying the quality is built from the user's current default, through a PrintTicket (`psk:PageOutputQuality`) for v4 and class drivers such as the Microsoft IPP Class Driver, or through `dmPrintQuality` (`DMRES_DRAFT`/`DMRES_HIGH`) for a driver with no PrintTicket provider. A driver that offers neither is left alone, and the job says the quality was not applied.
+2. Under a per-printer OS file lock, and after the original is written to a journal (`<data>\devmode-swap\`), that DEVMODE becomes the user's default (`SetPrinter` level 9: no administrator, other users untouched).
+3. As soon as SumatraPDF's job shows up in the spooler, the original default is restored byte for byte, including "this user had no per-user default". The restore only writes while the default is still the one the swap set; a change made by the user or another program in the meantime wins.
+4. The job's own DEVMODE (`JOB_INFO_2`) is read back and the outcome is logged as applied, not applied or unverified.
+
+A process killed during the swap leaves the journal behind; the next swap on that printer, or the next start of the app or the CLI, restores from it under the same rules. The honesty preview says beforehand which of these will happen for the printer's driver. Checked against the real spooler on paused Windows 11 queues (`scripts/vm/print-quality-e2e.ps1`, the `print_quality_windows` tests).
 
 | Value | DPI hint |
 |---|---|
@@ -206,7 +215,7 @@ The rule, implemented in `engine::print::check_supported`, is narrower than earl
 4. **CUPS option values are gated.** A paper or tray name `lp` would split into extra options (whitespace, quotes, a backslash, `=`, control characters) is refused rather than quoted (`cups::check_option_values`; see the CUPS table below).
 5. **Colour is deliberately not gated.** A colour job on a mono printer prints in grey — visible, expected, and not worth blocking.
 
-The settings that cannot be expressed on a platform (SumatraPDF: `quality`, `collate`, paper sizes it has no keyword for) are not gated either: the job runs and the preview and the job carry a note saying what was not applied.
+The settings that cannot be applied on a platform (SumatraPDF: `collate`; a paper or tray the driver has no id for; a quality the driver does not offer) are not gated either: the job runs and the preview and the job carry a note saying what was not applied.
 
 There is no `--strict=false` flag and no "prompt to override or skip" flow. A gated setting **pauses** the job with `unsupported_setting` (never an automatic retry), so the user can fix the setting or the printer and resume; the CLI exits with the `Printer` code (`cli::exit`).
 
@@ -219,13 +228,13 @@ Quick reference for developers writing the renderer:
 Comma-separated keywords inside one quoted string. SumatraPDF is order-independent, but `print_settings_string` emits a **fixed order** so the preview shown in the UI is stable and the output is testable:
 
 ```
-page ranges, duplex, colour, scaling, paper, bin, copies, orientation
+page ranges, duplex, colour, scaling, paperkind, bin, copies, orientation
 ```
 
-giving, for example:
+giving, for example (A4 is `DMPAPER_A4` = 9):
 
 ```
-"1-5,duplex,monochrome,fit,paper=A4,2x,landscape"
+"1-5,duplex,monochrome,fit,paperkind=9,2x,landscape"
 ```
 
 Full argument vector: `-print-to <printer> -print-settings <string> -silent -exit-when-done <pdf>`.
@@ -236,10 +245,11 @@ Full argument vector: `-print-to <printer> -print-settings <string> -silent -exi
 | Duplex none / long / short | `simplex` / `duplex` / `duplexshort` — always emitted |
 | Colour / monochrome | `color` / `monochrome` — always emitted |
 | Scaling fit / shrink / none | `fit` / `shrink` / `noscale` — always emitted |
-| Paper size | `paper=A4` (also `Letter`, `Legal`, `A3`, and SumatraPDF's own `A2`, `A5`, `A6`, `tabloid`, `statement`); `auto` emits nothing; any other size cannot be named here, so it is left out and a `# note:` line in the preview says it is not applied |
+| Paper size | `paperkind=<id>`: the driver's `DMPAPER_*` id for its own paper name, else the standard id for a size Pluryprint names (`A4` = 9, `Letter` = 1, …). Never `paper=<name>`, which SumatraPDF matches against the driver's **localized** names (on Spanish Windows Letter is "Carta"). `auto` emits nothing; a size with no id is left out and a `# note:` line in the preview says it is not applied |
 | Copies | `<N>x` (e.g. `3x`), **only when N > 1** — SumatraPDF silently skips the `copies=N` spelling; collation cannot be expressed (preview note) |
 | Orientation | `landscape` / `portrait`; `auto` emits nothing |
-| Tray (bin) | `bin=<name>` — the job's tray, else the printer's saved default tray; omitted when there is none or the name contains a comma |
+| Tray (bin) | `bin=<id>` — the driver's `DMBIN_*` id for the job's tray, else for the printer's saved default tray; omitted when there is none, or when the driver lists no such tray (with a `# note:`) |
+| Quality | no token — see [`quality`](#quality) |
 
 `simplex` and `noscale` are worth noting: the "none" cases are stated explicitly rather than omitted, so every setting the user chose is represented in the string.
 
@@ -264,7 +274,7 @@ The command is **`lp`**, not `lpr`. Vector: `lp -d <printer> -t <title> <opts…
 
 `sides` and `media` are always emitted so an explicit user choice wins over any driver default.
 
-Every `-o name=value` value must be a single CUPS keyword. `lp` passes `-o` through `cupsParseOptions`, which splits on whitespace and honours quotes and backslashes, so a tray named `Tray1 copies=999` would quietly add a `copies=999` option. A value containing whitespace, a control character, a quote, a backslash or `=` is therefore refused, never quoted. The capability gate (`check_supported`) pauses the job as `unsupported_setting` and names the value, and `spool` repeats the check before it runs `lp`. The test page applies the same rule to the printer's saved paper and tray. Windows is unaffected: SumatraPDF bin and paper names may contain spaces.
+Every `-o name=value` value must be a single CUPS keyword. `lp` passes `-o` through `cupsParseOptions`, which splits on whitespace and honours quotes and backslashes, so a tray named `Tray1 copies=999` would quietly add a `copies=999` option. A value containing whitespace, a control character, a quote, a backslash or `=` is therefore refused, never quoted. The capability gate (`check_supported`) pauses the job as `unsupported_setting` and names the value, and `spool` repeats the check before it runs `lp`. The test page applies the same rule to the printer's saved paper and tray. Windows is unaffected: SumatraPDF receives numeric ids, so a bin or paper name may contain spaces or commas.
 
 ## Settings that we deliberately do not expose
 
@@ -282,7 +292,7 @@ A profile's settings are serialized as `[[profile]]` entries in `profiles.toml`,
 
 **There is information loss**, in two specific places, and it is worth being precise about it:
 
-- `quality` and `collate` cannot be expressed to SumatraPDF on Windows, and neither can a paper size outside its keyword list; the job reports each instead of applying it.
+- `collate` cannot be expressed to SumatraPDF on Windows, and neither can a paper or tray the driver has no id for, or a quality level the driver does not offer; the job reports each instead of applying it.
 - `scaling` loses the `fit`/`shrink` distinction on CUPS, which has only `fit-to-page`.
 
 For the other settings that reach a renderer on SumatraPDF, the mapping is lossless.
