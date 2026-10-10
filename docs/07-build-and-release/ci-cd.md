@@ -1,6 +1,6 @@
 # CI/CD
 
-> **TL;DR.** GitHub Actions runs **two** workflows today: `ci.yml` (every PR and push to `main` — lint, test, coverage gates, unsigned build, GUI smoke, shell-extension lanes) and `dco.yml` (sign-off check). There is **no release workflow and no nightly workflow**: nothing in this repository signs, notarizes, publishes or tags a release. That pipeline is designed but unbuilt, and this document separates the two halves explicitly.
+> **TL;DR.** GitHub Actions runs **one** workflow today: `ci.yml` (every PR and push to `main` — lint, test, coverage gates, unsigned build, GUI smoke, shell-extension lanes). There is no sign-off check: contributions come in under the [CLA](../../CLA.md), which the pull request template asks for. There is **no release workflow and no nightly workflow**: nothing in this repository signs, notarizes, publishes or tags a release. That pipeline is designed but unbuilt, and this document separates the two halves explicitly.
 
 This document specifies what CI does today, then records the release pipeline design that has not been implemented, so the gap is visible rather than hidden.
 
@@ -9,7 +9,6 @@ This document specifies what CI does today, then records the release pipeline de
 | Workflow | File | Trigger | Signs? | Publishes? |
 |---|---|---|---|---|
 | **CI** | `.github/workflows/ci.yml` | `pull_request` → `main`, `push` → `main`, `workflow_dispatch`, weekly `schedule` | No | No (artifacts kept 7 days for debugging) |
-| **DCO** | `.github/workflows/dco.yml` | Pull requests | — | — |
 
 `workflow_dispatch` and `schedule` exist on `ci.yml` for exactly one job: the advisory `ignored-tests` lane. Every other job carries `if: github.event_name != 'schedule'`, so a scheduled run executes that lane and nothing else.
 

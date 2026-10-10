@@ -23,8 +23,7 @@ maecly-print/
 ├── .lintstagedrc.json / .prettierrc.json / .prettierignore / eslint.config.js
 ├── .github/
 │   ├── workflows/
-│   │   ├── ci.yml               # The only build/test workflow (see ci-cd.md)
-│   │   └── dco.yml              # Developer Certificate of Origin sign-off check
+│   │   └── ci.yml               # The only workflow (see ci-cd.md)
 │   ├── ISSUE_TEMPLATE/          # bug_report.yml, feature_request.yml, config.yml
 │   ├── PULL_REQUEST_TEMPLATE.md
 │   ├── CODEOWNERS
@@ -90,7 +89,7 @@ Standard top-level metadata for any open source repo. GitHub renders `README.md`
 
 GitHub-specific configuration. Treated as code: changes go through PR review.
 
-- `workflows/`: two files today — `ci.yml` (every build, test and lint lane) and `dco.yml` (sign-off check). There is **no `release.yml` and no `nightly.yml`**; see [ci-cd.md](../07-build-and-release/ci-cd.md) for what that means for releases.
+- `workflows/`: one file today — `ci.yml` (every build, test and lint lane). There is no sign-off check; contributions come in under the [CLA](../../CLA.md), which `PULL_REQUEST_TEMPLATE.md` asks for. There is **no `release.yml` and no `nightly.yml`**; see [ci-cd.md](../07-build-and-release/ci-cd.md) for what that means for releases.
 - `ISSUE_TEMPLATE/`: structured templates for bug reports, feature requests, security issues.
 - `PULL_REQUEST_TEMPLATE.md`: required checklist when opening PRs.
 - `CODEOWNERS`: maps file paths to maintainers for auto-requested review.

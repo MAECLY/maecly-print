@@ -30,7 +30,7 @@ Everything in this table is declared in `src-tauri/Cargo.toml`, `shell-ext-win/C
 | Update flow            | **Read-only check against the GitHub Releases API.** No `tauri-plugin-updater`, no download, no install |
 | Tauri plugins in use   | `tauri-plugin-dialog`, `tauri-plugin-opener`, `tauri-plugin-single-instance` |
 | Tests                  | `vitest` + `@testing-library/react` (frontend), `cargo test` incl. `src-tauri/tests/*` (backend), **WebdriverIO** for e2e |
-| CI/CD                  | GitHub Actions (`.github/workflows/ci.yml`, `dco.yml`)  |
+| CI/CD                  | GitHub Actions (`.github/workflows/ci.yml`)            |
 | Code signing           | EV cert (Win), Apple Developer ID (Mac)                 |
 
 ## 2. Why Tauri 2
