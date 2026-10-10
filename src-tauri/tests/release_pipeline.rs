@@ -250,6 +250,24 @@ fn nfr_022_release_jobs_have_least_privilege() {
     // No dependency or build cache can reach a release build.
     assert!(!wf.contains("actions/cache@"), "release.yml uses a cache");
     assert!(!wf.contains("cache: pnpm"), "release.yml uses a cache");
+    // setup-node v5+ also caches on its own when package.json names a
+    // package manager it covers, so every release setup-node turns that off
+    // by name instead of relying on today's npm-only default.
+    let lines: Vec<&str> = wf.lines().collect();
+    let mut setup_nodes = 0;
+    for (i, line) in lines.iter().enumerate() {
+        if !line.contains("uses: actions/setup-node@") {
+            continue;
+        }
+        setup_nodes += 1;
+        let with: String = lines[i + 1..(i + 5).min(lines.len())].join("\n");
+        assert!(
+            with.contains("package-manager-cache: false"),
+            "release.yml:{}: setup-node may restore a package-manager cache",
+            i + 1
+        );
+    }
+    assert!(setup_nodes > 0, "release.yml no longer sets up Node");
     // No package install script runs in a release.
     for line in wf.lines().filter(|l| l.contains("pnpm install")) {
         assert!(
