@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 
@@ -327,4 +328,37 @@ describe('PdfPasswordDialog (FR-059)', () => {
       ).toBeInTheDocument();
     },
   );
+
+  it('FR-059: the toast opens the prompt before the Queue screen mounts (StrictMode too)', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'queue_status') return snapshotOf([locked('secret')]);
+      return null;
+    });
+    await useQueueStore.getState().init();
+    // What the toast's "Enter password" does, then the navigation renders the Queue.
+    useQueueStore.getState().openPasswordPrompt('secret', 'secret.pdf');
+    render(
+      <StrictMode>
+        <QueueScreen view="board" setView={() => {}} />
+      </StrictMode>,
+    );
+    expect(
+      screen.getByRole('dialog', { name: 'This PDF needs a password' }),
+    ).toBeInTheDocument();
+  });
+
+  it('FR-059: a prompt left open for a job that has since finished closes itself', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'queue_status')
+        return snapshotOf([
+          mkJob({ id: 'secret', state: 'done', file_name: 'secret.pdf' }),
+        ]);
+      return null;
+    });
+    await useQueueStore.getState().init();
+    useQueueStore.getState().openPasswordPrompt('secret', 'secret.pdf');
+    render(<QueueScreen view="list" setView={() => {}} />);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(useQueueStore.getState().passwordPrompt).toBeNull();
+  });
 });

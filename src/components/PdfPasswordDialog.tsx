@@ -142,6 +142,12 @@ export function PdfPasswordDialog({
       // lets it convert. Converting: being tried right now.
       setPhase(current.state === 'queued' ? 'waiting' : 'checking');
     };
+    // Opened over a job that has already moved on (the prompt outlives a
+    // visit to another screen, and a toast can open it late): nothing to ask.
+    const first = useQueueStore
+      .getState()
+      .snapshot?.jobs.find((j) => j.id === jobId);
+    if (!first || DONE_WITH_PASSWORD.has(first.state)) closeForJob();
     return useQueueStore.subscribe((s) =>
       onJob(s.snapshot?.jobs.find((j) => j.id === jobId)),
     );

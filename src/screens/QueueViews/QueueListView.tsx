@@ -250,7 +250,8 @@ function Row({
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '24px 1fr 110px 90px 110px 56px',
+        // Room for three row actions (install, resume, cancel).
+        gridTemplateColumns: '24px 1fr 110px 90px 110px 82px',
         gap: 10,
         alignItems: 'center',
         padding: '8px 14px',

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 import { ConfirmDialog, type ConfirmState } from '@/components/ConfirmDialog';
@@ -103,9 +103,6 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
   const passwordFor = useQueueStore((s) => s.passwordPrompt);
   const openPasswordPrompt = useQueueStore((s) => s.openPasswordPrompt);
   const closePasswordPrompt = useQueueStore((s) => s.closePasswordPrompt);
-  // Leaving the Queue closes the prompt: coming back later must not find it
-  // open over a job that may have moved on.
-  useEffect(() => () => closePasswordPrompt(), [closePasswordPrompt]);
   /** FR-058: the dependency a paused job is missing, offered for install. */
   const [installFor, setInstallFor] = useState<DependencyReport | null>(null);
 
