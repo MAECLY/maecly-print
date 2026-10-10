@@ -329,6 +329,9 @@ fn execute(cli: Cli) -> i32 {
     }
     crate::util::legacy::log_report(&migration);
     drop(migration_guard);
+    // Put back a printer default a killed print left swapped (D16).
+    #[cfg(windows)]
+    crate::engine::print::devmode_swap::recover_stale_journals();
     tracing::info!(
         event = "cli_invoked",
         command = cli.command.as_ref().map(command_name).unwrap_or("none"),

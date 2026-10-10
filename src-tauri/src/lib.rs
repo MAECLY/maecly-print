@@ -79,6 +79,9 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
         &cli::handoff::handoff_dir(),
         cli::handoff::ORPHAN_HANDOFF_AGE,
     );
+    // Put back a printer default a killed print left swapped (D16).
+    #[cfg(windows)]
+    engine::print::devmode_swap::recover_stale_journals_in_background();
 
     #[allow(unused_mut)]
     let mut ctx = context();
