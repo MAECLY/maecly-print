@@ -1595,7 +1595,16 @@ export type PrinterStatus =
  * value returned always reflects the current truth (id is built in; id is the
  * effective default).
  */
-export type Profile = { id: string; name: string; 
+export type Profile = { 
+/**
+ * Stable id. Built-ins use a `builtin-` prefix; a custom profile gets a
+ * generated UUID unless the caller supplied an id.
+ */
+id: string; 
+/**
+ * Display name, unique case-insensitively across all profiles.
+ */
+name: string; 
 /**
  * True for the three built-in presets. Server-computed; ignored on input.
  */
@@ -1608,12 +1617,44 @@ default: boolean;
 /**
  * Printer id, or the `"<default>"` sentinel to defer to the app/OS default.
  */
-printer: string; color_mode: ColorMode; duplex: ProfileDuplex; copies: number; paper_size: PaperSize; orientation: Orientation; scaling: Scaling; 
+printer: string; 
+/**
+ * Colour or grayscale output.
+ */
+color_mode: ColorMode; 
+/**
+ * Double-sided mode.
+ */
+duplex: ProfileDuplex; 
+/**
+ * Number of copies (1-999).
+ */
+copies: number; 
+/**
+ * Paper size, or `auto` for the printer's own default.
+ */
+paper_size: PaperSize; 
+/**
+ * Page orientation.
+ */
+orientation: Orientation; 
+/**
+ * How pages are fitted to the paper.
+ */
+scaling: Scaling; 
 /**
  * Page-range expression (engine grammar), or `None` for all pages. Omitted
  * from the wire when `None`.
  */
-page_range?: string | null; quality: Quality; tray: string; 
+page_range?: string | null; 
+/**
+ * Print-quality preset.
+ */
+quality: Quality; 
+/**
+ * Input tray name, or `"auto"` to let the driver choose.
+ */
+tray: string; 
 /**
  * Collate multiple copies (see [`crate::queue::job::JobSettings::collate`]).
  * Defaults to `true` so a profile saved before the field existed loads.
@@ -1624,11 +1665,35 @@ collate?: boolean }
  * engine's [`crate::queue::job::Duplex`], which uses `none`/`long`/`short`).
  * Wire strings: `"off"`, `"long-edge"`, `"short-edge"`.
  */
-export type ProfileDuplex = "off" | "long-edge" | "short-edge"
+export type ProfileDuplex = 
+/**
+ * Single-sided.
+ */
+"off" | 
+/**
+ * Two-sided, bound on the long edge.
+ */
+"long-edge" | 
+/**
+ * Two-sided, bound on the short edge.
+ */
+"short-edge"
 /**
  * Print-quality preset. Wire strings: `"draft"`, `"normal"`, `"high"`.
  */
-export type Quality = "draft" | "normal" | "high"
+export type Quality = 
+/**
+ * Fastest, lowest ink use.
+ */
+"draft" | 
+/**
+ * The driver's standard quality.
+ */
+"normal" | 
+/**
+ * Best quality the driver offers.
+ */
+"high"
 /**
  * Serializable view of the whole queue, returned by the `queue_status` IPC
  * command and pushed via the `queue-updated` event. Also the on-disk shape of

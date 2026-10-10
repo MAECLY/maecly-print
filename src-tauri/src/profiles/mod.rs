@@ -53,9 +53,12 @@ pub(crate) static PROFILES_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(()
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProfileDuplex {
+    /// Single-sided.
     #[default]
     Off,
+    /// Two-sided, bound on the long edge.
     LongEdge,
+    /// Two-sided, bound on the short edge.
     ShortEdge,
 }
 
@@ -63,9 +66,12 @@ pub enum ProfileDuplex {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Quality {
+    /// Fastest, lowest ink use.
     Draft,
+    /// The driver's standard quality.
     #[default]
     Normal,
+    /// Best quality the driver offers.
     High,
 }
 
@@ -75,7 +81,10 @@ pub enum Quality {
 /// effective default).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct Profile {
+    /// Stable id. Built-ins use a `builtin-` prefix; a custom profile gets a
+    /// generated UUID unless the caller supplied an id.
     pub id: String,
+    /// Display name, unique case-insensitively across all profiles.
     pub name: String,
     /// True for the three built-in presets. Server-computed; ignored on input.
     pub builtin: bool,
@@ -84,17 +93,25 @@ pub struct Profile {
     pub default: bool,
     /// Printer id, or the `"<default>"` sentinel to defer to the app/OS default.
     pub printer: String,
+    /// Colour or grayscale output.
     pub color_mode: ColorMode,
+    /// Double-sided mode.
     pub duplex: ProfileDuplex,
+    /// Number of copies (1-999).
     pub copies: u16,
+    /// Paper size, or `auto` for the printer's own default.
     pub paper_size: PaperSize,
+    /// Page orientation.
     pub orientation: Orientation,
+    /// How pages are fitted to the paper.
     pub scaling: Scaling,
     /// Page-range expression (engine grammar), or `None` for all pages. Omitted
     /// from the wire when `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_range: Option<String>,
+    /// Print-quality preset.
     pub quality: Quality,
+    /// Input tray name, or `"auto"` to let the driver choose.
     pub tray: String,
     /// Collate multiple copies (see [`crate::queue::job::JobSettings::collate`]).
     /// Defaults to `true` so a profile saved before the field existed loads.
@@ -106,19 +123,32 @@ pub struct Profile {
 /// `[[profile]]` array-of-tables entry in `profiles.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoredProfile {
+    /// Stable id of a custom profile (built-ins are never stored).
     pub id: String,
+    /// Same as [`Profile::name`].
     pub name: String,
+    /// Same as [`Profile::printer`].
     pub printer: String,
+    /// Same as [`Profile::color_mode`].
     pub color_mode: ColorMode,
+    /// Same as [`Profile::duplex`].
     pub duplex: ProfileDuplex,
+    /// Same as [`Profile::copies`].
     pub copies: u16,
+    /// Same as [`Profile::paper_size`].
     pub paper_size: PaperSize,
+    /// Same as [`Profile::orientation`].
     pub orientation: Orientation,
+    /// Same as [`Profile::scaling`].
     pub scaling: Scaling,
+    /// Same as [`Profile::page_range`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_range: Option<String>,
+    /// Same as [`Profile::quality`].
     pub quality: Quality,
+    /// Same as [`Profile::tray`].
     pub tray: String,
+    /// Same as [`Profile::collate`].
     #[serde(default = "crate::queue::job::default_collate")]
     pub collate: bool,
 }
@@ -127,8 +157,10 @@ pub struct StoredProfile {
 /// field is named `profile` (singular) so TOML renders it as `[[profile]]`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfilesFile {
+    /// Format version of the file; a newer one is refused rather than misread.
     #[serde(default = "default_profiles_schema_version")]
     pub schema_version: u32,
+    /// The custom profiles, in the order the user created them.
     #[serde(default)]
     pub profile: Vec<StoredProfile>,
 }
@@ -378,13 +410,16 @@ pub fn validate_and_normalize(
 /// reason the UI translates (FR-092).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ProfileInvalid {
+    /// The (trimmed) name is empty.
     #[error("profile name must not be empty")]
     NameEmpty,
+    /// The name is longer than 100 characters.
     #[error("profile name must be 100 characters or fewer")]
     NameTooLong,
     /// The (trimmed) name collides case-insensitively with another profile.
     #[error("a profile named \"{0}\" already exists")]
     NameTaken(String),
+    /// `copies` is outside `1..=999`; the payload is the rejected value.
     #[error("copies must be between 1 and 999, got {0}")]
     Copies(u16),
     /// The page-range grammar rejected the value; the payload is its message.
@@ -591,7 +626,12 @@ pub enum ImportError {
     Empty,
     /// One entry failed the same validation a hand-typed profile faces.
     #[error("the profile \"{name}\" is not valid: {reason}")]
-    InvalidProfile { name: String, reason: String },
+    InvalidProfile {
+        /// Name of the offending entry, as written in the file.
+        name: String,
+        /// Why validation rejected it (the [`ProfileInvalid`] sentence).
+        reason: String,
+    },
 }
 
 /// Every profile name currently taken (case-insensitively): the three built-ins
