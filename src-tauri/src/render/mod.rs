@@ -227,16 +227,24 @@ pub fn base_href(base_dir: &Path) -> String {
     }
 }
 
-/// Whether a request the page makes may be served: a `data:` URI or one of
-/// the private origins of this run. Everything else (`http`, `https` to any
-/// other host, `ws`, `ftp`, `file:` with or without a host, custom schemes)
-/// is refused. Case-insensitive on the scheme and host. Pure; used by the
-/// Windows request filter and pinned by tests on every OS.
-pub fn is_allowed_request(uri: &str) -> bool {
+/// Whether `uri` is inline content the web view resolves without any fetch:
+/// a `data:` or `blob:` URI, or `about:blank`. Pure.
+fn is_inline(uri: &str) -> bool {
     let lower = uri.trim().to_ascii_lowercase();
-    if lower.starts_with("data:") || lower == "about:blank" {
+    lower.starts_with("data:") || lower.starts_with("blob:") || lower == "about:blank"
+}
+
+/// Whether a request the page makes may be served: inline content (`data:`,
+/// `blob:`, `about:blank`) or the private origin of this run. Everything
+/// else (`http`, `https` to any other host, `ws`, `ftp`, `file:` with or
+/// without a host, a UNC path, custom schemes) is refused. Case-insensitive
+/// on the scheme and host. Pure; used by the Windows request filter and
+/// pinned by tests on every OS.
+pub fn is_allowed_request(uri: &str) -> bool {
+    if is_inline(uri) {
         return true;
     }
+    let lower = uri.trim().to_ascii_lowercase();
     let prefix = format!("https://{DOC_HOST}");
     lower
         .strip_prefix(&prefix)
@@ -256,6 +264,40 @@ pub fn page_url(page: &Path) -> String {
         .remove(b'_');
     let encoded = percent_encoding::utf8_percent_encode(&name, KEEP);
     format!("https://{DOC_HOST}{STAGE_PATH}{encoded}")
+}
+
+/// What the Windows request filter does with a request for `uri` (module
+/// docs): `None` lets inline content (`data:`, `blob:`, `about:blank`) load
+/// as it is; every other request is answered by the worker itself, with
+/// [`serve`] on the private origin and [`Served::Refused`] (a synthetic 403)
+/// for everything else. No request is ever left to the network. Pure but for
+/// [`serve`]'s disk reads.
+pub fn answer_request(uri: &str, page: &Path, base_dir: &Path) -> Option<Served> {
+    if is_inline(uri) {
+        None
+    } else if is_allowed_request(uri) {
+        Some(serve(uri, page, base_dir))
+    } else {
+        Some(Served::Refused)
+    }
+}
+
+/// Most refused requests or navigations one render writes to stderr, so a
+/// page that makes thousands cannot flood the job's `render.log`.
+pub const MAX_LOGGED_REFUSALS: usize = 200;
+
+/// Write one refusal (`what` is `request` or `navigation`) to stderr, the
+/// job's `render.log`, up to [`MAX_LOGGED_REFUSALS`] per run.
+pub fn log_refusal(what: &str, uri: &str) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static LOGGED: AtomicUsize = AtomicUsize::new(0);
+    let n = LOGGED.fetch_add(1, Ordering::Relaxed);
+    if n < MAX_LOGGED_REFUSALS {
+        let shown: String = uri.chars().take(300).collect();
+        eprintln!("pluryprint render: {what} refused: {shown}");
+    } else if n == MAX_LOGGED_REFUSALS {
+        eprintln!("pluryprint render: further refusals are not logged");
+    }
 }
 
 /// What the Windows worker answers a request to [`DOC_HOST`] with.
@@ -610,7 +652,9 @@ mod tests {
             "https://evil.com/https://doc.pluryprint.example/",
             "https://stage.pluryprint.example/page.html",
             "javascript:alert(1)",
-            "blob:https://x/y",
+            "file://10.255.255.1/s/x.png",
+            "https://10.255.255.1/s/a.css",
+            "wss://doc.pluryprint.example.evil/",
         ] {
             assert!(!is_allowed_request(uri), "{uri} must be refused");
         }
@@ -620,9 +664,53 @@ mod tests {
             "https://doc.pluryprint.example/.pluryprint-stage/page.html",
             "https://doc.pluryprint.example",
             "data:image/png;base64,AAAA",
+            "blob:https://doc.pluryprint.example/1234",
             "about:blank",
         ] {
             assert!(is_allowed_request(uri), "{uri} must be served");
+        }
+    }
+
+    /// Round 6: the Windows filter answers every request itself. Inline
+    /// content passes, the private origin is served, and every other form a
+    /// page can spell a share or a host in gets a synthetic 403 (the forms
+    /// WebView2 hands the filter after resolving them against the page).
+    #[test]
+    fn nfr_security_every_request_is_answered_or_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let doc = tmp.path().canonicalize().unwrap();
+        std::fs::write(doc.join("a.png"), b"png").unwrap();
+        let page = doc.join("stage").join("page.html");
+        for inline in [
+            "data:text/css,p{}",
+            "blob:https://doc.pluryprint.example/x",
+            "about:blank",
+        ] {
+            assert_eq!(answer_request(inline, &page, &doc), None, "{inline}");
+        }
+        assert_eq!(
+            answer_request("https://doc.pluryprint.example/a.png", &page, &doc),
+            Some(Served::File(doc.join("a.png")))
+        );
+        for refused in [
+            // <img src="file://10.255.255.1/s/x.png">
+            "file://10.255.255.1/s/x.png",
+            // <link href="\\10.255.255.1\s\a.css"> against the https base
+            "https://10.255.255.1/s/a.css",
+            // @import url(//10.255.255.1/x.css)
+            "https://10.255.255.1/x.css",
+            // <iframe src="file:///C:/Windows/win.ini">
+            "file:///C:/Windows/win.ini",
+            // fetch() / WebSocket from a script, were one to run
+            "http://10.255.255.1/f",
+            "ws://10.255.255.1/w",
+            "\\\\10.255.255.1\\s\\a.css",
+        ] {
+            assert_eq!(
+                answer_request(refused, &page, &doc),
+                Some(Served::Refused),
+                "{refused}"
+            );
         }
     }
 
