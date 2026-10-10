@@ -552,7 +552,11 @@ fn fr_056_real_markdown_drops_raw_html_and_non_local_images() {
     .unwrap();
     let work = WorkDir::new("md-sandbox").unwrap();
     let header = work.path().join("head.html");
-    std::fs::write(&header, markdown::head_fragment(dir.path())).unwrap();
+    std::fs::write(
+        &header,
+        markdown::head_fragment(dir.path(), &PageSetup::default()),
+    )
+    .unwrap();
     let filter = work.path().join("local-images.lua");
     std::fs::write(&filter, markdown::LOCAL_IMAGES_LUA).unwrap();
     let page = work.path().join("page.html");
