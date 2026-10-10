@@ -140,6 +140,14 @@ fn spool(queue: &str, s: &JobSettings, tag: &str) -> String {
         .expect("the job SumatraPDF created is found")
 }
 
+/// The spooler job id inside a recorded `os_job_id` (`12@<stamp>`, see
+/// `windows::JobRef`).
+fn spooler_id(os_job_id: &str) -> u32 {
+    pluryprint_lib::engine::print::windows::JobRef::parse(os_job_id)
+        .unwrap_or_else(|| panic!("'{os_job_id}' is not a spooler job reference"))
+        .id
+}
+
 fn hex_prefix(b: &Option<Vec<u8>>) -> String {
     match b {
         None => "none".into(),
@@ -176,8 +184,8 @@ fn print_settings_quality_draft_high_applied_windows() {
                 after, keep.original,
                 "{queue}: the user's default is restored byte for byte"
             );
-            let outcome = job_quality(queue, id.parse().unwrap(), target);
-            let dm = job_devmode(queue, id.parse().unwrap()).ok().flatten();
+            let outcome = job_quality(queue, spooler_id(&id), target);
+            let dm = job_devmode(queue, spooler_id(&id)).ok().flatten();
             println!(
                 "QUALITY queue={queue} target={} support={support:?} outcome={outcome:?} job_dmPrintQuality={:?} user_default={}",
                 target.label(),
@@ -265,7 +273,7 @@ fn print_settings_quality_own_user_devmode_restored_bytewise_windows() {
         assert!(theirs.is_some());
         let id = spool(queue, &settings(Quality::Draft), "owndm");
         let _guard = CancelOnDrop(queue.clone(), id.clone());
-        let outcome = job_quality(queue, id.parse().unwrap(), Target::Draft);
+        let outcome = job_quality(queue, spooler_id(&id), Target::Draft);
         println!(
             "OWNDM queue={queue} outcome={outcome:?} restored={}",
             SpoolerDefaults.get(queue).unwrap() == theirs
@@ -276,7 +284,7 @@ fn print_settings_quality_own_user_devmode_restored_bytewise_windows() {
         let id = spool(queue, &settings(Quality::Normal), "owndm-normal");
         let _guard = CancelOnDrop(queue.clone(), id.clone());
         assert_eq!(
-            job_quality(queue, id.parse().unwrap(), Target::High),
+            job_quality(queue, spooler_id(&id), Target::High),
             QualityOutcome::Applied,
             "{queue}: SumatraPDF starts from the per-user default"
         );
@@ -383,7 +391,7 @@ fn print_settings_quality_concurrent_cli_each_job_own_quality_windows() {
                 .unwrap_or_else(|| panic!("no job id in: {stdout}"))
                 .to_string();
             let _guard = CancelOnDrop(queue.clone(), id.clone());
-            let outcome = job_quality(queue, id.parse().unwrap(), *target);
+            let outcome = job_quality(queue, spooler_id(&id), *target);
             println!(
                 "CONCURRENT queue={queue} target={} outcome={outcome:?}",
                 target.label()
@@ -423,7 +431,7 @@ fn print_settings_paper_and_bin_ids_reach_the_job_windows() {
         };
         let id = spool(queue, &s, "ids");
         let _guard = CancelOnDrop(queue.clone(), id.clone());
-        let dm = job_devmode(queue, id.parse().unwrap()).unwrap().unwrap();
+        let dm = job_devmode(queue, spooler_id(&id)).unwrap().unwrap();
         let want_paper = if letter { 1 } else { 9 };
         let want_bin = s.tray.as_deref().and_then(|t| driver_bin_id(queue, t));
         println!(
