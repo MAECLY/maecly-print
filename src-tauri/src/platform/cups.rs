@@ -563,7 +563,8 @@ fn queue_names() -> Vec<String> {
 
 fn detail(name: &str, default: Option<&str>, jobs: &HashMap<String, u32>) -> Printer {
     let opts = parse_kv(&lc_run("lpoptions", &["-p", name]).unwrap_or_default());
-    let caps = parse_caps(&lc_run("lpoptions", &["-p", name, "-l"]).unwrap_or_default());
+    let listing = listing_caps(capability_probe(name).as_deref());
+    let caps = &listing.caps;
 
     let driver = opts
         .get("printer-make-and-model")
@@ -580,8 +581,10 @@ fn detail(name: &str, default: Option<&str>, jobs: &HashMap<String, u32>) -> Pri
         id: name.to_string(),
         name: display,
         kind: infer_kind(&driver, name, uri),
-        color: color_capable(&caps),
-        duplex: duplex_capable(&caps),
+        color: listing.color,
+        duplex: listing.duplex,
+        color_unknown: listing.color_unknown,
+        duplex_unknown: listing.duplex_unknown,
         status: status_from(
             opts.get("printer-state").map(String::as_str),
             opts.get("printer-state-reasons").map(String::as_str),
@@ -595,9 +598,9 @@ fn detail(name: &str, default: Option<&str>, jobs: &HashMap<String, u32>) -> Pri
             .map(|v| v == "true")
             .unwrap_or(false),
         queued_jobs: jobs.get(name).copied().unwrap_or(0),
-        max_dpi: max_dpi(&caps),
-        papers: papers(&caps),
-        trays: trays(&caps),
+        max_dpi: max_dpi(caps),
+        papers: papers(caps),
+        trays: trays(caps),
         supplies: parse_supplies(
             opts.get("marker-colors").map(String::as_str),
             opts.get("marker-levels").map(String::as_str),
@@ -702,15 +705,55 @@ pub fn color_models(id: &str) -> Vec<String> {
 /// briefly unreachable, a busy cupsd), and the capability gate would pause a
 /// duplex job as unsupported on the strength of a failed probe.
 pub fn engine_caps(p: &Printer) -> crate::engine::print::PrinterCaps {
-    let probe = Command::new("lpoptions")
-        .args(["-p", &p.id, "-l"])
+    caps_from_probe(capability_probe(&p.id).as_deref(), &p.papers)
+}
+
+/// `lpoptions -p <name> -l`, or `None` when it could not run or failed.
+fn capability_probe(name: &str) -> Option<String> {
+    Command::new("lpoptions")
+        .args(["-p", name, "-l"])
         .env("LC_ALL", "C")
         .env("LANG", "C")
         .output()
         .ok()
         .filter(|out| out.status.success())
-        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned());
-    caps_from_probe(probe.as_deref(), &p.papers)
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// What the printer listing says about colour and duplex, from the
+/// capability probe. Pure.
+#[derive(Default)]
+struct ListingCaps {
+    caps: HashMap<String, Cap>,
+    color: bool,
+    color_unknown: bool,
+    duplex: bool,
+    duplex_unknown: bool,
+}
+
+/// The listing's reading of a capability probe, consistent with what the
+/// engine assumes ([`caps_from_probe`]): a probe that failed or listed
+/// nothing says nothing, so colour and duplex are *unknown* — the Printers
+/// and Print Job screens then do not warn that the printer cannot do them,
+/// while the engine prints duplex anyway. A real listing without a
+/// `ColorModel` option leaves colour unknown too: vendor drivers name their
+/// colour option differently, and "grey only" would be a guess.
+fn listing_caps(probe: Option<&str>) -> ListingCaps {
+    let caps = probe.map(parse_caps).unwrap_or_default();
+    if caps.is_empty() {
+        return ListingCaps {
+            color_unknown: true,
+            duplex_unknown: true,
+            ..ListingCaps::default()
+        };
+    }
+    ListingCaps {
+        color: color_capable(&caps),
+        color_unknown: !caps.contains_key("ColorModel"),
+        duplex: duplex_capable(&caps),
+        duplex_unknown: false,
+        caps,
+    }
 }
 
 /// [`engine_caps`]' decision, pure: a probe that failed or listed nothing is
@@ -946,6 +989,31 @@ mod tests {
     }
     use super::*;
     use crate::ipc::printers::PrinterKind;
+
+    /// The listing agrees with the engine: a failed probe is "unknown", not
+    /// "no duplex, grey only", so the UI does not warn about a printer whose
+    /// probe merely failed; a real listing is believed, except that a
+    /// missing colour option is unknown rather than "black and white".
+    #[test]
+    fn fr_040_a_failed_listing_probe_reports_unknown_not_unsupported() {
+        for probe in [None, Some("")] {
+            let l = listing_caps(probe);
+            assert!(l.duplex_unknown && l.color_unknown, "{probe:?}");
+            assert!(!l.duplex && !l.color);
+        }
+        let l = listing_caps(Some(LPOPTIONS_L));
+        assert!(l.duplex && l.color);
+        assert!(!l.duplex_unknown && !l.color_unknown);
+
+        let simplex = listing_caps(Some("PageSize/Media Size: *A4 Letter\n"));
+        assert!(!simplex.duplex && !simplex.duplex_unknown, "believed");
+        assert!(simplex.color_unknown, "no ColorModel option: unknown");
+        let grey = listing_caps(Some("ColorModel/Color Mode: *Gray\n"));
+        assert!(
+            !grey.color && !grey.color_unknown,
+            "a real grey-only driver"
+        );
+    }
 
     const LPOPTIONS_P: &str = "copies=1 device-uri=dnssd://EPSON%20L15160%20Series._ipps._tcp.local./?uuid=cfe92100 finishings=3 marker-colors=#000000,#00FFFF,#FF00FF,#FFFF00 marker-levels=38,52,51,55 marker-names='Black\\ ink,Cyan\\ ink,Magenta\\ ink,Yellow\\ ink' printer-info='EPSON L15160 Series' printer-is-shared=false printer-location printer-make-and-model='EPSON L15160 Series-AirPrint' printer-state=3 printer-state-reasons=media-empty-report";
 

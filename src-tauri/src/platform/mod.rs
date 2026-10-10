@@ -218,7 +218,9 @@ pub fn printer_caps(p: &crate::ipc::printers::Printer) -> crate::engine::print::
         #[cfg(not(windows))]
         let papers = p.papers.clone();
         crate::engine::print::PrinterCaps {
-            duplex: p.duplex,
+            // A driver that did not say is trusted, as on CUPS: pausing a
+            // duplex job on an unknown is worse than a one-sided print.
+            duplex: p.duplex || p.duplex_unknown,
             papers,
             color_models: printer_color_models(&p.id),
         }

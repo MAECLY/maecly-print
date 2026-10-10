@@ -1644,6 +1644,18 @@ color: boolean;
  */
 duplex: boolean; 
 /**
+ * `color` could not be determined: the driver lists no colour option
+ * under a name Pluryprint knows, or the OS did not answer. `color:
+ * false` then means "unknown", not "black and white only".
+ */
+color_unknown: boolean; 
+/**
+ * `duplex` could not be determined (the capability probe failed, or the
+ * driver did not answer). `duplex: false` then means "unknown", and a
+ * two-sided job is not paused for it.
+ */
+duplex_unknown: boolean; 
+/**
  * Current state as the spooler reports it.
  */
 status: PrinterStatus; 

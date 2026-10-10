@@ -77,12 +77,12 @@ Driver paper names are **localized** (Spanish Windows lists Letter as "Carta"), 
 | name, driver, status, default, shared, queued jobs | `EnumPrinters` / `GetDefaultPrinter` | `lpstat` / `lpoptions` | ✅ |
 | connection | `pPortName` | `device-uri` | ✅ |
 | location | `pLocation` | `printer-location` | ⚠️ often blank |
-| color, duplex | `DeviceCapabilities` | `ColorModel` / `Duplex` | ✅ |
+| color, duplex | `DeviceCapabilities` (`-1` → unknown) | `ColorModel` / `Duplex` from `lpoptions -l` (a failed probe → both unknown; no `ColorModel` → colour unknown) | ⚠️ `color_unknown` / `duplex_unknown` say when `false` means "not reported" |
 | paper sizes, trays | `DC_PAPERNAMES` / `DC_BINNAMES` | `PageSize` / `InputSlot` | ✅ (names only; per-tray paper/level rarely available) |
 | max DPI | `DC_ENUMRESOLUTIONS` | `printer-resolution` / `Resolution` | ⚠️ many drivers omit |
 | toner/supply levels | ❌ (SNMP/WMI/IPP only) | `marker-levels` | ⚠️ macOS best-effort, Windows none |
 
-This is the user-visible reason fields can be missing: **we depend on the system, and printers vary.** Every optional field is `Option`/`null` end-to-end (`Tray.paper`, `Tray.level`, `max_dpi`, `Supplies.*`, `default_tray`, `default_paper`); the UI hides the supply section, the resolution row, etc. when absent.
+This is the user-visible reason fields can be missing: **we depend on the system, and printers vary.** Every optional field is `Option`/`null` end-to-end (`Tray.paper`, `Tray.level`, `max_dpi`, `Supplies.*`, `default_tray`, `default_paper`); the UI hides the supply section, the resolution row, etc. when absent. A capability the OS could not report is flagged (`color_unknown`, `duplex_unknown`) rather than reported as missing: the Printers screen shows it as *not reported* and the Print Job screen does not warn that the printer cannot print two-sided or in colour, matching the engine, which prints duplex on an unknown.
 
 ## Data shape
 

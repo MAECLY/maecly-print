@@ -209,6 +209,8 @@ function toUiPrinter(p: IpcPrinter): UiPrinter {
     type: p.kind,
     color: p.color,
     duplex: p.duplex,
+    ...(p.color_unknown ? { colorUnknown: true } : {}),
+    ...(p.duplex_unknown ? { duplexUnknown: true } : {}),
     status: p.status,
     isDefault: p.is_default,
     location: p.location,

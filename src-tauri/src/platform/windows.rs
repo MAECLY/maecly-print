@@ -766,6 +766,8 @@ fn printer_from(info: &PRINTER_INFO_2W, default: Option<&str>) -> Printer {
     let port_w = PCWSTR(info.pPortName.0);
 
     let shared = (info.Attributes & PRINTER_ATTRIBUTE_SHARED) != 0;
+    let color = dc_flag(device, port_w, DC_COLORDEVICE);
+    let duplex = dc_flag(device, port_w, DC_DUPLEX);
 
     let paper_names = dc_names(device, port_w, DC_PAPERNAMES, 64);
     let bin_names = dc_names(device, port_w, DC_BINNAMES, 24);
@@ -787,8 +789,12 @@ fn printer_from(info: &PRINTER_INFO_2W, default: Option<&str>) -> Printer {
             name.clone()
         },
         kind: infer_kind(&driver, &name, Some(&port)),
-        color: dc_flag(device, port_w, DC_COLORDEVICE) == 1,
-        duplex: dc_flag(device, port_w, DC_DUPLEX) == 1,
+        // `DeviceCapabilities` answers -1 when the driver does not know or
+        // the call failed: that is "unknown", not "cannot".
+        color: color == 1,
+        duplex: duplex == 1,
+        color_unknown: color < 0,
+        duplex_unknown: duplex < 0,
         status: status_from(info.Status, info.Attributes, info.cJobs),
         is_default: default == Some(name.as_str()),
         location: pwstr(info.pLocation),

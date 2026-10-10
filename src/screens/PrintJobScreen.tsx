@@ -178,6 +178,8 @@ export function PrintJobScreen({
       papers: string[];
       color: boolean;
       duplex: boolean;
+      colorUnknown: boolean;
+      duplexUnknown: boolean;
     }[]
   >([]);
   // "System default" falls back to the OS default printer when Pluryprint
@@ -217,6 +219,8 @@ export function PrintJobScreen({
               papers: p.papers,
               color: p.color,
               duplex: p.duplex,
+              colorUnknown: p.colorUnknown === true,
+              duplexUnknown: p.duplexUnknown === true,
             })),
         );
       })
@@ -241,15 +245,20 @@ export function PrintJobScreen({
       : null;
   // What the chosen printer reports it cannot do. Only an explicit choice is
   // checked: "System default" resolves at print time (routes, app default),
-  // so naming a printer here could be wrong.
+  // so naming a printer here could be wrong. A capability the OS could not
+  // report is unknown, not missing: no warning (the engine prints duplex on
+  // an unknown, and a colour printer whose driver names its colour option
+  // differently is not "black and white only").
   const chosenPrinter = printers.find((p) => p.id === currentPrinter);
   const noDuplex =
     chosenPrinter !== undefined &&
     !chosenPrinter.duplex &&
+    !chosenPrinter.duplexUnknown &&
     merged.duplex !== 'off';
   const noColor =
     chosenPrinter !== undefined &&
     !chosenPrinter.color &&
+    !chosenPrinter.colorUnknown &&
     merged.color === 'color';
   const printerOptions = [
     { value: DEFAULT_PRINTER, label: t('settings.systemDefault') },

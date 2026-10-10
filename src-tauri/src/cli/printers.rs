@@ -83,6 +83,8 @@ mod tests {
             kind: PrinterKind::Laser,
             color: false,
             duplex: true,
+            color_unknown: false,
+            duplex_unknown: false,
             status: PrinterStatus::Ready,
             is_default: true,
             location: String::new(),

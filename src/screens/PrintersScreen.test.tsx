@@ -181,6 +181,27 @@ describe('PrintersScreen', () => {
     expect(trays.getAttribute('style')).toContain('--mp-surface2');
   });
 
+  it('FR-040: a capability the OS could not report reads as unknown, with no pause warning', async () => {
+    const unknown = [
+      {
+        ...fixturePrinters[0]!,
+        color: false,
+        duplex: false,
+        color_unknown: true,
+        duplex_unknown: true,
+      },
+    ];
+    mockPrinters({ printers: unknown });
+    renderScreen(false);
+    await screen.findByText(/1 configured/);
+
+    expect(screen.getByText('Two-sided: not reported')).toBeInTheDocument();
+    expect(screen.getByText('Color: not reported')).toBeInTheDocument();
+    expect(screen.queryByText('Duplex unavailable')).toBeNull();
+    expect(screen.queryByText('Monochrome only')).toBeNull();
+    expect(screen.queryByText(/will pause on this printer/)).toBeNull();
+  });
+
   it('FR-044: a single-tray printer counts as a capability, not a gap', async () => {
     mockPrinters();
     renderScreen(false);

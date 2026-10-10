@@ -231,7 +231,20 @@ function LevelBar({
   );
 }
 
-function CapPill({ ok, children }: { ok: boolean; children: ReactNode }) {
+/**
+ * One capability: met (check), not offered (cross), or `unknown` — the driver
+ * or the probe did not say, which is neither a promise nor a refusal.
+ */
+function CapPill({
+  ok,
+  unknown = false,
+  children,
+}: {
+  ok: boolean;
+  unknown?: boolean;
+  children: ReactNode;
+}) {
+  const met = ok && !unknown;
   return (
     <div
       style={{
@@ -241,12 +254,12 @@ function CapPill({ ok, children }: { ok: boolean; children: ReactNode }) {
         padding: '4px 9px',
         borderRadius: 5,
         fontSize: 11.5,
-        background: ok ? 'var(--mp-successSoft)' : 'var(--mp-surface2)',
-        color: ok ? 'var(--mp-success)' : 'var(--mp-textDim)',
-        border: `1px solid ${ok ? 'transparent' : 'var(--mp-border)'}`,
+        background: met ? 'var(--mp-successSoft)' : 'var(--mp-surface2)',
+        color: met ? 'var(--mp-success)' : 'var(--mp-textDim)',
+        border: `1px solid ${met ? 'transparent' : 'var(--mp-border)'}`,
       }}
     >
-      <Icon name={ok ? 'check' : 'x'} size={11} />
+      <Icon name={unknown ? 'info' : met ? 'check' : 'x'} size={11} />
       {children}
     </div>
   );
@@ -1381,15 +1394,19 @@ export function PrintersScreen() {
                     marginBottom: 12,
                   }}
                 >
-                  <CapPill ok={sel.duplex}>
-                    {sel.duplex
-                      ? t('capabilities.duplex')
-                      : t('capabilities.duplexUnavailable')}
+                  <CapPill ok={sel.duplex} unknown={sel.duplexUnknown === true}>
+                    {sel.duplexUnknown
+                      ? t('capabilities.duplexUnknown')
+                      : sel.duplex
+                        ? t('capabilities.duplex')
+                        : t('capabilities.duplexUnavailable')}
                   </CapPill>
-                  <CapPill ok={sel.color}>
-                    {sel.color
-                      ? t('capabilities.color')
-                      : t('capabilities.monoOnly')}
+                  <CapPill ok={sel.color} unknown={sel.colorUnknown === true}>
+                    {sel.colorUnknown
+                      ? t('capabilities.colorUnknown')
+                      : sel.color
+                        ? t('capabilities.color')
+                        : t('capabilities.monoOnly')}
                   </CapPill>
                   {/* A driver that reports nothing is not a capability met:
                       "0 paper sizes" used to carry an affirmative check. */}
@@ -1400,7 +1417,7 @@ export function PrintersScreen() {
                     {t('capabilities.trays', { count: sel.trays.length })}
                   </CapPill>
                 </div>
-                {!sel.duplex && (
+                {!sel.duplex && !sel.duplexUnknown && (
                   <div
                     style={{
                       display: 'flex',

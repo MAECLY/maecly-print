@@ -64,6 +64,14 @@ export interface UiPrinter {
   type: UiPrinterType;
   color: boolean;
   duplex: boolean;
+  /**
+   * The OS could not say whether it prints in colour / two-sided (a failed
+   * capability probe, a driver that does not answer, a colour option under a
+   * vendor name). `color`/`duplex` are then `false` but mean "unknown": no
+   * screen may warn that the printer cannot do it.
+   */
+  colorUnknown?: boolean;
+  duplexUnknown?: boolean;
   status: UiPrinterStatus;
   isDefault: boolean;
   location: string;

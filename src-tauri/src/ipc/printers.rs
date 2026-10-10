@@ -93,6 +93,14 @@ pub struct Printer {
     pub color: bool,
     /// Whether the device can print two-sided.
     pub duplex: bool,
+    /// `color` could not be determined: the driver lists no colour option
+    /// under a name Pluryprint knows, or the OS did not answer. `color:
+    /// false` then means "unknown", not "black and white only".
+    pub color_unknown: bool,
+    /// `duplex` could not be determined (the capability probe failed, or the
+    /// driver did not answer). `duplex: false` then means "unknown", and a
+    /// two-sided job is not paused for it.
+    pub duplex_unknown: bool,
     /// Current state as the spooler reports it.
     pub status: PrinterStatus,
     /// Whether this is the OS default printer.
@@ -663,6 +671,8 @@ mod tests {
             kind: PrinterKind::Laser,
             color: false,
             duplex: true,
+            color_unknown: false,
+            duplex_unknown: false,
             status: PrinterStatus::Ready,
             is_default: false,
             location: String::new(),

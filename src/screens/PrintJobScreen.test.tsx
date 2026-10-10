@@ -85,6 +85,8 @@ interface MockOpts {
     papers?: string[];
     color?: boolean;
     duplex?: boolean;
+    colorUnknown?: boolean;
+    duplexUnknown?: boolean;
   }[];
   preview?: string;
   printError?: string;
@@ -113,6 +115,8 @@ function printerRow(id: string, name: string) {
     kind: 'laser',
     color: true,
     duplex: true,
+    color_unknown: false,
+    duplex_unknown: false,
     status: 'ready',
     is_default: false,
     location: '',
@@ -157,6 +161,8 @@ function mockJob(opts: MockOpts = {}): Call[] {
           papers: p.papers ?? [],
           color: p.color ?? true,
           duplex: p.duplex ?? true,
+          color_unknown: p.colorUnknown ?? false,
+          duplex_unknown: p.duplexUnknown ?? false,
         }));
       case 'default_printer':
         return null;
@@ -581,6 +587,34 @@ describe('PrintJobScreen', () => {
       'Brother mono prints in black and white only',
     );
     fireEvent.click(within(color).getByRole('radio', { name: 'B&W' }));
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('FR-040: a capability the OS could not report is not announced as missing', async () => {
+    // A failed CUPS probe, a driver answering -1, a colour option under a
+    // vendor name: `false` + unknown. The engine prints duplex on an unknown,
+    // so warning that the job will pause, or comes out grey, would be false.
+    mockJob({
+      printers: [
+        {
+          id: 'IPP',
+          name: 'Office IPP',
+          color: false,
+          duplex: false,
+          colorUnknown: true,
+          duplexUnknown: true,
+        },
+      ],
+    });
+    render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
+
+    const printer = await screen.findByRole('combobox', { name: 'Printer' });
+    await within(printer).findByText('Office IPP');
+    const sides = screen.getByRole('radiogroup', { name: 'Sides' });
+    const color = screen.getByRole('radiogroup', { name: 'Color' });
+    fireEvent.click(within(sides).getByRole('radio', { name: 'Long' }));
+    fireEvent.click(within(color).getByRole('radio', { name: 'Color' }));
+    fireEvent.change(printer, { target: { value: 'IPP' } });
     expect(screen.queryByRole('note')).toBeNull();
   });
 
