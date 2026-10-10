@@ -1,18 +1,16 @@
 # Icons
 
-This directory holds the bundled application icons:
+The app icon is the "Abanico" mark: a printer releasing three sheets in a fan.
+It is drawn in code, not exported by hand, so every size agrees with every other:
 
-- `32x32.png`
-- `128x128.png`
-- `128x128@2x.png`
-- `icon.icns` (macOS)
-- `icon.ico` (Windows)
-
-These are required by `pnpm tauri build` (release bundling) but **not** by `pnpm tauri dev`. Until the design renders the canonical app icon, generate placeholders from a single source PNG:
-
-```powershell
-# From the repo root, with a 1024x1024 source.png in src-tauri/icons/:
-pnpm tauri icon src-tauri/icons/source.png
+```sh
+pnpm icons   # node scripts/icons/generate.mjs
 ```
 
-This produces every required size + format. The canonical source design lives in `claude design/maeclyprint/project/brand.jsx` (see `MPAppIcon`).
+The generator writes three SVG sources to `source/` and runs `pnpm tauri icon` on each:
+
+- `source/macos.svg`: the master, with Apple's rounded tile inset inside the canvas (macOS does not mask app icons). Produces `icon.icns`, the PNGs, and the iOS and Android sets.
+- `source/windows.svg`: the same drawing edge to edge. Produces `icon.ico` and the `Square*Logo.png` / `StoreLogo.png` tiles.
+- `source/small.svg`: a heavier version without motion strokes or text lines. Used for `32x32.png`, `Square30x30Logo.png` and `Square44x44Logo.png`.
+
+Change the geometry in `scripts/icons/generate.mjs`, never the PNGs. `src/components/Brand.tsx` draws the same mark inside the app, so change both together.

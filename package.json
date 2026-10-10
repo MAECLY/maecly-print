@@ -26,7 +26,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "wdio run e2e/wdio.conf.ts",
     "check-all": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test",
-    "prepare": "husky"
+    "prepare": "husky",
+    "icons": "node scripts/icons/generate.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",
