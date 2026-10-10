@@ -4,7 +4,7 @@
 
 This document covers what we test, how, with which tools, and what the acceptance bar looks like.
 
-**Scope note.** Sections below distinguish what exists today from what is planned. The current suite prints nothing: there is no virtual-printer harness, no PDF-output comparison, no benchmark suite, and no subprocess-converter tests, because the converters those would exercise (LibreOffice, Chromium, Pandoc) are not wired into the engine yet. Everything marked *Planned* is a design commitment, not a description of the tree.
+**Scope note.** Sections below distinguish what exists today from what is planned. The current suite prints nothing: there is no virtual-printer harness, no PDF-output comparison and no benchmark suite. The converters are tested where they are: `engine::convert::external_tests` pins the subprocess converters (LibreOffice, `sips`, `textutil`) with fake binaries and runs the real tools when they are installed, and `tests/render_worker.rs` and `tests/svg_worker.rs` drive the worker processes. Pandoc and a headless browser are not converters any more (ADR-0012; the browser fallback was removed in round 6). Everything marked *Planned* is a design commitment, not a description of the tree.
 
 ## The pyramid
 

@@ -220,7 +220,7 @@ The installer registers the handler per user as an `ExplorerCommandHandler` verb
 
 ### Status (2026-10-10) — adapters delivered
 
-Every format in [supported-formats.md](../03-requirements/supported-formats.md) prints. Round 3 replaced the browser and Pandoc routes with the system web view in a worker process ([ADR-0012](../adr/0012-system-web-view-renderer.md)), added SVG/SVGZ as vector pages, decoded text and Markdown in-process, sent RTF through `textutil` on macOS, hardened LibreOffice's profile against linked resources, and made encrypted PDFs ask for their password. GIF is refused by decision (D9). Missing LibreOffice or HEIC codecs pause the job and can be installed from the Print Job screen after consent (D13). Still open: the always-on Settings dependency panel, magic-byte detection, `qpdf` preprocessing, and per-format adapter selection in profiles.
+Every format in [supported-formats.md](../03-requirements/supported-formats.md) prints. Round 3 replaced the browser and Pandoc routes with the system web view in a worker process ([ADR-0012](../adr/0012-system-web-view-renderer.md)), and round 6 removed the hidden headless-browser fallback that was left, added SVG/SVGZ as vector pages, decoded text and Markdown in-process, sent RTF through `textutil` on macOS, hardened LibreOffice's profile against linked resources, and made encrypted PDFs ask for their password. GIF is refused by decision (D9). Missing LibreOffice or HEIC codecs pause the job and can be installed from the Print Job screen after consent (D13). Still open: the always-on Settings dependency panel, magic-byte detection, `qpdf` preprocessing, and per-format adapter selection in profiles.
 
 ### Status (2026-07-20) — superseded by the entry above
 
@@ -259,7 +259,7 @@ Every format in [supported-formats.md](../03-requirements/supported-formats.md) 
 | Risk | Mitigation |
 |---|---|
 | LibreOffice headless instability when invoked rapidly | Serialize Office conversions; use single LO instance with `--accept` socket. |
-| Chromium version drift breaking `--print-to-pdf` flags | Pin to system Edge WebView2 (preinstalled on Win 11) as primary; Chrome as fallback only. |
+| Chromium version drift breaking `--print-to-pdf` flags | Moot: no browser is invoked since round 6; pages print with the system web view (ADR-0012). |
 | Pandoc engine variance (LaTeX vs wkhtmltopdf) | Default to `--pdf-engine=wkhtmltopdf`; document switch in profiles. |
 
 ### Dependencies

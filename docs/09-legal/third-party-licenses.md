@@ -1,6 +1,6 @@
 # Third-Party Licenses
 
-> **TL;DR.** Pluryprint is AGPL-3.0-only. It bundles SumatraPDF on Windows (GPL-3.0, with MuPDF inside under AGPL-3.0 — fetched at packaging time by `scripts/fetch-sumatrapdf.*`, never committed) and depends on Tauri/Rust/React (all permissive licenses, AGPL-compatible). External tools we invoke as subprocesses (LibreOffice; Edge/Chrome only as a hidden fallback) are not embedded; per FSF guidance, subprocess invocation does not create a derivative work, so their licenses do not constrain our license. The notices themselves ship in every bundle as [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md), with `LICENSE` and the texts in `LICENSES/`.
+> **TL;DR.** Pluryprint is AGPL-3.0-only. It bundles SumatraPDF on Windows (GPL-3.0, with MuPDF inside under AGPL-3.0 — fetched at packaging time by `scripts/fetch-sumatrapdf.*`, never committed) and depends on Tauri/Rust/React (all permissive licenses, AGPL-compatible). External tools we invoke as subprocesses (LibreOffice, CUPS `lp`, macOS `sips` and `textutil`) are not embedded; per FSF guidance, subprocess invocation does not create a derivative work, so their licenses do not constrain our license. The notices themselves ship in every bundle as [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md), with `LICENSE` and the texts in `LICENSES/`.
 
 This document inventories every third-party component Pluryprint depends on, with its license, our usage pattern (embedded vs subprocess), and the AGPL-3.0 compatibility analysis. This is the source of truth for legal compliance; the notice that ships with the app, covering every transitive crate as well, is [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md) at the repository root.
 
@@ -180,13 +180,13 @@ If we ever bundle Pandoc (GPLv2-or-later) or another GPL'd binary, the same comp
 
 ## External components (subprocess invocation)
 
-These are tools we shell out to with `std::process::Command`. We never bundle them; they must be installed by the user separately (the app probes for them and reports what is missing — `engine::deps`, FR-058). CUPS `lp` (macOS/Linux), LibreOffice, macOS `sips` and `textutil`, and, only under the hidden fallback, a Chromium-class browser are all invoked as separate processes, each with an argument vector and never through a shell. **Per the [FSF's guidance](https://www.gnu.org/licenses/gpl-faq.html#GPLPlugins) and [Mere Aggregation FAQ](https://www.gnu.org/licenses/gpl-faq.en.html#MereAggregation), subprocess invocation does not create a combined work, so the subprocess's license does not infect ours.**
+These are tools we shell out to with `std::process::Command`. We never bundle them; they must be installed by the user separately (the app probes for them and reports what is missing — `engine::deps`, FR-058). CUPS `lp` (macOS/Linux), LibreOffice, and macOS `sips` and `textutil` are all invoked as separate processes, each with an argument vector and never through a shell. **Per the [FSF's guidance](https://www.gnu.org/licenses/gpl-faq.html#GPLPlugins) and [Mere Aggregation FAQ](https://www.gnu.org/licenses/gpl-faq.en.html#MereAggregation), subprocess invocation does not create a combined work, so the subprocess's license does not infect ours.**
 
 Quoting the FSF directly:
 
 > "If two programs run at the same time and communicate using exec, fork, or pipes, then they are normally separate programs."
 
-This is the legal foundation for using LibreOffice (MPL 2.0) and Chromium (BSD 3-Clause) in an AGPL-3.0 project without those licenses contaminating ours.
+This is the legal foundation for using LibreOffice (MPL 2.0) in an AGPL-3.0 project without its license contaminating ours.
 
 ### LibreOffice (MPL 2.0)
 
@@ -200,8 +200,8 @@ This is the legal foundation for using LibreOffice (MPL 2.0) and Chromium (BSD 3
 
 - **Used for:** nothing. The headless `[engine] html_renderer = "browser"` fallback that ran `msedge --headless --print-to-pdf` was removed in round 6 (ADR-0012); HTML, Markdown and text print with the system web view.
 - **License:** [BSD 3-Clause](https://opensource.org/licenses/BSD-3-Clause) (Chromium core; Edge adds Microsoft proprietary code we don't redistribute).
-- **Embedded?** No. Subprocess only. We use the system Edge installation.
-- **Compatibility:** BSD 3-Clause is permissive; subprocess invocation makes this irrelevant anyway.
+- **Embedded?** No, and no longer invoked. (The WebView2 runtime that renders the app and prints pages is a system component; see the Edge engine note above.)
+- **Compatibility:** BSD 3-Clause is permissive; with nothing invoked, nothing applies. The section stays so the history of the inventory is clear.
 
 ### Pandoc (GPLv2-or-later)
 

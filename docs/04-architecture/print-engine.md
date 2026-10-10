@@ -255,7 +255,7 @@ The router is **not** a MIME-keyed trait-object factory. `engine::convert::conve
 - **Encrypted `pdf`** → `pdf_security::inspect` first: owner-only and printable is printed in place; one that needs a password is `PdfProtected(PasswordRequired)` (the job pauses) unless the job carries a password, in which case `decrypt_to` writes a decrypted copy to the cache; a no-print or unreadable one is refused.
 - **`svg`/`svgz`** → the SVG worker.
 - **Office / ODF** (and `rtf` on Windows) → `office::convert_with` (LibreOffice).
-- **`html`/`htm`** → the render worker (browser only under the hidden fallback). **`md`/`markdown`** → `markdown`, **`txt`** → `text`, **`rtf` on macOS** → `rtf_mac`, each then the render worker.
+- **`html`/`htm`** → the render worker (the system web view; there is no browser route). **`md`/`markdown`** → `markdown`, **`txt`** → `text`, **`rtf` on macOS** → `rtf_mac`, each then the render worker.
 - **`gif`** and everything else → `EngineError::UnsupportedFormat`.
 `convert::route(ext)` is the table. The external program is resolved before anything is written, so a missing one costs nothing but a paused job. The trait-object design above was never implemented and there is no `JobPlan` type. The router is a match on `Route`, not a plugin registry.
 
@@ -301,7 +301,7 @@ Rows marked **(target)** are not implemented yet; the rest are shipped behaviour
 | Unreadable `config.toml` in a CLI `print` run | `Config::load_reporting` | `Internal` / `config_corrupt` → CLI exit **3** | Nothing is printed; the GUI keeps degrading to defaults with a banner |
 | Converter outlives the conversion timeout | the converter's own bound in `process::run_until`, or the dispatcher's timer | `conversion_timeout` | Terminal, like the dispatcher's own timeout; never retried |
 | User cancellation | `cancel_job` / `cancel_all` | — | Job `cancelled` (terminal); a terminal job refuses cancellation with `InvalidState` |
-| Converter binary not found (LibreOffice; on Windows the HEIF/HEVC codecs; the browser under the hidden fallback) | `engine::deps` resolution before the conversion starts; WIC's and Media Foundation's answers | `DependencyMissing` (CLI exit **3**) | Job paused with the FR-058 remediation (what is blocked and where to download it) |
+| Converter binary not found (LibreOffice; on Windows the HEIF/HEVC codecs) | `engine::deps` resolution before the conversion starts; WIC's and Media Foundation's answers | `DependencyMissing` (CLI exit **3**) | Job paused with the FR-058 remediation (what is blocked and where to download it) |
 | Converter exit ≠ 0, or exit 0 without a PDF (e.g. a password-protected Office document) | child exit status, then a `%PDF-` check of the expected output | `ConversionFailed` with a reason (`converter_failed`, `render_failed`, `svg_*`, …), quoting the converter's stderr as the detail | Retryable, like any conversion failure |
 | Converter hangs | the conversion timeout raises the cancel flag, and `run_bounded` kills the process tree | error code `"conversion_timeout"` | Terminal (see §5.1); the scratch folder is removed |
 | PDF needs a password | `/Encrypt` in the trailer, then `lopdf` cannot open it with the empty password | `PdfProtected` / `password_required` (CLI exit **13**) | Job **paused**; the Queue row offers **Enter password**. A wrong one is `password_incorrect`, paused again |
