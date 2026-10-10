@@ -879,7 +879,7 @@ fn fr_085_make_manifest_uses_signed_uploads_and_refuses_a_lost_platform() {
         "--assets",
         &assets,
         "--repo",
-        "MAECLY/maecly-print",
+        "MAECLY/pluryprint",
         "--body-file",
         &body,
         "--pub-date",
@@ -898,7 +898,7 @@ fn fr_085_make_manifest_uses_signed_uploads_and_refuses_a_lost_platform() {
     assert!(ok.status.success(), "{ok:?}");
     let v: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
-    let api = "https://api.github.com/repos/MAECLY/maecly-print/releases/assets/";
+    let api = "https://api.github.com/repos/MAECLY/pluryprint/releases/assets/";
     assert_eq!(v["version"], "0.2.0");
     assert_eq!(v["notes"], "What changed");
     assert_eq!(v["pub_date"], "2026-10-10T00:00:00Z");

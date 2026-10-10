@@ -39,7 +39,7 @@ use crate::util::error::{IpcError, IpcErrorCode};
 /// redirects to the newest published release that is neither a draft nor a
 /// prerelease, so the URL never changes (FR-085).
 pub const STABLE_ENDPOINT: &str =
-    "https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json";
+    "https://github.com/MAECLY/pluryprint/releases/latest/download/latest.json";
 
 /// The tag of the fixed prerelease that carries the beta channel's manifest.
 /// `.github/workflows/release.yml` overwrites its `latest.json` on **every**
@@ -49,7 +49,7 @@ pub const BETA_CHANNEL_TAG: &str = "channel-beta";
 
 /// The beta channel's manifest (FR-085).
 pub const BETA_ENDPOINT: &str =
-    "https://github.com/MAECLY/maecly-print/releases/download/channel-beta/latest.json";
+    "https://github.com/MAECLY/pluryprint/releases/download/channel-beta/latest.json";
 
 /// The endpoint `tauri.conf.json` names, which is the stable channel's. The
 /// app always passes its own endpoint list to the updater
@@ -515,7 +515,7 @@ mod tests {
         let user = PathBuf::from("/Users/a/Applications/Pluryprint.app/Contents/MacOS/pluryprint");
         assert!(check_installable_location("macos", &user).is_ok());
 
-        let dev = PathBuf::from("/Users/a/src/maecly-print/src-tauri/target/debug/pluryprint");
+        let dev = PathBuf::from("/Users/a/src/pluryprint/src-tauri/target/debug/pluryprint");
         let err = check_installable_location("macos", &dev).unwrap_err();
         assert!(err.contains("not an installed app bundle"), "{err}");
 

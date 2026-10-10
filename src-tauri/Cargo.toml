@@ -4,7 +4,7 @@ version = "0.0.1"
 description = "Open source batch file printing for Windows and macOS."
 authors = ["Maecly maintainers"]
 license = "AGPL-3.0-only"
-repository = "https://github.com/MAECLY/maecly-print"
+repository = "https://github.com/MAECLY/pluryprint"
 edition = "2021"
 rust-version = "1.90"
 # Two binaries: the app (`pluryprint`, GUI subsystem on Windows) and the

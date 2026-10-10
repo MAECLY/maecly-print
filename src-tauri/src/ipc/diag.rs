@@ -315,7 +315,7 @@ mod tests {
             "aarch64",
             "crash on #3 with two files",
         );
-        assert!(url.starts_with("https://github.com/MAECLY/maecly-print/issues/new?title=&body="));
+        assert!(url.starts_with("https://github.com/MAECLY/pluryprint/issues/new?title=&body="));
         // Spaces → %20, newlines → %0A, '#' → %23 (NON_ALPHANUMERIC encodes all).
         assert!(url.contains("%20"), "spaces encoded: {url}");
         assert!(url.contains("%0A"), "newlines encoded: {url}");
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn allowed_external_accepts_project_hosts() {
-        assert!(allowed_external("https://github.com/MAECLY/maecly-print"));
+        assert!(allowed_external("https://github.com/MAECLY/pluryprint"));
         assert!(allowed_external("https://github.com"));
         assert!(allowed_external("https://maecly.com/"));
         assert!(allowed_external("https://sub.maecly.com/path?q=1#frag"));

@@ -744,8 +744,7 @@ mod tests {
     /// own outcome with a registered reason, not "you're up to date".
     #[test]
     fn fr_085_a_missing_channel_manifest_is_channel_unavailable_not_up_to_date() {
-        let url =
-            "https://github.com/MAECLY/maecly-print/releases/download/channel-beta/latest.json";
+        let url = "https://github.com/MAECLY/pluryprint/releases/download/channel-beta/latest.json";
         let err = interpret_manifest_response(404, "Not Found", url).unwrap_err();
         assert_eq!(err.code, IpcErrorCode::UpdateCheckFailed);
         assert_eq!(err.reason, CHANNEL_UNAVAILABLE);
@@ -799,7 +798,7 @@ mod tests {
         // The link the notice offers is the release's own page.
         assert_eq!(
             release_page("0.2.0"),
-            "https://github.com/MAECLY/maecly-print/releases/tag/v0.2.0"
+            "https://github.com/MAECLY/pluryprint/releases/tag/v0.2.0"
         );
         assert_eq!(release_page("v0.2.0-beta.1"), release_page("0.2.0-beta.1"));
     }
@@ -832,18 +831,18 @@ mod tests {
     #[test]
     fn repo_slug_parses_the_configured_repository() {
         // Pins the *real* repository the app ships against — `git remote -v` is
-        // https://github.com/MAECLY/maecly-print.git. This is the assertion that
+        // https://github.com/MAECLY/pluryprint.git. This is the assertion that
         // catches a `repository` field pointing at a repo that does not exist,
         // which silently turns every update check into a 404 ("up to date") and
         // every About/issue link into a dead end. Owner case is significant here
         // only as documentation: GitHub itself is case-insensitive on slugs.
         assert_eq!(
             repo_slug(),
-            Some(("MAECLY".to_string(), "maecly-print".to_string()))
+            Some(("MAECLY".to_string(), "pluryprint".to_string()))
         );
         assert_eq!(
             env!("CARGO_PKG_REPOSITORY"),
-            "https://github.com/MAECLY/maecly-print",
+            "https://github.com/MAECLY/pluryprint",
             "the frontend mirrors this URL in src/lib/repo.ts"
         );
     }
@@ -851,24 +850,24 @@ mod tests {
     #[test]
     fn parse_repo_slug_variants() {
         assert_eq!(
-            parse_repo_slug("https://github.com/MAECLY/maecly-print"),
-            Some(("MAECLY".into(), "maecly-print".into()))
+            parse_repo_slug("https://github.com/MAECLY/pluryprint"),
+            Some(("MAECLY".into(), "pluryprint".into()))
         );
         assert_eq!(
-            parse_repo_slug("https://github.com/MAECLY/maecly-print.git/"),
-            Some(("MAECLY".into(), "maecly-print".into()))
+            parse_repo_slug("https://github.com/MAECLY/pluryprint.git/"),
+            Some(("MAECLY".into(), "pluryprint".into()))
         );
         // A trailing path (branch/tree links) still yields the bare slug.
         assert_eq!(
-            parse_repo_slug("https://github.com/MAECLY/maecly-print/tree/main/docs"),
-            Some(("MAECLY".into(), "maecly-print".into()))
+            parse_repo_slug("https://github.com/MAECLY/pluryprint/tree/main/docs"),
+            Some(("MAECLY".into(), "pluryprint".into()))
         );
         // Anything that is not a github.com repo URL is refused, so the caller
         // reports "repository not configured" instead of building a bogus API
         // path out of it.
         assert_eq!(parse_repo_slug("https://example.com/x/y"), None);
         assert_eq!(
-            parse_repo_slug("https://gitlab.com/MAECLY/maecly-print"),
+            parse_repo_slug("https://gitlab.com/MAECLY/pluryprint"),
             None
         );
         assert_eq!(parse_repo_slug("not a url"), None);

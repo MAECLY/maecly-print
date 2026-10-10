@@ -15,7 +15,7 @@
  * `THIRD-PARTY-NOTICES.md` and `docs/`.
  */
 
-export const REPO_URL = 'https://github.com/MAECLY/maecly-print';
+export const REPO_URL = 'https://github.com/MAECLY/pluryprint';
 export const RELEASES_URL = REPO_URL + '/releases';
 export const LICENSE_URL = REPO_URL + '/blob/main/LICENSE';
 export const CLA_URL = REPO_URL + '/blob/main/CLA.md';
