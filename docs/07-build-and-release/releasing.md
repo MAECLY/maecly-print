@@ -90,8 +90,8 @@ Repository settings:
 
 | Channel | Manifest the app reads | What it gets |
 |---|---|---|
-| stable (default) | `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json` | the newest published release that is not a prerelease. GitHub resolves `latest` |
-| beta | `https://github.com/MAECLY/maecly-print/releases/download/channel-beta/latest.json` | every published release, prerelease or stable, moving forward only |
+| stable (default) | `https://github.com/MAECLY/pluryprint/releases/latest/download/latest.json` | the newest published release that is not a prerelease. GitHub resolves `latest` |
+| beta | `https://github.com/MAECLY/pluryprint/releases/download/channel-beta/latest.json` | every published release, prerelease or stable, moving forward only |
 | nightly | the beta manifest | no nightly builds are published |
 
 The endpoints are compiled into the app (`update::install::default_endpoint`),
@@ -108,6 +108,15 @@ from beta back to stable never downgrades.
 
 A tag with a suffix (`v0.2.0-beta.1`, `v0.2.0-rc.1`) is published as a GitHub
 prerelease: beta only. A tag without one is stable.
+
+**Repository rename (2026-10-10).** The repository was renamed from
+`MAECLY/maecly-print` to `MAECLY/pluryprint`. Builds from 0.0.2 on compile the
+URLs above. Installed 0.0.1 builds still read
+`https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json`;
+GitHub redirects it, and the asset URLs in the manifest, to the new repository,
+so they keep updating. Never create a repository named `maecly-print` in the
+`MAECLY` organisation: it would take over the old URL and cut every 0.0.1
+install off from updates (ADR-0011).
 
 ## 4. Cutting a release
 
@@ -262,7 +271,7 @@ run.
 3. **Checksums**:
 
    ```bash
-   gh release download vX.Y.Z --repo MAECLY/maecly-print --dir /tmp/rel --clobber
+   gh release download vX.Y.Z --repo MAECLY/pluryprint --dir /tmp/rel --clobber
    (cd /tmp/rel && shasum -a 256 -c SHA256SUMS)
    ```
 
@@ -277,7 +286,7 @@ run.
 Then publish, in the web UI or:
 
 ```bash
-gh release edit vX.Y.Z --repo MAECLY/maecly-print --draft=false
+gh release edit vX.Y.Z --repo MAECLY/pluryprint --draft=false
 ```
 
 Publishing runs `release-channels.yml`, which points the beta channel at the

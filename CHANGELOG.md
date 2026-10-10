@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependencies: the update check now uses `ureq` 3; its proxy (`HTTPS_PROXY` / `HTTP_PROXY` only), 10-second timeout and error handling are unchanged. Minor and patch updates of the Rust host (serde, clap, time, uuid, flate2 and others) and zustand 5.0.15 in the UI.
 - Development: the frontend builds with Vite 8 and `@vitejs/plugin-react` 6 (minified by Vite's own oxc minifier, still for the same Safari 13 floor), and is formatted with Prettier 3.9. The lint and test toolchain moves to `globals` 17 and `@testing-library/user-event` 14.6.7.
 - CI: Dependabot no longer proposes `lopdf` minor or major releases on their own; `lopdf` moves together with `printpdf`, which is still built on 0.44.
+- The repository is now `github.com/MAECLY/pluryprint` (it was `MAECLY/maecly-print`). Update checks, About links and issue reports use the new address; 0.0.1 keeps updating through GitHub's redirect from the old one.
 
 ### Security
 

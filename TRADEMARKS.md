@@ -80,8 +80,8 @@ The name, identifiers and mark live in these places in this repository:
 - `src/lib/theme.ts`, `src/App.tsx` and `src/i18n/I18nProvider.tsx` - the
   `pluryprint:` prefix of the keys kept in the webview's `localStorage`.
 
-The repository itself is still called `maecly-print`
-(`github.com/MAECLY/maecly-print`); the URL did not change with the rename.
+The repository is `github.com/MAECLY/pluryprint`. Until 2026-10-10 it was
+called `maecly-print`; GitHub redirects the old URL.
 
 ## Other names
 

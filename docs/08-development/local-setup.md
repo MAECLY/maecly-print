@@ -60,8 +60,8 @@ macOS is a fully supported development platform: the whole Rust suite, the whole
 
 ```bash
 # Clone
-git clone https://github.com/MAECLY/maecly-print.git
-cd maecly-print
+git clone https://github.com/MAECLY/pluryprint.git
+cd pluryprint
 
 # Install everything (frontend deps + `cargo fetch`)
 make install
@@ -353,7 +353,7 @@ Explorer caches shell extension DLLs aggressively. Restart `explorer.exe` (or lo
 - **Use a fast SSD.** Cargo and pnpm both touch many small files; HDD or slow SSD will cause minute-scale builds.
 - **Increase Rust parallelism:** `export CARGO_BUILD_JOBS=8` (or whatever your CPU count). Default is "number of cores", which is usually right.
 - **Use `cargo nextest`** for faster test runs: `cargo install cargo-nextest --locked && cargo nextest run`. We don't require it but it's significantly faster than `cargo test` for our suite.
-- **Disable antivirus realtime scan on `target/`** if your AV is aggressive (Windows Defender by default, Symantec, etc.). On Defender: `Add-MpPreference -ExclusionPath "C:\path\to\maecly-print\src-tauri\target"`.
+- **Disable antivirus realtime scan on `target/`** if your AV is aggressive (Windows Defender by default, Symantec, etc.). On Defender: `Add-MpPreference -ExclusionPath "C:\path\to\pluryprint\src-tauri\target"`.
 
 ## Updating local environment
 

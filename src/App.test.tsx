@@ -718,7 +718,7 @@ describe('App', () => {
       current: '1.0.0',
       latest: 'v1.2.0',
       available: true,
-      url: 'https://github.com/MAECLY/maecly-print/releases/tag/v1.2.0',
+      url: 'https://github.com/MAECLY/pluryprint/releases/tag/v1.2.0',
       notes: 'Faster printing',
       checked_at: '2026-07-20T12:00:00Z',
     };

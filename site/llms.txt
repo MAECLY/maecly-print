@@ -1,6 +1,6 @@
 # Pluryprint by MAECLY
 
-> Free batch file printing for Windows and macOS, licensed AGPL-3.0-only. Select 5, 50 or 500 files and print them all as one job with one set of print settings. Local by design: no account, no cloud, no telemetry. Status on 2026-10-10: pre-alpha. Version 0.0.1 preview was published on 2026-10-10 on GitHub Releases (https://github.com/MAECLY/maecly-print/releases/tag/v0.0.1), and the source repository is public at https://github.com/MAECLY/maecly-print.
+> Free batch file printing for Windows and macOS, licensed AGPL-3.0-only. Select 5, 50 or 500 files and print them all as one job with one set of print settings. Local by design: no account, no cloud, no telemetry. Status on 2026-10-10: pre-alpha. Version 0.0.1 preview was published on 2026-10-10 on GitHub Releases (https://github.com/MAECLY/pluryprint/releases/tag/v0.0.1), and the source repository is public at https://github.com/MAECLY/pluryprint.
 
 ## Canonical pages
 
@@ -9,9 +9,9 @@ The primary landing is in Spanish; the English page mirrors it section for secti
 - [Spanish landing](https://pluryprint.maecly.com/)
 - [English landing](https://pluryprint.maecly.com/en/)
 - [Agent guidance](https://pluryprint.maecly.com/agents.txt)
-- [Release 0.0.1 preview](https://github.com/MAECLY/maecly-print/releases/tag/v0.0.1)
-- [All releases](https://github.com/MAECLY/maecly-print/releases)
-- [Source repository](https://github.com/MAECLY/maecly-print)
+- [Release 0.0.1 preview](https://github.com/MAECLY/pluryprint/releases/tag/v0.0.1)
+- [All releases](https://github.com/MAECLY/pluryprint/releases)
+- [Source repository](https://github.com/MAECLY/pluryprint)
 - [Licence: AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html)
 
 ## What it does today (version 0.0.1 preview)
@@ -33,12 +33,12 @@ The primary landing is in Spanish; the English page mirrors it section for secti
 
 ## Platforms
 
-Downloads for 0.0.1 preview (the version is in each file name; `SHA256SUMS` lists every file's checksum: https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/SHA256SUMS):
+Downloads for 0.0.1 preview (the version is in each file name; `SHA256SUMS` lists every file's checksum: https://github.com/MAECLY/pluryprint/releases/download/v0.0.1/SHA256SUMS):
 
-- Windows x64: https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_windows_x64.exe (about 17.1 MiB)
-- Windows ARM64: https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_windows_arm64.exe (about 15.5 MiB)
-- macOS, Apple silicon: https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_apple_silicon.dmg
-- macOS, Intel: https://github.com/MAECLY/maecly-print/releases/download/v0.0.1/Pluryprint_0.0.1_apple_intel.dmg
+- Windows x64: https://github.com/MAECLY/pluryprint/releases/download/v0.0.1/Pluryprint_0.0.1_windows_x64.exe (about 17.1 MiB)
+- Windows ARM64: https://github.com/MAECLY/pluryprint/releases/download/v0.0.1/Pluryprint_0.0.1_windows_arm64.exe (about 15.5 MiB)
+- macOS, Apple silicon: https://github.com/MAECLY/pluryprint/releases/download/v0.0.1/Pluryprint_0.0.1_apple_silicon.dmg
+- macOS, Intel: https://github.com/MAECLY/pluryprint/releases/download/v0.0.1/Pluryprint_0.0.1_apple_intel.dmg
 
 - Windows 10 and 11, x64: built and tested in CI. Installer: per-user NSIS in English and Spanish, no administrator rights; it bundles SumatraPDF and registers the Explorer menu.
 - Windows 11, ARM64: its own installer (about 15.5 MiB), tested on Windows 11 on ARM, which registers the ARM64 Explorer menu handler. The x64 installer also works there, emulated.
@@ -63,7 +63,7 @@ Vendor list prices for one user, as collected in the project's 2026 research and
 
 ## Licence and trademark
 
-- Licence: GNU Affero General Public License v3.0 only (AGPL-3.0-only). It replaces the GPL-3.0 announced earlier. The source code is public under this licence at https://github.com/MAECLY/maecly-print.
+- Licence: GNU Affero General Public License v3.0 only (AGPL-3.0-only). It replaces the GPL-3.0 announced earlier. The source code is public under this licence at https://github.com/MAECLY/pluryprint.
 - Contributions will be accepted under a Contributor License Agreement (CLA).
 - Pluryprint, its wordmark and its mark are trademarks of MAECLY; the AGPL-3.0 licence grants no right to use them, and forks must change them before distributing.
 

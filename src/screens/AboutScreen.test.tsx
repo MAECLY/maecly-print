@@ -417,7 +417,7 @@ describe('AboutScreen', () => {
 
     fireEvent.click(
       screen.getByRole('button', {
-        name: /github\.com\/MAECLY\/maecly-print/i,
+        name: /github\.com\/MAECLY\/pluryprint/i,
       }),
     );
     await waitFor(() =>
@@ -548,7 +548,7 @@ describe('AboutScreen', () => {
   const MINOR_UPDATE: UpdateCheck = {
     ...fixtureUpdateCheckAvailable,
     latest: '1.1.0',
-    url: 'https://github.com/MAECLY/maecly-print/releases/tag/v1.1.0',
+    url: 'https://github.com/MAECLY/pluryprint/releases/tag/v1.1.0',
   };
 
   async function openUpdateCard() {
@@ -885,7 +885,7 @@ describe('project identity (src/lib/repo.ts)', () => {
     const configured = /^repository\s*=\s*"([^"]+)"/m.exec(cargo)?.[1];
     expect(configured).toBe(REPO_URL);
     // …and it is the real remote, not a repository that does not exist.
-    expect(REPO_URL).toBe('https://github.com/MAECLY/maecly-print');
+    expect(REPO_URL).toBe('https://github.com/MAECLY/pluryprint');
   });
 
   it('derives every link from the one slug', () => {

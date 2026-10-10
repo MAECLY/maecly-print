@@ -380,7 +380,7 @@ export const fixtureUpdateCheckAvailable: UpdateCheck = {
   current: '1.0.0',
   latest: '9.9.9',
   available: true,
-  url: 'https://github.com/MAECLY/maecly-print/releases/tag/v9.9.9',
+  url: 'https://github.com/MAECLY/pluryprint/releases/tag/v9.9.9',
   notes: '## 9.9.9\n\n- Everything is better now.',
   checked_at: '2026-07-11T10:00:00Z',
 };

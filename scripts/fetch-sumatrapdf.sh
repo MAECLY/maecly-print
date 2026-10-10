@@ -39,8 +39,8 @@ SHA256_ARM64="f21091ca6741e4049b0ca375121708a7959803d39336f0468084808943667ffe"
 SOURCE_COMMIT="16c59fde8b824ab54c56f23aef910a6fdd874ad0"
 SOURCE_REPO="https://github.com/sumatrapdfreader/sumatrapdf"
 # Where Pluryprint publishes its releases (and the source archive above).
-OFFER_RELEASES="https://github.com/MAECLY/maecly-print/releases"
-OFFER_ISSUES="https://github.com/MAECLY/maecly-print/issues"
+OFFER_RELEASES="https://github.com/MAECLY/pluryprint/releases"
+OFFER_ISSUES="https://github.com/MAECLY/pluryprint/issues"
 # name in the repository : name in the bundle : SHA-256
 LICENSES=(
   "COPYING:LICENSE.txt:3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"

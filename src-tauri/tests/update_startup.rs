@@ -32,7 +32,7 @@ fn at(rfc3339: &str) -> OffsetDateTime {
 fn newer_release() -> ReleaseInfo {
     ReleaseInfo {
         tag_name: "v1.2.0".to_string(),
-        html_url: "https://github.com/MAECLY/maecly-print/releases/tag/v1.2.0".to_string(),
+        html_url: "https://github.com/MAECLY/pluryprint/releases/tag/v1.2.0".to_string(),
         body: Some("Faster printing".to_string()),
     }
 }

@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security report
-    url: https://github.com/MAECLY/maecly-print/security/advisories/new
+    url: https://github.com/MAECLY/pluryprint/security/advisories/new
     about: Report a security issue privately. Do not open a public issue.
   - name: Question / discussion
-    url: https://github.com/MAECLY/maecly-print/discussions
+    url: https://github.com/MAECLY/pluryprint/discussions
     about: Use Discussions for usage questions and open-ended conversation.
