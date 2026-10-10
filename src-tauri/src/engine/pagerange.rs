@@ -309,7 +309,9 @@ mod tests {
     /// the params its EN/ES sentence interpolates.
     #[test]
     fn fr_092_page_range_errors_carry_reason_and_params() {
-        let cases: &[(&str, Option<u32>, &str, &[(&str, &str)])] = &[
+        /// Input, page count, expected reason, expected params.
+        type Case<'a> = (&'a str, Option<u32>, &'a str, &'a [(&'a str, &'a str)]);
+        let cases: &[Case] = &[
             ("  ", None, "page_range_empty", &[]),
             ("1,,3", None, "page_range_empty_entry", &[("position", "2")]),
             ("5-", None, "page_range_incomplete", &[("entry", "5-")]),
