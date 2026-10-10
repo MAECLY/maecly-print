@@ -24,7 +24,10 @@
 ; The DLL is built for the installer's architecture by
 ; scripts/build-shell-ext.ps1, which copies it next to this file. A missing DLL
 ; stops the installer build instead of shipping without the context menu.
-!if /FileExists "${__FILEDIR__}\${MAECLYPRINT_SHELLEXT_DLL}"
+; Resolved here, at include time: inside a macro ${__FILEDIR__} would name the
+; generated installer.nsi's folder instead of this file's.
+!define MAECLYPRINT_SHELLEXT_SRC "${__FILEDIR__}\${MAECLYPRINT_SHELLEXT_DLL}"
+!if /FileExists "${MAECLYPRINT_SHELLEXT_SRC}"
 !else
   !error "src-tauri\windows\${MAECLYPRINT_SHELLEXT_DLL} is missing: run scripts\build-shell-ext.ps1 before packaging"
 !endif
@@ -58,7 +61,7 @@
 !macro NSIS_HOOK_POSTINSTALL
   !insertmacro MAECLYPRINT_MOVE_LOADED_DLL_ASIDE
   SetOutPath "$INSTDIR"
-  File "${__FILEDIR__}\${MAECLYPRINT_SHELLEXT_DLL}"
+  File "${MAECLYPRINT_SHELLEXT_SRC}"
 
   ; The in-process COM server, per user.
   WriteRegStr HKCU "Software\Classes\CLSID\${MAECLYPRINT_SHELLEXT_CLSID}" "" "MaeclyPrint context menu"

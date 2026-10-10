@@ -90,7 +90,8 @@ fn fr_001_the_hooks_register_the_context_menu_dll_per_user() {
         "the hooks must register {clsid}, the CLSID shell_ext_win.dll serves"
     );
     for needle in [
-        "File \"${__FILEDIR__}\\${MAECLYPRINT_SHELLEXT_DLL}\"",
+        "!define MAECLYPRINT_SHELLEXT_SRC \"${__FILEDIR__}\\${MAECLYPRINT_SHELLEXT_DLL}\"",
+        "File \"${MAECLYPRINT_SHELLEXT_SRC}\"",
         "\\InprocServer32\" \"\" \"$INSTDIR\\${MAECLYPRINT_SHELLEXT_DLL}\"",
         "\"ThreadingModel\" \"Apartment\"",
         "\"ExplorerCommandHandler\" \"${MAECLYPRINT_SHELLEXT_CLSID}\"",
