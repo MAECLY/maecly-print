@@ -510,7 +510,15 @@ html.vt-ink::view-transition-new(root) { animation: ink-spread 520ms var(--ease-
   html.ink h1 .n3 { animation: num-pop 560ms var(--ease-ink) 510ms both; }
   html.ink h1 .ink-under use { animation: draw 700ms var(--ease-ink) 700ms both; }
 
-  /* hero stage, driven by motion.js: armed → pick → printing → settled */
+  /* hero stage, driven by motion.js: armed → pick → printing → settled.
+     html.ink is set in <head>, before the first paint, so the stage paints
+     armed (sheets down, sparks undrawn, counter blank) until motion.js takes
+     over; it never flashes the finished state first. */
+  html.ink:not(.motion) .press .rest { transform: rotate(0deg) translateY(30px); }
+  html.ink:not(.motion) .press .sparks path { stroke-dashoffset: 1; }
+  html.ink:not(.motion) .press .menu-pick { background: transparent; color: inherit; font-weight: 400; }
+  html.ink:not(.motion) .press .counter-fill { transform: scaleX(0); }
+  html.ink:not(.motion) .press :is(.counter-n, .counter-state) { visibility: hidden; }
   html.motion .press.armed .rest { transform: rotate(0deg) translateY(30px); }
   html.motion .press .rest { transition: transform 680ms var(--ease-spring); }
   html.motion .press .rest-l { transition-delay: 90ms; }

@@ -64,6 +64,7 @@
     if (!count || !fill || !state) return;
     var late = performance.now() > 2600;
     var total = +count.textContent, done = state.textContent, busy = state.getAttribute("data-busy") || done;
+    var queued = state.getAttribute("data-queued") || busy;
     var later = timers(), raf = 0;
     var phases = ["armed", "picked", "printing"];
     var reset = function () {
@@ -111,6 +112,7 @@
       press.classList.add("armed");
       count.textContent = 0;
       fill.style.setProperty("--p", 0);
+      state.textContent = queued;
       once(press, 0.4, function () { later(play, 250, stop); });
     }
     var replay = fig && fig.querySelector(".replay");
