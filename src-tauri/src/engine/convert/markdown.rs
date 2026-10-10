@@ -1,53 +1,44 @@
-//! Markdown → HTML (Pandoc) → PDF (the headless browser of [`super::html`])
-//! (FR-056).
-//!
-//! ```text
-//! pandoc --from=markdown-raw_html-raw_attribute --to=html5 --standalone
-//!        --sandbox --lua-filter=<work>/local-images.lua
-//!        --metadata=pagetitle:<name> --include-in-header=<work>/head.html
-//!        --output=<work>/page.html <input.md>
-//! ```
+//! Markdown → HTML (`pulldown-cmark`, in-process) → PDF through the page
+//! renderer of [`super::html`] (FR-056). No Pandoc, no browser.
 //!
 //! A Markdown file is text, and printing it must not turn it into active
-//! content. Raw HTML (`<script>`, `<iframe src=file:///…>`, `<img
-//! src=\\host\share>`) is not passed through: with `raw_html` and
-//! `raw_attribute` off, Pandoc prints such markup as literal text.
-//! `--sandbox` keeps Pandoc itself from reading anything but the files named
-//! on its command line or fetching anything over the network. The Lua filter
-//! ([`LOCAL_IMAGES_LUA`]) keeps only images that load from the local disk;
-//! a remote or UNC image (`//host/share/x.png`, which Windows would resolve
-//! over SMB and so hand the user's NTLM hash to that host) becomes its alt
-//! text. The injected header adds a Content-Security-Policy that forbids
-//! scripts, plugins and frames, so nothing can run even if a future Pandoc
-//! emitted markup we did not expect, and the browser step runs without
-//! network ([`super::html::SANDBOX_ARGS`]).
+//! content:
 //!
-//! Why not `pandoc -o out.pdf`: Pandoc's PDF output needs a LaTeX distribution
-//! (or wkhtmltopdf), a multi-gigabyte dependency for the user to install. The
-//! browser is already a dependency for HTML and is always present on Windows,
-//! so Markdown reuses it and only Pandoc itself is added.
+//! - **Raw HTML is dropped** (`Event::Html`, `Event::InlineHtml`): a
+//!   `<script>`, an `<iframe src=file:///…>` or an `<img src=\\host\share>`
+//!   written in the Markdown never reaches the page. The text between inline
+//!   tags stays (`H<sub>2</sub>O` prints `H2O`).
+//! - **Only local images are kept** ([`is_local_image`]): a relative path, a
+//!   drive path, a host-less `file:///` URL or a `data:` URI. A remote or
+//!   UNC source (`http://…`, `//host/x`, `\\host\x`, `file://host/x`) — which
+//!   Windows would resolve over SMB and so hand the user's NTLM hash to that
+//!   host — is replaced by its alt text.
+//! - The page then goes through the same staging as an HTML file (a
+//!   Content-Security-Policy that forbids scripts, plugins, frames and
+//!   connections; a `<base href>` at the Markdown file's folder, so relative
+//!   images resolve as they do next to the `.md`) and the same renderer, with
+//!   scripts off and no network.
 //!
-//! The generated HTML lives in the job's work directory, not next to the
-//! user's file. A `<base href>` pointing at the source folder (in the injected
-//! header) keeps relative image links resolving as they would from the `.md`.
-//! The header also carries a small print stylesheet, so the page looks like a
-//! document rather than unstyled browser defaults.
+//! Extensions on: tables, footnotes, strikethrough, task lists and smart
+//! punctuation (GitHub-flavoured documents print as they read on GitHub).
+//! The page carries a small print stylesheet ([`PRINT_CSS`]) so it looks like
+//! a document rather than unstyled browser defaults.
 
 use std::path::Path;
-use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use super::process::run_bounded;
-use super::{file_url, PageSetup, WorkDir};
-use crate::engine::EngineError;
+use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, TagEnd};
+
+use super::{PageSetup, WorkDir};
+use crate::engine::{EngineError, Failure};
 
 /// Extensions treated as Markdown.
 pub const MARKDOWN_EXTS: &[&str] = &["md", "markdown"];
 
-/// Print stylesheet embedded into every converted Markdown page.
-const PRINT_CSS: &str = "\
-@page { size: auto; margin: 18mm 16mm; }
+/// Print stylesheet embedded into every converted Markdown page. No `@page`
+/// rule: the paper and margins come from the job ([`PageSetup`]).
+pub const PRINT_CSS: &str = "\
 html { font-family: -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
        font-size: 11pt; line-height: 1.5; color: #111; }
 body { max-width: none; margin: 0; padding: 0; }
@@ -60,163 +51,161 @@ img { max-width: 100%; } blockquote { border-left: 3pt solid #ccc; margin-left: 
 pre, blockquote, table, img { page-break-inside: avoid; }
 ";
 
-/// Escape `s` for use inside a double-quoted HTML attribute.
-fn attr_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
+/// Whether an image source loads from the local disk. Local means a relative
+/// path, a drive path (`C:\x.png`), `file:///…` with no host, or a `data:`
+/// URI; a protocol-relative or UNC source (`//host/x`, `\\host\x`,
+/// `file://host/x`, `file:////host/x`) and any other scheme are not. Pure.
+pub fn is_local_image(src: &str) -> bool {
+    let src = src.trim();
+    let lower = src.to_ascii_lowercase();
+    if lower.starts_with("data:") {
+        return true;
+    }
+    let bytes = src.as_bytes();
+    if bytes.len() >= 2 && matches!(bytes[0], b'/' | b'\\') && matches!(bytes[1], b'/' | b'\\') {
+        return false;
+    }
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\')
+    {
+        return true;
+    }
+    let scheme_end = src.find(':');
+    let is_scheme = scheme_end.is_some_and(|end| {
+        end > 0
+            && src[..end].chars().enumerate().all(|(i, c)| {
+                c.is_ascii_alphabetic() || (i > 0 && matches!(c, '0'..='9' | '+' | '-' | '.'))
+            })
+    });
+    if !is_scheme {
+        return true;
+    }
+    match lower.strip_prefix("file:///") {
+        Some(rest) => !rest.starts_with('/') && !rest.starts_with('\\'),
+        None => false,
+    }
 }
 
-/// Content-Security-Policy for the generated page: a Markdown document has
-/// no business running script, embedding plugins or framing other pages.
-const PAGE_CSP: &str = "script-src 'none'; object-src 'none'; frame-src 'none'; \
-                        worker-src 'none'; connect-src 'none'; form-action 'none'";
+/// Escape text for HTML content.
+fn escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
 
-/// The `<head>` fragment injected by Pandoc: CSP + base URL + stylesheet,
-/// plus the job's paper size when it names one (the browser would otherwise
-/// lay the page out on US Letter). Pure.
-pub fn head_fragment(source_dir: &Path, page: &PageSetup) -> String {
-    let mut base = file_url(source_dir);
-    if !base.ends_with('/') {
-        base.push('/');
-    }
-    let size = page
-        .css_size
-        .as_deref()
-        .map(|size| format!("@page {{ size: {size}; }}\n"))
-        .unwrap_or_default();
+/// The whole HTML page for the Markdown `text`, titled `title`. Pure.
+pub fn to_html(text: &str, title: &str) -> String {
+    let options = Options::ENABLE_TABLES
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_SMART_PUNCTUATION;
+    // For each open image: whether it is dropped (its alt text stays).
+    let mut images: Vec<bool> = Vec::new();
+    let events = Parser::new_ext(text, options).filter_map(|event| match event {
+        Event::Html(_) | Event::InlineHtml(_) => None,
+        Event::Start(Tag::Image { ref dest_url, .. }) => {
+            let drop = !is_local_image(dest_url);
+            images.push(drop);
+            (!drop).then_some(event)
+        }
+        Event::End(TagEnd::Image) => {
+            let drop = images.pop().unwrap_or(false);
+            (!drop).then_some(event)
+        }
+        // Links are not fetched when printing, but a link to a share is
+        // still not something to put on paper as a live target.
+        Event::Start(Tag::Link {
+            link_type,
+            dest_url,
+            title,
+            id,
+        }) if !is_local_image(&dest_url) && !is_web_link(&dest_url) => {
+            Some(Event::Start(Tag::Link {
+                link_type,
+                dest_url: CowStr::Borrowed(""),
+                title,
+                id,
+            }))
+        }
+        other => Some(other),
+    });
+    let mut body = String::with_capacity(text.len() * 2);
+    pulldown_cmark::html::push_html(&mut body, events);
     format!(
-        "<meta http-equiv=\"Content-Security-Policy\" content=\"{PAGE_CSP}\">\n\
-         <base href=\"{}\">\n<style>\n{PRINT_CSS}{size}</style>\n",
-        attr_escape(&base)
+        "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>{}</title>\n\
+         <style>\n{PRINT_CSS}</style>\n</head><body>\n{body}</body></html>\n",
+        escape(title)
     )
 }
 
-/// Pandoc Lua filter: an image whose source is not on the local disk is
-/// replaced by its alt text. Local means a relative path, a drive path
-/// (`C:\x.png`), `file:///…` with no host, or a `data:` URI; a
-/// protocol-relative or UNC source (`//host/x`, `\\host\x`,
-/// `file://host/x`, `file:////host/x`) and any other scheme are not.
-pub const LOCAL_IMAGES_LUA: &str = r#"
-local function is_local(src)
-  local lower = src:lower()
-  if lower:sub(1, 5) == 'data:' then return true end
-  if src:match('^[/\\][/\\]') then return false end
-  if src:match('^%a:[/\\]') then return true end
-  local scheme = src:match('^(%a[%w+.-]*):')
-  if scheme == nil then return true end
-  if scheme:lower() ~= 'file' then return false end
-  return lower:match('^file:///') ~= nil and lower:match('^file:///[/\\]') == nil
-end
-
-function Image(img)
-  if is_local(img.src) then return nil end
-  return img.caption
-end
-"#;
-
-/// Pandoc's argument vector. Pure.
-pub fn pandoc_args(
-    input: &Path,
-    header: &Path,
-    filter: &Path,
-    output: &Path,
-    title: &str,
-) -> Vec<String> {
-    vec![
-        "--from=markdown-raw_html-raw_attribute".to_string(),
-        "--to=html5".to_string(),
-        "--standalone".to_string(),
-        "--sandbox".to_string(),
-        format!("--lua-filter={}", filter.display()),
-        format!("--metadata=pagetitle:{title}"),
-        format!("--include-in-header={}", header.display()),
-        format!("--output={}", output.display()),
-        input.to_string_lossy().into_owned(),
-    ]
+/// `http(s)` and `mailto` link targets, printed as they are.
+fn is_web_link(dest: &str) -> bool {
+    let lower = dest.trim().to_ascii_lowercase();
+    ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|p| lower.starts_with(p))
 }
+
 /// Convert the Markdown file at `input` into a PDF at `output`, laid out on
-/// the job's paper. The route's entry point: it resolves what it needs itself
-/// (today Pandoc and a browser; `pulldown-cmark` and the system web view once
-/// lane L4 lands).
+/// the job's paper. The route's entry point.
 pub fn convert(
     input: &Path,
     output: &Path,
     work: &WorkDir,
     cancel: &AtomicBool,
     timeout: Option<Duration>,
-    page_setup: &PageSetup,
+    page: &PageSetup,
 ) -> Result<(), EngineError> {
-    use crate::engine::deps::Dependency;
-    let pandoc = super::locate(Dependency::Pandoc)?;
-    let browser = super::locate(Dependency::Chromium)?;
-    convert_with(
-        &pandoc, &browser, input, output, work, cancel, timeout, page_setup,
+    convert_with_renderer(
+        input,
+        output,
+        work,
+        cancel,
+        timeout,
+        page,
+        super::html::configured_renderer(),
     )
 }
 
-/// Convert `input` with Pandoc at `pandoc`, then print the page with the
-/// browser at `browser` into `output`. The whole pipeline shares one
-/// `timeout` budget.
-#[allow(clippy::too_many_arguments)]
-pub fn convert_with(
-    pandoc: &Path,
-    browser: &Path,
+/// [`convert`] with an explicit renderer.
+pub fn convert_with_renderer(
     input: &Path,
     output: &Path,
     work: &WorkDir,
     cancel: &AtomicBool,
     timeout: Option<Duration>,
-    page_setup: &PageSetup,
+    page: &PageSetup,
+    renderer: crate::settings::HtmlRenderer,
 ) -> Result<(), EngineError> {
-    let started = std::time::Instant::now();
-    let source_dir = input.parent().unwrap_or_else(|| Path::new("."));
-    let header = work.path().join("head.html");
-    let filter = work.path().join("local-images.lua");
-    std::fs::write(&header, head_fragment(source_dir, page_setup))
-        .and_then(|()| std::fs::write(&filter, LOCAL_IMAGES_LUA))
-        .map_err(|e| {
-            EngineError::ConversionFailed(
-                format!("cannot prepare the conversion folder: {e}").into(),
+    let bytes = std::fs::read(input).map_err(|e| {
+        EngineError::ConversionFailed(
+            Failure::new(
+                "cannot_read_input",
+                format!("cannot read {}: {e}", input.display()),
             )
-        })?;
-    let page = work.path().join("page.html");
+            .param("file", input.display().to_string()),
+        )
+    })?;
+    let text = super::text::decode(&bytes);
     let title = input
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "document".to_string());
-
-    let mut cmd = Command::new(pandoc);
-    cmd.args(pandoc_args(input, &header, &filter, &page, &title))
-        .current_dir(work.path());
-    let log = work.path().join("pandoc.log");
-    run_bounded(cmd, "Pandoc", cancel, timeout, &log)?;
-    if !page.is_file() {
-        return Err(EngineError::ConversionFailed(
-            "Pandoc finished without producing a page"
-                .to_string()
-                .into(),
-        ));
-    }
-
-    let remaining = timeout.map(|t| t.saturating_sub(started.elapsed()));
-    if remaining == Some(Duration::ZERO) {
-        return Err(EngineError::ConversionFailed(
-            "Pandoc used the whole conversion time budget"
-                .to_string()
-                .into(),
-        ));
-    }
-    // The page already carries the paper size in its header.
-    super::html::convert_with(
-        browser,
-        &page,
+    let html = to_html(&text, &title);
+    let base_dir = input.parent().unwrap_or_else(|| Path::new("."));
+    super::html::render_document(
+        html.as_bytes(),
+        base_dir,
         output,
         work,
         cancel,
-        remaining,
-        &PageSetup::default(),
+        timeout,
+        page,
+        renderer,
     )
 }
 
@@ -225,49 +214,98 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fr_056_pandoc_args_make_standalone_html_with_the_injected_header() {
-        let args = pandoc_args(
-            Path::new("/docs/notes.md"),
-            Path::new("/w/head.html"),
-            Path::new("/w/local-images.lua"),
-            Path::new("/w/page.html"),
-            "notes",
+    fn fr_056_markdown_no_pandoc_raw_html_dropped_remote_img_alt() {
+        let md = "# Title\n\n\
+             <script>document.write('ran')</script>\n\n\
+             <iframe src=\"file:///etc/passwd\"></iframe>\n\n\
+             H<sub>2</sub>O and <b>bold</b>\n\n\
+             ![keep-rel](pic.png) ![keep-abs](file:///tmp/x.png) \
+             ![keep-drive](C:\\pics\\x.png) ![keep-data](data:image/png;base64,AA==)\n\n\
+             ![drop-http](http://example.com/x.png) ![drop-proto](//attacker/s/x.png)\n\n\
+             ![drop-unc](\\\\\\\\attacker\\\\s\\\\x.png) ![drop-host](file://attacker/x.png)\n\n\
+             ![drop-four](file:////attacker/x.png) ![drop-smb](smb://attacker/x.png)\n";
+        let html = to_html(md, "README");
+        let body = &html[html.find("<body>").unwrap()..];
+        assert!(!body.contains("<script"), "{body}");
+        assert!(!body.contains("ran')"), "{body}");
+        assert!(!body.contains("<iframe"), "{body}");
+        assert!(!body.contains("<b>"), "{body}");
+        assert!(body.contains("H2O"), "inline text survives: {body}");
+        for keep in ["keep-rel", "keep-abs", "keep-drive", "keep-data"] {
+            assert!(body.contains(&format!("alt=\"{keep}\"")), "{keep}: {body}");
+        }
+        for drop in [
+            "drop-http",
+            "drop-proto",
+            "drop-unc",
+            "drop-host",
+            "drop-four",
+            "drop-smb",
+        ] {
+            assert!(!body.contains(&format!("alt=\"{drop}\"")), "{drop}: {body}");
+            assert!(body.contains(drop), "{drop} keeps its alt text: {body}");
+        }
+        assert!(!body.contains("attacker"), "{body}");
+        assert!(!body.contains("example.com"), "{body}");
+        assert!(!html.contains("@page"), "the job sets the paper: {html}");
+    }
+
+    #[test]
+    fn fr_056_gfm_tables_tasks_and_footnotes_render() {
+        let html = to_html(
+            "| a | b |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n- [ ] todo\n\n~~old~~ text[^1]\n\n[^1]: note\n",
+            "t",
         );
-        assert_eq!(
-            args,
-            [
-                "--from=markdown-raw_html-raw_attribute",
-                "--to=html5",
-                "--standalone",
-                "--sandbox",
-                "--lua-filter=/w/local-images.lua",
-                "--metadata=pagetitle:notes",
-                "--include-in-header=/w/head.html",
-                "--output=/w/page.html",
-                "/docs/notes.md",
-            ]
+        assert!(html.contains("<table>"), "{html}");
+        assert!(html.contains("type=\"checkbox\""), "{html}");
+        assert!(html.contains("<del>old</del>"), "{html}");
+        assert!(html.contains("footnote"), "{html}");
+    }
+
+    #[test]
+    fn fr_056_links_to_shares_lose_their_target() {
+        let html = to_html(
+            "[web](https://example.org) [share](file://host/s) [unc](//host/s) [rel](notes.md)",
+            "t",
+        );
+        assert!(html.contains("href=\"https://example.org\""), "{html}");
+        assert!(html.contains("href=\"notes.md\""), "{html}");
+        assert!(!html.contains("host/s"), "{html}");
+    }
+
+    #[test]
+    fn fr_056_the_title_is_escaped() {
+        let html = to_html("x", "a<b>&\"c");
+        assert!(
+            html.contains("<title>a&lt;b&gt;&amp;&quot;c</title>"),
+            "{html}"
         );
     }
 
     #[test]
-    fn fr_056_header_points_relative_links_at_the_source_folder() {
-        let (dir, base) = if cfg!(windows) {
-            (r"C:\docs\my notes", "file:///C:/docs/my%20notes/")
-        } else {
-            ("/docs/my notes", "file:///docs/my%20notes/")
-        };
-        let head = head_fragment(Path::new(dir), &PageSetup::default());
-        assert!(head.contains(&format!("<base href=\"{base}\">")), "{head}");
-        assert!(head.contains("@page"));
-        assert!(
-            head.contains("Content-Security-Policy") && head.contains("script-src 'none'"),
-            "{head}"
-        );
-        assert!(!head.contains("size: 210mm"));
-
-        let a4 = PageSetup {
-            css_size: Some("210mm 297mm".to_string()),
-        };
-        assert!(head_fragment(Path::new(dir), &a4).contains("@page { size: 210mm 297mm; }"));
+    fn fr_056_local_image_table() {
+        for (src, local) in [
+            ("pic.png", true),
+            ("./img/a b.png", true),
+            ("../up.png", true),
+            ("/abs/x.png", true),
+            ("C:\\x.png", true),
+            ("c:/x.png", true),
+            ("file:///tmp/x.png", true),
+            ("FILE:///C:/x.png", true),
+            ("data:image/png;base64,AA==", true),
+            ("http://x/y.png", false),
+            ("https://x/y.png", false),
+            ("//host/x.png", false),
+            ("\\\\host\\x.png", false),
+            ("/\\host\\x.png", false),
+            ("file://host/x.png", false),
+            ("file:////host/x.png", false),
+            ("file:///\\\\host/x.png", false),
+            ("smb://host/x.png", false),
+            ("javascript:alert(1)", false),
+        ] {
+            assert_eq!(is_local_image(src), local, "{src}");
+        }
     }
 }

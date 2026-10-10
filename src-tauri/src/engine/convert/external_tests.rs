@@ -162,8 +162,10 @@ printf '%%PDF-1.4\n%%fake\n' > "$out/$stem.pdf""#,
         );
     }
 
+    /// The browser fallback (D15) prints the staged page, never the user's
+    /// file, and returns its PDF.
     #[test]
-    fn fr_055_html_spawns_the_browser_on_the_file_url_and_returns_its_pdf() {
+    fn fr_055_html_fallback_spawns_the_browser_on_the_staged_page() {
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("argv");
         let browser = script(
@@ -183,16 +185,7 @@ done"#,
         let work = WorkDir::new("job").unwrap();
         let cancel = AtomicBool::new(false);
 
-        html::convert_with(
-            &browser,
-            &page,
-            &output,
-            &work,
-            &cancel,
-            None,
-            &PageSetup::default(),
-        )
-        .unwrap();
+        html::convert_with(&browser, &page, &output, &work, &cancel, None).unwrap();
 
         assert!(validate_pdf_header(&output).is_ok());
         let argv = std::fs::read_to_string(&log).unwrap();
@@ -232,7 +225,6 @@ done"#,
             &work,
             &AtomicBool::new(false),
             None,
-            &PageSetup::default(),
         )
         .unwrap();
         let state: serde_json::Value =
@@ -243,88 +235,168 @@ done"#,
         );
     }
 
-    #[test]
-    fn fr_056_markdown_runs_pandoc_then_the_browser_on_the_generated_page() {
-        let dir = tempfile::tempdir().unwrap();
-        let pandoc = script(
-            dir.path(),
-            "pandoc",
-            r#"for a in "$@"; do
-  case "$a" in --output=*) printf '<html><body>md</body></html>' > "${a#--output=}";; esac
-done"#,
-        );
-        let log = dir.path().join("argv");
-        let browser = script(
-            dir.path(),
-            "chrome",
+    /// A fake render worker: records its argv and the staged page it was
+    /// given, and writes a PDF at `--out`.
+    fn fake_worker(dir: &Path) -> PathBuf {
+        let argv = dir.join("worker-argv");
+        let page = dir.join("worker-page");
+        script(
+            dir,
+            "pluryprint",
             &format!(
-                r#"printf '%s\n' "$@" > '{log}'
+                r#"printf '%s\n' "$@" > '{argv}'
+prev=""
 for a in "$@"; do
-  case "$a" in --print-to-pdf=*) printf '%%PDF-1.4\n' > "${{a#--print-to-pdf=}}";; esac
+  case "$prev" in
+    --page) cp "$a" '{page}';;
+    --out) printf '%%PDF-1.4\n%%%%EOF\n' > "$a";;
+  esac
+  prev="$a"
 done"#,
-                log = log.display()
+                argv = argv.display(),
+                page = page.display()
             ),
-        );
-        let md = dir.path().join("notes.md");
-        std::fs::write(&md, "# Hi").unwrap();
-        let output = dir.path().join("out.pdf");
-        let work = WorkDir::new("job").unwrap();
-        let cancel = AtomicBool::new(false);
-
-        markdown::convert_with(
-            &pandoc,
-            &browser,
-            &md,
-            &output,
-            &work,
-            &cancel,
-            None,
-            &PageSetup::default(),
         )
-        .unwrap();
-
-        assert!(validate_pdf_header(&output).is_ok());
-        let argv = std::fs::read_to_string(&log).unwrap();
-        assert!(
-            argv.trim_end().ends_with("/page.html"),
-            "the browser prints Pandoc's page, not the .md: {argv}"
-        );
     }
 
+    /// FR-055: the default renderer is the hidden worker of this executable,
+    /// given a staged page (CSP, base at the document folder, paper) and the
+    /// paper in inches; no browser and no Pandoc are looked up.
     #[test]
-    fn fr_056_a_pandoc_failure_stops_before_the_browser() {
+    fn fr_055_html_renders_without_browser_through_the_worker() {
         let dir = tempfile::tempdir().unwrap();
-        let pandoc = script(
-            dir.path(),
-            "pandoc",
-            "echo 'pandoc: bad input' >&2; exit 64",
-        );
-        let marker = dir.path().join("browser-ran");
-        let browser = script(
-            dir.path(),
-            "chrome",
-            &format!("touch '{}'", marker.display()),
-        );
-        let md = dir.path().join("x.md");
-        std::fs::write(&md, "x").unwrap();
+        let worker = fake_worker(dir.path());
+        let docs = dir.path().join("my docs");
+        std::fs::create_dir_all(&docs).unwrap();
+        let output = dir.path().join("out.pdf");
         let work = WorkDir::new("job").unwrap();
-        let cancel = AtomicBool::new(false);
-        let err = markdown::convert_with(
-            &pandoc,
-            &browser,
-            &md,
-            &dir.path().join("o.pdf"),
+        let a4 = PageSetup {
+            css_size: Some("210mm 297mm".into()),
+        };
+        html::render_system_with(
+            &worker,
+            b"<html><head><title>t</title></head><body><script>x()</script></body></html>",
+            &docs,
+            &output,
             &work,
-            &cancel,
+            &AtomicBool::new(false),
+            None,
+            &a4,
+        )
+        .unwrap();
+        assert!(validate_pdf_header(&output).is_ok());
+
+        let argv: Vec<String> = std::fs::read_to_string(dir.path().join("worker-argv"))
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect();
+        assert_eq!(argv[0], "--worker");
+        assert_eq!(argv[1], "render-pdf");
+        let value = |flag: &str| {
+            let at = argv.iter().position(|a| a == flag).unwrap();
+            argv[at + 1].clone()
+        };
+        assert_eq!(value("--base"), docs.to_string_lossy());
+        assert!(value("--page").ends_with("page.html"));
+        assert!(value("--data").starts_with(&*work.path().to_string_lossy()));
+        let (w, h) = value("--paper-in")
+            .split_once('x')
+            .map(|(w, h)| (w.parse::<f64>().unwrap(), h.parse::<f64>().unwrap()))
+            .unwrap();
+        assert!(
+            (w - 8.27).abs() < 0.01 && (h - 11.69).abs() < 0.01,
+            "{w}x{h}"
+        );
+
+        let staged = std::fs::read_to_string(dir.path().join("worker-page")).unwrap();
+        assert!(staged.contains("script-src 'none'"), "{staged}");
+        assert!(
+            staged.contains(&format!(
+                "<base href=\"{}\">",
+                crate::render::base_href(&docs)
+            )),
+            "{staged}"
+        );
+        assert!(staged.contains("@page { size: 210mm 297mm; }"), "{staged}");
+    }
+
+    /// A worker that fails reports `render_failed` with its stderr as the
+    /// detail, and leaves no output behind.
+    #[test]
+    fn fr_055_a_failing_worker_is_render_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let worker = script(
+            dir.path(),
+            "pluryprint",
+            "echo 'pluryprint worker render-pdf: the page did not finish loading' >&2; exit 1",
+        );
+        let output = dir.path().join("out.pdf");
+        let work = WorkDir::new("job").unwrap();
+        let err = html::render_system_with(
+            &worker,
+            b"<p>x",
+            dir.path(),
+            &output,
+            &work,
+            &AtomicBool::new(false),
             None,
             &PageSetup::default(),
         )
         .unwrap_err();
-        assert!(
-            matches!(&err, EngineError::ConversionFailed(m) if m.contains("bad input")),
-            "{err:?}"
-        );
-        assert!(!marker.exists());
+        match &err {
+            EngineError::ConversionFailed(f) => {
+                assert_eq!(f.reason, Some("render_failed"));
+                assert!(f.detail.contains("did not finish loading"), "{f:?}");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(!output.exists());
+    }
+
+    /// A hung worker is killed at the timeout like any converter.
+    #[test]
+    fn fr_055_a_hung_worker_is_killed_at_the_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let worker = script(dir.path(), "pluryprint", "sleep 30");
+        let work = WorkDir::new("job").unwrap();
+        let started = std::time::Instant::now();
+        let err = html::render_system_with(
+            &worker,
+            b"<p>x",
+            dir.path(),
+            &dir.path().join("out.pdf"),
+            &work,
+            &AtomicBool::new(false),
+            Some(Duration::from_millis(300)),
+            &PageSetup::default(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, EngineError::ConversionTimedOut(_)), "{err:?}");
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    /// FR-056: Markdown goes through the same worker as HTML: no Pandoc.
+    #[test]
+    fn fr_056_markdown_is_rendered_by_the_worker_not_pandoc() {
+        let dir = tempfile::tempdir().unwrap();
+        let worker = fake_worker(dir.path());
+        let html = markdown::to_html("# Hi\n\n<script>x()</script>\n", "notes");
+        let work = WorkDir::new("job").unwrap();
+        html::render_system_with(
+            &worker,
+            html.as_bytes(),
+            dir.path(),
+            &dir.path().join("o.pdf"),
+            &work,
+            &AtomicBool::new(false),
+            None,
+            &PageSetup::default(),
+        )
+        .unwrap();
+        let staged = std::fs::read_to_string(dir.path().join("worker-page")).unwrap();
+        assert!(staged.contains("<h1>Hi</h1>"), "{staged}");
+        assert!(!staged.contains("x()"), "{staged}");
     }
 
     #[test]
@@ -407,35 +479,15 @@ fn first_page_size(pdf: &Path) -> (i64, i64) {
     )
 }
 
-/// The job's paper for the browser converters: A4 portrait, the default.
+/// The job's paper for the page renderers: A4 portrait, the default.
 fn a4() -> PageSetup {
     PageSetup::for_settings(&crate::queue::job::JobSettings::default())
 }
 
-#[test]
-fn fr_057_real_txt_converts_through_libreoffice_with_its_page_count() {
-    if tool_or_skip(Dependency::LibreOffice, "txt").is_none() {
-        return;
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let txt = dir.path().join("notas año.txt");
-    // ~300 lines: more than one page, and non-ASCII text that the UTF-8
-    // import filter must keep intact.
-    let body: String = (1..=300)
-        .map(|i| format!("Línea {i}: ñandú, acción, café\n"))
-        .collect();
-    std::fs::write(&txt, body).unwrap();
-    let pdf = convert_real(&txt, &dir.path().join("cache"), "real-txt");
-    let pages = pages_of(&pdf);
-    assert!(pages > 1, "300 lines should span pages, got {pages}");
-    let bytes = std::fs::metadata(&pdf).unwrap().len();
-    assert_eq!(
-        crate::queue::probe_pages(&pdf, "pdf", bytes),
-        Some(pages as u32),
-        "the queue's page probe reads the converted PDF"
-    );
-}
-
+/// RTF goes to LibreOffice where the OS has no converter of its own (on
+/// macOS it is `textutil`, tested with the render worker in
+/// `tests/render_worker.rs`).
+#[cfg(not(target_os = "macos"))]
 #[test]
 fn fr_057_real_rtf_converts_through_libreoffice() {
     if tool_or_skip(Dependency::LibreOffice, "rtf").is_none() {
@@ -491,54 +543,97 @@ fn fr_053_real_docx_made_by_libreoffice_converts_back_to_pdf() {
     assert_eq!(pages_of(&pdf), 1);
 }
 
+/// Security finding: a document LibreOffice converts must not fetch what it
+/// links to (a linked image over HTTP, here; a `\\host\share` one on
+/// Windows takes the same path). The hardened private profile
+/// (`office::HARDENING_XCU`) blocks it: the listener sees no connection.
 #[test]
-fn fr_055_real_html_prints_through_the_browser() {
+fn fr_053_real_libreoffice_fetches_no_linked_resource() {
+    let Some(soffice) = tool_or_skip(Dependency::LibreOffice, "office-links") else {
+        return;
+    };
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let dir = tempfile::tempdir().unwrap();
+    // A flat ODF text document with one linked (not embedded) picture.
+    let fodt = dir.path().join("linked.fodt");
+    std::fs::write(
+        &fodt,
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+ xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"
+ xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"
+ xmlns:xlink="http://www.w3.org/1999/xlink" office:version="1.3"
+ office:mimetype="application/vnd.oasis.opendocument.text">
+ <office:body><office:text>
+  <text:p>Linked picture:
+   <draw:frame svg:width="2cm" svg:height="2cm" text:anchor-type="as-char">
+    <draw:image xlink:href="http://127.0.0.1:{port}/linked.png" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>
+   </draw:frame>
+  </text:p>
+ </office:text></office:body>
+</office:document>"#
+        ),
+    )
+    .unwrap();
+    let work = WorkDir::new("office-links").unwrap();
+    let output = dir.path().join("linked.pdf");
+    office::convert_with(
+        &soffice,
+        &fodt,
+        &output,
+        &work,
+        &AtomicBool::new(false),
+        REAL_TIMEOUT,
+    )
+    .unwrap();
+    assert_eq!(pages_of(&output), 1);
+    match listener.accept() {
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+        other => panic!("LibreOffice fetched the linked picture: {other:?}"),
+    }
+}
+
+/// The browser fallback (D15) still prints a page on the job's paper.
+#[test]
+fn fr_055_real_html_prints_through_the_browser_fallback() {
     if tool_or_skip(Dependency::Chromium, "html").is_none() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("style.css"), "h1 { color: #036; }").unwrap();
-    let html = dir.path().join("página.html");
     let sections: String = (1..=80).map(|i| format!("<p>Paragraph {i}</p>")).collect();
-    std::fs::write(
-        &html,
-        format!(
-            "<!doctype html><html><head><meta charset=utf-8>\
-             <link rel=stylesheet href=style.css></head>\
-             <body><h1>Título</h1>{sections}</body></html>"
-        ),
+    let html = format!(
+        "<!doctype html><html><head><meta charset=utf-8>\
+         <link rel=stylesheet href=style.css></head>\
+         <body><h1>Título</h1>{sections}</body></html>"
+    );
+    let work = WorkDir::new("real-html-browser").unwrap();
+    let pdf = dir.path().join("out.pdf");
+    html::render_document(
+        html.as_bytes(),
+        dir.path(),
+        &pdf,
+        &work,
+        &AtomicBool::new(false),
+        REAL_TIMEOUT,
+        &a4(),
+        crate::settings::HtmlRenderer::Browser,
     )
     .unwrap();
-    let pdf = convert_real_on(&html, &dir.path().join("cache"), "real-html", &a4());
     assert!(pages_of(&pdf) >= 1);
     // An A4 job gets A4 pages, not the browser's US Letter default.
     assert_eq!(first_page_size(&pdf), (595, 842));
 }
 
+/// The browser fallback reaches no network, loopback included: its
+/// stylesheet, its image, a script `fetch` and a WebSocket all point at a
+/// local listener that must never see a connection.
 #[test]
-fn fr_056_real_markdown_goes_through_pandoc_and_the_browser() {
-    if tool_or_skip(Dependency::Pandoc, "md").is_none()
-        || tool_or_skip(Dependency::Chromium, "md").is_none()
-    {
-        return;
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let md = dir.path().join("README.md");
-    std::fs::write(
-        &md,
-        "# Título\n\nSome *emphasis*, a list:\n\n- one\n- two\n\n```rust\nfn main() {}\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n",
-    )
-    .unwrap();
-    let pdf = convert_real_on(&md, &dir.path().join("cache"), "real-md", &a4());
-    assert_eq!(pages_of(&pdf), 1);
-    assert_eq!(first_page_size(&pdf), (595, 842));
-}
-
-/// A printed page reaches no network, loopback included: its stylesheet, its
-/// image, a script `fetch` and a WebSocket all point at a local listener that
-/// must never see a connection.
-#[test]
-fn fr_055_real_html_reaches_no_network() {
+fn fr_055_real_html_fallback_reaches_no_network() {
     if tool_or_skip(Dependency::Chromium, "html-sandbox").is_none() {
         return;
     }
@@ -547,102 +642,33 @@ fn fr_055_real_html_reaches_no_network() {
     let port = listener.local_addr().unwrap().port();
 
     let dir = tempfile::tempdir().unwrap();
-    let html = dir.path().join("hostile.html");
-    std::fs::write(
-        &html,
-        format!(
-            "<!doctype html><html><head><meta charset=utf-8>\
-             <link rel=stylesheet href=\"http://localhost:{port}/x.css\"></head>\
-             <body><p>static</p>\
-             <img src=\"http://127.0.0.1:{port}/beacon.png\">\
-             <script>fetch('http://127.0.0.1:{port}/fetch').catch(() => {{}});\
-             try {{ new WebSocket('ws://127.0.0.1:{port}/ws'); }} catch (e) {{}}</script>\
-             </body></html>"
-        ),
+    let html = format!(
+        "<!doctype html><html><head><meta charset=utf-8>\
+         <link rel=stylesheet href=\"http://localhost:{port}/x.css\"></head>\
+         <body><p>static</p>\
+         <img src=\"http://127.0.0.1:{port}/beacon.png\">\
+         <script>fetch('http://127.0.0.1:{port}/fetch').catch(() => {{}});\
+         try {{ new WebSocket('ws://127.0.0.1:{port}/ws'); }} catch (e) {{}}</script>\
+         </body></html>"
+    );
+    let work = WorkDir::new("real-html-browser-sandbox").unwrap();
+    let pdf = dir.path().join("out.pdf");
+    html::render_document(
+        html.as_bytes(),
+        dir.path(),
+        &pdf,
+        &work,
+        &AtomicBool::new(false),
+        REAL_TIMEOUT,
+        &PageSetup::default(),
+        crate::settings::HtmlRenderer::Browser,
     )
     .unwrap();
-    let pdf = convert_real(&html, &dir.path().join("cache"), "real-html-sandbox");
     assert_eq!(pages_of(&pdf), 1);
     match listener.accept() {
         Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
         other => panic!("the page reached the network: {other:?}"),
     }
-}
-
-/// Raw HTML in a Markdown file is printed as text, never run or loaded, and
-/// only images on the local disk survive; remote and UNC ones become their
-/// alt text.
-#[test]
-fn fr_056_real_markdown_drops_raw_html_and_non_local_images() {
-    let Some(pandoc) = tool_or_skip(Dependency::Pandoc, "md-sandbox") else {
-        return;
-    };
-    let dir = tempfile::tempdir().unwrap();
-    let md = dir.path().join("README.md");
-    std::fs::write(
-        &md,
-        "# Title\n\n\
-         <script>document.write('ran')</script>\n\n\
-         <iframe src=\"file:///etc/passwd\"></iframe>\n\n\
-         `<b>raw</b>`{=html}\n\n\
-         ![keep-rel](pic.png) ![keep-abs](file:///tmp/x.png) \
-         ![keep-data](data:image/png;base64,AA==)\n\n\
-         ![drop-http](http://example.com/x.png) ![drop-proto](//attacker/s/x.png)\n\n\
-         ![drop-unc](\\\\\\\\attacker\\\\s\\\\x.png) ![drop-host](file://attacker/x.png)\n\n\
-         ![drop-four](file:////attacker/x.png)\n",
-    )
-    .unwrap();
-    let work = WorkDir::new("md-sandbox").unwrap();
-    let header = work.path().join("head.html");
-    std::fs::write(
-        &header,
-        markdown::head_fragment(dir.path(), &PageSetup::default()),
-    )
-    .unwrap();
-    let filter = work.path().join("local-images.lua");
-    std::fs::write(&filter, markdown::LOCAL_IMAGES_LUA).unwrap();
-    let page = work.path().join("page.html");
-    let mut cmd = std::process::Command::new(&pandoc);
-    cmd.args(markdown::pandoc_args(
-        &md, &header, &filter, &page, "README",
-    ));
-    let cancel = AtomicBool::new(false);
-    process::run_bounded(
-        cmd,
-        "Pandoc",
-        &cancel,
-        REAL_TIMEOUT,
-        &work.path().join("log"),
-    )
-    .unwrap();
-    let html = std::fs::read_to_string(&page).unwrap();
-    let body = &html[html.find("<body").expect("standalone page")..];
-
-    assert!(!body.contains("<script"), "{body}");
-    assert!(!body.contains("<iframe"), "{body}");
-    assert!(!body.contains("<b>raw"), "{body}");
-    assert!(
-        body.contains("&lt;script&gt;"),
-        "raw HTML stays visible as text: {body}"
-    );
-    // The injected header (CSP, base URL, print CSS) still reaches the page.
-    assert!(html.contains("<base href="), "{html}");
-    assert!(html.contains("script-src 'none'"), "{html}");
-    for keep in ["keep-rel", "keep-abs", "keep-data"] {
-        assert!(body.contains(&format!("alt=\"{keep}\"")), "{keep}: {body}");
-    }
-    for drop in [
-        "drop-http",
-        "drop-proto",
-        "drop-unc",
-        "drop-host",
-        "drop-four",
-    ] {
-        assert!(!body.contains(&format!("alt=\"{drop}\"")), "{drop}: {body}");
-        assert!(body.contains(drop), "{drop} keeps its alt text: {body}");
-    }
-    assert!(!body.contains("attacker"), "{body}");
-    assert!(!body.contains("example.com"), "{body}");
 }
 
 #[cfg(target_os = "macos")]
