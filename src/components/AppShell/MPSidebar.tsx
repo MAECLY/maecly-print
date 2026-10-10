@@ -8,13 +8,7 @@ import { fetchAppInfo } from '@/lib/ipc';
 import { UNKNOWN_VERSION } from '@/lib/repo';
 
 export type ScreenId =
-  | 'home'
-  | 'job'
-  | 'queue'
-  | 'printers'
-  | 'profiles'
-  | 'settings'
-  | 'about';
+  'home' | 'job' | 'queue' | 'printers' | 'profiles' | 'settings' | 'about';
 
 interface NavItem {
   id: ScreenId;

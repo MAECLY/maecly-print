@@ -80,11 +80,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 
 /** Lifecycle of the store's connection to the backend queue. */
 export type QueueLoadStatus =
-  | 'idle'
-  | 'loading'
-  | 'ready'
-  | 'unavailable'
-  | 'error';
+  'idle' | 'loading' | 'ready' | 'unavailable' | 'error';
 
 export interface QueueCounts {
   active: number;

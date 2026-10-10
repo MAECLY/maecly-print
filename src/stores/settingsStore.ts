@@ -41,11 +41,7 @@ import {
 
 /** Lifecycle of the store's connection to the persisted config. */
 export type SettingsStatus =
-  | 'idle'
-  | 'loading'
-  | 'ready'
-  | 'unavailable'
-  | 'error';
+  'idle' | 'loading' | 'ready' | 'unavailable' | 'error';
 
 /**
  * A shallow, per-section patch of the settings (see {@link patch}). Each

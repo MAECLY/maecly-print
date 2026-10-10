@@ -37,11 +37,7 @@ import type { UiProfile } from '@/types/domain';
 
 /** Lifecycle of the store's connection to the backend profile list. */
 export type ProfilesLoadStatus =
-  | 'idle'
-  | 'loading'
-  | 'ready'
-  | 'unavailable'
-  | 'error';
+  'idle' | 'loading' | 'ready' | 'unavailable' | 'error';
 
 /**
  * The profile editor's live working copy, kept across screen unmounts.
