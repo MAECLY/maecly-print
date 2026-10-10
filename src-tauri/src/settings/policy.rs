@@ -13,6 +13,15 @@
 //! | macOS    | `/Library/Application Support/Pluryprint/policy.json` (admin-writable) |
 //! | Linux    | `/etc/pluryprint/policy.json` (root-writable) |
 //!
+//! **Legacy locations.** The app was called MaeclyPrint before. A policy an
+//! admin deployed under the old name (`HKLM\SOFTWARE\Policies\Maecly\MaeclyPrint`,
+//! `C:\ProgramData\MaeclyPrint\policy.json`,
+//! `/Library/Application Support/MaeclyPrint/policy.json`,
+//! `/etc/maeclyprint/policy.json`) is still honoured, with the same trust rules,
+//! when nothing is found at the new location, and a warning asks the admin to
+//! move it. The app runs as the user, so it cannot move a machine policy
+//! itself. See ADR-0009.
+//!
 //! `C:\ProgramData` lets any standard user create folders (and own them), so a
 //! `policy.json` there that a user created is ignored — otherwise any user
 //! could impose a "managed" default printer on everyone else on the machine.
@@ -70,6 +79,13 @@ impl PrinterPolicy {
                 }
                 PolicyFile::Trusted(raw) => raw,
             };
+            if is_legacy(&path) {
+                tracing::warn!(
+                    event = "policy_legacy_location",
+                    path = %path.display(),
+                    "using a policy deployed for MaeclyPrint; move it to the Pluryprint location"
+                );
+            }
             return match parse_policy(&raw) {
                 Some(policy) => policy,
                 None => {
@@ -89,8 +105,11 @@ impl PrinterPolicy {
 /// Candidate policy files, most authoritative first.
 fn policy_paths() -> Vec<PathBuf> {
     let mut out = Vec::new();
-    if let Some(system) = system_policy_path() {
+    if let Some(system) = system_policy_path(APP_DIR) {
         out.push(system);
+    }
+    if let Some(legacy) = system_policy_path(LEGACY_APP_DIR) {
+        out.push(legacy);
     }
     // Developer/testing fallback: never in a release build.
     #[cfg(debug_assertions)]
@@ -98,25 +117,46 @@ fn policy_paths() -> Vec<PathBuf> {
     out
 }
 
-/// The machine-wide policy path for this platform, if one is defined.
-fn system_policy_path() -> Option<PathBuf> {
+/// Folder name of the machine policy under the current product name.
+const APP_DIR: &str = "Pluryprint";
+/// Folder name a policy deployed for MaeclyPrint (the old name) lives under.
+const LEGACY_APP_DIR: &str = "MaeclyPrint";
+
+/// Whether `path` is one of the legacy (pre-rename) policy locations.
+fn is_legacy(path: &std::path::Path) -> bool {
+    path.components().any(|c| {
+        c.as_os_str()
+            .to_str()
+            .is_some_and(|s| s.eq_ignore_ascii_case(LEGACY_APP_DIR))
+    })
+}
+
+/// The machine-wide policy path for this platform under the folder name
+/// `app` (`Pluryprint`, or the legacy `MaeclyPrint`), if one is defined.
+fn system_policy_path(app: &str) -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        std::env::var_os("ProgramData")
-            .map(|pd| PathBuf::from(pd).join("Pluryprint").join("policy.json"))
+        std::env::var_os("ProgramData").map(|pd| PathBuf::from(pd).join(app).join("policy.json"))
     }
     #[cfg(target_os = "macos")]
     {
-        Some(PathBuf::from(
-            "/Library/Application Support/Pluryprint/policy.json",
-        ))
+        Some(
+            PathBuf::from("/Library/Application Support")
+                .join(app)
+                .join("policy.json"),
+        )
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        Some(PathBuf::from("/etc/pluryprint/policy.json"))
+        Some(
+            PathBuf::from("/etc")
+                .join(app.to_ascii_lowercase())
+                .join("policy.json"),
+        )
     }
     #[cfg(not(any(windows, unix)))]
     {
+        let _ = app;
         None
     }
 }
@@ -136,12 +176,30 @@ fn policy_from_registry_value(value: Option<String>) -> Option<PrinterPolicy> {
     })
 }
 
-/// `HKLM\SOFTWARE\Policies\Maecly\Pluryprint` → `DefaultPrinter`. Only
+/// `HKLM\SOFTWARE\Policies\Maecly\Pluryprint` → `DefaultPrinter`, then the
+/// same value under the legacy `...\Maecly\MaeclyPrint` key. Only
 /// administrators (and Group Policy) can write under `HKLM\SOFTWARE\Policies`.
 fn registry_policy() -> Option<PrinterPolicy> {
     #[cfg(windows)]
     {
-        policy_from_registry_value(win::read_policy_string("DefaultPrinter"))
+        if let Some(policy) = policy_from_registry_value(win::read_policy_string(
+            win::PolicyKey::Current,
+            "DefaultPrinter",
+        )) {
+            return Some(policy);
+        }
+        let legacy = policy_from_registry_value(win::read_policy_string(
+            win::PolicyKey::Legacy,
+            "DefaultPrinter",
+        ));
+        if legacy.is_some() {
+            tracing::warn!(
+                event = "policy_legacy_location",
+                key = "HKLM\\SOFTWARE\\Policies\\Maecly\\MaeclyPrint",
+                "using a policy deployed for MaeclyPrint; move it to the Pluryprint key"
+            );
+        }
+        legacy
     }
     #[cfg(not(windows))]
     {
@@ -245,10 +303,21 @@ mod win {
     };
     use windows::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
 
+    /// Which policy key to read: the current product name's, or the one an
+    /// admin deployed for MaeclyPrint (the old name).
+    #[derive(Clone, Copy)]
+    pub(super) enum PolicyKey {
+        Current,
+        Legacy,
+    }
+
     /// A REG_SZ under the policy key, or `None` when the key or value is absent.
-    pub(super) fn read_policy_string(value: &str) -> Option<String> {
+    pub(super) fn read_policy_string(which: PolicyKey, value: &str) -> Option<String> {
+        let key = match which {
+            PolicyKey::Current => w!("SOFTWARE\\Policies\\Maecly\\Pluryprint"),
+            PolicyKey::Legacy => w!("SOFTWARE\\Policies\\Maecly\\MaeclyPrint"),
+        };
         let name: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
-        let key = w!("SOFTWARE\\Policies\\Maecly\\Pluryprint");
         let mut size = 0u32;
         let rc = unsafe {
             RegGetValueW(
@@ -362,6 +431,28 @@ mod tests {
         // A present but field-less object is valid; default_printer is None.
         let p = parse_policy("{}").expect("empty object is valid");
         assert_eq!(p.default_printer, None);
+    }
+
+    /// ADR-0009: a policy deployed for MaeclyPrint is still read, but only
+    /// after the Pluryprint location.
+    #[test]
+    fn legacy_policy_location_is_consulted_after_the_current_one() {
+        let paths = policy_paths();
+        let current = system_policy_path(APP_DIR);
+        let legacy = system_policy_path(LEGACY_APP_DIR);
+        if let (Some(current), Some(legacy)) = (current, legacy) {
+            let at = |p: &PathBuf| paths.iter().position(|q| q == p).unwrap();
+            assert!(at(&current) < at(&legacy), "{paths:?}");
+            assert!(!is_legacy(&current), "{current:?}");
+            assert!(is_legacy(&legacy), "{legacy:?}");
+            assert!(
+                legacy
+                    .to_string_lossy()
+                    .to_lowercase()
+                    .contains("maeclyprint"),
+                "{legacy:?}"
+            );
+        }
     }
 
     #[test]
