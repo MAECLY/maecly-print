@@ -20,7 +20,7 @@ Vitest unit tests); see
 e2e/
 ├── wdio.conf.ts            # runner config; spawns/kills tauri-driver, forces an English UI, screenshots on failure
 ├── tsconfig.json           # standalone TS config for the wdio specs (not part of `pnpm typecheck`)
-├── artifacts/              # failure screenshots (gitignored)
+├── artifacts/              # failure screenshots (gitignored, with wdio-logs/)
 ├── specs/
 │   ├── helpers.ts          # dismiss onboarding (EN/ES), navigate the sidebar, forceEnglishUi, restore settings
 │   ├── home.e2e.ts         # formats advertised, shortcut layer (NFR-034), focusable quick actions, live recent activity
@@ -43,10 +43,16 @@ Vitest), and `pnpm test:e2e` is the sole WebdriverIO entry point.
 
 ## WebdriverIO on Windows
 
-`tauri-driver` supports **Windows and Linux only**. The CI e2e job runs on
-Windows. Two smoke specs (`about`, `queue`) gate it, so a suite that cannot
-open a session at all fails the job; the full suite is advisory
-(`continue-on-error`) because a real GUI driver is flake-prone.
+`tauri-driver` supports **Windows and Linux only**. The CI `e2e` job
+(`.github/workflows/ci.yml`) runs on `windows-latest`. It installs
+`tauri-driver`, reads the installed WebView2 runtime version from its
+EdgeUpdate registry key and downloads the `msedgedriver` of exactly that
+version (exported as `NATIVE_DRIVER`), builds a debug binary with
+`tauri build --debug --no-bundle` (frontend embedded, no installers), runs the
+suite, and uploads `e2e/artifacts/` whatever the outcome. Two smoke specs
+(`about`, `queue`) gate it, so a suite that cannot open a session at all fails
+the job; the full suite is advisory (`continue-on-error`) because a real GUI
+driver is flake-prone.
 
 Two things make WebDriver reach the app's WebView2, both verified on Windows
 11 ARM64 with WebView2 154:
@@ -96,6 +102,20 @@ Things to know before running it on your own machine:
   screenshot, and confirm `NATIVE_DRIVER` matches the installed WebView2
   version: a mismatched `msedgedriver` makes session creation retry three
   times over two minutes before failing.
+
+## Launch smokes (CI)
+
+Separate from the specs, two CI steps prove the packaged binary boots at all:
+they build it with `pnpm tauri build --debug --config src-tauri/tauri.ci.conf.json`
+(unsigned: CI has no updater key), launch it, and poll the real per-user log
+folder for the backend's startup records.
+
+- **Windows — blocking.** Waits up to 60 s for `app_started` and then
+  `main_window_resolved` in `maeclyprint-*.jsonl`. It catches missing runtime
+  dependencies and startup panics that a compile-only build would miss.
+- **macOS — advisory** (`continue-on-error`). Waits for `app_started` in
+  `~/Library/Logs/MaeclyPrint/`. WKWebView has no WebDriver and a headless
+  runner has no guaranteed window server, so this is best effort.
 
 ## Browser harness (macOS and anywhere else)
 
@@ -149,5 +169,23 @@ __MAECLY_E2E__.calls(); // every command the app invoked
 | `?e2e-tick=0`      | Stop the timer; advance with `backend.tick()`         |
 
 What it does **not** prove: anything below the IPC boundary. Printing,
-spooling and conversion are covered by the Rust suites, including the opt-in
-real-CUPS checks in `src-tauri/tests/real_printer.rs`.
+spooling and conversion are covered by the Rust suites, including the two
+opt-in real-spooler suites below.
+
+## Real-spooler suites (opt-in, never print)
+
+Both are `#[ignore]`d **and** gated on `MAECLY_REAL_PRINTER=1`, go through the
+engine's real `spool` path, and refuse to submit to any queue that would print:
+
+| Suite                                     | Platform      | Queue (`MAECLY_HOLD_QUEUE`)                                          | What it proves                                                                                                                     |
+| ----------------------------------------- | ------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `src-tauri/tests/real_printer.rs`         | macOS / Linux | `Maecly_Hold`, a CUPS queue with `job-hold-until-default=indefinite` | CUPS turns the `lp` vector into the intended IPP job attributes; every job stays `pending-held` and is cancelled on the way out    |
+| `src-tauri/tests/real_printer_windows.rs` | Windows       | `Maecly_Hold_Win`, a **paused** queue on a file port                 | SumatraPDF spools, the job is found by its document among the user's new jobs, `GetJob` reads its state, and the cancel removes it |
+
+```sh
+MAECLY_REAL_PRINTER=1 cargo test --test real_printer -- --ignored              # macOS
+$env:MAECLY_REAL_PRINTER='1'; cargo test --test real_printer_windows -- --ignored --test-threads=1   # Windows
+```
+
+The doc comment at the top of each file has the one-time command that creates
+the hold queue. Never point `MAECLY_HOLD_QUEUE` at a real device.
