@@ -1,5 +1,6 @@
-//! Keep Chromium-based browsers (headless Edge for HTML/Markdown, the app's
-//! own WebView2) from trying to log the user on with an empty password.
+//! Keep the Chromium-based web views this app starts (the app's own
+//! WebView2, and the render worker's private one that prints HTML, Markdown
+//! and text) from trying to log the user on with an empty password.
 //!
 //! On Windows, Chromium's password manager checks at startup whether the OS
 //! account has a blank password (`CheckBlankPasswordWithPrefs` in
@@ -23,9 +24,12 @@
 //! the profile's `Local State` right before every launch. Measured in the VM
 //! (Security log 4625 count before/after): headless Edge with a seeded
 //! profile, 0 failures per conversion (1 without); the app's WebView2 with a
-//! seeded `EBWebView`, 0 per start (1 without). Nothing else in the file is
-//! touched, and the profile is either private to this app (the converter's
-//! throwaway directory, the app's own `EBWebView`) — never the user's browser.
+//! seeded `EBWebView`, 0 per start (1 without). (Headless Edge was the HTML
+//! converter then; that browser fallback was removed in round 6, ADR-0012,
+//! and the render worker's WebView2 is seeded the same way.) Nothing else in
+//! the file is touched, and the profile is either private to this app (the
+//! render worker's throwaway directory, the app's own `EBWebView`) — never
+//! the user's browser.
 
 use std::path::Path;
 

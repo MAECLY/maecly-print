@@ -211,10 +211,10 @@
       "remediationMac": "LibreOffice is missing, so Office and OpenDocument files cannot be printed. Download it free from https://www.libreoffice.org/download"
     },
     "chromium": {
-      "remediation": "Microsoft Edge or Google Chrome is missing, so HTML and Markdown files cannot be printed. Install Microsoft Edge (https://www.microsoft.com/edge) or Google Chrome (https://www.google.com/chrome)."
+      "remediation": "Pluryprint no longer uses Microsoft Edge or Google Chrome: HTML, Markdown and text files print with the system web view. Resume the job to print it."
     },
     "pandoc": {
-      "remediation": "Pandoc is missing, so Markdown files cannot be printed. Download it from https://pandoc.org/installing.html"
+      "remediation": "Pluryprint no longer uses Pandoc: Markdown files print with the system web view. Resume the job to print it."
     },
     "heif-codec": {
       "remediation": "The HEIF image decoder is missing, so HEIC/HEIF photos cannot be printed. Install “HEIF Image Extensions” (and “HEVC Video Extensions” for .heic) from the Microsoft Store. A job paused for it can then be resumed from the queue."

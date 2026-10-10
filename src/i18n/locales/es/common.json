@@ -211,10 +211,10 @@
       "remediationMac": "Falta LibreOffice, así que no se pueden imprimir archivos de Office ni OpenDocument. Descárgalo gratis desde https://www.libreoffice.org/download"
     },
     "chromium": {
-      "remediation": "Falta Microsoft Edge o Google Chrome, así que no se pueden imprimir archivos HTML ni Markdown. Instala Microsoft Edge (https://www.microsoft.com/edge) o Google Chrome (https://www.google.com/chrome)."
+      "remediation": "Pluryprint ya no usa Microsoft Edge ni Google Chrome: los archivos HTML, Markdown y de texto se imprimen con la vista web del sistema. Reanuda el trabajo para imprimirlo."
     },
     "pandoc": {
-      "remediation": "Falta Pandoc, así que no se pueden imprimir archivos Markdown. Descárgalo desde https://pandoc.org/installing.html"
+      "remediation": "Pluryprint ya no usa Pandoc: los archivos Markdown se imprimen con la vista web del sistema. Reanuda el trabajo para imprimirlo."
     },
     "heif-codec": {
       "remediation": "Falta el descodificador de imágenes HEIF, así que no se pueden imprimir fotos HEIC/HEIF. Instala «Extensiones de imagen HEIF» (y «Extensiones de vídeo HEVC» para .heic) desde Microsoft Store. Después, un trabajo en pausa por esto se puede reanudar desde la cola."

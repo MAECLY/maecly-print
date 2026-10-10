@@ -631,10 +631,7 @@ pub fn spec(dep: Dependency, os: Os) -> Spec {
             bundle_subdir: "chromium",
             // Nothing needs it any more (the browser fallback was removed).
             blocks: &[],
-            effect: "HTML and Markdown files cannot be printed with the browser \
-                     renderer until one is installed. Install Microsoft Edge \
-                     (https://www.microsoft.com/edge) or Google Chrome \
-                     (https://www.google.com/chrome)",
+            effect: "Pluryprint no longer needs it",
             install: BROWSER_INSTALL,
         },
         Dependency::Pandoc => Spec {

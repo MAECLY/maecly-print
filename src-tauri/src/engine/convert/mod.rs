@@ -63,9 +63,9 @@ pub use text::TEXT_EXTS;
 /// The page geometry a converter that lays pages out itself must honour.
 ///
 /// Office documents carry their own page size, images are fitted by the
-/// printer, but HTML and Markdown are *paginated by the browser*, which
+/// printer, but HTML and Markdown are *paginated by the web view*, which
 /// otherwise uses US Letter whatever the job asks for: an A4 job then
-/// printed Letter pages, clipped on the right at actual size. The browser
+/// printed Letter pages, clipped on the right at actual size. The web view
 /// honours a CSS `@page { size: … }` rule, so this carries that value.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PageSetup {
@@ -84,7 +84,7 @@ impl PageSetup {
 }
 
 /// Width × height of a paper name in portrait, as CSS lengths. `None` for
-/// `auto` and for names we cannot measure (the browser default then applies).
+/// `auto` and for names we cannot measure (the web view's default then applies).
 ///
 /// Knows the ISO A/B sizes, the US sizes, `4x6`-style inch sizes and CUPS'
 /// self-describing `w<pt>h<pt>` keywords, matched case-insensitively; a
@@ -246,7 +246,7 @@ impl WorkDir {
 /// each external converter on its own; the dispatcher additionally raises
 /// `cancel` when its conversion timeout fires. `progress` receives
 /// `0.0..=1.0` updates. `page` is the paper the job prints on, which the
-/// browser-based converters (HTML, Markdown) lay their pages out to.
+/// web-view converters (HTML, Markdown, text) lay their pages out to.
 ///
 /// `password` opens an encrypted PDF (FR-059). Without one, such a PDF fails
 /// with [`EngineError::PdfProtected`]`(`[`super::PdfProtection::PasswordRequired`]`)`;
@@ -466,7 +466,7 @@ pub(crate) fn take_output(
 }
 
 /// `file://` URL for a local absolute path, percent-encoded. Used for the
-/// LibreOffice profile location, the page the browser prints and the
+/// LibreOffice profile location, the page the web view prints and the
 /// Markdown `<base href>`.
 pub fn file_url(path: &Path) -> String {
     file_url_from(&path.to_string_lossy(), cfg!(windows))
@@ -612,7 +612,7 @@ fn check_cancel(cancel: &AtomicBool) -> Result<(), EngineError> {
 mod tests {
     use super::*;
 
-    /// FR-055 / FR-056: the browser converters lay pages out on the job's
+    /// FR-055 / FR-056: the web-view converters lay pages out on the job's
     /// paper. An A4 job used to produce US Letter pages.
     #[test]
     fn fr_055_page_setup_follows_the_job_paper_and_orientation() {
