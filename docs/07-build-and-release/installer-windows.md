@@ -27,12 +27,12 @@ Three steps, in this order, on a Windows machine of the installer's architecture
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\fetch-sumatrapdf.ps1 -Arch arm64   # or x64
-powershell -ExecutionPolicy Bypass -File scripts\build-shell-ext.ps1 -Arch arm64    # or x64
+powershell -ExecutionPolicy Bypass -File scripts\build-shell-ext.ps1 -Arch all      # both DLLs; CI requires both
 pnpm tauri build                      # PR/CI builds: --config src-tauri/tauri.ci.conf.json
 ```
 
 - `fetch-sumatrapdf.ps1` puts the SumatraPDF build for that architecture, with its licence files, in `src-tauri/resources/sumatrapdf/`.
-- `build-shell-ext.ps1` builds `shell_ext_win.dll` and copies it to `src-tauri/windows/`. The installer hooks (`src-tauri/windows/installer-hooks.nsh`, wired through `bundle.windows.nsis.installerHooks`) refuse to build an installer without it.
+- `build-shell-ext.ps1` builds `shell_ext_win.dll` and copies it to `src-tauri/resources/shellext/<x64|arm64>/`. The installer carries both and the hooks (`src-tauri/windows/installer-hooks.nsh`, wired through `bundle.windows.nsis.installerHooks`) register the one for the **operating system's** native architecture, so the x64 installer run on Windows on ARM still gives Explorer an ARM64 DLL. They refuse to build an installer with neither DLL, and a CI build (`CI=true`) without both; a local single-architecture build installed on the other architecture registers no menu.
 - The result is `src-tauri/target/release/bundle/nsis/Pluryprint_<version>_<arch>-setup.exe`, per user (`installMode: "currentUser"`), installing to `%LOCALAPPDATA%\Pluryprint\` with its uninstall entry under HKCU. No MSI is built (`bundle.targets` has no `msi`).
 
 What the hooks register, all under `HKCU\Software\Classes`:

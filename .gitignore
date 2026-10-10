@@ -61,7 +61,7 @@ installers/macos/*.pkg
 src-tauri/resources/sumatrapdf/*
 !src-tauri/resources/sumatrapdf/README.md
 
-# Built by scripts/build-shell-ext.ps1 for the installer; never committed
+# Where scripts/build-shell-ext.ps1 used to put the DLL; never committed
 src-tauri/windows/*.dll
 
 # Local MCP browser-tool residue (screenshots, snapshots, console logs)

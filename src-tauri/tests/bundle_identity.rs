@@ -259,8 +259,9 @@ fn nsis_hook_offers_to_remove_a_per_machine_msi_install() {
 /// Compile the hooks file in a stub script with the includes Tauri's template
 /// makes before it, every hook in its section, warnings as errors. Skipped
 /// where `makensis` is missing. The file refuses to compile without the
-/// context-menu DLL next to it, so it is copied into a temporary folder with
-/// a placeholder DLL.
+/// context-menu DLLs it ships from `resources/shellext/<arch>/`, so it is
+/// copied into a temporary tree with placeholder DLLs. The two variables the
+/// post-uninstall hook reads are declared the way Tauri's template does.
 #[test]
 fn nsis_hook_compiles() {
     let Ok(out) = std::process::Command::new("makensis")
@@ -272,25 +273,31 @@ fn nsis_hook_compiles() {
     };
     assert!(out.status.success());
     let dir = tempfile::tempdir().unwrap();
-    let hooks = dir.path().join("installer-hooks.nsh");
+    std::fs::create_dir_all(dir.path().join("windows")).unwrap();
+    let hooks = dir.path().join("windows").join("installer-hooks.nsh");
     std::fs::write(&hooks, read("windows/installer-hooks.nsh")).unwrap();
     // The hooks include their EN/ES messages from next to themselves.
     std::fs::write(
-        dir.path().join("installer-strings.nsh"),
+        dir.path().join("windows").join("installer-strings.nsh"),
         read("windows/installer-strings.nsh"),
     )
     .unwrap();
-    std::fs::write(dir.path().join("shell_ext_win.dll"), b"placeholder").unwrap();
+    for arch in ["x64", "arm64"] {
+        let res = dir.path().join("resources").join("shellext").join(arch);
+        std::fs::create_dir_all(&res).unwrap();
+        std::fs::write(res.join("shell_ext_win.dll"), b"placeholder").unwrap();
+    }
     let script = dir.path().join("stub.nsi");
     std::fs::write(
         &script,
         format!(
             "Unicode true\n!include LogicLib.nsh\n!include FileFunc.nsh\n!include x64.nsh\n\
-             !include StrFunc.nsh\n${{StrLoc}}\n!include \"{}\"\nOutFile \"{}\"\n\
+             !include StrFunc.nsh\n${{StrLoc}}\nVar UpdateMode\nVar DeleteAppDataCheckboxState\n!include \"{}\"\nOutFile \"{}\"\n\
              RequestExecutionLevel user\nInstallDir \"$LOCALAPPDATA\\Stub\"\n\
              Section Install\n!insertmacro NSIS_HOOK_PREINSTALL\n\
              !insertmacro NSIS_HOOK_POSTINSTALL\nWriteUninstaller \"$INSTDIR\\uninstall.exe\"\n\
-             SectionEnd\nSection Uninstall\n!insertmacro NSIS_HOOK_PREUNINSTALL\n\
+             SectionEnd\nSection Uninstall\nStrCpy $UpdateMode 0\nStrCpy $DeleteAppDataCheckboxState 0\n\
+             !insertmacro NSIS_HOOK_PREUNINSTALL\n\
              !insertmacro NSIS_HOOK_POSTUNINSTALL\nSectionEnd\n",
             hooks.display(),
             dir.path().join("stub.exe").display()

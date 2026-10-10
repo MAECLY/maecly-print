@@ -90,8 +90,8 @@ fn fr_001_the_hooks_register_the_context_menu_dll_per_user() {
         "the hooks must register {clsid}, the CLSID shell_ext_win.dll serves"
     );
     for needle in [
-        "!define PLURYPRINT_SHELLEXT_SRC \"${__FILEDIR__}\\${PLURYPRINT_SHELLEXT_DLL}\"",
-        "File \"${PLURYPRINT_SHELLEXT_SRC}\"",
+        "!define PLURYPRINT_SHELLEXT_RES \"${__FILEDIR__}\\..\\resources\\shellext\"",
+        "CopyFiles /SILENT \"$INSTDIR\\resources\\shellext\\$R8\\${PLURYPRINT_SHELLEXT_DLL}\" \"$INSTDIR\\${PLURYPRINT_SHELLEXT_DLL}\"",
         "\\InprocServer32\" \"\" \"$INSTDIR\\${PLURYPRINT_SHELLEXT_DLL}\"",
         "\"ThreadingModel\" \"Apartment\"",
         "\"ExplorerCommandHandler\" \"${PLURYPRINT_SHELLEXT_CLSID}\"",
@@ -169,6 +169,48 @@ fn fr_001_uninstall_removes_what_install_wrote() {
         .find("RMDir /REBOOTOK \"$INSTDIR\"")
         .expect("uninstall removes the install folder");
     assert!(settings < rmdir, "the settings go before the folder");
+}
+
+/// D5 / plan L1: the DLL registered is the one for the operating system's
+/// native architecture, not the installer's. Explorer on Windows on ARM is
+/// a native ARM64 process and cannot load the x64 DLL the x64 installer would
+/// otherwise pick when it runs there emulated.
+#[test]
+fn nfr_070_the_registered_dll_matches_the_native_architecture() {
+    let nsh = read("src-tauri/windows/installer-hooks.nsh");
+    let post = nsh
+        .split("!macro NSIS_HOOK_POSTINSTALL")
+        .nth(1)
+        .and_then(|rest| rest.split("!macroend").next())
+        .expect("post-install hook");
+    let arch = post
+        .find("${If} ${IsNativeARM64}")
+        .expect("native-arch probe");
+    let copy = post
+        .find("CopyFiles /SILENT")
+        .expect("the DLL is copied into place");
+    let register = post
+        .find("InprocServer32\" \"\" \"$INSTDIR\\${PLURYPRINT_SHELLEXT_DLL}\"")
+        .expect("the copied DLL is what gets registered");
+    assert!(arch < copy && copy < register);
+    assert!(post.contains("StrCpy $R8 \"arm64\"") && post.contains("StrCpy $R8 \"x64\""));
+    assert!(
+        post.contains("Goto pluryprint_register_done"),
+        "no DLL for this OS: nothing is registered (a CLSID pointing at nothing)"
+    );
+    assert!(post.contains("Push $R8") && post.contains("Pop $R8"));
+    // Both architectures are looked for at build time; CI must carry both.
+    for arch in ["x64", "arm64"] {
+        assert!(nsh.contains(&format!(
+            "!if /FileExists \"${{PLURYPRINT_SHELLEXT_RES}}\\{arch}\\${{PLURYPRINT_SHELLEXT_DLL}}\""
+        )));
+    }
+    assert!(nsh.contains("!if \"$%CI%\" == \"true\""));
+    // The bundle installs the resource folder those paths name.
+    assert_eq!(
+        conf()["bundle"]["resources"]["resources/shellext/"],
+        "resources/shellext/"
+    );
 }
 
 #[test]

@@ -24,15 +24,36 @@
 !define PLURYPRINT_SHELLEXT_DLL "shell_ext_win.dll"
 !define PLURYPRINT_SHELLEXT_VERB "Pluryprint"
 
-; The DLL is built for the installer's architecture by
-; scripts/build-shell-ext.ps1, which copies it next to this file. A missing DLL
-; stops the installer build instead of shipping without the context menu.
+; The DLL ships for BOTH Windows architectures, as bundle resources
+; (src-tauri/resources/shellext/<arch>/, see the README there), and the one
+; registered is chosen by the operating system's native architecture, never by
+; the installer's: Explorer on Windows on ARM is a native ARM64 process and
+; cannot load an x64 DLL, even when this x64 installer runs there emulated.
+; scripts/build-shell-ext.ps1 builds them. A build with neither DLL stops
+; here instead of shipping without the context menu, and a CI build ($%CI% is
+; "true" on GitHub Actions) must carry both. A local build may carry only its
+; own architecture; installed on the other one, it simply registers no menu.
 ; Resolved here, at include time: inside a macro ${__FILEDIR__} would name the
 ; generated installer.nsi's folder instead of this file's.
-!define PLURYPRINT_SHELLEXT_SRC "${__FILEDIR__}\${PLURYPRINT_SHELLEXT_DLL}"
-!if /FileExists "${PLURYPRINT_SHELLEXT_SRC}"
-!else
-  !error "src-tauri\windows\${PLURYPRINT_SHELLEXT_DLL} is missing: run scripts\build-shell-ext.ps1 before packaging"
+!define PLURYPRINT_SHELLEXT_RES "${__FILEDIR__}\..\resources\shellext"
+!if /FileExists "${PLURYPRINT_SHELLEXT_RES}\x64\${PLURYPRINT_SHELLEXT_DLL}"
+  !define PLURYPRINT_SHELLEXT_HAS_X64
+!endif
+!if /FileExists "${PLURYPRINT_SHELLEXT_RES}\arm64\${PLURYPRINT_SHELLEXT_DLL}"
+  !define PLURYPRINT_SHELLEXT_HAS_ARM64
+!endif
+!ifndef PLURYPRINT_SHELLEXT_HAS_X64
+  !ifndef PLURYPRINT_SHELLEXT_HAS_ARM64
+    !error "src-tauri\resources\shellext\<x64|arm64>\${PLURYPRINT_SHELLEXT_DLL} is missing: run scripts\build-shell-ext.ps1 before packaging"
+  !endif
+!endif
+!if "$%CI%" == "true"
+  !ifndef PLURYPRINT_SHELLEXT_HAS_X64
+    !error "CI builds ship the x64 context-menu DLL too (resources\shellext\x64)"
+  !endif
+  !ifndef PLURYPRINT_SHELLEXT_HAS_ARM64
+    !error "CI builds ship the arm64 context-menu DLL too (resources\shellext\arm64): Explorer on Windows on ARM cannot load the x64 one"
+  !endif
 !endif
 
 ; Explorer keeps the DLL loaded once a menu has been shown, and a loaded DLL
@@ -275,9 +296,25 @@
 ; ---- End of the MaeclyPrint takeover ---------------------------------------
 
 !macro NSIS_HOOK_POSTINSTALL
+  Push $R8
   !insertmacro PLURYPRINT_MOVE_LOADED_DLL_ASIDE
-  SetOutPath "$INSTDIR"
-  File "${PLURYPRINT_SHELLEXT_SRC}"
+
+  ; The bundle installed both DLLs under resources\shellext; the one Explorer
+  ; loads sits next to pluryprint.exe, because the DLL finds the exe it
+  ; launches through its own path (shell-ext-win/src/module.rs).
+  ${If} ${IsNativeARM64}
+    StrCpy $R8 "arm64"
+  ${Else}
+    StrCpy $R8 "x64"
+  ${EndIf}
+  ClearErrors
+  CopyFiles /SILENT "$INSTDIR\resources\shellext\$R8\${PLURYPRINT_SHELLEXT_DLL}" "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}"
+  ${If} ${Errors}
+  ${OrIfNot} ${FileExists} "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}"
+    DetailPrint "This installer carries no $R8 context-menu DLL; the Explorer menu is not registered"
+    Goto pluryprint_register_done
+  ${EndIf}
+  DetailPrint "Registering the $R8 Explorer context menu"
 
   ; The in-process COM server, per user.
   WriteRegStr HKCU "Software\Classes\CLSID\${PLURYPRINT_SHELLEXT_CLSID}" "" "Pluryprint context menu"
@@ -290,6 +327,8 @@
 
   ; SHCNE_ASSOCCHANGED: Explorer re-reads the verbs without a restart.
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+  pluryprint_register_done:
+  Pop $R8
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
