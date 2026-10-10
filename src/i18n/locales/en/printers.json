@@ -59,6 +59,7 @@
     "testPageMessage": "Send a test page to {{name}}? It will print on paper.",
     "testPageConfirm": "Send test page",
     "removeTitle": "Remove {{name}} from Pluryprint?",
+    "removePolicyDefault": "Your organization set it as the default printer, so jobs left on System default will pause until it is restored.",
     "removeAppDefault": "It is Pluryprint's default printer: that setting will be cleared.",
     "removeRoutes_one": "Files of type {{exts}} are routed to it; while it is removed they go to the default printer instead.",
     "removeRoutes_other": "Files of type {{exts}} are routed to it; while it is removed they go to the default printer instead.",

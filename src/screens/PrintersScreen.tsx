@@ -466,7 +466,10 @@ export function PrintersScreen() {
               }}
               printers={printers}
               prefs={prefs}
+              // No printer is listed here, so there is nothing to untick.
+              removal={{ policyId: null, osDefaultId: defaultId }}
               onSavePrefs={savePrefs}
+              onConfirm={setConfirmState}
             />
           )}
       </>
@@ -497,6 +500,12 @@ export function PrintersScreen() {
         ? 'default'
         : 'active';
   const selState = stateOf(sel.id);
+  // Where jobs go today, for the "what removing it changes" question.
+  const removalContext: RemovalContext = {
+    prefs,
+    policyId,
+    osDefaultId: defaultId,
+  };
   const isDefault = selState === 'default';
   const isDisabled = selState === 'disabled';
   const selOverride = prefs.overrides?.[sel.id];
@@ -600,17 +609,16 @@ export function PrintersScreen() {
   };
 
   const setDisabled = async (disable: boolean) => {
-    const next = new Set(disabledSet);
-    if (disable) next.add(sel.id);
-    else next.delete(sel.id);
     const removed = os
       ? t('toast.removed', { name: sel.name, os: OS_LABEL[os] })
       : t('toast.removedUnknownOs', { name: sel.name });
-    const saved: PrinterPrefs = { ...prefsRef.current, disabled: [...next] };
-    // A removed printer cannot be Pluryprint's default: the backend would
-    // skip it anyway, so clear it rather than leave a star on a dead entry.
-    if (disable && saved.default_printer === sel.id) {
-      saved.default_printer = null;
+    let saved: PrinterPrefs;
+    if (disable) {
+      saved = withoutPrinter(prefsRef.current, sel.id);
+    } else {
+      const next = new Set(prefsRef.current.disabled ?? []);
+      next.delete(sel.id);
+      saved = { ...prefsRef.current, disabled: [...next] };
     }
     await savePrefs(
       saved,
@@ -625,21 +633,7 @@ export function PrintersScreen() {
    */
   const handleToggleDisabled = async (disable: boolean) => {
     if (!disable) return setDisabled(false);
-    const isAppDefault = prefs.default_printer === sel.id;
-    // Jobs on "System default" end up on the OS default when Pluryprint has
-    // no default of its own (or when that default is the one going away).
-    const isOsFallback =
-      defaultId === sel.id && (!prefs.default_printer || isAppDefault);
-    const consequences = [
-      isAppDefault ? t('confirm.removeAppDefault') : null,
-      selRoutes.length > 0
-        ? t('confirm.removeRoutes', {
-            count: selRoutes.length,
-            exts: selRoutes.join(', '),
-          })
-        : null,
-      isOsFallback ? t('confirm.removeOsDefault') : null,
-    ].filter((x): x is string => x !== null);
+    const consequences = removalConsequences(sel.id, removalContext, t);
     if (consequences.length === 0) return setDisabled(true);
     setConfirmState({
       title: t('confirm.removeTitle', { name: sel.name }),
@@ -1562,7 +1556,9 @@ export function PrintersScreen() {
             }}
             printers={printers}
             prefs={prefs}
+            removal={{ policyId, osDefaultId: defaultId }}
             onSavePrefs={savePrefs}
+            onConfirm={setConfirmState}
           />
         )}
 
@@ -1653,10 +1649,13 @@ interface AddPrinterModalProps {
   onAdded: () => void;
   printers: UiPrinter[];
   prefs: PrinterPrefs;
+  /** Where jobs go today (see `removalConsequences`). */
+  removal: Omit<RemovalContext, 'prefs'>;
   onSavePrefs: (
     next: PrinterPrefs,
     success?: string,
   ) => void | Promise<unknown>;
+  onConfirm: (state: ConfirmState) => void;
 }
 
 const ADD_TABS: { value: AddTab; mode: PrinterMode }[] = [
@@ -1789,7 +1788,9 @@ function AddPrinterModal({
   onAdded,
   printers,
   prefs,
+  removal,
   onSavePrefs,
+  onConfirm,
 }: AddPrinterModalProps) {
   const t = useT('printers');
   const tab: AddTab =
@@ -1872,7 +1873,9 @@ function AddPrinterModal({
                 printers={printers}
                 prefs={prefs}
                 os={os}
+                removal={removal}
                 onSavePrefs={onSavePrefs}
+                onConfirm={onConfirm}
               />
             )}
           </div>
@@ -2361,35 +2364,123 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
   );
 }
 
+/** Who the jobs on "System default" go to, and which printers rules target. */
+interface RemovalContext {
+  prefs: PrinterPrefs;
+  /** The organization policy's default (resolved to a queue id), if any. */
+  policyId: string | null;
+  /** The OS default printer's id, if any. */
+  osDefaultId: string | null;
+}
+
+/**
+ * What removing printer `id` from Pluryprint does to jobs, one sentence per
+ * consequence; empty when nothing depends on it. The single source for both
+ * places a printer can be removed (the detail header and Add printer → From
+ * system), so neither can skip the question.
+ *
+ * Jobs on "System default" go to the organization policy's default when there
+ * is one (it replaces the app default, as on the print path), else to
+ * Pluryprint's own default, else to the OS default.
+ */
+function removalConsequences(
+  id: string,
+  { prefs, policyId, osDefaultId }: RemovalContext,
+  t: TFunction<'printers'>,
+): string[] {
+  const routes = Object.entries(prefs.routes ?? {})
+    .filter(([, pid]) => pid === id)
+    .map(([ext]) => ext)
+    .sort();
+  const isPolicyDefault = policyId === id;
+  const isAppDefault = !policyId && prefs.default_printer === id;
+  const isOsFallback =
+    !policyId &&
+    osDefaultId === id &&
+    (!prefs.default_printer || prefs.default_printer === id);
+  return [
+    isPolicyDefault ? t('confirm.removePolicyDefault') : null,
+    isAppDefault ? t('confirm.removeAppDefault') : null,
+    routes.length > 0
+      ? t('confirm.removeRoutes', {
+          count: routes.length,
+          exts: routes.join(', '),
+        })
+      : null,
+    isOsFallback ? t('confirm.removeOsDefault') : null,
+  ].filter((x): x is string => x !== null);
+}
+
+/**
+ * `prefs` with printer `id` removed from Pluryprint. A removed printer cannot
+ * be Pluryprint's default: the backend would skip it anyway, so the default
+ * is cleared rather than left pointing at it — and coming back the day the
+ * printer is restored, without a word.
+ */
+function withoutPrinter(prefs: PrinterPrefs, id: string): PrinterPrefs {
+  const disabled = new Set(prefs.disabled ?? []);
+  disabled.add(id);
+  return {
+    ...prefs,
+    disabled: [...disabled],
+    ...(prefs.default_printer === id ? { default_printer: null } : {}),
+  };
+}
+
 /** "From system" tab — tick queues to manage in Pluryprint (soft-disable). */
 function SystemTab({
   printers,
   prefs,
   os,
+  removal,
   onSavePrefs,
+  onConfirm,
 }: {
   printers: UiPrinter[];
   prefs: PrinterPrefs;
   os: OsId;
+  /** Where jobs go today, to say what unticking a printer changes. */
+  removal: Omit<RemovalContext, 'prefs'>;
   onSavePrefs: (
     next: PrinterPrefs,
     success?: string,
   ) => void | Promise<unknown>;
+  /** Ask before an untick that moves jobs (same question as Remove). */
+  onConfirm: (state: ConfirmState) => void;
 }) {
   const t = useT('printers');
   const disabled = new Set(prefs.disabled ?? []);
 
   const toggle = async (p: UiPrinter) => {
-    const next = new Set(disabled);
-    const willHide = !next.has(p.id);
-    if (willHide) next.add(p.id);
-    else next.delete(p.id);
-    await onSavePrefs(
-      { ...prefs, disabled: [...next] },
-      willHide
-        ? t('toast.hidden', { name: p.name })
-        : t('toast.managed', { name: p.name }),
-    );
+    if (disabled.has(p.id)) {
+      const next = new Set(disabled);
+      next.delete(p.id);
+      await onSavePrefs(
+        { ...prefs, disabled: [...next] },
+        t('toast.managed', { name: p.name }),
+      );
+      return;
+    }
+    // Unticking is removing: the same consequences, the same question, and
+    // the app default cleared, exactly as the detail header's Remove does.
+    const hide = () =>
+      onSavePrefs(
+        withoutPrinter(prefs, p.id),
+        t('toast.hidden', { name: p.name }),
+      ) as Promise<void> | void;
+    const consequences = removalConsequences(p.id, { ...removal, prefs }, t);
+    if (consequences.length === 0) {
+      await hide();
+      return;
+    }
+    onConfirm({
+      title: t('confirm.removeTitle', { name: p.name }),
+      message: consequences.join(' '),
+      confirmLabel: t('confirm.removeConfirm'),
+      run: async () => {
+        await hide();
+      },
+    });
   };
 
   return (

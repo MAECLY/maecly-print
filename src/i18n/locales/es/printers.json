@@ -59,6 +59,7 @@
     "testPageMessage": "¿Enviar una página de prueba a {{name}}? Se imprimirá en papel.",
     "testPageConfirm": "Enviar página de prueba",
     "removeTitle": "¿Quitar {{name}} de Pluryprint?",
+    "removePolicyDefault": "Tu organización la ha fijado como impresora predeterminada, así que los trabajos que usen Predeterminada del sistema se pausarán hasta que la restaures.",
     "removeAppDefault": "Es la impresora predeterminada de Pluryprint: ese ajuste se borrará.",
     "removeRoutes_one": "Los archivos {{exts}} se envían a ella; mientras esté quitada, irán a la impresora predeterminada.",
     "removeRoutes_other": "Los archivos {{exts}} se envían a ella; mientras esté quitada, irán a la impresora predeterminada.",

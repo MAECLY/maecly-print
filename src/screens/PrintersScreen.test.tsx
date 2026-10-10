@@ -758,6 +758,56 @@ describe('PrintersScreen', () => {
     );
   });
 
+  it('FR-044: unticking the default in From system asks first and clears the default', async () => {
+    const calls = mockPrinters({ prefs: { default_printer: 'HL_L2350' } });
+    renderScreen();
+    await screen.findByText(/2 configured/);
+
+    const modal = await openAddModal();
+    fireEvent.click(within(modal).getByRole('tab', { name: 'From system' }));
+    fireEvent.click(
+      within(modal).getByText('Brother HL-L2350DW').closest('label')!,
+    );
+
+    // The same question as the detail header's Remove, before any write.
+    const confirm = await screen.findByRole('dialog', {
+      name: 'Remove Brother HL-L2350DW from Pluryprint?',
+    });
+    expect(confirm).toHaveTextContent(/Pluryprint's default printer/);
+    expect(calls.some((c) => c.cmd === 'set_printer_prefs')).toBe(false);
+
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => {
+      const saved = lastSaved(calls) as {
+        disabled: string[];
+        default_printer: string | null;
+      };
+      expect(saved.disabled).toContain('HL_L2350');
+      expect(saved.default_printer).toBeNull();
+    });
+  });
+
+  it('FR-044: with an organization default, removing it says jobs pause; removing the OS default does not', async () => {
+    mockPrinters({ policy: { default_printer: 'HL_L2350' } });
+    renderScreen();
+    await screen.findByText(/2 configured/);
+
+    // The policy-pinned printer: jobs on System default go there.
+    fireEvent.click(screen.getByRole('button', { name: /Brother HL-L2350DW/ }));
+    fireEvent.click(await screen.findByText(/^Remove$/));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(/Your organization set it as the default/);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    // The OS default is not where jobs go while the policy pins another one.
+    fireEvent.click(
+      screen.getByRole('button', { name: /EPSON L15160 Series/ }),
+    );
+    fireEvent.click(await screen.findByText(/^Remove$/));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   // -- discovery honesty --------------------------------------------------
 
   it('FR-044 regression: a failed scan is reported as a failure, not an empty network', async () => {
