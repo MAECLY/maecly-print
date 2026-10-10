@@ -722,8 +722,37 @@ impl Dispatcher {
     /// spooled a second time on resume.
     pub(crate) fn bootstrap(&mut self) {
         self.adopt_handed_off_print();
+        self.drop_decrypted_copies();
         self.schedule();
         self.commit();
+    }
+
+    /// FR-059 / NFR-082: a decrypted copy of a password-protected PDF never
+    /// outlives the run that made it. After a restart the password is gone
+    /// (memory only), so the copy is deleted and its job asks for the
+    /// password again instead of printing it without one. A print that was
+    /// already handed to the spooler keeps its state (the spooler holds its
+    /// own copy); everything else that still needs printing pauses on
+    /// `password_required`.
+    fn drop_decrypted_copies(&mut self) {
+        let mut post = Post::default();
+        {
+            let mut st = self.state.write().unwrap();
+            for job in st.jobs.iter_mut().filter(|j| holds_decrypted_copy(j)) {
+                if let Some(c) = job.cache_pdf.take() {
+                    post.delete_cache.push(c);
+                }
+                tracing::info!(event = "job_decrypted_copy_dropped", job_id = %job.id);
+                if job.state.is_terminal() || crate::queue::persist::is_handed_off(job) {
+                    continue;
+                }
+                pause_needs_fix(
+                    job,
+                    &EngineError::PdfProtected(crate::engine::PdfProtection::PasswordRequired),
+                );
+            }
+        }
+        self.apply_post(post);
     }
 
     /// Re-attach the print slot to a recovered, already spooled job.
@@ -2397,6 +2426,15 @@ fn job_finished(id: &str) -> IpcError {
     )
 }
 
+/// Whether `job`'s cache PDF is the decrypted copy of a password-protected
+/// PDF: a PDF source is printed in place, so the only cache it can have is
+/// the copy `convert_to_pdf` decrypted with the user's password (FR-059).
+fn holds_decrypted_copy(job: &Job) -> bool {
+    job.cache_pdf.is_some()
+        && crate::engine::convert::route(&crate::engine::extension_of(Path::new(&job.input_path)))
+            == Some(crate::engine::convert::Route::Passthrough)
+}
+
 /// Pause `job` on a failure the user has to fix (a setting, a dependency, a
 /// PDF password), with no automatic retry.
 fn pause_needs_fix(job: &mut Job, e: &EngineError) {
@@ -3648,6 +3686,72 @@ mod tests {
         h.run_to_idle();
         // Only the *other* job was spooled; the recovered one never again.
         assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 1);
+    }
+
+    /// FR-059 / NFR-082: the decrypted copy of a password-protected PDF does
+    /// not survive a restart. A job left paused (printer offline) or
+    /// converted with it asks for the password again instead of printing the
+    /// plaintext copy; the file is deleted and queue.json no longer names it.
+    #[tokio::test(start_paused = true)]
+    async fn fr_059_decrypted_copy_never_survives_a_restart() {
+        let mut h = harness();
+        std::fs::create_dir_all(&h.runner.cache).unwrap();
+        let mut jobs = Vec::new();
+        let mut caches = Vec::new();
+        for (name, state) in [
+            ("paused.pdf", JobState::Paused),
+            ("converted.pdf", JobState::Converted),
+            ("queued.PDF", JobState::Queued),
+        ] {
+            let mut j = make_job(name);
+            let cache = h.runner.cache.join(format!("{}.pdf", j.id));
+            std::fs::write(&cache, b"%PDF plaintext").unwrap();
+            j.state = state;
+            j.cache_pdf = Some(cache.to_string_lossy().into_owned());
+            if state == JobState::Paused {
+                j.error = Some(JobError::new("printer_unavailable", "offline"));
+            }
+            caches.push(cache);
+            jobs.push(j);
+        }
+        // A converted document (not a PDF) keeps its cache.
+        let mut doc = make_job("letter.docx");
+        let doc_cache = h.runner.cache.join(format!("{}.pdf", doc.id));
+        std::fs::write(&doc_cache, b"%PDF converted").unwrap();
+        doc.state = JobState::Converted;
+        doc.cache_pdf = Some(doc_cache.to_string_lossy().into_owned());
+        let doc_id = doc.id.clone();
+        jobs.push(doc);
+        let ids: Vec<String> = jobs.iter().take(3).map(|j| j.id.clone()).collect();
+
+        // The restart: what was on disk is recovered and the dispatcher boots.
+        let recovered = crate::queue::persist::recover(QueueSnapshot {
+            jobs,
+            queue_paused: true,
+            ..QueueSnapshot::default()
+        });
+        h.state.write().unwrap().jobs = recovered.jobs;
+        h.state.write().unwrap().queue_paused = true;
+        h.d.bootstrap();
+        h.run_to_idle();
+
+        for (id, cache) in ids.iter().zip(&caches) {
+            let job = h.job(id);
+            assert!(job.cache_pdf.is_none(), "{id}");
+            assert!(!cache.exists(), "the plaintext copy is deleted");
+            assert!(job.needs_password(), "{:?}", job.error);
+        }
+        assert_eq!(h.runner.print_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            h.job(&doc_id).cache_pdf.as_deref(),
+            Some(doc_cache.to_string_lossy().as_ref())
+        );
+        assert!(doc_cache.exists());
+        let persisted = std::fs::read_to_string(&h.d.queue_file).unwrap();
+        for cache in &caches {
+            let name = cache.file_name().unwrap().to_string_lossy().into_owned();
+            assert!(!persisted.contains(&name), "queue.json still names {name}");
+        }
     }
 
     #[tokio::test]
