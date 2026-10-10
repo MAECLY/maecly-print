@@ -108,7 +108,7 @@ The Rust core handles file enumeration, format detection, conversion orchestrati
 | `uuid` 1 (`v7`)                        | Time-sortable job ids — queue ordering falls out of the id |
 | `time` 0.3                             | RFC 3339 timestamps |
 | `thiserror` 2 / `anyhow` 1             | Library / application error types |
-| `directories` 5                        | Per-OS config, data, cache paths |
+| `directories` 6                        | Per-OS config, data, cache paths |
 | `tempfile` 3                           | Atomic writes and the CLI's private conversion cache |
 | `windows` 0.58 *(Windows only)*        | winspool `EnumPrinters` + GDI `DeviceCapabilities` |
 | `objc2` + `objc2-app-kit` / `objc2-foundation` *(macOS only)* | NSServices provider (FR-001) |

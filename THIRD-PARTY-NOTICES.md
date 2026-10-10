@@ -352,7 +352,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 
 ## Rust crates
 
-505 crates are compiled into the shipped binaries. The table names each one, the licence it is offered under, the licence Pluryprint uses it under, and where it ships; the licence texts follow, each with the crates that ship it.
+500 crates are compiled into the shipped binaries. The table names each one, the licence it is offered under, the licence Pluryprint uses it under, and where it ships; the licence texts follow, each with the crates that ship it.
 
 | Crate                               | Version          | Offered under                                       | Used under               | Ships in                          |
 | ----------------------------------- | ---------------- | --------------------------------------------------- | ------------------------ | --------------------------------- |
@@ -435,10 +435,9 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `derive_more`                       | 2.1.1            | MIT                                                 | MIT                      | app                               |
 | `derive_more-impl`                  | 2.1.1            | MIT                                                 | MIT                      | app                               |
 | `digest`                            | 0.10.7           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `directories`                       | 5.0.1            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `directories`                       | 6.0.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `dirs`                              | 6.0.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `dirs-sys`                          | 0.4.1            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `dirs-sys`                          | 0.5.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `dirs-sys`                          | 0.5.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `dispatch2`                         | 0.3.1            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
 | `displaydoc`                        | 0.2.5            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `dom_query`                         | 0.28.0           | MIT                                                 | MIT                      | app                               |
@@ -810,7 +809,7 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `windows-interface`                 | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows-interface`                 | 0.59.3           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-link`                      | 0.1.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-link`                      | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-link`                      | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows-numerics`                  | 0.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-numerics`                  | 0.3.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-registry`                  | 0.6.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
@@ -820,21 +819,17 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `windows-strings`                   | 0.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows-strings`                   | 0.4.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-strings`                   | 0.5.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-sys`                       | 0.48.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows-sys`                       | 0.52.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-sys`                       | 0.59.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-sys`                       | 0.60.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-sys`                       | 0.61.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-targets`                   | 0.48.5           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-sys`                       | 0.61.2           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows-targets`                   | 0.52.6           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows-targets`                   | 0.53.5           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-threading`                 | 0.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-threading`                 | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-version`                   | 0.1.7            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows_aarch64_msvc`              | 0.48.5           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows_aarch64_msvc`              | 0.52.6           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows_aarch64_msvc`              | 0.53.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows_x86_64_msvc`               | 0.48.5           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows_x86_64_msvc`               | 0.52.6           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows_x86_64_msvc`               | 0.53.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `winnow`                            | 0.5.40           | MIT                                                 | MIT                      | app                               |
@@ -1543,9 +1538,8 @@ limitations under the License.
 Used by:
 
 - `anyhow` 1.0.102 (https://github.com/dtolnay/anyhow), by David Tolnay
-- `directories` 5.0.1 (https://github.com/soc/directories-rs), by Simon Ochsenreither
+- `directories` 6.0.0 (https://github.com/soc/directories-rs), by Simon Ochsenreither
 - `dirs` 6.0.0 (https://github.com/soc/dirs-rs), by Simon Ochsenreither
-- `dirs-sys` 0.4.1 (https://github.com/dirs-dev/dirs-sys-rs), by Simon Ochsenreither
 - `dirs-sys` 0.5.0 (https://github.com/dirs-dev/dirs-sys-rs), by Simon Ochsenreither
 - `dispatch2` 0.3.1 (https://github.com/madsmtm/objc2), by Mads Marquart, Mary
 - `dtoa` 1.0.11 (https://github.com/dtolnay/dtoa), by David Tolnay
@@ -8431,21 +8425,17 @@ Used by:
 - `windows-strings` 0.1.0 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-strings` 0.4.2 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-strings` 0.5.1 (https://github.com/microsoft/windows-rs)
-- `windows-sys` 0.48.0 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-sys` 0.52.0 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-sys` 0.59.0 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-sys` 0.60.2 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-sys` 0.61.2 (https://github.com/microsoft/windows-rs)
-- `windows-targets` 0.48.5 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-targets` 0.52.6 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-targets` 0.53.5 (https://github.com/microsoft/windows-rs)
 - `windows-threading` 0.1.0 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows-threading` 0.2.1 (https://github.com/microsoft/windows-rs)
 - `windows-version` 0.1.7 (https://github.com/microsoft/windows-rs)
-- `windows_aarch64_msvc` 0.48.5 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows_aarch64_msvc` 0.52.6 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows_aarch64_msvc` 0.53.1 (https://github.com/microsoft/windows-rs)
-- `windows_x86_64_msvc` 0.48.5 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows_x86_64_msvc` 0.52.6 (https://github.com/microsoft/windows-rs), by Microsoft
 - `windows_x86_64_msvc` 0.53.1 (https://github.com/microsoft/windows-rs)
 

@@ -41,7 +41,7 @@ thiserror = "2"
 anyhow = "1"
 
 # --- Filesystem / paths ---
-directories = "5"
+directories = "6"
 tempfile = "3"
 # Folder expansion for FR-004: recursive walks with a bounded depth and
 # symlink loops handled for us.

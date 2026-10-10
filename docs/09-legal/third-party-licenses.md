@@ -27,7 +27,7 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `tracing`, `tracing-subscriber`, `tracing-appender` | 0.1 / 0.3 / 0.2 | MIT | Structured logging | Yes |
 | `thiserror` | **2** | MIT / Apache-2.0 | Library error types | Yes |
 | `anyhow` | 1 | MIT / Apache-2.0 | Application error wrapping | Yes |
-| `directories` | 5 | MIT / Apache-2.0 | Per-OS config/data/cache/log paths | Yes |
+| `directories` | 6 | MIT / Apache-2.0 | Per-OS config/data/cache/log paths | Yes |
 | `tempfile` | 3 | MIT / Apache-2.0 | Atomic writes, private conversion cache | Yes |
 | `walkdir` | 2 | MIT / Unlicense | Folder expansion (FR-004) | Yes |
 | `clap` | 4 (`derive`) | MIT / Apache-2.0 | Headless CLI surface | Yes |
@@ -67,7 +67,7 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `serde`, `serde_json` | 1 | MIT / Apache-2.0 | The handoff payload |
 | `uuid` | 1 (`v7`) | MIT / Apache-2.0 | Handoff file names |
 | `time` | 0.3 | MIT / Apache-2.0 | `invoked_at` stamps |
-| `directories` | 5 | MIT / Apache-2.0 | Resolving the handoff directory identically to the app |
+| `directories` | 6 | MIT / Apache-2.0 | Resolving the handoff directory identically to the app |
 | `windows`, `windows-core` *(Windows only)* | 0.58 | MIT / Apache-2.0 | COM / `IExplorerCommand` |
 | `embed-resource` *(build-dependency)* | 3 | MIT | Embeds `res/shellext.rc`, including the side-by-side `<msix>` manifest |
 | `tempfile` *(dev-dependency)* | 3 | MIT / Apache-2.0 | Tests only; not distributed |

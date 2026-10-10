@@ -34,7 +34,7 @@ time = { version = "0.3", features = ["formatting", "parsing"] }
 # (ProjectDirs::from("com", "Maecly", "Pluryprint")). Sharing the crate is what
 # guarantees the producer and the consumer agree on the path; the consumer
 # rejects any handoff file that does not canonicalize inside that directory.
-directories = "5"
+directories = "6"
 
 [target.'cfg(windows)'.dependencies]
 windows-core = "0.58"
