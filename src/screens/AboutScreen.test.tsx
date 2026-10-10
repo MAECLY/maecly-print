@@ -174,7 +174,7 @@ describe('AboutScreen', () => {
     // Version line is sourced from app_info (version · build date).
     expect(await waitForAppInfo()).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /license gpl-3\.0/i }));
+    fireEvent.click(screen.getByRole('button', { name: /license agpl-3\.0/i }));
     fireEvent.click(screen.getByRole('button', { name: /documentation/i }));
 
     await waitFor(() => {
@@ -782,7 +782,7 @@ describe('MPSidebar version footer', () => {
 describe('project identity (src/lib/repo.ts)', () => {
   it('mirrors the license declared in both manifests', () => {
     // `APP_LICENSE` is rendered twice on the screen (the Components row and the
-    // footer). The manifests declare the precise SPDX id (`GPL-3.0-only`); the
+    // footer). The manifests declare the precise SPDX id (`AGPL-3.0-only`); the
     // UI shows the short family name, so this pins the prefix rather than an
     // exact string, and still fails the day the project relicenses.
     const cargo = readFileSync(join(REPO_ROOT, 'src-tauri/Cargo.toml'), 'utf8');

@@ -32,7 +32,7 @@ BEGIN
       VALUE "FileDescription",  "Pluryprint Explorer context menu"
       VALUE "FileVersion",      "0.0.1.0"
       VALUE "InternalName",     "shell_ext_win"
-      VALUE "LegalCopyright",   "GPL-3.0-only"
+      VALUE "LegalCopyright",   "AGPL-3.0-only"
       VALUE "OriginalFilename", "shell_ext_win.dll"
       VALUE "ProductName",      "Pluryprint"
       VALUE "ProductVersion",   "0.0.1.0"

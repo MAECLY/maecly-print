@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "description": "Open source batch file printing for Windows and macOS.",
-  "license": "GPL-3.0-only",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "engines": {
     "node": ">=20",

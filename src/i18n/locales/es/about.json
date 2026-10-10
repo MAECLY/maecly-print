@@ -65,7 +65,7 @@
   "ipcUnavailable": "IPC no disponible: {{error}}. Es lo esperado al ejecutar el servidor de desarrollo de Vite por separado (sin host de Tauri). Ejecuta {{command}} para probar el puente real.",
   "links": {
     "releaseNotes": "Notas de la versión",
-    "license": "Licencia GPL-3.0",
+    "license": "Licencia AGPL-3.0",
     "documentation": "Documentación",
     "reportIssue": "Informar de un problema"
   },

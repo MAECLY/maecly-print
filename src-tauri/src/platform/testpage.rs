@@ -275,7 +275,7 @@ fn footer_line() -> String {
         .trim_end_matches('/')
         .trim_end_matches(".git")
         .trim_end_matches('/');
-    format!("Pluryprint   |   {repo}   |   GPLv3")
+    format!("Pluryprint   |   {repo}   |   AGPL-3.0")
 }
 
 /// What the sheet's `Tray` row may honestly say: the configured bin name only
@@ -505,7 +505,7 @@ mod tests {
         assert!(!footer.contains("MigelAngelEC"), "{footer}");
         assert!(!footer.contains("https://"), "{footer}");
         assert!(footer.starts_with("Pluryprint   |   "), "{footer}");
-        assert!(footer.ends_with("   |   GPLv3"), "{footer}");
+        assert!(footer.ends_with("   |   AGPL-3.0"), "{footer}");
     }
 
     #[test]

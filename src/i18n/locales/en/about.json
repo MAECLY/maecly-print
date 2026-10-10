@@ -65,7 +65,7 @@
   "ipcUnavailable": "IPC unavailable: {{error}}. This is expected when running the standalone Vite dev server (no Tauri host). Run {{command}} to test the real bridge.",
   "links": {
     "releaseNotes": "Release notes",
-    "license": "License GPL-3.0",
+    "license": "License AGPL-3.0",
     "documentation": "Documentation",
     "reportIssue": "Report an issue"
   },
