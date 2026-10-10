@@ -210,6 +210,52 @@ fn print_settings_quality_draft_high_applied_windows() {
     }
 }
 
+/// Colour reaches the job's PrintTicket explicitly: a colour job carries
+/// `psk:Color` whenever the driver offers it (the IPP Class Driver spooled
+/// `psk:AutoSelect` from SumatraPDF's `dmColor` alone, round 8), a
+/// monochrome job a grey option, and the user's default is unchanged.
+#[test]
+#[ignore = "submits to paused Windows queues; set MAECLY_REAL_PRINTER=1"]
+fn print_settings_color_reaches_the_print_ticket_windows() {
+    use pluryprint_lib::queue::job::ColorMode;
+    let Some(queues) = queues() else { return };
+    for queue in &queues {
+        let keep = KeepDefault::new(queue);
+        let offered = swap::print_capabilities(queue)
+            .map(|caps| swap::color_options(&caps))
+            .unwrap_or_default();
+        for (mode, tag) in [(ColorMode::Color, "color"), (ColorMode::Monochrome, "mono")] {
+            let s = JobSettings {
+                color_mode: mode,
+                ..JobSettings::default()
+            };
+            let id = spool(queue, &s, tag);
+            let _guard = CancelOnDrop(queue.clone(), id.clone());
+            assert_eq!(
+                SpoolerDefaults.get(queue).unwrap(),
+                keep.original,
+                "{queue}: the user's default is restored byte for byte"
+            );
+            let got = swap::job_color(queue, spooler_id(&id));
+            println!("COLOR queue={queue} mode={tag} offered={offered:?} job={got:?}");
+            let grey = offered
+                .iter()
+                .any(|o| o == "Grayscale" || o == "Monochrome");
+            match mode {
+                ColorMode::Color if offered.iter().any(|o| o == "Color") => {
+                    assert_eq!(got.as_deref(), Some("Color"), "{queue}")
+                }
+                // Microsoft Print to PDF offers only Color.
+                ColorMode::Monochrome if grey => assert!(
+                    matches!(got.as_deref(), Some("Grayscale" | "Monochrome")),
+                    "{queue}: {got:?}"
+                ),
+                _ => {}
+            }
+        }
+    }
+}
+
 /// FR-031: the Windows queue shows the job under the user's file name, not
 /// the temporary folder SumatraPDF printed it from, with and without a
 /// quality swap (the job is found at a different moment in each).
