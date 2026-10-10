@@ -296,3 +296,135 @@ fn nfr_070_installer_scripts_are_ascii() {
         assert!(bad.is_empty(), "{rel} has non-ASCII characters: {bad:?}");
     }
 }
+
+/// The post-uninstall hook with comments and blank lines dropped.
+fn post_uninstall_code(nsh: &str) -> Vec<String> {
+    nsh.split("!macro NSIS_HOOK_POSTUNINSTALL")
+        .nth(1)
+        .and_then(|rest| rest.split("!macroend").next())
+        .expect("post-uninstall hook")
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with(';'))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A real uninstall leaves nothing of the installer's own behind, ticked box
+/// or not: Tauri's `HKCU\Software\<publisher>\<product>` key (the install path
+/// and "Installer Language") and the main window's WebView2 profile,
+/// `%LOCALAPPDATA%\<identifier>\EBWebView`, both found after `uninstall.exe
+/// /S` on the 0.0.1 build. An update must keep both: `tauri-plugin-updater`
+/// runs the setup with `/UPDATE`, and the template passes it on to the
+/// uninstaller, which sets `$UpdateMode` to 1.
+#[test]
+fn fr_083_a_real_uninstall_removes_the_product_key_and_web_view_profile() {
+    let nsh = read("src-tauri/windows/installer-hooks.nsh");
+    let code = post_uninstall_code(&nsh);
+    let pos = |needle: &str| {
+        code.iter()
+            .position(|l| l == needle)
+            .unwrap_or_else(|| panic!("missing `{needle}`"))
+    };
+    let names = pos("!insertmacro PLURY_REQUIRE_TAURI_NAMES");
+    let context = pos("SetShellVarContext current");
+    let guard = pos("${If} $UpdateMode <> 1");
+    let key = pos(r#"DeleteRegKey HKCU "${MANUPRODUCTKEY}""#);
+    let publisher = pos(r#"DeleteRegKey /ifempty HKCU "${MANUKEY}""#);
+    let profile = pos(r#"RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView""#);
+    let folder = pos(r#"RMDir "$LOCALAPPDATA\${BUNDLEID}""#);
+    let end = code[guard..]
+        .iter()
+        .position(|l| l == "${EndIf}")
+        .map(|i| guard + i)
+        .expect("guard closes");
+    assert!(names < guard && context < guard);
+    for at in [key, publisher, profile, folder] {
+        assert!(
+            guard < at && at < end,
+            "only outside an update: {}",
+            code[at]
+        );
+    }
+    assert!(
+        profile < folder,
+        "the identifier folder goes once it is empty"
+    );
+    // Not tied to "Delete the application data": a silent uninstall never
+    // ticks it, and this is not user data.
+    let app_data = pos("${If} $DeleteAppDataCheckboxState = 1");
+    assert!(end < app_data);
+    assert!(
+        !code[guard..end].iter().any(|l| l.contains("Checkbox")),
+        "the cleanup runs whether or not the box is ticked"
+    );
+    // Only the web view profile: never the whole identifier folder
+    // recursively, and the publisher key only when empty.
+    assert!(!code
+        .iter()
+        .any(|l| l == r#"RMDir /r "$LOCALAPPDATA\${BUNDLEID}""#));
+    assert!(!code
+        .iter()
+        .any(|l| l == r#"DeleteRegKey HKCU "${MANUKEY}""#));
+    // The profile folder is named after the bundle identifier.
+    assert_eq!(conf()["identifier"], "com.maecly.pluryprint");
+}
+
+/// The uninstall entry carries a silent uninstall command (winget and
+/// "Apps & features" tooling read it) and the product's home page. Tauri
+/// writes `URLInfoAbout`, `URLUpdateInfo` and `HelpLink` from
+/// `bundle.homepage`; `QuietUninstallString` only the hook writes.
+#[test]
+fn fr_083_the_uninstall_entry_has_a_quiet_command_and_a_home_page() {
+    assert_eq!(
+        conf()["bundle"]["homepage"],
+        "https://pluryprint.maecly.com"
+    );
+    let nsh = read("src-tauri/windows/installer-hooks.nsh");
+    let post = nsh
+        .split("!macro NSIS_HOOK_POSTINSTALL")
+        .nth(1)
+        .and_then(|rest| rest.split("!macroend").next())
+        .expect("post-install hook");
+    let names = post
+        .find("!insertmacro PLURY_REQUIRE_TAURI_NAMES")
+        .expect("the template's names are required");
+    let quiet = post
+        .find(r#"WriteRegStr HKCU "${UNINSTKEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'"#)
+        .expect("QuietUninstallString");
+    assert!(names < quiet);
+    // The guard: every name the hooks borrow from the template.
+    let body = nsh
+        .split("!macro PLURY_REQUIRE_TAURI_NAMES")
+        .nth(1)
+        .and_then(|rest| rest.split("!macroend").next())
+        .expect("PLURY_REQUIRE_TAURI_NAMES");
+    assert!(body.contains("!ifndef UNINSTKEY | MANUKEY | MANUPRODUCTKEY | BUNDLEID"));
+    assert!(body.contains("!error "));
+}
+
+/// The setup's version resource names the company. Tauri's template sets no
+/// `CompanyName`, and it defines `MANUFACTURER` only after it includes the
+/// hooks, so the hooks spell the publisher out; it must stay
+/// `bundle.publisher`. It follows the language strings so it lands in the
+/// same version block as the template's keys (see the hooks file).
+#[test]
+fn fr_083_the_setup_names_its_company() {
+    let nsh = read("src-tauri/windows/installer-hooks.nsh");
+    let publisher = conf()["bundle"]["publisher"]
+        .as_str()
+        .expect("bundle.publisher")
+        .to_owned();
+    assert!(nsh.contains(&format!("!define PLURYPRINT_COMPANY \"{publisher}\"")));
+    let strings = nsh
+        .find(r#"!include "${__FILEDIR__}\installer-strings.nsh""#)
+        .expect("language strings");
+    let company = nsh
+        .find(r#"VIAddVersionKey "CompanyName" "${PLURYPRINT_COMPANY}""#)
+        .expect("CompanyName");
+    assert!(strings < company);
+    assert!(
+        !nsh[company..].contains("LangString"),
+        "no language string may follow the version key"
+    );
+}

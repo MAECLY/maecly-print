@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-10-10
+
+Maintenance release, and the first update an installed 0.0.1 receives through the in-app updater: Tauri 2.12 and other dependency updates, update signatures bound to their version, the repository's new address, and fixes to the Home screen and the Windows uninstaller.
+
 ### Changed
 
 - Dependencies: Tauri 2.12 (`tauri` 2.12, `@tauri-apps/api` and `@tauri-apps/cli` 2.12) with its dialog, opener, single-instance, notification and updater plugins. The HTML render worker on Windows moves with it to `webview2-com` 0.39 and `windows` 0.62, the WebView2 bindings Tauri itself uses. Tauri 2.12 drops Windows 7, which Pluryprint never supported.
@@ -15,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Development: the frontend builds with Vite 8 and `@vitejs/plugin-react` 6 (minified by Vite's own oxc minifier, still for the same Safari 13 floor), and is formatted with Prettier 3.9. The lint and test toolchain moves to `globals` 17 and `@testing-library/user-event` 14.6.7.
 - CI: Dependabot no longer proposes `lopdf` minor or major releases on their own; `lopdf` moves together with `printpdf`, which is still built on 0.44.
 - The repository is now `github.com/MAECLY/pluryprint` (it was `MAECLY/maecly-print`). Update checks, About links and issue reports use the new address; 0.0.1 keeps updating through GitHub's redirect from the old one.
+
+### Fixed
+
+- Home: the **Run from CLI** card keeps a third of the row with a long install path. It shows the command with the executable's folder folded into an ellipsis (the full command stays in the tooltip and is still what gets copied), so the page no longer scrolls sideways or clips the command at the default window size.
+- Windows uninstaller: uninstalling (also with `uninstall.exe /S`) now removes `HKCU\Software\Maecly\Pluryprint` (the remembered install folder and installer language) and the app window's WebView2 profile, `%LOCALAPPDATA%\com.maecly.pluryprint\EBWebView`, which 0.0.1 left behind. An update keeps both, and your settings, profiles and queue stay unless you tick **Delete the application data**, as before.
+- Windows installer: the uninstall entry now has a silent uninstall command (`QuietUninstallString`) and the Pluryprint home page (`URLInfoAbout`, `URLUpdateInfo`, `HelpLink`), and the setup's file properties name its company (Maecly).
 
 ### Security
 

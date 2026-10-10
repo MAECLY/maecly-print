@@ -327,21 +327,30 @@ fn nsis_hook_offers_to_remove_a_per_machine_msi_install() {
     );
 }
 
+/// The names Tauri's template defines right after it includes the hooks, as
+/// it defines them (`installer.nsi` in tauri-bundler 2.x).
+const TAURI_NAMES: &str =
+    "!define UNINSTKEY \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Pluryprint\"\n\
+     !define MANUKEY \"Software\\Maecly\"\n\
+     !define MANUPRODUCTKEY \"${MANUKEY}\\Pluryprint\"\n\
+     !define BUNDLEID \"com.maecly.pluryprint\"\n";
+
 /// Compile the hooks file in a stub script with the includes Tauri's template
-/// makes before it, every hook in its section, warnings as errors. Skipped
+/// makes before it, every hook in its section, warnings as errors. `None`
 /// where `makensis` is missing. The file refuses to compile without the
 /// context-menu DLLs it ships from `resources/shellext/<arch>/`, so it is
 /// copied into a temporary tree with placeholder DLLs. The two variables the
 /// post-uninstall hook reads are declared the way Tauri's template does, and
-/// so are the MUI language-registry names (after the hooks, as there).
-#[test]
-fn nsis_hook_compiles() {
+/// so are the MUI language-registry names, the version resource and
+/// `tauri_names` (after the hooks, as there). Returns makensis's output and
+/// the compiled stub's bytes.
+fn compile_hooks_stub(tauri_names: &str) -> Option<(std::process::Output, Vec<u8>)> {
     let Ok(out) = std::process::Command::new("makensis")
         .arg("-VERSION")
         .output()
     else {
         eprintln!("makensis not installed; skipping");
-        return;
+        return None;
     };
     assert!(out.status.success());
     let dir = tempfile::tempdir().unwrap();
@@ -360,11 +369,17 @@ fn nsis_hook_compiles() {
         std::fs::write(res.join("shell_ext_win.dll"), b"placeholder").unwrap();
     }
     let script = dir.path().join("stub.nsi");
+    let exe = dir.path().join("stub.exe");
     std::fs::write(
         &script,
         format!(
             "Unicode true\n!include LogicLib.nsh\n!include FileFunc.nsh\n!include x64.nsh\n\
              !include StrFunc.nsh\n${{StrLoc}}\nVar UpdateMode\nVar DeleteAppDataCheckboxState\n!include \"{}\"\n\
+             {tauri_names}\
+             VIProductVersion \"0.0.0.0\"\nVIAddVersionKey \"ProductName\" \"Pluryprint\"\n\
+             VIAddVersionKey \"FileDescription\" \"Pluryprint\"\n\
+             VIAddVersionKey \"LegalCopyright\" \"Copyright\"\n\
+             VIAddVersionKey \"FileVersion\" \"0.0.0\"\nVIAddVersionKey \"ProductVersion\" \"0.0.0\"\n\
              !define MUI_LANGDLL_REGISTRY_ROOT \"HKCU\"\n\
              !define MUI_LANGDLL_REGISTRY_KEY \"Software\\Maecly\\Pluryprint\"\n\
              !define MUI_LANGDLL_REGISTRY_VALUENAME \"Installer Language\"\nOutFile \"{}\"\n\
@@ -375,7 +390,7 @@ fn nsis_hook_compiles() {
              !insertmacro NSIS_HOOK_PREUNINSTALL\n\
              !insertmacro NSIS_HOOK_POSTUNINSTALL\nSectionEnd\n",
             hooks.display(),
-            dir.path().join("stub.exe").display()
+            exe.display()
         ),
     )
     .unwrap();
@@ -384,10 +399,55 @@ fn nsis_hook_compiles() {
         .arg(&script)
         .output()
         .unwrap();
+    let bytes = std::fs::read(&exe).unwrap_or_default();
+    Some((out, bytes))
+}
+
+/// UTF-16LE, as strings sit in a PE version resource.
+fn utf16(s: &str) -> Vec<u8> {
+    s.encode_utf16().flat_map(u16::to_le_bytes).collect()
+}
+
+#[test]
+fn nsis_hook_compiles() {
+    let Some((out, exe)) = compile_hooks_stub(TAURI_NAMES) else {
+        return;
+    };
     assert!(
         out.status.success(),
         "{}{}",
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
+    // The setup's version resource carries the company Tauri leaves out.
+    // A version String entry: the key, NUL-terminated, zero padding to a
+    // 4-byte boundary, then the value.
+    let (key, value) = (utf16("CompanyName"), utf16("Maecly"));
+    let at = exe
+        .windows(key.len())
+        .position(|w| w == key.as_slice())
+        .expect("no CompanyName in the compiled version resource");
+    let rest = &exe[at + key.len()..];
+    let pad = rest.iter().take_while(|b| **b == 0).count();
+    assert!(
+        (2..=6).contains(&pad) && rest[pad..].starts_with(&value),
+        "CompanyName is not Maecly in the compiled version resource"
+    );
+}
+
+/// The hooks write to keys and folders named by the template (`UNINSTKEY`,
+/// `MANUKEY`, `MANUPRODUCTKEY`, `BUNDLEID`). A template that stops defining
+/// them must fail the build, not write to a key named after the literal text.
+#[test]
+fn nsis_hook_refuses_a_template_without_its_names() {
+    let Some((out, _)) = compile_hooks_stub("") else {
+        return;
+    };
+    assert!(!out.status.success(), "compiled without Tauri's names");
+    let log = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(log.contains("no longer defines UNINSTKEY"), "{log}");
 }

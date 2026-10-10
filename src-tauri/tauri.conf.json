@@ -51,6 +51,7 @@
     "longDescription": "Open source batch file printing for Windows and macOS. Right-click and print everything, with no 15-file limit, no Adobe required, and no $149 license fee.",
     "copyright": "Copyright (C) 2026 Maecly. Licensed under AGPL-3.0-only.",
     "publisher": "Maecly",
+    "homepage": "https://pluryprint.maecly.com",
     "macOS": {
       "minimumSystemVersion": "13.0",
       "signingIdentity": "-",
