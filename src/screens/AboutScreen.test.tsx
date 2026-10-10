@@ -316,6 +316,41 @@ describe('AboutScreen', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('FR-085: a channel with no published manifest is a neutral notice, not "up to date" and not an error', async () => {
+    settingsState.settings = {
+      ...fixtureAppSettings,
+      updater: { ...fixtureAppSettings.updater, channel: 'beta' },
+    };
+    const calls = mockAbout({
+      updateIpcError: {
+        code: 'UpdateCheckFailed',
+        reason: 'channel_unavailable',
+        message:
+          'no update has been published on this channel (its manifest answered 404)',
+      },
+    });
+    renderAbout();
+    await waitForAppInfo();
+
+    fireEvent.click(screen.getByRole('button', { name: /check for updates/i }));
+
+    const notice = await screen.findByRole('status');
+    expect(notice).toHaveTextContent(
+      'No updates published on the beta channel',
+    );
+    expect(notice).toHaveTextContent(/releases are not public/);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByText(/up to date/i)).toBeNull();
+    // No toast either: it is not a failure.
+    expect(screen.queryByText(/answered 404/)).toBeNull();
+
+    // The release page and a fresh check are one click away.
+    fireEvent.click(within(notice).getByRole('button', { name: /retry/i }));
+    await waitFor(() =>
+      expect(calls.filter((c) => c.cmd === 'check_for_updates').length).toBe(2),
+    );
+  });
+
   it('files an issue and opens the logs folder through IPC', async () => {
     const calls = mockAbout();
     renderAbout();
@@ -708,6 +743,31 @@ describe('AboutScreen', () => {
       'No se pudo conectar con github.com. Comprueba tu conexión.',
     );
     expect(screen.queryByText(/check your connection/)).toBeNull();
+  });
+
+  it('FR-085: the unavailable-channel notice is translated', async () => {
+    settingsState.settings = {
+      ...fixtureAppSettings,
+      app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+      updater: { ...fixtureAppSettings.updater, channel: 'stable' },
+    };
+    mockAbout({
+      updateIpcError: {
+        code: 'UpdateCheckFailed',
+        reason: 'channel_unavailable',
+        message: 'no update has been published on this channel',
+      },
+    });
+    renderTranslatedAbout();
+    await waitForAppInfo();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /buscar actualizaciones/i }),
+    );
+    const notice = await screen.findByRole('status');
+    expect(notice).toHaveTextContent(
+      'No hay actualizaciones publicadas en el canal estable',
+    );
   });
 
   it('FR-092: translates the update-available card, including its aria-label', async () => {

@@ -25,6 +25,10 @@
       "title": "Todo está actualizado",
       "detail": "versión {{version}} · comprobado a las {{time}}"
     },
+    "unavailable": {
+      "title": "No hay actualizaciones publicadas en el canal {{channel}}",
+      "detail": "No se encontró su archivo de actualización, así que no hay nada que instalar. Aún no se ha publicado nada en este canal o sus versiones no son públicas. Pluryprint sigue funcionando igual; vuelve a comprobarlo más tarde."
+    },
     "available": {
       "group": "Actualización disponible",
       "title": "La versión {{version}} está disponible",

@@ -57,6 +57,9 @@ type UpdateState =
   | { kind: 'deferred' }
   | { kind: 'skipped'; version: string }
   | { kind: 'error'; message: string }
+  // The channel has no manifest (HTTP 404): nothing published there yet, or
+  // the releases are not public. Not "up to date", and not a failure either.
+  | { kind: 'unavailable' }
   // FR-084 "install now": downloading + verifying, with progress when the
   // server sent a size …
   | { kind: 'installing'; version: string; percent: number | null }
@@ -125,6 +128,20 @@ function formatClock(rfc3339: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/**
+ * Whether a failed check means "this channel has no update feed" (the
+ * backend's `channel_unavailable` reason, a 404 on the manifest) rather than
+ * a real failure.
+ */
+function isChannelUnavailable(e: unknown): boolean {
+  return (
+    ipcErrorCode(e) === 'UpdateCheckFailed' &&
+    e instanceof Error &&
+    'reason' in e &&
+    (e as Error & { reason?: unknown }).reason === 'channel_unavailable'
+  );
 }
 
 function errText(e: unknown): string {
@@ -222,7 +239,11 @@ export function AboutScreen() {
       const check = await checkForUpdates();
       setUpdate({ kind: 'done', check });
     } catch (e) {
-      setUpdate({ kind: 'error', message: errText(e) });
+      setUpdate(
+        isChannelUnavailable(e)
+          ? { kind: 'unavailable' }
+          : { kind: 'error', message: errText(e) },
+      );
     }
   }
 
@@ -530,6 +551,52 @@ export function AboutScreen() {
                       })}
                     </div>
                   </div>
+                </div>
+              </MPCard>
+            </>
+          )}
+
+          {update.kind === 'unavailable' && (
+            <>
+              <MPSectionLabel>{t('sections.updates')}</MPSectionLabel>
+              <MPCard padding={14} style={{ marginBottom: 24 }}>
+                <div
+                  role="status"
+                  style={{ display: 'flex', alignItems: 'center', gap: 12 }}
+                >
+                  <Icon name="info" size={16} color="var(--mp-textMuted)" />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>
+                      {t('updates.unavailable.title', {
+                        channel: t(CHANNEL_KEY[channel ?? 'stable']),
+                      })}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        color: 'var(--mp-textMuted)',
+                        marginTop: 2,
+                      }}
+                    >
+                      {t('updates.unavailable.detail')}
+                    </div>
+                  </div>
+                  <MPButton
+                    variant="secondary"
+                    size="sm"
+                    icon="page"
+                    onClick={() => void open(RELEASES_URL)}
+                  >
+                    {t('links.releaseNotes')}
+                  </MPButton>
+                  <MPButton
+                    variant="secondary"
+                    size="sm"
+                    icon="rotate"
+                    onClick={() => void runCheck()}
+                  >
+                    {t('updates.retry')}
+                  </MPButton>
                 </div>
               </MPCard>
             </>

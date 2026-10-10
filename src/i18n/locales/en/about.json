@@ -25,6 +25,10 @@
       "title": "You're up to date",
       "detail": "version {{version}} · checked {{time}}"
     },
+    "unavailable": {
+      "title": "No updates published on the {{channel}} channel",
+      "detail": "Its update file was not found, so there is nothing to install. Nothing has been released on this channel yet, or the releases are not public. Pluryprint keeps working as it is; check again later."
+    },
     "available": {
       "group": "Update available",
       "title": "Version {{version}} is available",
