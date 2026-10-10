@@ -161,8 +161,19 @@ main:focus { outline: none; }
 .topnav a:hover { color: var(--accent); }
 .header-cta { margin-left: auto; order: 3; }
 .lang { order: 4; display: inline-flex; align-items: center; min-height: 34px; padding: 4px 11px; border: 1px solid var(--border); border-radius: 999px; font: 600 .8125rem/1 var(--font-mono); text-decoration: none; }
+/* Below 760px the section links live in a small menu; no JS needed to open it. */
+.navmenu { order: 5; position: relative; }
+.navmenu summary { list-style: none; display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 50%; cursor: pointer; color: var(--text-soft); }
+.navmenu summary::-webkit-details-marker { display: none; }
+.navmenu summary svg { width: 16px; height: 16px; }
+.navmenu[open] summary { border-color: var(--accent); color: var(--accent); }
+.navmenu nav { position: absolute; right: 0; top: calc(100% + 10px); min-width: 13rem; display: grid; padding: 6px; border-radius: var(--radius-card); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-card); }
+.navmenu nav a { display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 6px; text-decoration: none; color: var(--text); }
+.navmenu nav a:hover { background: var(--surface2); }
+@media (max-width: 759px) { .topbar-inner { gap: 10px; } }
 @media (min-width: 760px) {
   .topnav { display: flex; }
+  .navmenu { display: none; }
   .header-cta { margin-left: 0; }
 }
 .feed { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; overflow: hidden; pointer-events: none; }

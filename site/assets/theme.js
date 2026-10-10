@@ -90,6 +90,11 @@
     apply(mode);
     var lastX = innerWidth / 2, lastY = 0;
     document.addEventListener("pointerdown", function (e) { lastX = e.clientX; lastY = e.clientY; }, true);
+    /* The phone section menu closes once a link is chosen. */
+    var menu = document.querySelector(".navmenu");
+    if (menu) menu.addEventListener("click", function (e) {
+      if (e.target.closest("a")) menu.open = false;
+    });
     var radios = document.querySelectorAll('input[name="mode"]');
     for (var i = 0; i < radios.length; i++) {
       radios[i].addEventListener("change", function (e) {
