@@ -242,9 +242,29 @@ pub fn migrate(layout: &Layout) -> Report {
     report
 }
 
+/// The filesystem calls a move makes, so tests can make them fail.
+struct Ops {
+    rename: fn(&Path, &Path) -> io::Result<()>,
+    copy_file: fn(&Path, &Path) -> io::Result<()>,
+}
+
+fn rename(src: &Path, dst: &Path) -> io::Result<()> {
+    std::fs::rename(src, dst)
+}
+
+fn copy_file(src: &Path, dst: &Path) -> io::Result<()> {
+    std::fs::copy(src, dst).map(|_| ())
+}
+
+const REAL_OPS: Ops = Ops { rename, copy_file };
+
 /// Move every entry of `old` into `new`, recursing into folders present on
 /// both sides; leave (and report) anything whose name is already taken.
 fn merge(old: &Path, new: &Path, report: &mut Report) {
+    merge_with(old, new, report, &REAL_OPS);
+}
+
+fn merge_with(old: &Path, new: &Path, report: &mut Report, ops: &Ops) {
     let entries = match std::fs::read_dir(old) {
         Ok(entries) => entries,
         Err(e) => {
@@ -268,44 +288,95 @@ fn merge(old: &Path, new: &Path, report: &mut Report) {
         let dst = new.join(&name);
         if std::fs::symlink_metadata(&dst).is_ok() {
             if src.is_dir() && dst.is_dir() {
-                merge(&src, &dst, report);
+                merge_with(&src, &dst, report, ops);
                 let _ = std::fs::remove_dir(&src);
             } else {
                 report.kept.push(src);
             }
             continue;
         }
-        match move_entry(&src, &dst) {
+        match move_entry_with(&src, &dst, ops) {
             Ok(()) => report.moved.push((src, dst)),
             Err(e) => report.failed.push((src, e.to_string())),
         }
     }
 }
 
-/// `rename`, falling back to copy-then-delete when the two folders are on
-/// different volumes (a redirected `%APPDATA%`, for instance).
-fn move_entry(src: &Path, dst: &Path) -> io::Result<()> {
-    if std::fs::rename(src, dst).is_ok() {
-        return Ok(());
-    }
-    copy_recursive(src, dst)?;
-    if src.is_dir() {
-        std::fs::remove_dir_all(src)
-    } else {
-        std::fs::remove_file(src)
+/// Suffix of the temporary a cross-volume copy is written under.
+const TEMP_SUFFIX: &str = ".pluryprint-migrating";
+
+/// The temporary name `dst` is copied under before it is renamed into place:
+/// a hidden sibling, so the final rename stays on one volume.
+fn temp_name(dst: &Path) -> Option<std::ffi::OsString> {
+    let mut name = std::ffi::OsString::from(".");
+    name.push(dst.file_name()?);
+    name.push(TEMP_SUFFIX);
+    Some(name)
+}
+
+fn remove_any(path: &Path) {
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.is_dir() => {
+            let _ = std::fs::remove_dir_all(path);
+        }
+        Ok(_) => {
+            let _ = std::fs::remove_file(path);
+        }
+        Err(_) => {}
     }
 }
 
-fn copy_recursive(src: &Path, dst: &Path) -> io::Result<()> {
+/// `rename`, falling back to copy-then-delete when the two folders are on
+/// different volumes (a redirected `%APPDATA%`, for instance).
+///
+/// The copy goes to a temporary sibling of `dst` and is renamed into place
+/// only once it is whole, so `dst` either does not exist or is complete: a
+/// copy that fails part-way (disk full, an I/O error) leaves nothing a later
+/// run would take for the user's file, and the source stays where it was.
+fn move_entry_with(src: &Path, dst: &Path, ops: &Ops) -> io::Result<()> {
+    if (ops.rename)(src, dst).is_ok() {
+        return Ok(());
+    }
+    let tmp_name = temp_name(dst)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))?;
+    let tmp = dst.with_file_name(tmp_name);
+    // A run that died mid-copy left this behind; it is never the user's.
+    remove_any(&tmp);
+    if let Err(e) = copy_recursive(src, &tmp, ops) {
+        remove_any(&tmp);
+        return Err(e);
+    }
+    if std::fs::symlink_metadata(dst).is_ok() {
+        // Something took the name while we copied: never overwrite it.
+        remove_any(&tmp);
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("{} appeared during the move", dst.display()),
+        ));
+    }
+    if let Err(e) = std::fs::rename(&tmp, dst) {
+        remove_any(&tmp);
+        return Err(e);
+    }
+    // `dst` is complete. A source that will not go away is only a copy now.
+    if src.is_dir() {
+        let _ = std::fs::remove_dir_all(src);
+    } else {
+        let _ = std::fs::remove_file(src);
+    }
+    Ok(())
+}
+
+fn copy_recursive(src: &Path, dst: &Path, ops: &Ops) -> io::Result<()> {
     if src.is_dir() {
         std::fs::create_dir_all(dst)?;
         for entry in std::fs::read_dir(src)? {
             let entry = entry?;
-            copy_recursive(&entry.path(), &dst.join(entry.file_name()))?;
+            copy_recursive(&entry.path(), &dst.join(entry.file_name()), ops)?;
         }
         Ok(())
     } else {
-        std::fs::copy(src, dst).map(|_| ())
+        (ops.copy_file)(src, dst)
     }
 }
 
@@ -600,6 +671,155 @@ mod tests {
         let report = migrate(&layout);
         assert!(report.deferred.is_none());
         assert!(local.join("Maecly/Pluryprint/data/queue.json").exists());
+    }
+
+    /// What a copy across volumes sees: `rename` always fails.
+    fn no_rename(_: &Path, _: &Path) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::CrossesDevices,
+            "other volume",
+        ))
+    }
+
+    /// A copy that writes half of `queue.json` and then fails (disk full),
+    /// copying every other file whole.
+    fn failing_copy(src: &Path, dst: &Path) -> io::Result<()> {
+        if src.file_name().is_some_and(|n| n == "queue.json") {
+            std::fs::write(dst, "[{\"id\":")?;
+            return Err(io::Error::new(io::ErrorKind::StorageFull, "disk full"));
+        }
+        std::fs::copy(src, dst).map(|_| ())
+    }
+
+    fn entries(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// A copy that fails part-way leaves nothing at the destination — no
+    /// truncated file a later run would mistake for the user's — and the
+    /// source untouched, so the next run tries again.
+    #[test]
+    fn a_failed_copy_leaves_no_truncated_file_behind() {
+        let root = tempfile::tempdir().unwrap();
+        let src = root.path().join("old/queue.json");
+        let new = root.path().join("new");
+        write(&src, "[{\"id\":1}]");
+        std::fs::create_dir_all(&new).unwrap();
+        let dst = new.join("queue.json");
+
+        let err = move_entry_with(
+            &src,
+            &dst,
+            &Ops {
+                rename: no_rename,
+                copy_file: failing_copy,
+            },
+        );
+        assert!(err.is_err());
+        assert!(!dst.exists(), "no truncated queue.json");
+        assert!(
+            entries(&new).is_empty(),
+            "no temporary left: {:?}",
+            entries(&new)
+        );
+        assert_eq!(read(&src), "[{\"id\":1}]", "the source is intact");
+
+        // The next run (the disk has room again) moves it whole.
+        move_entry_with(
+            &src,
+            &dst,
+            &Ops {
+                rename: no_rename,
+                copy_file,
+            },
+        )
+        .unwrap();
+        assert_eq!(read(&dst), "[{\"id\":1}]");
+        assert!(!src.exists());
+    }
+
+    /// The same for a folder: one failing file and the whole folder stays
+    /// where it was.
+    #[test]
+    fn a_failed_folder_copy_leaves_no_partial_folder_behind() {
+        let root = tempfile::tempdir().unwrap();
+        let src = root.path().join("old/data");
+        write(&src.join("a.json"), "a");
+        write(&src.join("queue.json"), "[]");
+        let new = root.path().join("new");
+        std::fs::create_dir_all(&new).unwrap();
+        let dst = new.join("data");
+
+        assert!(move_entry_with(
+            &src,
+            &dst,
+            &Ops {
+                rename: no_rename,
+                copy_file: failing_copy
+            }
+        )
+        .is_err());
+        assert!(!dst.exists());
+        assert!(entries(&new).is_empty(), "{:?}", entries(&new));
+        assert_eq!(entries(&src), ["a.json", "queue.json"]);
+
+        // A temporary left by a run that died mid-copy is replaced, not merged.
+        write(&new.join(temp_name(&dst).unwrap()).join("stale"), "x");
+        move_entry_with(
+            &src,
+            &dst,
+            &Ops {
+                rename: no_rename,
+                copy_file,
+            },
+        )
+        .unwrap();
+        assert_eq!(entries(&dst), ["a.json", "queue.json"]);
+        assert_eq!(entries(&new), ["data"]);
+        assert!(!src.exists());
+    }
+
+    /// Through `migrate`: a failed copy is reported as failed, and the next
+    /// run moves the real file rather than "keeping" it next to a stub.
+    #[test]
+    fn a_failed_copy_is_retried_on_the_next_run() {
+        let root = tempfile::tempdir().unwrap();
+        let old = root.path().join("old");
+        let new = root.path().join("new");
+        write(&old.join("queue.json"), "[1]");
+        let mut report = Report::default();
+        merge_with(
+            &old,
+            &new,
+            &mut report,
+            &Ops {
+                rename: no_rename,
+                copy_file: failing_copy,
+            },
+        );
+        assert_eq!(report.failed.len(), 1, "{report:?}");
+        assert!(!new.join("queue.json").exists());
+
+        let mut report = Report::default();
+        merge_with(
+            &old,
+            &new,
+            &mut report,
+            &Ops {
+                rename: no_rename,
+                copy_file,
+            },
+        );
+        assert!(
+            report.kept.is_empty() && report.failed.is_empty(),
+            "{report:?}"
+        );
+        assert_eq!(read(&new.join("queue.json")), "[1]");
     }
 
     /// Nothing installed: nothing to do, and no old folder gets created.
