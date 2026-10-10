@@ -33,6 +33,8 @@ import {
   subscribeExpanding,
 } from '@/lib/jobFiles';
 import { events } from '@/ipc/bindings';
+import { announceInstallEnd, realInstallBackend } from '@/lib/install';
+import { useInstallStore } from '@/stores/installStore';
 import { useProfilesStore } from '@/stores/profilesStore';
 import { setQueueNavigator, useQueueStore } from '@/stores/queueStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -147,6 +149,10 @@ function App() {
   const tAbout = useT('about');
   // The one-time notice about the retired HTML renderer is about a setting.
   const tSettings = useT('settings');
+  // An install picked up after a reload is announced like the dialog would.
+  const tPrintJob = useT('printJob');
+  const tPrintJobRef = useRef(tPrintJob);
+  tPrintJobRef.current = tPrintJob;
   const { mode, resolved, setMode } = useTheme();
   const { density, setDensity } = useDensity();
   const [active, setActive] = useState<ScreenId>('home');
@@ -245,6 +251,22 @@ function App() {
   useEffect(() => {
     setQueueNavigator(() => setActive('queue'));
     return () => setQueueNavigator(null);
+  }, []);
+
+  // FR-058: a dependency install outlives the window. After a reload, find
+  // the one the backend is still running (or whose stopped installer may
+  // still be finishing), so its dialog shows it, with Stop, instead of an
+  // Install the backend would refuse.
+  useEffect(() => {
+    if (!isTauri()) return;
+    useInstallStore
+      .getState()
+      .hydrate(realInstallBackend, {
+        announce: (end) => announceInstallEnd(tPrintJobRef.current, end),
+        unknownEnd: (name) =>
+          tPrintJobRef.current('install.result.unknownEnd', { name }),
+      })
+      .catch((e: unknown) => logError('app.install-hydrate', e));
   }, []);
 
   // Load profiles and app settings once (both idempotent, retryable).

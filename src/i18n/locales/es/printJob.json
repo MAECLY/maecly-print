@@ -72,13 +72,18 @@
       "failedNoCode": "El instalador se detuvo sin indicar el motivo. Prueba con la página de descarga.",
       "timedOut": "El instalador tardaba demasiado y se detuvo. Vuelve a intentarlo o usa la página de descarga.",
       "cancelled": "Detuviste la instalación. No se ejecutará nada más salvo que la vuelvas a iniciar.",
-      "cancelRequestedInstallerMayContinue": "Pluryprint detuvo lo que pudo, pero el instalador de {{name}} se ejecuta con permisos de administrador y puede seguir trabajando: puede que su ventana siga abierta. Ciérrala allí si quieres detenerlo, o deja que termine."
+      "cancelRequestedInstallerMayContinue": "Pluryprint detuvo lo que pudo, pero el instalador de {{name}} se ejecuta con permisos de administrador y puede seguir trabajando: puede que su ventana siga abierta. Ciérrala allí si quieres detenerlo, o deja que termine.",
+      "cancelRequestedMayContinueUnconfirmed": "Pluryprint detuvo lo que pudo, pero no pudo confirmar que todo lo que inició el instalador de {{name}} haya terminado, así que puede seguir trabajando. Podrás volver a instalar cuando haya terminado.",
+      "timedOutInstallerMayContinue": "El instalador de {{name}} tardaba demasiado. Pluryprint detuvo lo que pudo, pero el instalador se ejecuta con permisos de administrador y puede seguir trabajando: puede que su ventana siga abierta. Ciérrala allí si quieres detenerlo, o deja que termine.",
+      "timedOutMayContinueUnconfirmed": "El instalador de {{name}} tardaba demasiado. Pluryprint detuvo lo que pudo, pero no pudo confirmar que todo lo que inició el instalador haya terminado, así que puede seguir trabajando. Podrás volver a instalar cuando haya terminado.",
+      "unknownEnd": "La instalación de {{name}} terminó mientras Pluryprint no la seguía, y no puede saber cómo. Vuelve a comprobar si {{name}} está instalado."
     },
     "background": "Seguir en segundo plano",
     "backgroundHint": "Puedes seguir usando Pluryprint: cerrar esta ventana no detiene la instalación y te avisaremos cuando termine.",
     "stop": "Detener la instalación",
     "stopping": "Deteniendo la instalación…",
-    "busyWith": "Pluryprint está instalando {{name}}. Podrás instalar este componente cuando termine; abre la instalación de {{name}} para detenerla."
+    "busyWith": "Pluryprint está instalando {{name}}. Podrás instalar este componente cuando termine, o detener esa instalación desde aquí.",
+    "busyFinishing": "Puede que el instalador de {{name}} que se detuvo siga en marcha. Podrás volver a instalar cuando haya terminado."
   },
   "folders": {
     "title_one": "{{count}} carpeta añadida",

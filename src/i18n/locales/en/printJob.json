@@ -72,13 +72,18 @@
       "failedNoCode": "The installer stopped without saying why. Try the download page instead.",
       "timedOut": "The installer took too long and was stopped. Try again, or use the download page instead.",
       "cancelled": "You stopped the installation. Nothing else will run unless you start it again.",
-      "cancelRequestedInstallerMayContinue": "Pluryprint stopped what it could, but the {{name}} installer runs with administrator rights and may still be working: its window may still be open. Close it there if you want to stop it, or let it finish."
+      "cancelRequestedInstallerMayContinue": "Pluryprint stopped what it could, but the {{name}} installer runs with administrator rights and may still be working: its window may still be open. Close it there if you want to stop it, or let it finish.",
+      "cancelRequestedMayContinueUnconfirmed": "Pluryprint stopped what it could, but it could not confirm that everything the {{name}} installer started has ended, so it may still be working. You can install again once it has finished.",
+      "timedOutInstallerMayContinue": "The {{name}} installer took too long. Pluryprint stopped what it could, but the installer runs with administrator rights and may still be working: its window may still be open. Close it there if you want to stop it, or let it finish.",
+      "timedOutMayContinueUnconfirmed": "The {{name}} installer took too long. Pluryprint stopped what it could, but it could not confirm that everything the installer started has ended, so it may still be working. You can install again once it has finished.",
+      "unknownEnd": "The installation of {{name}} ended while Pluryprint was not watching, and it cannot tell how. Check again to see whether {{name}} is installed."
     },
     "background": "Run in background",
     "backgroundHint": "You can keep using Pluryprint: closing this window does not stop the installation, and you will be told when it ends.",
     "stop": "Stop installation",
     "stopping": "Stopping the installation…",
-    "busyWith": "Pluryprint is installing {{name}}. You can install this one when it finishes; open the install of {{name}} to stop it."
+    "busyWith": "Pluryprint is installing {{name}}. You can install this one when it finishes, or stop that installation here.",
+    "busyFinishing": "The {{name}} installer that was stopped may still be running. You can install again once it has finished."
   },
   "folders": {
     "title_one": "{{count}} folder added",

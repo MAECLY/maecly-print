@@ -121,7 +121,7 @@
         "install_consent_required": "Nothing was installed: installing needs your confirmation.",
         "install_not_offered": "That way of installing is not available for this component here.",
         "install_tool_missing": "{{tool}} is not installed on this computer. Use the download page instead.",
-        "install_in_progress": "Another installation is already running. Wait for it to finish, or stop it from its install window.",
+        "install_in_progress": "Another installation is still running, or an installer that was stopped is still finishing. Try again when it has ended.",
         "no_files": "No files were selected to print.",
         "not_a_file": "“{{name}}” is not a file.",
         "file_too_large": "“{{name}}” is larger than the {{limit}} MB limit.",

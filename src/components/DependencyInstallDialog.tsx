@@ -1,5 +1,4 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { toast } from 'sonner';
 
 import { ModalOverlay } from '@/components/Modal';
 import { useModalFocus } from '@/components/useModal';
@@ -7,16 +6,22 @@ import { MPButton } from '@/components/ui';
 import { useT } from '@/i18n/I18nProvider';
 import {
   commands,
-  events,
   type Dependency,
+  type DependencyInstallState,
   type DependencyReport,
   type InstallMethod,
   type InstallOutcome,
 } from '@/ipc/bindings';
-import { cancelMayContinue, remediationKey } from '@/lib/deps';
+import { remediationKey } from '@/lib/deps';
+import {
+  announceInstallEnd,
+  installResultText,
+  realInstallBackend,
+} from '@/lib/install';
 import { unwrap } from '@/lib/ipc';
 import { errorMessage } from '@/lib/ipcError';
 import {
+  installerMayContinue,
   useInstallStore,
   type InstallEnd,
   type InstallHandlers,
@@ -36,17 +41,15 @@ export type InstallProgressSource = (
   onLine: (id: Dependency, line: string) => void,
 ) => Promise<() => void>;
 
-const realRunner: InstallRunner = (id, method) =>
-  // The dialog's Install button is the consent (D13).
-  unwrap(commands.installDependency(id, method, true));
+/** Which install holds the backend's slot. Injected by tests. */
+export type InstallStatusSource = () => Promise<DependencyInstallState>;
+
+const realRunner: InstallRunner = realInstallBackend.run;
 
 const realCancel: InstallCanceller = () =>
   unwrap(commands.cancelDependencyInstall());
 
-const realProgress: InstallProgressSource = (onLine) =>
-  events.dependencyInstallProgress.listen(({ payload }) =>
-    onLine(payload.id, payload.line),
-  );
+const realProgress: InstallProgressSource = realInstallBackend.progress;
 
 const RUNS_A_COMMAND: InstallMethod[] = ['winget', 'winget-store', 'brew-cask'];
 
@@ -63,7 +66,9 @@ const RUNS_A_COMMAND: InstallMethod[] = ['winget', 'winget-store', 'brew-cask'];
  * backdrop — lets it carry on in the background, with a toast saying how it
  * ended. The install lives in `useInstallStore`, not in the dialog, so a
  * dialog reopened for the same dependency shows it still running, Stop
- * included, and one opened for another dependency names the busy one.
+ * included, and one opened for another dependency names the busy one and
+ * offers to stop it there. After a stop the installer may have outlived, no
+ * Install is offered until the backend has seen it gone.
  *
  * `resumesJobs` says the caller resumes the jobs waiting for the dependency
  * once it is found (the Queue), so the "opened" result can promise that.
@@ -76,6 +81,7 @@ export function DependencyInstallDialog({
   run = realRunner,
   cancel = realCancel,
   progress = realProgress,
+  status = realInstallBackend.status,
 }: {
   report: DependencyReport;
   onClose: () => void;
@@ -84,6 +90,7 @@ export function DependencyInstallDialog({
   run?: InstallRunner;
   cancel?: InstallCanceller;
   progress?: InstallProgressSource;
+  status?: InstallStatusSource;
 }) {
   const t = useT('printJob');
   const tc = useT('common');
@@ -95,6 +102,7 @@ export function DependencyInstallDialog({
   const storeLines = useInstallStore((s) => s.lines);
   const storeStopping = useInstallStore((s) => s.stopping);
   const last = useInstallStore((s) => s.last);
+  const finishing = useInstallStore((s) => s.finishing);
   const startInstall = useInstallStore((s) => s.start);
   const stopInstall = useInstallStore((s) => s.stop);
   const watch = useInstallStore((s) => s.watch);
@@ -131,52 +139,11 @@ export function DependencyInstallDialog({
   const close = () => onClose();
   useModalFocus(dialogRef, { onEscape: close });
 
-  const resultText = (o: InstallOutcome): string => {
-    if (cancelMayContinue(o)) {
-      return t('install.result.cancelRequestedInstallerMayContinue', {
-        name: report.name,
-      });
-    }
-    switch (o.status) {
-      case 'installed':
-        return t('install.result.installed', { name: report.name });
-      case 'not-detected':
-        return t('install.result.notDetected', { name: report.name });
-      case 'opened':
-        return resumesJobs
-          ? t('install.result.openedResumesJobs', { name: report.name })
-          : t('install.result.opened');
-      case 'timed-out':
-        return t('install.result.timedOut');
-      case 'cancelled':
-        return t('install.result.cancelled');
-      case 'timed-out-installer-may-continue':
-      case 'cancel-requested-installer-may-continue':
-        return t('install.result.cancelRequestedInstallerMayContinue', {
-          name: report.name,
-        });
-      case 'failed':
-        // No exit code means the OS gave none: say so instead of "code —".
-        return o.exit_code == null
-          ? t('install.result.failedNoCode')
-          : t('install.result.failed', { code: o.exit_code });
-    }
-  };
+  const resultText = (o: InstallOutcome): string =>
+    installResultText(t, o, report.name, resumesJobs);
 
   /** How an install that ended with no dialog open for it is announced. */
-  const announce = (end: InstallEnd) => {
-    if (!end.outcome) {
-      toast.error(end.failure);
-      return;
-    }
-    const o = end.outcome;
-    const title = t('install.title', { name: report.name });
-    const description = resultText(o);
-    if (o.status === 'installed') toast.success(title, { description });
-    else if (o.status === 'cancelled' && !cancelMayContinue(o))
-      toast.message(title, { description });
-    else toast.warning(title, { description });
-  };
+  const announce = (end: InstallEnd) => announceInstallEnd(t, end, resumesJobs);
 
   // While this dialog is open, its dependency's install reports through it.
   const handlersRef = useRef<InstallHandlers>({ onResolved, announce });
@@ -199,17 +166,26 @@ export function DependencyInstallDialog({
     setFailure(last.failure ?? null);
   }, [last, report.id]);
 
+  // The result shown here already says the installer may still be running.
+  const showFinishing =
+    finishing !== null &&
+    !(
+      finishing.id === report.id &&
+      outcome !== null &&
+      installerMayContinue(outcome)
+    );
+
   const option = options[selected];
   const runsCommand = option ? RUNS_A_COMMAND.includes(option.method) : false;
 
   const start = () => {
-    if (!option || !option.available || active) return;
+    if (!option || !option.available || active || finishing) return;
     setFailure(null);
     setOutcome(null);
     startInstall(
       report,
       option.method,
-      { run, progress, describe: errorMessage },
+      { run, progress, describe: errorMessage, status },
       handlers,
     );
   };
@@ -369,9 +345,35 @@ export function DependencyInstallDialog({
           <div
             role="status"
             data-testid="install-busy"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 12.5,
+              marginBottom: 12,
+            }}
+          >
+            <span style={{ flex: 1 }}>
+              {t('install.busyWith', { name: busyWith.name })}
+            </span>
+            <MPButton
+              variant="danger"
+              size="sm"
+              onClick={() => void stop()}
+              disabled={storeStopping}
+            >
+              {storeStopping ? t('install.stopping') : t('install.stop')}
+            </MPButton>
+          </div>
+        )}
+
+        {showFinishing && finishing && (
+          <div
+            role="status"
+            data-testid="install-finishing"
             style={{ fontSize: 12.5, marginBottom: 12 }}
           >
-            {t('install.busyWith', { name: busyWith.name })}
+            {t('install.busyFinishing', { name: finishing.name })}
           </div>
         )}
 
@@ -418,7 +420,9 @@ export function DependencyInstallDialog({
               variant="primary"
               size="sm"
               onClick={start}
-              disabled={busyWith !== null || !option?.available}
+              disabled={
+                busyWith !== null || finishing !== null || !option?.available
+              }
             >
               {runsCommand ? t('install.install') : t('install.open')}
             </MPButton>

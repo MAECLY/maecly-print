@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { toast } from 'sonner';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -16,6 +16,7 @@ import { fixtureAppSettings } from '@/test/fixtures';
 import {
   DependencyInstallDialog,
   type InstallProgressSource,
+  type InstallStatusSource,
 } from './DependencyInstallDialog';
 
 const WINGET: InstallOption = {
@@ -52,6 +53,21 @@ function office(install: InstallOption[]): DependencyReport {
 }
 
 const noProgress: InstallProgressSource = () => Promise.resolve(() => {});
+
+/** The backend still holds the slot for a may-continue LibreOffice install. */
+const stillFinishing: InstallStatusSource = () =>
+  Promise.resolve({
+    running: {
+      seq: 1,
+      id: 'libre-office',
+      name: 'LibreOffice',
+      method: 'winget',
+      started_at: '2026-10-10T10:00:00Z',
+      elevated: true,
+      may_continue: true,
+    },
+    last: null,
+  });
 
 afterEach(() => {
   resetInstallStore();
@@ -285,7 +301,7 @@ describe('DependencyInstallDialog', () => {
       finish({
         status: 'cancel-requested-installer-may-continue',
         exit_code: null,
-        elevated: false,
+        elevated: true,
         report: office([]),
       });
       return Promise.resolve(true);
@@ -476,47 +492,110 @@ describe('DependencyInstallDialog', () => {
     expect(screen.queryByText(/Another component/)).toBeNull();
   });
 
+  it('FR-058: the busy notice stops the other install itself, so it needs no other entry point', async () => {
+    const user = userEvent.setup();
+    const { run, finish } = pendingRun();
+    const cancel = vi.fn(() => Promise.resolve(true));
+    const first = render(
+      <DependencyInstallDialog
+        report={office([WINGET, WEB])}
+        onClose={() => {}}
+        onResolved={() => {}}
+        run={run}
+        progress={noProgress}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Install' }));
+    first.unmount();
+
+    render(
+      <DependencyInstallDialog
+        report={{
+          ...office([WEB]),
+          id: 'heif-codec',
+          name: 'HEIF Image Extensions',
+        }}
+        onClose={() => {}}
+        onResolved={() => {}}
+        run={run}
+        cancel={cancel}
+        progress={noProgress}
+      />,
+    );
+    const busy = screen.getByTestId('install-busy');
+    expect(busy).toHaveTextContent('stop that installation here');
+    await user.click(
+      within(busy).getByRole('button', { name: 'Stop installation' }),
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
+    finish({
+      status: 'cancelled',
+      exit_code: null,
+      elevated: false,
+      report: office([]),
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId('install-busy')).toBeNull(),
+    );
+    expect(screen.getByRole('button', { name: 'Open' })).toBeEnabled();
+  });
+
   it.each([
     [
-      'as the outcome reason',
-      {
-        status: 'cancelled',
-        reason: 'cancel_requested_installer_may_continue',
-      },
+      'stop, elevated',
+      'cancel-requested-installer-may-continue',
+      true,
+      /runs with administrator rights.*its window may still be open/,
     ],
-    ['as the status', { status: 'cancel-requested-installer-may-continue' }],
-  ])(
-    'FR-058: a stop the installer may outlive (%s) says so instead of "You stopped the installation"',
-    async (_how, end) => {
+    [
+      'stop, not elevated',
+      'cancel-requested-installer-may-continue',
+      false,
+      /could not confirm that everything the LibreOffice installer started has ended/,
+    ],
+    [
+      'timeout, elevated',
+      'timed-out-installer-may-continue',
+      true,
+      /took too long.*runs with administrator rights/,
+    ],
+    [
+      'timeout, not elevated',
+      'timed-out-installer-may-continue',
+      false,
+      /took too long.*could not confirm/,
+    ],
+  ] as const)(
+    'FR-058: an end the installer may outlive (%s) says so, with administrator rights only when it had them',
+    async (_how, status, elevated, text) => {
       const user = userEvent.setup();
-      const { run, finish } = pendingRun();
-      const cancel = vi.fn(() => {
-        finish({
-          ...end,
+      const run = vi.fn(() =>
+        Promise.resolve<InstallOutcome>({
+          status,
           exit_code: null,
-          elevated: false,
+          elevated,
           report: office([]),
-        } as unknown as InstallOutcome);
-        return Promise.resolve(true);
-      });
+        }),
+      );
       render(
         <DependencyInstallDialog
           report={office([WINGET, WEB])}
           onClose={() => {}}
           onResolved={() => {}}
           run={run}
-          cancel={cancel}
           progress={noProgress}
+          status={stillFinishing}
         />,
       );
       await user.click(screen.getByRole('button', { name: 'Install' }));
-      await user.click(
-        await screen.findByRole('button', { name: 'Stop installation' }),
-      );
-      expect(await screen.findByRole('status')).toHaveTextContent(
-        /its window may still be open/,
-      );
+      const result = await screen.findByText(text);
+      expect(result).toBeInTheDocument();
+      if (!elevated) {
+        expect(result).not.toHaveTextContent(/administrator/);
+      }
       expect(screen.queryByText(/You stopped the installation/)).toBeNull();
+      // The backend keeps the slot while the installer may run: no Install.
+      expect(screen.getByRole('button', { name: 'Install' })).toBeDisabled();
     },
   );
 
@@ -528,16 +607,17 @@ describe('DependencyInstallDialog', () => {
       },
     });
     const user = userEvent.setup();
-    const run = vi.fn(() =>
-      Promise.resolve({
-        status: 'cancelled',
-        reason: 'cancel_requested_installer_may_continue',
-        exit_code: null,
-        elevated: false,
-        report: office([]),
-      } as unknown as InstallOutcome),
-    );
-    render(
+    const outcome = (elevated: boolean): InstallOutcome => ({
+      status: 'cancel-requested-installer-may-continue',
+      exit_code: null,
+      elevated,
+      report: office([]),
+    });
+    const run = vi
+      .fn<() => Promise<InstallOutcome>>()
+      .mockResolvedValueOnce(outcome(true))
+      .mockResolvedValueOnce(outcome(false));
+    const first = render(
       <I18nProvider>
         <DependencyInstallDialog
           report={office([WINGET, WEB])}
@@ -550,8 +630,25 @@ describe('DependencyInstallDialog', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Instalar' }));
     expect(await screen.findByRole('status')).toHaveTextContent(
-      /puede seguir trabajando/,
+      /permisos de administrador y puede seguir trabajando/,
     );
+    first.unmount();
+    resetInstallStore();
+
+    render(
+      <I18nProvider>
+        <DependencyInstallDialog
+          report={office([WINGET, WEB])}
+          onClose={() => {}}
+          onResolved={() => {}}
+          run={run}
+          progress={noProgress}
+        />
+      </I18nProvider>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Instalar' }));
+    const text = await screen.findByText(/no pudo confirmar/);
+    expect(text).not.toHaveTextContent(/administrador/);
   });
 
   it('FR-058: the "opened" result promises the jobs resume only where they do', async () => {

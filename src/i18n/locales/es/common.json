@@ -121,7 +121,7 @@
         "install_consent_required": "No se ha instalado nada: la instalación necesita tu confirmación.",
         "install_not_offered": "Esa forma de instalación no está disponible aquí para este componente.",
         "install_tool_missing": "{{tool}} no está instalado en este equipo. Usa la página de descarga.",
-        "install_in_progress": "Ya hay otra instalación en curso. Espera a que termine o detenla desde su ventana de instalación.",
+        "install_in_progress": "Hay otra instalación en curso, o un instalador que se detuvo aún está terminando. Vuelve a intentarlo cuando haya acabado.",
         "no_files": "No se ha seleccionado ningún archivo para imprimir.",
         "not_a_file": "«{{name}}» no es un archivo.",
         "file_too_large": "«{{name}}» supera el límite de {{limit}} MB.",
