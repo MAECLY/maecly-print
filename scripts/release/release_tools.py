@@ -24,12 +24,21 @@ Subcommands:
   check-manifest --manifest F --version V [--require KEY ...]
       Fail unless the manifest names version V and every required platform
       with a url and a signature.
+
+  extract-signatures --manifest F --assets F --out DIR [--require KEY ...]
+      For every required platform of a finalised manifest, write the decoded
+      minisign signature to DIR/<platform>.minisig and print
+      "<platform> <asset file name>", so the workflow can verify each
+      downloaded artifact against the app's public key.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
+import os
 import re
 import sys
 import urllib.parse
@@ -110,6 +119,23 @@ def check_manifest(manifest: dict, version: str, required: list[str]) -> list[st
     return errors
 
 
+def extract_signatures(manifest: dict, assets: list, out: str,
+                       required: list[str]) -> list[tuple[str, str]]:
+    names = {a["id"]: a["name"] for a in assets}
+    os.makedirs(out, exist_ok=True)
+    found = []
+    for key in required:
+        entry = manifest["platforms"][key]
+        last = entry["url"].rsplit("/", 1)[-1]
+        name = names.get(int(last)) if last.isdigit() else urllib.parse.unquote(last)
+        if not name:
+            raise ValueError(f"{key}: {entry['url']} is not an asset of this release")
+        with open(os.path.join(out, f"{key}.minisig"), "wb") as f:
+            f.write(base64.b64decode(entry["signature"]))
+        found.append((key, name))
+    return found
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="release_tools.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -129,6 +155,12 @@ def main(argv: list[str]) -> int:
     p = sub.add_parser("check-manifest")
     p.add_argument("--manifest", required=True)
     p.add_argument("--version", required=True)
+    p.add_argument("--require", action="append", default=[])
+
+    p = sub.add_parser("extract-signatures")
+    p.add_argument("--manifest", required=True)
+    p.add_argument("--assets", required=True)
+    p.add_argument("--out", required=True)
     p.add_argument("--require", action="append", default=[])
 
     args = parser.parse_args(argv)
@@ -166,6 +198,19 @@ def main(argv: list[str]) -> int:
         for e in errors:
             print(f"::error::{e}", file=sys.stderr)
         return 1 if errors else 0
+
+    if args.cmd == "extract-signatures":
+        with open(args.manifest, encoding="utf-8") as f:
+            manifest = json.load(f)
+        with open(args.assets, encoding="utf-8") as f:
+            assets = json.load(f)
+        try:
+            for key, name in extract_signatures(manifest, assets, args.out, args.require):
+                print(f"{key} {name}")
+        except (KeyError, ValueError, binascii.Error) as e:
+            print(f"::error::{e}", file=sys.stderr)
+            return 1
+        return 0
 
     return 2
 

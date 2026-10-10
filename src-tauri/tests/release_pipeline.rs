@@ -349,9 +349,9 @@ fn fr_085_finalise_manifest_rewrites_urls_and_refuses_a_lost_platform() {
     let manifest = write(
         "latest.json",
         r#"{"version":"0.2.0","notes":"x","pub_date":"2026-10-10T00:00:00Z","platforms":{
-            "darwin-aarch64":{"signature":"s1","url":"https://github.com/MAECLY/maecly-print/releases/download/v0.2.0/Pluryprint_0.2.0_apple_silicon.app.tar.gz"},
-            "darwin-x86_64":{"signature":"s2","url":"https://api.github.com/repos/MAECLY/maecly-print/releases/assets/12"},
-            "windows-x86_64":{"signature":"s3","url":"https://github.com/MAECLY/maecly-print/releases/download/v0.2.0/Pluryprint_0.2.0_windows_x64.exe"}
+            "darwin-aarch64":{"signature":"c2lnMQ==","url":"https://github.com/MAECLY/maecly-print/releases/download/v0.2.0/Pluryprint_0.2.0_apple_silicon.app.tar.gz"},
+            "darwin-x86_64":{"signature":"c2lnMg==","url":"https://api.github.com/repos/MAECLY/maecly-print/releases/assets/12"},
+            "windows-x86_64":{"signature":"c2lnMw==","url":"https://github.com/MAECLY/maecly-print/releases/download/v0.2.0/Pluryprint_0.2.0_windows_x64.exe"}
         }}"#,
     );
     let assets = write(
@@ -430,6 +430,50 @@ fn fr_085_finalise_manifest_rewrites_urls_and_refuses_a_lost_platform() {
     ])
     .unwrap();
     assert!(right.status.success(), "{right:?}");
+
+    // NFR-022: the signature of each platform is decoded next to, not into,
+    // the assets, and paired with the file its API URL names by id.
+    let sigs = dir.path().join("sigcheck");
+    let sigs_s = sigs.to_string_lossy().into_owned();
+    let extracted = tools(&[
+        "extract-signatures",
+        "--manifest",
+        &out_s,
+        "--assets",
+        &assets,
+        "--out",
+        &sigs_s,
+        "--require",
+        "darwin-aarch64",
+        "--require",
+        "windows-x86_64",
+    ])
+    .unwrap();
+    assert!(extracted.status.success(), "{extracted:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&extracted.stdout),
+        "darwin-aarch64 Pluryprint_0.2.0_apple_silicon.app.tar.gz\n\
+         windows-x86_64 Pluryprint_0.2.0_windows_x64.exe\n"
+    );
+    // The manifest carries the signature in base64; minisign reads the
+    // decoded bytes.
+    assert_eq!(
+        std::fs::read(sigs.join("darwin-aarch64.minisig")).unwrap(),
+        b"sig1"
+    );
+    let missing = tools(&[
+        "extract-signatures",
+        "--manifest",
+        &out_s,
+        "--assets",
+        &assets,
+        "--out",
+        &sigs_s,
+        "--require",
+        "windows-aarch64",
+    ])
+    .unwrap();
+    assert_eq!(missing.status.code(), Some(1));
 }
 
 /// `scripts/bump-version.sh X.Y.Z[-pre]` writes the version into Cargo.toml,

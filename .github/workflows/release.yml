@@ -388,16 +388,21 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq minisign
           python3 -c "import json,base64,sys;sys.stdout.buffer.write(base64.b64decode(json.load(open('src-tauri/tauri.conf.json'))['plugins']['updater']['pubkey']))" > updater.pub
-          for p in darwin-aarch64 darwin-x86_64 windows-x86_64 windows-aarch64; do
-            name=$(python3 -c "import json,sys;d=json.load(open('assets/latest.json'));print(d['platforms'][sys.argv[1]]['url'].rsplit('/',1)[-1])" "$p")
-            file="assets/$name"
-            test -f "$file" || { echo "::error::$p names $name, which was not downloaded"; exit 1; }
-            python3 -c "import json,base64,sys;sys.stdout.buffer.write(base64.b64decode(json.load(open('latest.json'))['platforms'][sys.argv[1]]['signature']))" "$p" > "$file.minisig"
-            minisign -V -p updater.pub -m "$file" -x "$file.minisig"
-          done
-          cp "$file" tampered
-          printf '\x00' | dd of=tampered bs=1 seek=100 conv=notrunc 2>/dev/null
-          if minisign -V -p updater.pub -m tampered -x "$file.minisig"; then
+          # The signatures and the tampered copy stay out of assets/, which
+          # SHA256SUMS covers.
+          python3 -I scripts/release/release_tools.py extract-signatures \
+            --manifest latest.json --assets release-assets.json --out sigcheck \
+            --require darwin-aarch64 --require darwin-x86_64 \
+            --require windows-x86_64 --require windows-aarch64 > sigcheck.txt
+          while read -r p name; do
+            test -f "assets/$name" || { echo "::error::$p names $name, which was not downloaded"; exit 1; }
+            echo "$p: $name"
+            minisign -V -p updater.pub -m "assets/$name" -x "sigcheck/$p.minisig"
+          done < sigcheck.txt
+          read -r p name < sigcheck.txt
+          cp "assets/$name" sigcheck/tampered
+          printf '\x00' | dd of=sigcheck/tampered bs=1 seek=100 conv=notrunc 2>/dev/null
+          if minisign -V -p updater.pub -m sigcheck/tampered -x "sigcheck/$p.minisig"; then
             echo "::error::a tampered artifact verified"; exit 1
           fi
 
