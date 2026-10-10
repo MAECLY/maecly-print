@@ -339,7 +339,7 @@ fn check_ranges(settings: &JobSettings, files: &[String]) -> Result<(), CliError
         return Ok(());
     };
     crate::ipc::jobs::check_ranges_fit_documents(ranges, files)
-        .map_err(|e| CliError::from(IpcError::InvalidRequest(e)))
+        .map_err(|e| CliError::from(IpcError::from(e)))
 }
 
 /// The two wall-clock budgets of a headless print, read from `[engine]`.
@@ -522,10 +522,9 @@ pub fn resolve_settings(
 
     settings
         .validate()
-        .map_err(|e| CliError::from(IpcError::InvalidRequest(e)))?;
+        .map_err(|e| CliError::from(IpcError::from(e)))?;
     if let Some(ranges) = &settings.page_ranges {
-        crate::engine::pagerange::parse(ranges)
-            .map_err(|e| CliError::from(IpcError::InvalidRequest(e)))?;
+        crate::engine::pagerange::parse(ranges).map_err(|e| CliError::from(IpcError::from(e)))?;
     }
     Ok(settings)
 }

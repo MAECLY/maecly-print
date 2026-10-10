@@ -23,7 +23,7 @@ use std::path::Path;
 use crate::settings::{
     AppCfg, AppSettings, Bounds, Config, EngineCfg, SettingsMeta, CONFIG_LOCK, ENGINE_LIMITS,
 };
-use crate::util::error::IpcError;
+use crate::util::error::{IpcError, IpcErrorCode, LocalizedError};
 
 // As in `ipc::profiles`, each `#[tauri::command]` is a thin wrapper over a
 // path-injected `*_at` core so the integration tests in `tests/` can drive the
@@ -115,7 +115,7 @@ pub fn set_app_settings_at(
     settings: AppSettings,
 ) -> Result<AppSettings, IpcError> {
     // Pure bounds first — no I/O, no lock.
-    validate_bounds(&settings.app, &settings.engine).map_err(IpcError::InvalidRequest)?;
+    validate_bounds(&settings.app, &settings.engine)?;
 
     let _guard = CONFIG_LOCK.lock().unwrap();
     let mut cfg =
@@ -145,22 +145,40 @@ fn to_app_settings(cfg: Config, meta: SettingsMeta) -> AppSettings {
     }
 }
 
-/// One knob's rejection message, phrased from its own [`Bounds`] so the numbers
-/// here can never drift from the ones that are enforced and shipped to the UI.
-fn out_of_range(field: &str, bounds: &Bounds, value: u32) -> String {
-    let range = if matches!(bounds.zero, crate::settings::ZeroPolicy::Disables) {
-        format!("0 (disabled) or between {} and {}", bounds.min, bounds.max)
+/// One knob's rejection, phrased from its own [`Bounds`] so the numbers here
+/// can never drift from the ones that are enforced and shipped to the UI.
+///
+/// The reason (FR-092) is `setting_out_of_range`, or
+/// `setting_out_of_range_or_off` for a knob where 0 switches it off; `field`
+/// is the config key, which the UI turns into the field's own label.
+fn out_of_range(field: &str, bounds: &Bounds, value: u32) -> LocalizedError {
+    let off = matches!(bounds.zero, crate::settings::ZeroPolicy::Disables);
+    let (reason, range) = if off {
+        (
+            "setting_out_of_range_or_off",
+            format!("0 (disabled) or between {} and {}", bounds.min, bounds.max),
+        )
     } else {
-        format!("between {} and {}", bounds.min, bounds.max)
+        (
+            "setting_out_of_range",
+            format!("between {} and {}", bounds.min, bounds.max),
+        )
     };
-    format!("{field} must be {range}, got {value}")
+    LocalizedError::new(
+        IpcErrorCode::InvalidRequest,
+        reason,
+        format!("{field} must be {range}, got {value}"),
+    )
+    .param("field", field)
+    .param("min", bounds.min)
+    .param("max", bounds.max)
 }
 
 /// Pure bounds check for the numeric/locale fields, split out so the matrix is
 /// unit-testable without touching the filesystem. Every range comes from
 /// [`ENGINE_LIMITS`] — the same constant `EngineCfg::sanitized` clamps with and
 /// `get_app_settings` ships to the client in `meta.limits`.
-fn validate_bounds(app: &AppCfg, engine: &EngineCfg) -> Result<(), String> {
+fn validate_bounds(app: &AppCfg, engine: &EngineCfg) -> Result<(), LocalizedError> {
     let checks = [
         (
             "max_concurrent_conversions",
@@ -189,7 +207,11 @@ fn validate_bounds(app: &AppCfg, engine: &EngineCfg) -> Result<(), String> {
         }
     }
     if app.locale.trim().is_empty() {
-        return Err("locale must not be empty".to_string());
+        return Err(LocalizedError::new(
+            IpcErrorCode::InvalidRequest,
+            "locale_empty",
+            "locale must not be empty",
+        ));
     }
     Ok(())
 }
@@ -262,8 +284,35 @@ mod tests {
         for bad in [1, 9, 3601] {
             e.print_timeout_seconds = bad;
             let err = validate_bounds(&a, &e).unwrap_err();
-            assert!(err.contains("print_timeout_seconds"), "{err}");
+            assert!(err.message.contains("print_timeout_seconds"), "{err}");
         }
+    }
+
+    /// FR-092: a rejected setting names the field and its range through
+    /// params, so the UI says it with the field's own label in the user's
+    /// language; a knob 0 switches off gets the sentence that says so.
+    #[test]
+    fn fr_092_setting_errors_carry_reason_and_params() {
+        let (a, e) = cfg(9, 60, 200, "en-US");
+        let err = validate_bounds(&a, &e).unwrap_err();
+        assert_eq!(err.reason, "setting_out_of_range");
+        assert_eq!(err.params["field"], "max_concurrent_conversions");
+        assert_eq!(
+            err.params["min"],
+            ENGINE_LIMITS.max_concurrent_conversions.min.to_string()
+        );
+        assert_eq!(
+            err.params["max"],
+            ENGINE_LIMITS.max_concurrent_conversions.max.to_string()
+        );
+
+        let (a, e) = cfg(2, 5, 200, "en-US");
+        let err = validate_bounds(&a, &e).unwrap_err();
+        assert_eq!(err.reason, "setting_out_of_range_or_off");
+        assert_eq!(err.params["field"], "conversion_timeout_seconds");
+
+        let (a, e) = cfg(2, 60, 200, " ");
+        assert_eq!(validate_bounds(&a, &e).unwrap_err().reason, "locale_empty");
     }
 
     #[test]
@@ -325,7 +374,7 @@ mod tests {
             l.max_file_size_mb.max,
             "en-US",
         );
-        let msg = validate_bounds(&a, &e).unwrap_err();
+        let msg = validate_bounds(&a, &e).unwrap_err().message;
         assert!(
             msg.contains(&l.max_concurrent_conversions.max.to_string()),
             "the rejection quotes the enforced ceiling: {msg}"

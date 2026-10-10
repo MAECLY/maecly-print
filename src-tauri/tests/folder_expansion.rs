@@ -20,7 +20,7 @@ use pluryprint_lib::engine::{
     expand_folder, ExpansionLimits, FolderExpansion, FolderScan, SkipReason,
 };
 use pluryprint_lib::ipc::jobs::expand_selection;
-use pluryprint_lib::util::error::IpcError;
+use pluryprint_lib::util::error::{IpcError, IpcErrorCode};
 use pluryprint_lib::util::paths::canonical_input;
 
 /// Generous ceiling: the limit tests override it explicitly.
@@ -355,13 +355,11 @@ fn nfr_025_relative_and_missing_paths_are_refused() {
     let (_guard, root) = canonical_tempdir();
     let missing = root.join("ghost.pdf");
 
-    assert!(
-        matches!(
-            canonical_input("relative/doc.pdf"),
-            Err(IpcError::InvalidRequest(_))
-        ),
-        "a relative path is refused, never resolved against the cwd"
-    );
+    let relative = canonical_input("relative/doc.pdf")
+        .expect_err("a relative path is refused, never resolved against the cwd");
+    assert_eq!(relative.code(), IpcErrorCode::InvalidRequest);
+    // FR-092: with the reason the UI translates.
+    assert_eq!(relative.reason(), Some("path_not_absolute"));
     assert!(matches!(
         canonical_input(&missing.to_string_lossy()),
         Err(IpcError::FileNotFound(_))

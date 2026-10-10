@@ -104,9 +104,13 @@ pub fn set_skipped_update_version(version: Option<String>) -> Result<(), IpcErro
     state.skipped_version = version
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty());
-    state
-        .save()
-        .map_err(|e| IpcError::Internal(format!("could not save the update state: {e}")))
+    state.save().map_err(|e| {
+        IpcError::localized(
+            crate::util::error::IpcErrorCode::Internal,
+            "update_state_save_failed",
+            format!("could not save the update state: {e}"),
+        )
+    })
 }
 
 /// FR-084 "install now": download, verify and install the newest release.

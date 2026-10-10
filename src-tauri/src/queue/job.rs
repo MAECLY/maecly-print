@@ -323,21 +323,33 @@ impl JobSettings {
     /// The page-range *grammar* is deliberately not validated here — the engine
     /// owns that parser. This only rejects an obviously empty range so the UI
     /// can surface an inline error early (FR-042).
-    pub fn validate(&self) -> Result<(), String> {
+    ///
+    /// Each error carries its stable `InvalidRequest` reason (FR-092).
+    pub fn validate(&self) -> Result<(), crate::util::error::LocalizedError> {
+        use crate::util::error::{IpcErrorCode::InvalidRequest, LocalizedError};
         if !(1..=999).contains(&self.copies) {
-            return Err(format!(
-                "copies must be between 1 and 999, got {}",
-                self.copies
+            return Err(LocalizedError::new(
+                InvalidRequest,
+                "copies_out_of_range",
+                format!("copies must be between 1 and 999, got {}", self.copies),
             ));
         }
         if let Some(ranges) = &self.page_ranges {
             if ranges.trim().is_empty() {
-                return Err("page range must not be empty".to_string());
+                return Err(LocalizedError::new(
+                    InvalidRequest,
+                    "page_range_empty",
+                    "page range must not be empty",
+                ));
             }
         }
         if let Some(tray) = &self.tray {
             if tray.trim().is_empty() {
-                return Err("input tray must not be empty".to_string());
+                return Err(LocalizedError::new(
+                    InvalidRequest,
+                    "tray_empty",
+                    "input tray must not be empty",
+                ));
             }
         }
         Ok(())

@@ -378,11 +378,23 @@ impl From<std::io::Error> for IpcError {
 }
 
 impl From<anyhow::Error> for IpcError {
-    /// A [`LocalizedError`] raised through `anyhow` keeps its code and reason;
-    /// anything else is an `Internal` failure.
+    /// A [`LocalizedError`] raised through `anyhow` keeps its code and reason,
+    /// and so does an engine failure (an [`crate::engine::EngineError`], or
+    /// the one inside a [`crate::engine::print::PrintError::Engine`], as the
+    /// platform test page raises); anything else is an `Internal` failure.
     fn from(err: anyhow::Error) -> Self {
-        match err.downcast::<LocalizedError>() {
-            Ok(localized) => localized.into(),
+        use crate::engine::print::PrintError;
+        let err = match err.downcast::<LocalizedError>() {
+            Ok(localized) => return localized.into(),
+            Err(other) => other,
+        };
+        let err = match err.downcast::<crate::engine::EngineError>() {
+            Ok(engine) => return engine.into(),
+            Err(other) => other,
+        };
+        match err.downcast::<PrintError>() {
+            Ok(PrintError::Engine(engine)) => engine.into(),
+            Ok(other) => IpcError::Internal(other.to_string()),
             Err(other) => IpcError::Internal(other.to_string()),
         }
     }
@@ -432,7 +444,9 @@ impl From<crate::engine::EngineError> for IpcError {
                     _ => l.into(),
                 }
             }
-            E::Cancelled => IpcError::InvalidState("job cancelled".to_string()),
+            E::Cancelled => {
+                IpcError::localized(IpcErrorCode::InvalidState, "job_cancelled", "job cancelled")
+            }
         }
     }
 }
@@ -559,9 +573,35 @@ mod tests {
         assert_eq!(plain.reason(), None);
     }
 
+    /// FR-092: an engine failure that travels through `anyhow` (the platform
+    /// test page spools through the engine) keeps its family and reason.
+    #[test]
+    fn fr_092_engine_failure_survives_an_anyhow_round_trip() {
+        use crate::engine::print::PrintError;
+        use crate::engine::Failure;
+        let spool: anyhow::Error = PrintError::Engine(EngineError::PrintFailed(
+            Failure::new("sumatra_exit", "SumatraPDF exited with 1").param("status", 1),
+        ))
+        .into();
+        let ipc = IpcError::from(spool);
+        assert_eq!(ipc.code(), IpcErrorCode::PrintFailed);
+        assert_eq!(ipc.reason(), Some("sumatra_exit"));
+
+        let engine: anyhow::Error =
+            EngineError::DependencyMissing(Failure::new("cups", "no lp")).into();
+        let ipc = IpcError::from(engine);
+        assert_eq!(ipc.code(), IpcErrorCode::DependencyMissing);
+        assert_eq!(ipc.reason(), Some("cups"));
+
+        let timeout: anyhow::Error = PrintError::TimedOut { seconds: 5 }.into();
+        assert_eq!(IpcError::from(timeout).code(), IpcErrorCode::Internal);
+    }
+
     #[test]
     fn cancelled_maps_to_invalid_state() {
         let ipc: IpcError = EngineError::Cancelled.into();
-        assert!(matches!(ipc, IpcError::InvalidState(_)));
+        assert_eq!(ipc.code(), IpcErrorCode::InvalidState);
+        assert_eq!(ipc.reason(), Some("job_cancelled"));
+        assert_eq!(ipc.message(), "job cancelled");
     }
 }

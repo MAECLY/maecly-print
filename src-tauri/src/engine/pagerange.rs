@@ -26,24 +26,37 @@
 //! needs the document, which the grammar parser does not have, so it lives in
 //! [`check_bounds`] / [`parse_within`] and is applied by the submit path once
 //! the per-file page count is known.
+//!
+//! Every error is a [`LocalizedError`] of the `InvalidRequest` family with a
+//! stable reason (`page_range_empty`, `page_range_backwards`, …) and the
+//! params its sentence needs (FR-092), so the dialog, a context-menu print and
+//! the CLI's JSON all name the problem the same way in the user's language.
+//! The English `message` is the CLI's text and the log's.
+
+use crate::util::error::{IpcErrorCode, LocalizedError};
+
+/// An `InvalidRequest` page-range error with `reason` and its English text.
+fn invalid(reason: &'static str, message: impl Into<String>) -> LocalizedError {
+    LocalizedError::new(IpcErrorCode::InvalidRequest, reason, message)
+}
 
 /// Parse a page-range expression into sorted, coalesced inclusive `(start, end)`
-/// spans (both 1-based). Returns a human-readable error describing the first
-/// problem found.
-pub fn parse(input: &str) -> Result<Vec<(u32, u32)>, String> {
+/// spans (both 1-based). Returns an error describing the first problem found.
+pub fn parse(input: &str) -> Result<Vec<(u32, u32)>, LocalizedError> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return Err("page range is empty".to_string());
+        return Err(invalid("page_range_empty", "page range is empty"));
     }
 
     let mut spans = Vec::new();
     for (i, raw) in trimmed.split(',').enumerate() {
         let entry = raw.trim();
         if entry.is_empty() {
-            return Err(format!(
-                "page range has an empty entry at position {}",
-                i + 1
-            ));
+            return Err(invalid(
+                "page_range_empty_entry",
+                format!("page range has an empty entry at position {}", i + 1),
+            )
+            .param("position", i + 1));
         }
         spans.push(parse_entry(entry)?);
     }
@@ -69,21 +82,31 @@ pub fn is_valid(input: &str) -> bool {
 /// has a spelling — leave the field blank — and accepting it would let a typo
 /// like `1-500` on a 5-page report pass validation while quietly printing 5
 /// pages.
-pub fn check_bounds(spans: &[(u32, u32)], pages: Option<u32>) -> Result<(), String> {
+///
+/// The error is `page_range_outside` with `span` (`9` or `2-3`, written the
+/// way the user types it, so it reads the same in every language) and the
+/// numeric `count` its plural sentence picks a form by. The caller adds the
+/// file's `name` (`ipc::jobs::check_ranges_fit_documents`).
+pub fn check_bounds(spans: &[(u32, u32)], pages: Option<u32>) -> Result<(), LocalizedError> {
     let Some(pages) = pages else {
         return Ok(());
     };
     for (start, end) in spans {
         if *end > pages {
-            let span = if start == end {
-                format!("page {start}")
+            let (span, label) = if start == end {
+                (start.to_string(), format!("page {start}"))
             } else {
-                format!("range {start}-{end}")
+                (format!("{start}-{end}"), format!("range {start}-{end}"))
             };
-            return Err(format!(
-                "{span} is outside the document: it only has {pages} {}",
-                if pages == 1 { "page" } else { "pages" }
-            ));
+            return Err(invalid(
+                "page_range_outside",
+                format!(
+                    "{label} is outside the document: it only has {pages} {}",
+                    if pages == 1 { "page" } else { "pages" }
+                ),
+            )
+            .param("span", span)
+            .param("count", pages));
         }
     }
     Ok(())
@@ -91,28 +114,34 @@ pub fn check_bounds(spans: &[(u32, u32)], pages: Option<u32>) -> Result<(), Stri
 
 /// [`parse`] followed by [`check_bounds`] — the full contract for a range that
 /// is about to be printed against a document whose length is known.
-pub fn parse_within(input: &str, pages: Option<u32>) -> Result<Vec<(u32, u32)>, String> {
+pub fn parse_within(input: &str, pages: Option<u32>) -> Result<Vec<(u32, u32)>, LocalizedError> {
     let spans = parse(input)?;
     check_bounds(&spans, pages)?;
     Ok(spans)
 }
 
 /// Parse one comma-free entry — either `"N"` or `"A-B"`.
-fn parse_entry(entry: &str) -> Result<(u32, u32), String> {
+fn parse_entry(entry: &str) -> Result<(u32, u32), LocalizedError> {
     match entry.split_once('-') {
         Some((lhs, rhs)) => {
             let (lhs, rhs) = (lhs.trim(), rhs.trim());
             if lhs.is_empty() || rhs.is_empty() {
-                return Err(format!(
-                    "'{entry}' is not a complete range — write it as e.g. \"2-5\""
-                ));
+                return Err(invalid(
+                    "page_range_incomplete",
+                    format!("'{entry}' is not a complete range — write it as e.g. \"2-5\""),
+                )
+                .param("entry", entry));
             }
             let start = parse_page(lhs)?;
             let end = parse_page(rhs)?;
             if start > end {
-                return Err(format!(
-                    "range '{entry}' runs backwards: {start} is greater than {end}"
-                ));
+                return Err(invalid(
+                    "page_range_backwards",
+                    format!("range '{entry}' runs backwards: {start} is greater than {end}"),
+                )
+                .param("entry", entry)
+                .param("start", start)
+                .param("end", end));
             }
             Ok((start, end))
         }
@@ -124,12 +153,19 @@ fn parse_entry(entry: &str) -> Result<(u32, u32), String> {
 }
 
 /// Parse a single 1-based page number, rejecting non-numbers and `0`.
-fn parse_page(token: &str) -> Result<u32, String> {
-    let page: u32 = token
-        .parse()
-        .map_err(|_| format!("'{token}' is not a valid page number"))?;
+fn parse_page(token: &str) -> Result<u32, LocalizedError> {
+    let page: u32 = token.parse().map_err(|_| {
+        invalid(
+            "page_number_invalid",
+            format!("'{token}' is not a valid page number"),
+        )
+        .param("token", token)
+    })?;
     if page == 0 {
-        return Err("page numbers start at 1, not 0".to_string());
+        return Err(invalid(
+            "page_number_zero",
+            "page numbers start at 1, not 0",
+        ));
     }
     Ok(page)
 }
@@ -252,11 +288,11 @@ mod tests {
 
     #[test]
     fn fr_042_bounds_error_names_the_span_and_the_total() {
-        let err = parse_within("2-3", Some(1)).unwrap_err();
+        let err = parse_within("2-3", Some(1)).unwrap_err().message;
         assert!(err.contains("2-3"), "names the span: {err}");
         assert!(err.contains("1 page"), "singular page total: {err}");
 
-        let err = parse_within("9", Some(8)).unwrap_err();
+        let err = parse_within("9", Some(8)).unwrap_err().message;
         assert!(err.contains("page 9"), "names the page: {err}");
         assert!(err.contains("8 pages"), "plural page total: {err}");
     }
@@ -265,7 +301,51 @@ mod tests {
     fn fr_042_grammar_errors_still_win_over_bounds() {
         // A malformed range is reported as malformed, not as out-of-bounds.
         let err = parse_within("5-1", Some(100)).unwrap_err();
-        assert!(err.contains("backwards"), "{err}");
+        assert!(err.message.contains("backwards"), "{err}");
+        assert_eq!(err.reason, "page_range_backwards");
+    }
+
+    /// FR-092: every grammar and bounds error carries its stable reason and
+    /// the params its EN/ES sentence interpolates.
+    #[test]
+    fn fr_092_page_range_errors_carry_reason_and_params() {
+        let cases: &[(&str, Option<u32>, &str, &[(&str, &str)])] = &[
+            ("  ", None, "page_range_empty", &[]),
+            ("1,,3", None, "page_range_empty_entry", &[("position", "2")]),
+            ("5-", None, "page_range_incomplete", &[("entry", "5-")]),
+            (
+                "5-1",
+                None,
+                "page_range_backwards",
+                &[("entry", "5-1"), ("start", "5"), ("end", "1")],
+            ),
+            ("x", None, "page_number_invalid", &[("token", "x")]),
+            ("0", None, "page_number_zero", &[]),
+            (
+                "2-3",
+                Some(1),
+                "page_range_outside",
+                &[("span", "2-3"), ("count", "1")],
+            ),
+            (
+                "9",
+                Some(8),
+                "page_range_outside",
+                &[("span", "9"), ("count", "8")],
+            ),
+        ];
+        for (input, pages, reason, params) in cases {
+            let err = parse_within(input, *pages).unwrap_err();
+            assert_eq!(err.code, IpcErrorCode::InvalidRequest, "{input}");
+            assert_eq!(err.reason, *reason, "{input}");
+            for (k, v) in *params {
+                assert_eq!(
+                    err.params.get(*k).map(String::as_str),
+                    Some(*v),
+                    "{input}: {k}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -24,7 +24,7 @@ use anyhow::Context;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::queue::job::{now_rfc3339, Job, JobBatch, PrintRequest, QueueSnapshot, SCHEMA_VERSION};
-use crate::util::error::IpcError;
+use crate::util::error::{IpcError, IpcErrorCode};
 
 /// PDFs larger than this are not parsed for a page count at submit/inspect time
 /// (the parse would stall the UI); their page count stays `None` until after
@@ -74,13 +74,15 @@ impl QueueHandle {
     /// Performs blocking filesystem I/O, so callers run it off the UI thread.
     pub fn submit(&self, req: PrintRequest) -> Result<JobBatch, IpcError> {
         if req.files.is_empty() {
-            return Err(IpcError::InvalidRequest(
-                "no files were provided to print".to_string(),
+            return Err(IpcError::localized(
+                IpcErrorCode::InvalidRequest,
+                "no_files",
+                "no files were provided to print",
             ));
         }
-        req.settings.validate().map_err(IpcError::InvalidRequest)?;
+        req.settings.validate()?;
         if let Some(ranges) = &req.settings.page_ranges {
-            crate::engine::pagerange::parse(ranges).map_err(IpcError::InvalidRequest)?;
+            crate::engine::pagerange::parse(ranges)?;
         }
 
         // Read the size ceiling once for the whole batch (config is loaded per
@@ -99,20 +101,32 @@ impl QueueHandle {
         for file in &req.files {
             let path = Path::new(file);
             let meta = std::fs::metadata(path).map_err(|_| IpcError::FileNotFound(file.clone()))?;
+            // The name only in the translated sentence: the full path is the
+            // English detail (logs, CLI).
+            let name = path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| file.clone());
             if !meta.is_file() {
-                return Err(IpcError::InvalidRequest(format!("{file} is not a file")));
+                return Err(IpcError::localized(
+                    IpcErrorCode::InvalidRequest,
+                    "not_a_file",
+                    format!("{file} is not a file"),
+                )
+                .with_param("name", &name));
             }
             if exceeds_size_limit(meta.len(), max_mb) {
-                let name = path
-                    .file_name()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| file.clone());
-                return Err(IpcError::InvalidRequest(format!(
-                    "{name} is larger than the {max_mb} MB limit"
-                )));
+                return Err(IpcError::localized(
+                    IpcErrorCode::InvalidRequest,
+                    "file_too_large",
+                    format!("{name} is larger than the {max_mb} MB limit"),
+                )
+                .with_param("name", &name)
+                .with_param("limit", max_mb));
             }
             let ext = crate::engine::extension_of(path);
             if !crate::engine::is_supported(&ext) {
+                // GIF is refused on purpose (decision D9) and says so.
                 return Err(unsupported_format_error(file, path, &ext));
             }
 
@@ -309,7 +323,16 @@ pub(crate) fn unsupported_format_error(file: &str, path: &Path, ext: &str) -> Ip
         )
         .with_param("name", name);
     }
-    IpcError::UnsupportedFormat(format!("{file} is not a printable file type"))
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| file.to_string());
+    IpcError::localized(
+        crate::util::error::IpcErrorCode::UnsupportedFormat,
+        "not_printable",
+        format!("{file} is not a printable file type"),
+    )
+    .with_param("name", name)
 }
 
 /// True iff `bytes` exceeds the `max_mb` megabyte ceiling. Pure `u64` math so the
@@ -401,13 +424,18 @@ mod tests {
         }
     }
 
+    /// The family and stable reason a refused submit carries (FR-092).
+    fn refusal(r: Result<JobBatch, IpcError>) -> (IpcErrorCode, Option<&'static str>, IpcError) {
+        let e = r.expect_err("the submit must be refused");
+        (e.code(), e.reason(), e)
+    }
+
     #[test]
     fn submit_rejects_empty_file_list() {
         let (h, _rx) = handle_with_open_channel();
-        assert!(matches!(
-            h.submit(req(vec![], JobSettings::default())),
-            Err(IpcError::InvalidRequest(_))
-        ));
+        let (code, reason, _) = refusal(h.submit(req(vec![], JobSettings::default())));
+        assert_eq!(code, IpcErrorCode::InvalidRequest);
+        assert_eq!(reason, Some("no_files"));
     }
 
     #[test]
@@ -434,7 +462,7 @@ mod tests {
         };
         assert_eq!(l.params["name"], "anim.gif");
         let other = unsupported_format_error("/x/a.exe", Path::new("/x/a.exe"), "exe");
-        assert!(matches!(other, IpcError::UnsupportedFormat(_)));
+        assert_eq!(other.reason(), Some("not_printable"));
     }
 
     #[test]
@@ -442,10 +470,35 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let f = write_file(&dir, "archive.zip", b"hi");
         let (h, _rx) = handle_with_open_channel();
-        assert!(matches!(
-            h.submit(req(vec![f], JobSettings::default())),
-            Err(IpcError::UnsupportedFormat(_))
-        ));
+        let (code, reason, e) = refusal(h.submit(req(vec![f], JobSettings::default())));
+        assert_eq!(code, IpcErrorCode::UnsupportedFormat);
+        assert_eq!(reason, Some("not_printable"));
+        let wire = serde_json::to_value(&e).unwrap();
+        assert_eq!(
+            wire["params"]["name"], "archive.zip",
+            "the name, not the path"
+        );
+    }
+
+    /// FR-092 + decision D9: a GIF is refused with its own sentence.
+    #[test]
+    fn fr_092_submit_refuses_a_gif_with_its_own_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = write_file(&dir, "anim.gif", b"GIF89a");
+        let (h, _rx) = handle_with_open_channel();
+        let (code, reason, _) = refusal(h.submit(req(vec![f], JobSettings::default())));
+        assert_eq!(code, IpcErrorCode::UnsupportedFormat);
+        assert_eq!(reason, Some("gif_not_supported"));
+    }
+
+    #[test]
+    fn fr_092_submit_refuses_a_folder_as_not_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (h, _rx) = handle_with_open_channel();
+        let folder = dir.path().to_string_lossy().into_owned();
+        let (code, reason, _) = refusal(h.submit(req(vec![folder], JobSettings::default())));
+        assert_eq!(code, IpcErrorCode::InvalidRequest);
+        assert_eq!(reason, Some("not_a_file"));
     }
 
     #[test]
@@ -457,10 +510,9 @@ mod tests {
             copies: 0,
             ..Default::default()
         };
-        assert!(matches!(
-            h.submit(req(vec![f], settings)),
-            Err(IpcError::InvalidRequest(_))
-        ));
+        let (code, reason, _) = refusal(h.submit(req(vec![f], settings)));
+        assert_eq!(code, IpcErrorCode::InvalidRequest);
+        assert_eq!(reason, Some("copies_out_of_range"));
     }
 
     #[test]
@@ -472,10 +524,9 @@ mod tests {
             page_ranges: Some("5-1".into()),
             ..Default::default()
         };
-        assert!(matches!(
-            h.submit(req(vec![f], settings)),
-            Err(IpcError::InvalidRequest(_))
-        ));
+        let (code, reason, _) = refusal(h.submit(req(vec![f], settings)));
+        assert_eq!(code, IpcErrorCode::InvalidRequest);
+        assert_eq!(reason, Some("page_range_backwards"));
     }
 
     #[test]

@@ -389,7 +389,7 @@ pub fn validate_and_normalize(
     // parse against the engine grammar.
     p.page_range = match p.page_range.as_deref() {
         Some(s) if !s.trim().is_empty() => {
-            crate::engine::pagerange::parse(s).map_err(ProfileInvalid::PageRange)?;
+            crate::engine::pagerange::parse(s).map_err(|e| ProfileInvalid::PageRange(e.message))?;
             Some(s.trim().to_string())
         }
         _ => None,

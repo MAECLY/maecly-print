@@ -114,7 +114,7 @@ pub async fn print_files(
             .map(|f| canonical_input(f).map(|p| p.to_string_lossy().into_owned()))
             .collect::<Result<Vec<_>, _>>()?;
         if let Some(ranges) = req.settings.page_ranges.as_deref() {
-            check_ranges_fit_documents(ranges, &req.files).map_err(IpcError::InvalidRequest)?;
+            check_ranges_fit_documents(ranges, &req.files)?;
         }
         handle.submit(req)
     })
@@ -142,7 +142,10 @@ pub async fn print_files(
 /// (`cli::print::check_ranges`): `pluryprint print --range 500-600` used to
 /// spool zero pages in silence where the dialog refused the same range, and two
 /// copies of this rule would have drifted apart again.
-pub(crate) fn check_ranges_fit_documents(ranges: &str, files: &[String]) -> Result<(), String> {
+pub(crate) fn check_ranges_fit_documents(
+    ranges: &str,
+    files: &[String],
+) -> Result<(), crate::util::error::LocalizedError> {
     let spans = crate::engine::pagerange::parse(ranges)?;
     for file in files {
         let path = Path::new(file);
@@ -160,8 +163,11 @@ pub(crate) fn check_ranges_fit_documents(ranges: &str, files: &[String]) -> Resu
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_else(|| file.clone());
             // The name only: NFR-082 keeps absolute paths out of the log.
-            tracing::warn!(event = "page_range_out_of_bounds", file = %name, ranges = %ranges, reason = %e);
-            return Err(format!("{name}: {e}"));
+            tracing::warn!(event = "page_range_out_of_bounds", file = %name, ranges = %ranges, reason = %e.message);
+            let message = format!("{name}: {}", e.message);
+            let mut e = e.param("name", name);
+            e.message = message;
+            return Err(e);
         }
     }
     Ok(())
@@ -887,6 +893,13 @@ mod tests {
         let files = vec![pdf.to_string_lossy().into_owned()];
 
         let err = check_ranges_fit_documents("2-3", &files).unwrap_err();
+        // FR-092: the UI's sentence gets the file name and a numeric count
+        // for its plural; the English detail keeps naming both.
+        assert_eq!(err.reason, "page_range_outside");
+        assert_eq!(err.params["name"], "report.pdf");
+        assert_eq!(err.params["span"], "2-3");
+        assert_eq!(err.params["count"], "1");
+        let err = err.message;
         assert!(err.starts_with("report.pdf:"), "names the file: {err}");
         assert!(err.contains("1 page"), "names the document length: {err}");
 

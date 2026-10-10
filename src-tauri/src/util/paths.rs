@@ -95,21 +95,34 @@ pub fn ensure_dir(p: &Path) -> std::io::Result<()> {
 /// prints that document. The caller keeps the original string for display when
 /// it needs to.
 pub fn canonical_input(raw: &str) -> Result<PathBuf, IpcError> {
+    use crate::util::error::IpcErrorCode;
     if raw.trim().is_empty() {
-        return Err(IpcError::InvalidRequest("empty path".to_string()));
+        return Err(IpcError::localized(
+            IpcErrorCode::InvalidRequest,
+            "path_empty",
+            "empty path",
+        ));
     }
     let path = Path::new(raw);
     if !path.is_absolute() {
-        return Err(IpcError::InvalidRequest(format!(
-            "{raw} is not an absolute path"
-        )));
+        return Err(IpcError::localized(
+            IpcErrorCode::InvalidRequest,
+            "path_not_absolute",
+            format!("{raw} is not an absolute path"),
+        )
+        .with_param("path", raw));
     }
     match path.canonicalize() {
         Ok(p) => Ok(simplified(p)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             Err(IpcError::FileNotFound(raw.to_string()))
         }
-        Err(e) => Err(IpcError::Internal(format!("cannot resolve {raw}: {e}"))),
+        Err(e) => Err(IpcError::localized(
+            IpcErrorCode::Internal,
+            "path_unresolvable",
+            format!("cannot resolve {raw}: {e}"),
+        )
+        .with_param("path", raw)),
     }
 }
 
@@ -154,15 +167,18 @@ mod tests {
 
     #[test]
     fn nfr_025_relative_paths_are_refused() {
+        use crate::util::error::IpcErrorCode;
         let err = canonical_input("docs/report.pdf").unwrap_err();
+        assert_eq!(err.code(), IpcErrorCode::InvalidRequest);
+        // FR-092: a reason the UI translates, naming the path it refused.
+        assert_eq!(err.reason(), Some("path_not_absolute"));
         assert!(
-            matches!(err, IpcError::InvalidRequest(ref m) if m.contains("absolute")),
+            err.message().contains("absolute"),
             "expected an absolute-path rejection, got {err:?}"
         );
-        assert!(matches!(
-            canonical_input("   ").unwrap_err(),
-            IpcError::InvalidRequest(_)
-        ));
+        let blank = canonical_input("   ").unwrap_err();
+        assert_eq!(blank.code(), IpcErrorCode::InvalidRequest);
+        assert_eq!(blank.reason(), Some("path_empty"));
     }
 
     #[test]

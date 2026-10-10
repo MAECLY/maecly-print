@@ -842,9 +842,7 @@ impl Dispatcher {
             let mut st = self.state.write().unwrap();
             match st.jobs.iter_mut().find(|j| j.id == id) {
                 None => Err(IpcError::JobNotFound(id.to_string())),
-                Some(job) if job.state.is_terminal() => Err(IpcError::InvalidState(format!(
-                    "job {id} has already finished"
-                ))),
+                Some(job) if job.state.is_terminal() => Err(job_finished(id)),
                 Some(job) => {
                     cancel_job_in_place(job, &self.converting, &mut post);
                     release_tracked_slot(&mut self.print_slot, job, &mut post);
@@ -906,12 +904,14 @@ impl Dispatcher {
                     }
                     // Idempotent: pausing an already-paused job is a no-op.
                     JobState::Paused => Ok(()),
-                    JobState::Printing => Err(IpcError::InvalidState(
-                        "cannot pause a job that is already printing".to_string(),
+                    JobState::Printing => Err(IpcError::localized(
+                        IpcErrorCode::InvalidState,
+                        "job_printing",
+                        "cannot pause a job that is already printing",
                     )),
-                    JobState::Done | JobState::Failed | JobState::Cancelled => Err(
-                        IpcError::InvalidState(format!("job {id} has already finished")),
-                    ),
+                    JobState::Done | JobState::Failed | JobState::Cancelled => {
+                        Err(job_finished(id))
+                    }
                 },
             }
         };
@@ -967,8 +967,10 @@ impl Dispatcher {
             let mut st = self.state.write().unwrap();
             match st.jobs.iter_mut().find(|j| j.id == id) {
                 None => Err(IpcError::JobNotFound(id.to_string())),
-                Some(job) if job.state != JobState::Paused => Err(IpcError::InvalidState(
-                    "only a paused job can be resumed".to_string(),
+                Some(job) if job.state != JobState::Paused => Err(IpcError::localized(
+                    IpcErrorCode::InvalidState,
+                    "job_not_paused",
+                    "only a paused job can be resumed",
                 )),
                 Some(job) => {
                     let cache_valid = job
@@ -1101,8 +1103,10 @@ impl Dispatcher {
             let mut st = self.state.write().unwrap();
             match st.jobs.iter_mut().find(|j| j.id == id) {
                 None => Err(IpcError::JobNotFound(id.to_string())),
-                Some(job) if job.state != JobState::Failed => Err(IpcError::InvalidState(
-                    "only a failed job can be retried".to_string(),
+                Some(job) if job.state != JobState::Failed => Err(IpcError::localized(
+                    IpcErrorCode::InvalidState,
+                    "job_not_failed",
+                    "only a failed job can be retried",
                 )),
                 Some(job) => {
                     job.state = JobState::Queued;
@@ -2251,6 +2255,15 @@ fn record_failure(job: &mut Job, e: &EngineError, is_conversion: bool, post: &mu
             }
         }
     }
+}
+
+/// The refusal to act on a job that has already finished (FR-092).
+fn job_finished(id: &str) -> IpcError {
+    IpcError::localized(
+        IpcErrorCode::InvalidState,
+        "job_finished",
+        format!("job {id} has already finished"),
+    )
 }
 
 /// Pause `job` on a failure the user has to fix (a setting, a dependency, a
@@ -3696,7 +3709,10 @@ mod tests {
                 reply,
             })
             .await;
-        assert!(matches!(r, Err(IpcError::InvalidState(_))));
+        let e = r.expect_err("pausing a printing job is refused");
+        assert_eq!(e.code(), IpcErrorCode::InvalidState);
+        // FR-092: the toast says exactly why, in the user's language.
+        assert_eq!(e.reason(), Some("job_printing"));
     }
 
     // ---- Concurrency cap (DispatcherLimits::max_concurrent) ---------------
