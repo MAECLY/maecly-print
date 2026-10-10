@@ -380,8 +380,8 @@ export function PrintJobScreen({
   );
 
   // While something is missing, look again when it may have been fixed: files
-  // added (the "opened" install result asks for exactly that) or the window
-  // regaining focus after the Store / download page.
+  // added, or the window regaining focus after the Store / download page (the
+  // check the "opened" install result promises).
   const anyBlocking = blockingDependencies.length > 0;
   const fileCount = files.length;
   const seenFiles = useRef(fileCount);

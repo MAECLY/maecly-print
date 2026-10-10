@@ -172,4 +172,34 @@ describe('announceInstallEnd', () => {
         'LibreOffice is installed. The job in the queue that needed it is resuming.',
     });
   });
+
+  it('FR-058: an "opened" end no screen asked about names where Pluryprint looks again (EN and ES)', () => {
+    const warning = vi.spyOn(toast, 'warning').mockReturnValue('id');
+    const opened: InstallEnd = {
+      id: 'libre-office',
+      name: 'LibreOffice',
+      seq: 3,
+      outcome: {
+        status: 'opened',
+        exit_code: null,
+        elevated: false,
+        report: { ...office, found: false },
+      },
+    };
+    announceInstallEnd(tEn, opened, false, true);
+    announceInstallEnd(tEs, opened, false, true);
+    announceInstallEnd(tEn, opened);
+    expect(warning.mock.calls[0]![1]).toEqual({
+      description:
+        'Finish the installation in the window that opened. Pluryprint looks for LibreOffice again when you open Print Job, and the jobs in the queue waiting for it resume when you come back to Pluryprint with the Queue open.',
+    });
+    expect(warning.mock.calls[1]![1]).toEqual({
+      description:
+        'Termina la instalación en la ventana que se ha abierto. Pluryprint vuelve a buscar LibreOffice cuando abres Trabajo de impresión, y los trabajos de la cola que lo esperan se reanudan cuando vuelves a Pluryprint con la Cola abierta.',
+    });
+    expect(warning.mock.calls[2]![1]).toEqual({
+      description:
+        'Finish the installation in the window that opened. Pluryprint checks again when you come back to Print Job.',
+    });
+  });
 });

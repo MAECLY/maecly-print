@@ -82,12 +82,15 @@ export async function resumeJobsWaitingOn(
  * have outlived gives administrator rights as the reason only when the
  * installer had them (`outcome.elevated`). `resumesJobs`: the caller resumes
  * the jobs waiting for it (the Queue), so "opened" can promise that.
+ * `standalone`: no screen asked (see `announceInstallEnd`), so "opened"
+ * names where Pluryprint looks again instead of promising it on return.
  */
 export function installResultText(
   t: TFunction<'printJob'>,
   o: InstallOutcome,
   name: string,
   resumesJobs = false,
+  standalone = false,
 ): string {
   switch (o.status) {
     case 'installed':
@@ -95,8 +98,12 @@ export function installResultText(
     case 'not-detected':
       return t('install.result.notDetected', { name });
     case 'opened':
-      return resumesJobs
-        ? t('install.result.openedResumesJobs', { name })
+      // Print Job probes again when it is shown or the window regains focus
+      // while its files wait; the Queue on focus while its jobs wait. With no
+      // screen asking (`standalone`), say where the check happens.
+      if (resumesJobs) return t('install.result.openedResumesJobs', { name });
+      return standalone
+        ? t('install.result.openedAlone', { name })
         : t('install.result.opened');
     case 'timed-out':
       return t('install.result.timedOut');
@@ -178,7 +185,7 @@ export function announceInstallEnd(
   const description =
     o.status === 'installed'
       ? installed()
-      : installResultText(t, o, name, resumesJobs);
+      : installResultText(t, o, name, resumesJobs, standalone);
   if (o.status === 'installed') toast.success(title, { description });
   else if (o.status === 'cancelled' && !installerMayContinue(o))
     toast.message(title, { description });
