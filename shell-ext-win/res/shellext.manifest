@@ -15,6 +15,10 @@
   appears), so any change here has to be made in installers/windows/sparse-msix/
   in the same commit. The identical manifest must also be embedded in
   pluryprint.exe.
+
+  The identity was "MaeclyPrint" before ADR-0009. Registering the package must
+  first remove a package left under that name (it claims the same CLSID); see
+  shell-ext-win/README.md.
 -->
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
   <assemblyIdentity

@@ -208,6 +208,12 @@ A *sparse* package is an MSIX package that declares package identity for an exte
 
 #### Registering the sparse package
 
+Before registering, the installer removes any sparse package registered under the product's former identity, `MaeclyPrint` ([ADR-0009](../adr/0009-rename-to-pluryprint.md)). It would claim the same CLSID and verb as the Pluryprint package. No such package was ever shipped, but developer and test machines may have one:
+
+```powershell
+Get-AppxPackage -Name MaeclyPrint | Remove-AppxPackage
+```
+
 Inno Setup runs this PowerShell snippet at install time:
 
 ```powershell
@@ -226,6 +232,7 @@ At uninstall time:
 
 ```powershell
 Get-AppxPackage Pluryprint | Remove-AppxPackage
+Get-AppxPackage MaeclyPrint | Remove-AppxPackage   # the pre-rename identity, if any
 ```
 
 ### 2.3 Choice of `Type="*"` vs explicit list

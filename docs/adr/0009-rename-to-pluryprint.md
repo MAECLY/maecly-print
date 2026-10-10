@@ -46,6 +46,7 @@ We rename the product to **Pluryprint** ("plural print": many files, one action)
 - A run without failures writes `legacy-migration.done`; later launches skip the step, so entries it had to leave are reported once.
 - The new bundle identifier gives the packaged webview an empty storage, so `config.toml` now carries the first-run flags (`[app].locale_detected`, `[app].onboarding_complete`) that used to live there; an upgrade sets them. Theme and density were already in `config.toml`.
 - Machine policies are read from the MaeclyPrint locations after every Pluryprint one (registry or file), with the same trust checks and a warning: a user process cannot move what an admin deployed.
+- A future sparse MSIX package must first remove any package registered under the old identity (`MaeclyPrint`), which would claim the same CLSID. No such package was ever shipped, so this is a requirement on `installers/windows/sparse-msix/`, recorded in `shell-ext-win/README.md` and `shell-extensions.md`.
 - `MAECLYPRINT_*` variables are read when the `PLURYPRINT_*` one is unset, with one warning per variable.
 - `maeclyprint:*` `localStorage` keys move to `pluryprint:*` before the first paint (useful in `pnpm dev` and the browser preview; see Negative below for the packaged app).
 - Profile files exported as `.maecly-profile.toml` still import: the importer reads any `.toml`.

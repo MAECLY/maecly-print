@@ -104,6 +104,21 @@ The category is `windows.fileExplorerContextMenus` — **not**
 `windows.fileExplorerContextMenuHandler`, which appears in some of the repo's
 docs and does not exist.
 
+**Remove the old identity first.** Before ADR-0009 the package identity was
+`MaeclyPrint` (`packageName` / `applicationId` in `res/shellext.manifest`). A
+machine where that package was ever registered — a developer box, or a test VM
+— still has it, and it claims this same CLSID and verb. Whatever registers the
+Pluryprint package (installer step, `tools/install-dev-shellext.ps1`) must
+first run
+
+```powershell
+Get-AppxPackage -Name MaeclyPrint | Remove-AppxPackage
+```
+
+and the uninstaller must remove both names. No such package was ever shipped,
+so this is a requirement for `installers/windows/sparse-msix/` when it is
+written, not a migration that exists today.
+
 ### Windows 10 — registry verb, same DLL
 
 Windows 10 has no modern menu but does honour `ExplorerCommandHandler`, so the
