@@ -312,7 +312,10 @@ pub fn spool(
     {
         let _ = (pdf, printer, settings, caps, title, timeout);
         Err(PrintError::Engine(EngineError::DependencyMissing(
-            "no print backend is available on this platform".to_string(),
+            super::Failure::new(
+                "no-print-backend",
+                "no print backend is available on this platform",
+            ),
         )))
     }
 }
@@ -337,9 +340,10 @@ pub fn wait_with_timeout(
     use wait_timeout::ChildExt;
 
     let spawn_failed = |e: std::io::Error| {
-        PrintError::Engine(EngineError::PrintFailed(
-            format!("failed to wait for the print process: {e}").into(),
-        ))
+        PrintError::Engine(EngineError::PrintFailed(super::Failure::new(
+            "wait_failed",
+            format!("failed to wait for the print process: {e}"),
+        )))
     };
 
     let Some(timeout) = timeout else {

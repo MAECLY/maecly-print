@@ -31,7 +31,7 @@ use std::time::Duration;
 
 use super::process::run_bounded;
 use super::{file_url, WorkDir};
-use crate::engine::EngineError;
+use crate::engine::{EngineError, Failure};
 
 /// Extensions LibreOffice converts for us. Legacy binary Office formats ride
 /// the same path at no extra cost.
@@ -78,13 +78,14 @@ pub fn convert_with(
 ) -> Result<(), EngineError> {
     let ext = crate::engine::extension_of(input);
     let staged = work.path().join(format!("input.{ext}"));
-    std::fs::copy(input, &staged).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot read {}: {e}", input.display()).into())
-    })?;
+    std::fs::copy(input, &staged).map_err(|e| super::cannot_read(input, "read", e))?;
     let profile = work.path().join("profile");
     let out_dir = work.path().join("out");
     std::fs::create_dir_all(&out_dir).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot prepare the conversion folder: {e}").into())
+        EngineError::ConversionFailed(Failure::new(
+            "workdir_failed",
+            format!("cannot prepare the conversion folder: {e}"),
+        ))
     })?;
 
     let mut cmd = Command::new(soffice);

@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use super::WorkDir;
-use crate::engine::EngineError;
+use crate::engine::{EngineError, Failure};
 
 /// HEIF-family extensions.
 pub const HEIF_EXTS: &[&str] = &["heic", "heif"];
@@ -37,6 +37,10 @@ missing — install \"HEVC Video Extensions\" from the Microsoft Store, then ret
 /// FR-058 message on an OS with no system HEIF decoder.
 pub const NO_SYSTEM_DECODER: &str = "No HEIF image decoder is available on this system — \
 convert the photo to JPEG or PNG first";
+
+/// The name the Windows decoder goes by in messages (`{{tool}}`): a product
+/// name, so it reads the same in every language.
+pub const WIC_LABEL: &str = "Windows Imaging Component";
 
 /// The `sips` argument vector converting `input` to the PNG `png`. Pure.
 pub fn sips_args(input: &Path, png: &Path) -> Vec<String> {
@@ -93,12 +97,15 @@ pub fn classify_wic_failure(
             | WINCODEC_UNKNOWN_IMAGE_FORMAT
             | WINCODEC_COMPONENT_INIT_FAILURE
     ) {
-        return EngineError::DependencyMissing(WINDOWS_CODEC_MISSING.to_string().into());
+        return EngineError::DependencyMissing(Failure::new("heif-codec", WINDOWS_CODEC_MISSING));
     }
     if stage == WicStage::Decode && !hevc_available() {
-        return EngineError::DependencyMissing(WINDOWS_HEVC_MISSING.to_string().into());
+        return EngineError::DependencyMissing(Failure::new("hevc-codec", WINDOWS_HEVC_MISSING));
     }
-    EngineError::ConversionFailed(format!("could not decode the HEIF image: {detail}").into())
+    EngineError::ConversionFailed(Failure::new(
+        "heif_decode_failed",
+        format!("could not decode the HEIF image: {detail}"),
+    ))
 }
 
 /// Run `work` on its own thread and wait for it, honouring `cancel` and
@@ -107,9 +114,9 @@ pub fn classify_wic_failure(
 /// An in-process decoder cannot be killed the way a converter process is, so
 /// on cancel or timeout the thread is **abandoned**: it finishes (or not) on
 /// its own and its result is dropped, while the job moves on at once. Cancel
-/// is [`EngineError::Cancelled`]; a timeout is the same "did not finish
-/// within" [`EngineError::ConversionFailed`] the process-based converters
-/// report.
+/// is [`EngineError::Cancelled`]; a timeout is the same terminal "did not
+/// finish within" [`EngineError::ConversionTimedOut`] the process-based
+/// converters report (`process::timed_out_error`).
 pub fn run_abandonable<T: Send + 'static>(
     label: &str,
     cancel: &AtomicBool,
@@ -124,7 +131,13 @@ pub fn run_abandonable<T: Send + 'static>(
             let _ = tx.send(work());
         })
         .map_err(|e| {
-            EngineError::ConversionFailed(format!("could not start {label}: {e}").into())
+            EngineError::ConversionFailed(
+                Failure::new(
+                    "converter_start_failed",
+                    format!("could not start {label}: {e}"),
+                )
+                .param("tool", label),
+            )
         })?;
     let started = Instant::now();
     loop {
@@ -133,13 +146,7 @@ pub fn run_abandonable<T: Send + 'static>(
         }
         if let Some(limit) = timeout {
             if started.elapsed() >= limit {
-                return Err(EngineError::ConversionFailed(
-                    format!(
-                        "{label} did not finish within {}s and was stopped",
-                        limit.as_secs()
-                    )
-                    .into(),
-                ));
+                return Err(super::process::timed_out_error(label, Some(limit)));
             }
         }
         match rx.recv_timeout(POLL) {
@@ -147,7 +154,8 @@ pub fn run_abandonable<T: Send + 'static>(
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 return Err(EngineError::ConversionFailed(
-                    format!("{label} stopped unexpectedly").into(),
+                    Failure::new("converter_crashed", format!("{label} stopped unexpectedly"))
+                        .param("tool", label),
                 ))
             }
         }
@@ -170,11 +178,10 @@ pub fn convert_with_sips(
     let log = work.path().join("sips.log");
     super::process::run_bounded(cmd, "sips", cancel, timeout, &log)?;
     if !png.is_file() {
-        return Err(EngineError::ConversionFailed(
-            "the system image converter could not read this HEIC/HEIF file"
-                .to_string()
-                .into(),
-        ));
+        return Err(EngineError::ConversionFailed(Failure::new(
+            "heif_decode_failed",
+            "the system image converter could not read this HEIC/HEIF file",
+        )));
     }
     super::image::to_pdf(&png, output, progress)
 }
@@ -192,11 +199,10 @@ pub fn convert(
     {
         let sips = Path::new("/usr/bin/sips");
         if !sips.is_file() {
-            return Err(EngineError::DependencyMissing(
-                "sips (the macOS image tool) is missing — reinstall macOS command line tools"
-                    .to_string()
-                    .into(),
-            ));
+            return Err(EngineError::DependencyMissing(Failure::new(
+                "sips",
+                "sips, the macOS image tool, could not be found",
+            )));
         }
         convert_with_sips(sips, input, output, work, cancel, timeout, progress)
     }
@@ -207,10 +213,9 @@ pub fn convert(
         // WIC decodes in-process and cannot be interrupted, so it runs on a
         // thread the job can walk away from on cancel or timeout.
         let source = input.to_path_buf();
-        let (width, height, rgb) =
-            run_abandonable("the HEIF decoder", cancel, timeout, move || {
-                wic::decode_rgb8(&source)
-            })?;
+        let (width, height, rgb) = run_abandonable(WIC_LABEL, cancel, timeout, move || {
+            wic::decode_rgb8(&source)
+        })?;
         progress(0.5);
         super::image::rgb_to_pdf(width, height, rgb, output)?;
         progress(1.0);
@@ -219,9 +224,10 @@ pub fn convert(
     #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = (input, output, work, cancel, timeout, progress);
-        Err(EngineError::DependencyMissing(
-            NO_SYSTEM_DECODER.to_string(),
-        ))
+        Err(EngineError::DependencyMissing(Failure::new(
+            "no-heif-decoder",
+            NO_SYSTEM_DECODER,
+        )))
     }
 }
 
@@ -242,7 +248,7 @@ mod wic {
     };
 
     use super::{classify_wic_failure, WicStage};
-    use crate::engine::EngineError;
+    use crate::engine::{EngineError, Failure};
 
     /// Same pixel ceiling as the built-in decoder (`image::decode_rgb8`).
     const MAX_SIDE: u32 = 30_000;
@@ -349,7 +355,12 @@ mod wic {
                 .map_err(&decode)?;
             if width == 0 || height == 0 || width > MAX_SIDE || height > MAX_SIDE {
                 return Err(EngineError::ConversionFailed(
-                    format!("unsupported HEIF image size {width}×{height}").into(),
+                    Failure::new(
+                        "heif_size_unsupported",
+                        format!("unsupported HEIF image size {width}×{height}"),
+                    )
+                    .param("width", width)
+                    .param("height", height),
                 ));
             }
             let stride = width * 3;
@@ -394,7 +405,8 @@ mod tests {
     fn fr_058_a_missing_hevc_decoder_is_a_dependency_not_a_failure() {
         let missing_hevc = classify_wic_failure(WicStage::Decode, -2147024809, "x", || false);
         assert!(
-            matches!(&missing_hevc, EngineError::DependencyMissing(m) if m == WINDOWS_HEVC_MISSING),
+            matches!(&missing_hevc, EngineError::DependencyMissing(m)
+                if *m == WINDOWS_HEVC_MISSING && m.reason == Some("hevc-codec")),
             "{missing_hevc:?}"
         );
         assert!(WINDOWS_HEVC_MISSING.contains("HEVC Video Extensions"));
@@ -407,14 +419,14 @@ mod tests {
                 WINCODEC_COMPONENT_INIT_FAILURE,
             ] {
                 let e = classify_wic_failure(stage, code, "x", || true);
-                assert!(
-                    matches!(&e, EngineError::DependencyMissing(m) if m == WINDOWS_CODEC_MISSING)
-                );
+                assert!(matches!(&e, EngineError::DependencyMissing(m)
+                    if *m == WINDOWS_CODEC_MISSING && m.reason == Some("heif-codec")));
             }
         }
         // HEVC present: a damaged file stays a conversion failure.
         let damaged = classify_wic_failure(WicStage::Decode, -1, "bad data", || true);
-        assert!(matches!(&damaged, EngineError::ConversionFailed(m) if m.contains("bad data")));
+        assert!(matches!(&damaged, EngineError::ConversionFailed(m)
+            if m.contains("bad data") && m.reason == Some("heif_decode_failed")));
         // HEVC is not asked about when the decoder was never found.
         let open = classify_wic_failure(WicStage::Open, -1, "denied", || panic!("not asked"));
         assert!(matches!(open, EngineError::ConversionFailed(_)));
@@ -430,9 +442,13 @@ mod tests {
         };
         let cancel = AtomicBool::new(false);
         let started = Instant::now();
-        let timed_out = run_abandonable("decoder", &cancel, Some(Duration::from_millis(200)), hang);
+        let timed_out = run_abandonable(WIC_LABEL, &cancel, Some(Duration::from_millis(200)), hang);
+        // Terminal like every converter timeout (not retried), and named.
         assert!(
-            matches!(&timed_out, Err(EngineError::ConversionFailed(m)) if m.contains("did not finish")),
+            matches!(&timed_out, Err(EngineError::ConversionTimedOut(m))
+                if m.contains("did not finish")
+                    && m.reason == Some("tool_timed_out")
+                    && m.params["tool"] == WIC_LABEL),
             "{timed_out:?}"
         );
         assert!(started.elapsed() < Duration::from_secs(5));

@@ -357,7 +357,7 @@ pub fn spool(
     title: &str,
     timeout: Option<std::time::Duration>,
 ) -> Result<super::SpoolOutcome, super::PrintError> {
-    use crate::engine::EngineError;
+    use crate::engine::{EngineError, Failure};
     use std::io::Read;
 
     // Defence in depth: the dispatcher's capability gate already refuses
@@ -381,9 +381,10 @@ pub fn spool(
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| {
-            EngineError::DependencyMissing(
-                format!("failed to run `lp` (is CUPS installed?): {e}").into(),
-            )
+            EngineError::DependencyMissing(Failure::new(
+                "cups",
+                format!("failed to run `lp` (is CUPS installed?): {e}"),
+            ))
         })?;
 
     let status = super::wait_with_timeout(&mut child, timeout)?;
@@ -403,14 +404,21 @@ pub fn spool(
             os_job_id: parse_request_id(&stdout, printer),
         })
     } else {
-        let msg = stderr.trim();
-        Err(EngineError::PrintFailed(if msg.is_empty() {
-            format!("lp exited with {status}").into()
-        } else {
-            msg.to_string().into()
-        })
-        .into())
+        Err(EngineError::PrintFailed(lp_rejected(&status.to_string(), &stderr)).into())
     }
+}
+
+/// The failure `lp` exiting with `status` becomes: the translatable
+/// `spooler_rejected`, with what `lp` said (or its status) as the technical
+/// detail shown under it. Pure.
+pub fn lp_rejected(status: &str, stderr: &str) -> crate::engine::Failure {
+    let msg = stderr.trim();
+    let detail = if msg.is_empty() {
+        format!("lp exited with {status}")
+    } else {
+        msg.to_string()
+    };
+    crate::engine::Failure::new("spooler_rejected", detail)
 }
 
 /// The file name a spooled document should carry: the user's file name
@@ -698,6 +706,21 @@ mod tests {
 
     fn strs(v: &[String]) -> Vec<&str> {
         v.iter().map(String::as_str).collect()
+    }
+
+    /// FR-092: a job `lp` refuses says so in the user's language
+    /// (`spooler_rejected`); what `lp` printed stays the technical detail.
+    #[test]
+    fn fr_092_lp_rejection_carries_reason_and_keeps_stderr_as_detail() {
+        let f = lp_rejected(
+            "exit status: 1",
+            "  lp: The printer or class does not exist.\n",
+        );
+        assert_eq!(f.reason, Some("spooler_rejected"));
+        assert_eq!(f.detail, "lp: The printer or class does not exist.");
+        let silent = lp_rejected("exit status: 1", "  ");
+        assert_eq!(silent.reason, Some("spooler_rejected"));
+        assert_eq!(silent.detail, "lp exited with exit status: 1");
     }
 
     /// A converted job is spooled under the user's file name, not the cache's

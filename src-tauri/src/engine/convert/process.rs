@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 
 use wait_timeout::ChildExt;
 
-use crate::engine::EngineError;
+use crate::engine::{EngineError, Failure};
 
 /// How often the cancel flag and the deadline are checked while a child runs.
 const POLL: Duration = Duration::from_millis(100);
@@ -89,44 +89,89 @@ pub fn run_until(
     finished: Option<&dyn Fn() -> bool>,
 ) -> Result<(), EngineError> {
     let stderr = std::fs::File::create(stderr_log).map_err(|e| {
-        EngineError::ConversionFailed(format!("cannot create a log for {label}: {e}").into())
+        EngineError::ConversionFailed(Failure::new(
+            "workdir_failed",
+            format!("cannot create a log for {label}: {e}"),
+        ))
     })?;
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::from(stderr));
     isolate_process_tree(&mut cmd);
 
-    let mut child = cmd.spawn().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            EngineError::DependencyMissing(format!("{label} could not be started: {e}").into())
-        } else {
-            EngineError::ConversionFailed(format!("{label} could not be started: {e}").into())
-        }
-    })?;
+    let mut child = cmd.spawn().map_err(|e| spawn_error(label, &e))?;
 
     match wait_bounded(&mut child, cancel, timeout, finished) {
         Ok(Exit::Finished) => Ok(()),
         Ok(Exit::Status(status)) if status.success() => Ok(()),
         Ok(Exit::Status(status)) => Err(EngineError::ConversionFailed(
-            format!("{label} failed ({status}){}", stderr_suffix(stderr_log)).into(),
+            Failure::new(
+                "converter_failed",
+                format!("{label} failed ({status}){}", stderr_suffix(stderr_log)),
+            )
+            .param("tool", label),
         )),
         Err(stopped) => Err(stopped_error(stopped, label, timeout)),
     }
+}
+
+/// The dependency id (`common:deps.<id>`) of a converter known by its
+/// [`run_bounded`] label, so a converter that vanished between being located
+/// and being started pauses its job with the same FR-058 remediation the
+/// resolver would have given. Pure.
+pub fn dependency_id_of(label: &str) -> Option<&'static str> {
+    Some(match label {
+        "LibreOffice" => "libre-office",
+        "Pandoc" => "pandoc",
+        "sips" => "sips",
+        "The browser" => "chromium",
+        _ => return None,
+    })
+}
+
+/// The error a failed spawn becomes: a program that is not there is a
+/// missing dependency (FR-058); one that is there but will not start is a
+/// conversion failure naming it. Pure.
+pub fn spawn_error(label: &str, e: &std::io::Error) -> EngineError {
+    let detail = format!("{label} could not be started: {e}");
+    if e.kind() == std::io::ErrorKind::NotFound {
+        EngineError::DependencyMissing(match dependency_id_of(label) {
+            Some(id) => Failure::new(id, detail),
+            None => detail.into(),
+        })
+    } else {
+        EngineError::ConversionFailed(
+            Failure::new("converter_start_failed", detail).param("tool", label),
+        )
+    }
+}
+
+/// The error a converter that ran past `limit` becomes: the terminal
+/// [`EngineError::ConversionTimedOut`], naming the tool and the limit. Shared
+/// with the in-process decoders (`heif::run_abandonable`). Pure.
+pub fn timed_out_error(label: &str, limit: Option<Duration>) -> EngineError {
+    let secs = limit.map(|t| t.as_secs()).unwrap_or(0);
+    EngineError::ConversionTimedOut(
+        Failure::new(
+            "tool_timed_out",
+            format!("{label} did not finish within {secs}s and was stopped"),
+        )
+        .param("tool", label)
+        .param("secs", secs),
+    )
 }
 
 /// The error a child stopped early becomes. Pure.
 pub fn stopped_error(stopped: Stopped, label: &str, timeout: Option<Duration>) -> EngineError {
     match stopped {
         Stopped::Cancelled => EngineError::Cancelled,
-        Stopped::TimedOut => EngineError::ConversionTimedOut(
-            format!(
-                "{label} did not finish within {}s and was stopped",
-                timeout.map(|t| t.as_secs()).unwrap_or(0)
-            )
-            .into(),
-        ),
+        Stopped::TimedOut => timed_out_error(label, timeout),
         Stopped::WaitFailed(e) => EngineError::ConversionFailed(
-            format!("could not wait for {label} to finish ({e}); it was stopped").into(),
+            Failure::new(
+                "converter_crashed",
+                format!("could not wait for {label} to finish ({e}); it was stopped"),
+            )
+            .param("tool", label),
         ),
     }
 }
@@ -476,5 +521,65 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&out).unwrap(), hostile);
         assert!(!dir.path().join("pwned").exists());
         assert!(!dir.path().join("pwned2").exists());
+    }
+}
+
+#[cfg(test)]
+mod reason_tests {
+    use super::*;
+
+    /// FR-092: every way a converter process fails carries a registered
+    /// reason and the params its sentence needs, so the queue says it in the
+    /// user's language instead of quoting the English detail.
+    #[test]
+    fn fr_092_engine_failures_carry_reason_for_converter_processes() {
+        let gone = std::io::Error::from(std::io::ErrorKind::NotFound);
+        match spawn_error("LibreOffice", &gone) {
+            EngineError::DependencyMissing(f) => {
+                assert_eq!(f.reason, Some("libre-office"));
+                assert!(f.contains("LibreOffice could not be started"), "{f}");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        // An unknown label still pauses as a missing dependency, reasonless.
+        assert!(matches!(
+            spawn_error("Ghost", &gone),
+            EngineError::DependencyMissing(f) if f.reason.is_none()
+        ));
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        match spawn_error("Pandoc", &denied) {
+            EngineError::ConversionFailed(f) => {
+                assert_eq!(f.reason, Some("converter_start_failed"));
+                assert_eq!(f.params["tool"], "Pandoc");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        match stopped_error(Stopped::TimedOut, "sips", Some(Duration::from_secs(9))) {
+            EngineError::ConversionTimedOut(f) => {
+                assert_eq!(f.reason, Some("tool_timed_out"));
+                assert_eq!(f.params["tool"], "sips");
+                assert_eq!(f.params["secs"], "9");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        match stopped_error(Stopped::WaitFailed("EINTR".into()), "sips", None) {
+            EngineError::ConversionFailed(f) => {
+                assert_eq!(f.reason, Some("converter_crashed"));
+                assert!(f.contains("EINTR"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    /// Every label a converter is run under maps to a registered dependency.
+    #[test]
+    fn fr_058_known_converter_labels_map_to_registered_dependency_ids() {
+        for label in ["LibreOffice", "Pandoc", "sips", "The browser"] {
+            let id = dependency_id_of(label).expect(label);
+            assert!(
+                crate::util::reasons::is_job_reason("dependency_missing", id),
+                "{id}"
+            );
+        }
     }
 }
