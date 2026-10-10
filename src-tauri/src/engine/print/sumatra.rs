@@ -335,11 +335,16 @@ fn cached_quality_support(printer: &str, target: super::devmode_swap::Target) ->
     s
 }
 
-/// What SumatraPDF logs when the document opened but its permissions forbid
-/// printing (`PrintFile2` in 3.5.2 and 3.6.1: `AllowsPrinting()` is false, so
-/// the engine is dropped). It exits 1 like any other failure — its exit code
-/// is the number of files that failed, nothing more — so the log is the only
-/// thing that tells this case apart.
+/// What SumatraPDF logs when it refuses a document whose permissions forbid
+/// printing (`PrintFile2` in its 3.5.2 and 3.6.1 sources: `AllowsPrinting()`
+/// is false, so the engine is dropped). It then exits 1 like any other
+/// failure — its exit code is the number of files that failed, nothing more —
+/// so the log is the only thing that tells this case apart.
+///
+/// The official 3.5.2 build does **not** refuse such a file: on a paused
+/// Windows 11 queue it printed one with exit 0. The engine's own permission
+/// check (`engine::convert`, FR-059) is therefore what keeps them from the
+/// printer; this only maps a build that does refuse.
 const NO_PRINT_MARKER: &str = "PrintFile2: engine is null";
 
 /// The error for a SumatraPDF run that exited with `code` after writing
@@ -347,7 +352,8 @@ const NO_PRINT_MARKER: &str = "PrintFile2: engine is null";
 ///
 /// A PDF that forbids printing is [`PdfProtection::PrintingNotAllowed`]:
 /// terminal, never retried (FR-059). The engine's own check refuses such a
-/// file before it gets here; this catches what that check could not read.
+/// file before it gets here; this maps a SumatraPDF refusal of one that check
+/// could not read (see [`NO_PRINT_MARKER`]).
 pub fn failure_from_exit(code: Option<i32>, log: &str) -> EngineError {
     if log.contains(NO_PRINT_MARKER) {
         return EngineError::PdfProtected(PdfProtection::PrintingNotAllowed);

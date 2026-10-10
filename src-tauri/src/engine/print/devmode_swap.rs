@@ -743,8 +743,8 @@ pub fn journal_dir() -> PathBuf {
 
 #[cfg(windows)]
 pub use self::ffi::{
-    build_job_devmode, job_devmode, job_quality, quality_support, recover_stale_journals,
-    recover_stale_journals_in_background, SpoolerDefaults,
+    build_job_devmode, job_devmode, job_quality, print_capabilities, quality_support,
+    recover_stale_journals, recover_stale_journals_in_background, SpoolerDefaults,
 };
 
 #[cfg(windows)]
@@ -1104,6 +1104,17 @@ mod ffi {
         let _ = unsafe { PTReleaseMemory(out.cast()) };
         // Let the driver validate it as it would SumatraPDF's copy.
         document_properties(p, Some(&dm)).map(Some)
+    }
+
+    /// The PrintCapabilities document of `printer` for the user's current
+    /// default, for diagnostics.
+    pub fn print_capabilities(printer: &str) -> Result<String, String> {
+        let _com = Com::init();
+        let p = Printer::open(printer)?;
+        let base = document_properties(&p, None)?;
+        let prov = Provider::open(&p)?;
+        let ticket = ticket_of(&prov, &base)?;
+        capabilities(&prov, &ticket)
     }
 
     /// Whether `printer`'s driver offers `target` (for the honesty preview).
