@@ -6,6 +6,8 @@ Accepted.
 
 Update (2026-10-10): the repository went public with the 0.0.1 preview instead of waiting for the first stable release, so D1 below no longer holds; everything else stands.
 
+Update (2026-10-10): the repository was renamed from `MAECLY/maecly-print` to `MAECLY/pluryprint`. Builds from 0.0.2 on compile the new manifest URLs. Installed 0.0.1 builds still ask the old endpoint (`github.com/MAECLY/maecly-print/releases/latest/download/latest.json`) and reach the new repository through GitHub's redirect, which also covers the asset URLs in `latest.json`. That redirect lasts only while no repository named `maecly-print` exists under `MAECLY`: never create one, or every 0.0.1 install stops updating. The `MAECLY/maecly-print` mentions below describe the state on the date of this ADR.
+
 ## Date
 
 2026-10-10

@@ -35,7 +35,7 @@ We rename the product to **Pluryprint** ("plural print": many files, one action)
 - Environment variables `PLURYPRINT_*`.
 - Finder service and Explorer verb "Print with Pluryprint" / "Imprimir con Pluryprint".
 - The organisation name stays wherever it names the organisation: `ProjectDirs`' `Maecly` segment, `publisher`, `CN=Maecly`, the `Policies\Maecly\` registry path, the `maecly.com` domains, the `@maecly-maintainers` team.
-- The repository keeps its URL, `github.com/MAECLY/maecly-print`, so existing clones, links and the updater endpoint compiled into installed copies keep working.
+- The repository keeps its URL, `github.com/MAECLY/maecly-print`, so existing clones, links and the updater endpoint compiled into installed copies keep working. Superseded on 2026-10-10: the repository was renamed to `github.com/MAECLY/pluryprint` and GitHub redirects the old URL (see ADR-0011).
 - The Windows shell extension keeps its CLSID (`B269B8DC-044F-4D65-8F1E-8F20A2E653EA`). No installer has ever registered it (the sparse MSIX package is not built yet), so there is no installed base that a new GUID would protect, and keeping it avoids a stale handler on developer machines. Only the Rust constant is renamed.
 - History is not rewritten: `CHANGELOG.md` entries, ADR-0001 to ADR-0008 and the `claude design/maeclyprint/` hand-off archive keep the old name. So do the CUPS test queues (`Maecly_Hold`, `Maecly_Hold_Win`), which are real queues on the development machines.
 
