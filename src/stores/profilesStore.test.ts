@@ -151,6 +151,37 @@ describe('profilesStore', () => {
     expect(calls.filter((c) => c.cmd === 'list_profiles')).toHaveLength(1);
   });
 
+  it('FR-001: reload re-reads a profile created outside this window (the CLI)', async () => {
+    mockProfiles();
+    await useProfilesStore.getState().init();
+    expect(
+      useProfilesStore.getState().profiles.some((p) => p.name === 'E2E Hold'),
+    ).toBe(false);
+
+    // `maeclyprint-cli profiles create` wrote profiles.toml behind our back.
+    const calls = mockProfiles({
+      list: [...fixtureProfiles, mkProfile({ id: 'cli-1', name: 'E2E Hold' })],
+    });
+    const fresh = await useProfilesStore.getState().reload();
+
+    expect(calls.filter((c) => c.cmd === 'list_profiles')).toHaveLength(1);
+    expect(fresh.some((p) => p.id === 'cli-1')).toBe(true);
+    expect(
+      useProfilesStore.getState().profiles.some((p) => p.id === 'cli-1'),
+    ).toBe(true);
+    expect(useProfilesStore.getState().status).toBe('ready');
+  });
+
+  it('FR-001: a failed reload rejects and keeps the cached list', async () => {
+    mockProfiles();
+    await useProfilesStore.getState().init();
+    const before = useProfilesStore.getState().profiles;
+
+    mockProfiles({ fail: 'list_profiles' });
+    await expect(useProfilesStore.getState().reload()).rejects.toThrow('boom');
+    expect(useProfilesStore.getState().profiles).toBe(before);
+  });
+
   it('reports unavailable and falls back to the built-ins outside Tauri', async () => {
     const w = window as unknown as {
       __TAURI_INTERNALS__?: unknown;

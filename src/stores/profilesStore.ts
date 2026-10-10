@@ -76,6 +76,16 @@ interface ProfilesState {
   working: EditorWorking | null;
 
   init: () => Promise<void>;
+  /**
+   * Re-read the whole list from disk, whatever the current status, and
+   * resolve the fresh list. `profiles.toml` is written by more than this
+   * window — the CLI (`profiles create`), a second window, a hand edit — and
+   * the store has no file watcher, so a caller that is about to act on a
+   * profile reference it did not pick from this list (a context-menu
+   * selection, FR-001) must reload first. Rejects when the backend cannot be
+   * reached; the cached list is left untouched in that case.
+   */
+  reload: () => Promise<UiProfile[]>;
   /** Upsert a profile; resolves the saved profile, or null on rejection. */
   save: (p: UiProfile) => Promise<UiProfile | null>;
   /** Delete a profile; resolves the removed snapshot (for undo), or null. */
@@ -136,6 +146,15 @@ export const useProfilesStore = create<ProfilesState>()((set, get) => {
       } catch (e) {
         set({ status: 'error', error: message(e) });
       }
+    },
+
+    reload: async () => {
+      if (!isTauri()) {
+        if (get().status === 'idle') await get().init();
+        return get().profiles;
+      }
+      await refetch();
+      return get().profiles;
     },
 
     save: async (p) => {
