@@ -112,6 +112,38 @@ fn fr_093_nsis_language_es() {
     );
 }
 
+/// FR-093: the setup takes the Windows display language without asking, and
+/// the uninstaller reuses it instead of opening an "Installer Language"
+/// dialog. Tauri's template has MUI read the uninstaller's language from the
+/// MUI_LANGDLL_REGISTRY_* value, which only the (disabled) language selector
+/// would write, so the post-install hook writes it.
+#[test]
+fn fr_093_uninstaller_reuses_the_installer_language() {
+    let conf: serde_json::Value = serde_json::from_str(&read("src-tauri/tauri.conf.json")).unwrap();
+    assert_eq!(
+        conf["bundle"]["windows"]["nsis"]["displayLanguageSelector"],
+        serde_json::Value::Bool(false),
+        "no language dialog: the setup follows the Windows display language"
+    );
+    let hooks = read(HOOKS);
+    let post: Vec<&str> = code_lines(
+        hooks
+            .split("!macro NSIS_HOOK_POSTINSTALL")
+            .nth(1)
+            .and_then(|rest| rest.split("!macroend").next())
+            .expect("post-install hook"),
+    )
+    .collect();
+    assert!(post.contains(
+        &r#"WriteRegStr HKCU "${MUI_LANGDLL_REGISTRY_KEY}" "${MUI_LANGDLL_REGISTRY_VALUENAME}" "$LANGUAGE""#
+    ));
+    assert!(
+        post.contains(&"!ifdef MUI_LANGDLL_REGISTRY_KEY & MUI_LANGDLL_REGISTRY_VALUENAME")
+            && post.iter().any(|l| l.starts_with("!error ")),
+        "a template that stops defining them fails the build instead of reopening the dialog"
+    );
+}
+
 #[test]
 fn fr_093_every_hook_message_is_a_language_string() {
     let hooks = read(HOOKS);

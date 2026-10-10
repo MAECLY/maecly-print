@@ -332,7 +332,8 @@ fn nsis_hook_offers_to_remove_a_per_machine_msi_install() {
 /// where `makensis` is missing. The file refuses to compile without the
 /// context-menu DLLs it ships from `resources/shellext/<arch>/`, so it is
 /// copied into a temporary tree with placeholder DLLs. The two variables the
-/// post-uninstall hook reads are declared the way Tauri's template does.
+/// post-uninstall hook reads are declared the way Tauri's template does, and
+/// so are the MUI language-registry names (after the hooks, as there).
 #[test]
 fn nsis_hook_compiles() {
     let Ok(out) = std::process::Command::new("makensis")
@@ -363,7 +364,10 @@ fn nsis_hook_compiles() {
         &script,
         format!(
             "Unicode true\n!include LogicLib.nsh\n!include FileFunc.nsh\n!include x64.nsh\n\
-             !include StrFunc.nsh\n${{StrLoc}}\nVar UpdateMode\nVar DeleteAppDataCheckboxState\n!include \"{}\"\nOutFile \"{}\"\n\
+             !include StrFunc.nsh\n${{StrLoc}}\nVar UpdateMode\nVar DeleteAppDataCheckboxState\n!include \"{}\"\n\
+             !define MUI_LANGDLL_REGISTRY_ROOT \"HKCU\"\n\
+             !define MUI_LANGDLL_REGISTRY_KEY \"Software\\Maecly\\Pluryprint\"\n\
+             !define MUI_LANGDLL_REGISTRY_VALUENAME \"Installer Language\"\nOutFile \"{}\"\n\
              RequestExecutionLevel user\nInstallDir \"$LOCALAPPDATA\\Stub\"\n\
              Section Install\n!insertmacro NSIS_HOOK_PREINSTALL\n\
              !insertmacro NSIS_HOOK_POSTINSTALL\nWriteUninstaller \"$INSTDIR\\uninstall.exe\"\n\

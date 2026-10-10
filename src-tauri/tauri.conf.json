@@ -63,7 +63,8 @@
       "nsis": {
         "installMode": "currentUser",
         "installerHooks": "windows/installer-hooks.nsh",
-        "languages": ["English", "Spanish"]
+        "languages": ["English", "Spanish"],
+        "displayLanguageSelector": false
       }
     },
     "createUpdaterArtifacts": true

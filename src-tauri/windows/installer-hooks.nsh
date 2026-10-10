@@ -382,6 +382,19 @@
 ; ---- End of the MaeclyPrint takeover ---------------------------------------
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; The uninstaller speaks the language this setup ran in. Tauri's template
+  ; points MUI at this value (MUI_LANGDLL_REGISTRY_*) and its un.onInit reads
+  ; it with MUI_UNGETLANGUAGE, but only MUI_LANGDLL_DISPLAY writes it, which
+  ; runs only with displayLanguageSelector (off: the setup takes the Windows
+  ; display language). Without the value the uninstaller of a two-language
+  ; build opened with an "Installer Language" dialog. Tauri's uninstaller
+  ; deletes the value itself.
+  !ifdef MUI_LANGDLL_REGISTRY_KEY & MUI_LANGDLL_REGISTRY_VALUENAME
+    WriteRegStr HKCU "${MUI_LANGDLL_REGISTRY_KEY}" "${MUI_LANGDLL_REGISTRY_VALUENAME}" "$LANGUAGE"
+  !else
+    !error "Tauri's NSIS template no longer defines MUI_LANGDLL_REGISTRY_KEY/VALUENAME: check how the uninstaller picks its language"
+  !endif
+
   Push $R8
   !insertmacro PLURYPRINT_MOVE_LOADED_DLL_ASIDE
 
