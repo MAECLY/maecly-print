@@ -42,6 +42,8 @@
 //!
 //! [`IExplorerCommand`]: https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-iexplorercommand
 
+#![deny(missing_docs)]
+
 pub mod handoff;
 pub mod strings;
 pub mod supported;
