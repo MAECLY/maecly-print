@@ -73,6 +73,92 @@ pub struct QueuedJob {
     /// `pUserName`: who submitted it. On a `\\server\queue` connection the
     /// list holds every user's jobs.
     pub user: String,
+    /// `Submitted`, the moment the spooler accepted the job, to the
+    /// millisecond ([`submitted_stamp`]). Empty when the spooler left it blank.
+    pub submitted: String,
+}
+
+/// A spooler job as Pluryprint records it (`Job::os_job_id`): the job id plus
+/// the spooler's own submission time, written `12@20261010T101500123`.
+///
+/// The spooler numbers jobs from low ids again after it restarts, so an id
+/// read back from `queue.json` can name somebody else's print by the time it
+/// is used. The id alone is therefore never trusted to follow or delete a job:
+/// the submission stamp, which the spooler keeps for the life of the job, must
+/// match too ([`JobRef::is`]). A bare id (`12`, written before the stamp
+/// existed) cannot be checked, so it is never acted on ([`JobRef::verifiable`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobRef {
+    /// The spooler's job id.
+    pub id: u32,
+    /// The job's [`QueuedJob::submitted`] when it was found; `None` for a bare id.
+    pub submitted: Option<String>,
+}
+
+impl JobRef {
+    /// The reference to a job just found on the queue.
+    pub fn of(job: &QueuedJob) -> Self {
+        Self {
+            id: job.id,
+            submitted: Some(job.submitted.clone()).filter(|s| !s.is_empty()),
+        }
+    }
+
+    /// Parse what [`JobRef`]'s `Display` wrote (or a bare id). `None` for
+    /// anything else.
+    pub fn parse(s: &str) -> Option<Self> {
+        let (id, submitted) = match s.split_once('@') {
+            Some((id, stamp)) if !stamp.is_empty() => (id, Some(stamp.to_string())),
+            Some(_) => return None,
+            None => (s, None),
+        };
+        Some(Self {
+            id: id.trim().parse().ok()?,
+            submitted,
+        })
+    }
+
+    /// Whether this reference can tell its job from a later one that reused
+    /// the id.
+    pub fn verifiable(&self) -> bool {
+        self.submitted.is_some()
+    }
+
+    /// Whether `job` is the very job this reference was taken from: same id
+    /// and same submission stamp. A bare reference matches nothing.
+    pub fn is(&self, job: &QueuedJob) -> bool {
+        self.id == job.id
+            && self
+                .submitted
+                .as_deref()
+                .is_some_and(|stamp| stamp == job.submitted)
+    }
+}
+
+impl std::fmt::Display for JobRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.submitted {
+            Some(stamp) => write!(f, "{}@{stamp}", self.id),
+            None => write!(f, "{}", self.id),
+        }
+    }
+}
+
+/// Whether the recorded `os_job_id` can be checked against the job now
+/// carrying its id ([`JobRef::verifiable`]). Pure.
+pub fn is_verifiable_ref(os_job_id: &str) -> bool {
+    JobRef::parse(os_job_id).is_some_and(|r| r.verifiable())
+}
+
+/// A `SYSTEMTIME`'s fields as the sortable stamp [`JobRef`] records
+/// (`YYYYMMDDTHHMMSSmmm`). All zero (the spooler did not fill it) is empty.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn submitted_stamp(t: [u16; 7]) -> String {
+    let [year, month, day, hour, minute, second, millis] = t;
+    if year == 0 && month == 0 && day == 0 {
+        return String::new();
+    }
+    format!("{year:04}{month:02}{day:02}T{hour:02}{minute:02}{second:02}{millis:03}")
 }
 
 /// Whether `document` (a job's `pDocument`) names `pdf`: the same full path,
@@ -241,6 +327,25 @@ mod ffi {
         unsafe { p.to_string() }.unwrap_or_default()
     }
 
+    /// The fields Pluryprint reads from one `JOB_INFO_1W`.
+    fn queued(j: &JOB_INFO_1W) -> super::QueuedJob {
+        let t = &j.Submitted;
+        super::QueuedJob {
+            id: j.JobId,
+            document: wstr(j.pDocument),
+            user: wstr(j.pUserName),
+            submitted: super::submitted_stamp([
+                t.wYear,
+                t.wMonth,
+                t.wDay,
+                t.wHour,
+                t.wMinute,
+                t.wSecond,
+                t.wMilliseconds,
+            ]),
+        }
+    }
+
     /// Every job on `printer`.
     ///
     /// The sizing call is expected to fail with `ERROR_INSUFFICIENT_BUFFER`
@@ -283,23 +388,20 @@ mod ffi {
                     returned as usize,
                 )
             };
-            return Ok(infos
-                .iter()
-                .map(|j| super::QueuedJob {
-                    id: j.JobId,
-                    document: wstr(j.pDocument),
-                    user: wstr(j.pUserName),
-                })
-                .collect());
+            return Ok(infos.iter().map(queued).collect());
         }
         Err(TrackError::Transient(
             "the job list kept changing while it was being read".to_string(),
         ))
     }
 
-    /// The `JOB_STATUS_*` bits of one job, or `None` when the spooler no longer
-    /// knows it (it printed and was removed, or someone deleted it).
-    pub fn status(printer: &str, job_id: u32) -> Result<Option<u32>, TrackError> {
+    /// The `JOB_STATUS_*` bits of the job now carrying `job_id`, with who and
+    /// what it is, or `None` when the spooler no longer knows that id (it
+    /// printed and was removed, or someone deleted it).
+    pub fn status(
+        printer: &str,
+        job_id: u32,
+    ) -> Result<Option<(u32, super::QueuedJob)>, TrackError> {
         let p = Printer::open(printer)?;
         let mut needed = 0u32;
         // SAFETY: sizing call with no buffer; out pointer is valid.
@@ -329,7 +431,7 @@ mod ffi {
         }
         // SAFETY: the spooler wrote one JOB_INFO_1W at the buffer's start.
         let info = unsafe { &*storage.as_ptr().cast::<JOB_INFO_1W>() };
-        Ok(Some(info.Status))
+        Ok(Some((info.Status, queued(info))))
     }
 
     /// Delete a job from the queue (`JOB_CONTROL_DELETE`).
@@ -358,12 +460,18 @@ pub fn job_ids(printer: &str) -> Result<Vec<u32>, super::TrackError> {
 /// The job SumatraPDF just created on `printer` for `pdf`, given the ids that
 /// were there before (see [`pick_new_job`]). `None` — logged with the reason —
 /// when the spooler cannot be read or the job cannot be told apart.
+///
+/// The result carries the job's submission stamp ([`JobRef`]), so whoever
+/// reads it back later — the queue after a restart, the CLI's offline cancel —
+/// can tell this job from a later one the spooler gave the same id.
 #[cfg(windows)]
-pub fn find_spooled_job(printer: &str, before: &[u32], pdf: &str) -> Option<u32> {
+pub fn find_spooled_job(printer: &str, before: &[u32], pdf: &str) -> Option<JobRef> {
     let user = std::env::var("USERNAME").unwrap_or_default();
     match ffi::jobs(printer) {
         Ok(after) => {
-            let found = pick_new_job(before, &after, pdf, &user);
+            let found = pick_new_job(before, &after, pdf, &user)
+                .and_then(|id| after.iter().find(|j| j.id == id))
+                .map(JobRef::of);
             if found.is_none() {
                 tracing::info!(
                     event = "os_job_untracked",
@@ -395,16 +503,73 @@ pub fn new_job_of(printer: &str, before: &[u32], pdf: &str) -> Option<u32> {
         .and_then(|after| pick_new_job(before, &after, pdf, &user))
 }
 
-/// Where the spooler job `os_job_id` stands on `printer`.
+/// What the job now carrying `job.id` says about `job`. Pure.
+///
+/// - no job with that id: ours left the queue ([`OsJobState::Gone`]);
+/// - a job with that id but another submission stamp: the spooler reused the
+///   id for a different print, so ours is gone too, and the other job's state
+///   is never reported as ours;
+/// - a bare reference ([`JobRef::verifiable`] is false) cannot be checked:
+///   the job is followed by id, as only a reference taken in this process can
+///   be (the queue does not adopt a bare one after a restart).
+pub fn tracked_state(job: &JobRef, now: Option<(u32, &QueuedJob)>) -> OsJobState {
+    match now {
+        None => OsJobState::Gone,
+        Some((_, current)) if job.verifiable() && !job.is(current) => OsJobState::Gone,
+        Some((bits, _)) => map_status(bits),
+    }
+}
+
+/// Where the spooler job `os_job_id` ([`JobRef`]) stands on `printer`.
 #[cfg(windows)]
 pub fn job_state(printer: &str, os_job_id: &str) -> Result<OsJobState, super::TrackError> {
-    let id: u32 = os_job_id.parse().map_err(|_| {
+    let job = JobRef::parse(os_job_id).ok_or_else(|| {
         super::TrackError::Unavailable(format!("'{os_job_id}' is not a spooler job id"))
     })?;
-    Ok(match ffi::status(printer, id)? {
-        None => OsJobState::Gone,
-        Some(bits) => map_status(bits),
-    })
+    let now = ffi::status(printer, job.id)?;
+    Ok(tracked_state(
+        &job,
+        now.as_ref().map(|(bits, q)| (*bits, q)),
+    ))
+}
+
+/// What deleting the job `job` refers to would do. Pure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CancelVerdict {
+    /// The id is no longer on the queue: nothing to delete.
+    AlreadyGone,
+    /// It is still the job Pluryprint spooled: delete it.
+    Delete,
+    /// The id now belongs to another print: leave it alone.
+    NotOurs,
+    /// A bare reference cannot be told apart from a reused id: leave it.
+    Unverifiable,
+}
+
+/// Decide whether the job `job` refers to may be deleted, given the job now
+/// carrying its id (`now`) and, when known, the names Pluryprint spooled it
+/// under and the current user ([`is_our_job`]). Pure.
+///
+/// The submission stamp decides; the names and the user are a second check
+/// when the caller has them. The spooled name is the user's own file name
+/// (`report.pdf`), which another print can carry too, so a name match alone
+/// never proves anything.
+pub fn cancel_verdict(
+    job: &JobRef,
+    now: Option<&QueuedJob>,
+    documents: &[String],
+    user: &str,
+) -> CancelVerdict {
+    let Some(current) = now else {
+        return CancelVerdict::AlreadyGone;
+    };
+    if !job.verifiable() {
+        return CancelVerdict::Unverifiable;
+    }
+    if !job.is(current) || (!documents.is_empty() && !is_our_job(current, documents, user)) {
+        return CancelVerdict::NotOurs;
+    }
+    CancelVerdict::Delete
 }
 
 /// Whether the spooler job `job` is the one Pluryprint spooled: submitted by
@@ -420,34 +585,37 @@ pub fn is_our_job(job: &QueuedJob, documents: &[String], user: &str) -> bool {
         && documents.iter().any(|d| document_names(&job.document, d))
 }
 
-/// Delete the spooler job `os_job_id` from `printer`, but only when it is
-/// still ours ([`is_our_job`]). A job no longer on the queue is not an error:
-/// it already printed or was removed.
+/// Delete the spooler job `os_job_id` ([`JobRef`]) from `printer`, but only
+/// while it is still the job Pluryprint spooled ([`cancel_verdict`]); also
+/// checked against `documents` and the user when `documents` is not empty. A
+/// job no longer on the queue is not an error: it already printed or was
+/// removed.
 #[cfg(windows)]
 pub fn cancel_if_ours(printer: &str, os_job_id: &str, documents: &[String]) -> anyhow::Result<()> {
-    let id: u32 = os_job_id
-        .parse()
-        .map_err(|_| anyhow::anyhow!("'{os_job_id}' is not a spooler job id"))?;
-    let jobs = ffi::jobs(printer).map_err(|e| anyhow::anyhow!("{e}"))?;
-    let Some(job) = jobs.iter().find(|j| j.id == id) else {
-        return Ok(());
-    };
+    let job = JobRef::parse(os_job_id)
+        .ok_or_else(|| anyhow::anyhow!("'{os_job_id}' is not a spooler job id"))?;
+    let now = ffi::status(printer, job.id).map_err(|e| anyhow::anyhow!("{e}"))?;
     let user = std::env::var("USERNAME").unwrap_or_default();
-    if !is_our_job(job, documents, &user) {
-        anyhow::bail!(
+    let id = job.id;
+    match cancel_verdict(&job, now.as_ref().map(|(_, q)| q), documents, &user) {
+        CancelVerdict::AlreadyGone => Ok(()),
+        CancelVerdict::Delete => ffi::delete(printer, id),
+        CancelVerdict::NotOurs => anyhow::bail!(
             "job {id} on {printer} is no longer the one Pluryprint sent, so it was left alone"
-        );
+        ),
+        CancelVerdict::Unverifiable => anyhow::bail!(
+            "job {id} on {printer} cannot be told apart from another print that reused its id, \
+             so it was left alone"
+        ),
     }
-    ffi::delete(printer, id)
 }
 
-/// Delete the spooler job `os_job_id` from `printer`.
+/// Delete the spooler job `os_job_id` ([`JobRef`]) from `printer` — only while
+/// it is still the job Pluryprint spooled, never another print that took its
+/// id ([`cancel_if_ours`] with no names to compare).
 #[cfg(windows)]
 pub fn cancel(printer: &str, os_job_id: &str) -> anyhow::Result<()> {
-    let id: u32 = os_job_id
-        .parse()
-        .map_err(|_| anyhow::anyhow!("'{os_job_id}' is not a spooler job id"))?;
-    ffi::delete(printer, id)
+    cancel_if_ours(printer, os_job_id, &[])
 }
 
 #[cfg(test)]
@@ -462,6 +630,7 @@ mod tests {
             id: 10,
             document: document.to_string(),
             user: user.to_string(),
+            submitted: String::new(),
         };
         let ours = vec!["report.pdf".to_string(), "0192-abc.pdf".to_string()];
         assert!(is_our_job(
@@ -524,7 +693,105 @@ mod tests {
             id,
             document: document.to_string(),
             user: user.to_string(),
+            submitted: String::new(),
         }
+    }
+
+    fn stamped(id: u32, document: &str, submitted: &str) -> QueuedJob {
+        QueuedJob {
+            submitted: submitted.to_string(),
+            ..job(id, document, "me")
+        }
+    }
+
+    /// FR-031: the reference written to `queue.json` round-trips, and a bare
+    /// id (from before the stamp existed) parses but cannot be verified.
+    #[test]
+    fn fr_031_a_job_reference_carries_the_spooler_submission_stamp() {
+        let r = JobRef::of(&stamped(12, "a.pdf", "20261010T101500123"));
+        assert_eq!(r.to_string(), "12@20261010T101500123");
+        assert_eq!(JobRef::parse("12@20261010T101500123"), Some(r.clone()));
+        assert!(r.verifiable());
+        assert!(is_verifiable_ref("12@20261010T101500123"));
+
+        let bare = JobRef::parse("12").unwrap();
+        assert!(!bare.verifiable());
+        assert!(!is_verifiable_ref("12"));
+        assert_eq!(bare.to_string(), "12");
+        assert_eq!(JobRef::parse("12@"), None);
+        assert_eq!(JobRef::parse("Office-42"), None);
+        // A spooler that left Submitted blank yields a bare reference.
+        assert!(!JobRef::of(&job(3, "a.pdf", "me")).verifiable());
+
+        assert_eq!(
+            submitted_stamp([2026, 10, 10, 9, 5, 7, 42]),
+            "20261010T090507042"
+        );
+        assert_eq!(submitted_stamp([0; 7]), "");
+    }
+
+    /// FR-031 / FR-032: after a restart the spooler hands the old id to a new
+    /// print. Following that id must not report the newcomer's state as ours,
+    /// and cancelling must not delete it — the GUI's cancel included.
+    #[test]
+    fn fr_032_a_reused_spooler_id_is_neither_followed_nor_deleted() {
+        let ours = JobRef::parse("12@20261010T101500123").unwrap();
+        let same = stamped(
+            12,
+            r"C:\t\pluryprint-spool-a\report.pdf",
+            "20261010T101500123",
+        );
+        let reused = stamped(
+            12,
+            r"C:\t\pluryprint-spool-b\report.pdf",
+            "20261011T080000000",
+        );
+
+        assert_eq!(tracked_state(&ours, None), OsJobState::Gone);
+        assert_eq!(
+            tracked_state(&ours, Some((PRINTING, &same))),
+            OsJobState::Processing
+        );
+        assert_eq!(
+            tracked_state(&ours, Some((PRINTING, &reused))),
+            OsJobState::Gone,
+            "another print's state is never reported as ours"
+        );
+
+        let none: &[String] = &[];
+        assert_eq!(
+            cancel_verdict(&ours, None, none, "me"),
+            CancelVerdict::AlreadyGone
+        );
+        assert_eq!(
+            cancel_verdict(&ours, Some(&same), none, "me"),
+            CancelVerdict::Delete
+        );
+        assert_eq!(
+            cancel_verdict(&ours, Some(&reused), none, "me"),
+            CancelVerdict::NotOurs
+        );
+        // Same user-chosen file name, same user, empty user name on the
+        // spooler side: the generic name is no proof any more, the stamp is.
+        let names = vec!["report.pdf".to_string()];
+        let anon_reused = QueuedJob {
+            user: String::new(),
+            ..reused.clone()
+        };
+        assert_eq!(
+            cancel_verdict(&ours, Some(&anon_reused), &names, "me"),
+            CancelVerdict::NotOurs
+        );
+        assert_eq!(
+            cancel_verdict(&ours, Some(&same), &names, "me"),
+            CancelVerdict::Delete
+        );
+        // A bare id read back from an old queue.json is never acted on.
+        let bare = JobRef::parse("12").unwrap();
+        assert_eq!(
+            cancel_verdict(&bare, Some(&same), &names, "me"),
+            CancelVerdict::Unverifiable
+        );
     }
 
     /// FR-031: SumatraPDF names the job after the full path it printed

@@ -242,7 +242,25 @@ pub fn job_state(printer: &str, os_job_id: &str) -> Result<OsJobState, TrackErro
     }
 }
 
-/// Best-effort cancellation of the OS job `os_job_id` on `printer`.
+/// Whether a recorded `os_job_id` can still be told apart from another job
+/// that later took the same id, so it is safe to follow (or cancel) after the
+/// app restarted. CUPS never reuses job ids; the Windows spooler does after a
+/// restart, so there the reference must carry the job's submission stamp
+/// ([`windows::JobRef`]).
+pub fn os_job_id_verifiable(os_job_id: &str) -> bool {
+    #[cfg(windows)]
+    {
+        self::windows::is_verifiable_ref(os_job_id)
+    }
+    #[cfg(not(windows))]
+    {
+        !os_job_id.is_empty()
+    }
+}
+
+/// Best-effort cancellation of the OS job `os_job_id` on `printer`. On
+/// Windows it only deletes the job while it is still the one Pluryprint
+/// spooled ([`windows::cancel`]).
 pub fn cancel_os_job(printer: &str, os_job_id: &str) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
@@ -262,7 +280,8 @@ pub fn cancel_os_job(printer: &str, os_job_id: &str) -> anyhow::Result<()> {
 
 /// [`cancel_os_job`] for a job id read back from disk rather than tracked in
 /// this process: on Windows the spooler reuses ids, so the job is only
-/// deleted while it still carries one of `documents` (the names Pluryprint
+/// deleted while it still has the submission stamp recorded with its id
+/// ([`windows::JobRef`]), carries one of `documents` (the names Pluryprint
 /// spooled it under) and belongs to this user. CUPS ids are never reused, so
 /// there it is a plain cancel.
 pub fn cancel_os_job_if_ours(
