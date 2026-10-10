@@ -72,7 +72,8 @@ The table below is the **complete** registered surface — 47 commands, in `coll
 | `export_profile`            | `exportProfile(id, path) => null`                              | `ipc::profiles::export_profile`         | Writes one profile to a TOML file the user picked |
 | `import_profiles`           | `importProfiles(path) => Profile[]`                            | `ipc::profiles::import_profiles`        | Reads a profile file and returns the resulting list |
 | `get_app_settings`          | `getAppSettings() => AppSettings`                              | `ipc::settings::get_app_settings`       | The four wire sections (`app`/`engine`/`updater`/`telemetry`) of `config.toml` plus server-computed `meta`; excludes `printers` + `schema_version` |
-| `set_app_settings`          | `setAppSettings(settings) => AppSettings`                      | `ipc::settings::set_app_settings`       | **Replace-sections** + validate against `ENGINE_LIMITS`; `meta` is ignored on input and recomputed on the way out |
+| `set_app_settings`          | `setAppSettings(settings) => AppSettings`                      | `ipc::settings::set_app_settings`       | **Replace-sections** + validate against `ENGINE_LIMITS`; `meta` is ignored on input and recomputed on the way out; a retired `[engine] html_renderer` key is kept until the notice below took it |
+| `take_retired_renderer_notice` | `takeRetiredRendererNotice() => boolean`                    | `ipc::settings::take_retired_renderer_notice` | Round 6: removes the retired `[engine] html_renderer` key from `config.toml` and answers `true` once when it named the browser; the window then shows a one-time notice |
 | `check_for_updates`         | `checkForUpdates() => UpdateCheck`                             | `ipc::update::check_for_updates`        | Reads the channel's `latest.json` (semver compare); 404 = `UpdateCheckFailed`/`channel_unavailable`; installing is `install_update` |
 | `get_update_state`          | `getUpdateState() => UpdateState`                              | `ipc::update::get_update_state`         | `last_check_at` + `skipped_version` from `update-state.json` |
 | `set_skipped_update_version`| `setSkippedUpdateVersion(version) => null`                     | `ipc::update::set_skipped_update_version` | FR-084 "skip this version"; `null` clears it |
@@ -288,7 +289,7 @@ export type UpdateState = { last_check_at?: string | null; skipped_version?: str
 
 // --- Diagnostics + dependency probe (ipc/diag.rs, engine/deps.rs) ---
 export type Dependency = "sumatra-pdf" | "libre-office" | "chromium" | "pandoc" | "heif-codec" | "hevc-codec";
-// chromium: only the hidden html_renderer = "browser" fallback; pandoc: no longer used. Both block nothing.
+// chromium, pandoc: no longer used (the browser fallback was removed in round 6); kept so old records load. Both block nothing.
 export type FoundIn    = "bundled" | "configured" | "path" | "installed";
 export type DependencyReport = {
   id: Dependency; name: string;

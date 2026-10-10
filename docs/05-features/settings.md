@@ -141,7 +141,7 @@ On the backend, `set_app_settings` takes the config lock, loads the full config,
 - **Follow-ups**
   - The old **`[shell_extension]` switches were removed** for the MVP — shell-integration toggles land with **M2**, not here.
   - **Nightly builds**: the channel exists and follows beta until nightly builds are published. Installing an update is the About screen's job ([about.md](./about.md)).
-  - **`[engine] html_renderer`** is deliberately not on this screen: `"browser"`, set by hand in `config.toml`, brings back the headless Edge/Chrome renderer for one version (ADR-0012), and a settings save keeps whatever the file says.
+  - **`[engine] html_renderer`** no longer exists (round 6, ADR-0012): the headless Edge/Chrome renderer was removed, and pages always print with the system web view. A `config.toml` that still says `"browser"` loads normally; at the next launch the app removes the key and shows a one-time notice (EN/ES) saying pages now print with the system renderer. Until then a settings save keeps the key, so the notice is not lost.
   - **Telemetry transport** — the consent switches are wired but nothing is sent; a future build can honour them.
   - **Hot-reload / env overrides** of `config.toml` (via `notify` / `PLURYPRINT_*`) are deferred; the file is read on demand under `CONFIG_LOCK`.
 

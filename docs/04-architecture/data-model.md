@@ -83,8 +83,8 @@ conversion_timeout_seconds = 60  # 0 disables the timeout, else 10..=3600
 print_timeout_seconds = 300      # spool + wait for the OS job; 0 disables, else 10..=3600
 max_file_size_mb           = 200 # 1..=4096; enforced at inspect/submit time
 default_profile = "builtin-quick"  # profile *id*; omitted → builtin-quick
-# html_renderer = "browser"     # hidden (D15, ADR-0012): only a hand edit sets it; not on the wire,
-                                # never written while it is the default ("system", the web view)
+# html_renderer = "browser"     # RETIRED (round 6, ADR-0012): read but never used; removed by the
+                                # app's one-time notice (take_retired_renderer_notice); not on the wire
 
 [updater]
 channel = "stable"           # "stable" | "beta" | "nightly"

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. Amended in round 6: the browser fallback is removed (see "Round 6 amendment").
 
 ## Date
 
@@ -56,7 +56,19 @@ We will print HTML, Markdown and plain text through the **operating system's own
 ### Risks / Open Questions
 
 - WebView2 and WebKit updates arrive with the OS, not with Pluryprint, so a rendering change can appear without a Pluryprint release. `tests/render_worker.rs` exercises the real worker on each platform.
-- The browser fallback is removed after one version; anyone who needed it has to report why before then.
+- ~~The browser fallback is removed after one version.~~ Done in round 6 (below).
+
+## Round 6 amendment: the network layer is the boundary, and the fallback is gone
+
+**Context.** Security reviews in rounds 4 to 6 (notes 5-7, and the round-6 finding about character references inside an SVG `<style>`) kept finding parser differentials in the text pre-pass that protected the browser fallback: whatever `html_scan` decided about comments, encodings, `<style>` text or `<base>`, some page made the browser's own parser decide differently, and a share reference reached SMB. A text scan in front of a browser cannot be the security boundary.
+
+**Decision.**
+
+- The headless Edge/Chrome fallback (`[engine] html_renderer = "browser"`, `PLURYPRINT_HTML_RENDERER`) is **removed**, with its share-reference neutraliser and stylesheet walk. A stored `"browser"` is read and ignored; the app removes the key at the next launch and tells the user once (EN/ES) that pages now print with the system web view.
+- The boundary is the **web view's network layer**, on the URL the web view itself resolved: on Windows a `WebResourceRequested` filter on `*` that answers every request (document folder from the private origin, `data:`/`blob:`, a logged 403 for the rest), cancelled navigations, frame navigations and new windows, and served files checked on their open handle; on macOS a `WKContentRuleList` that admits only the document folder's own `file:` URL, `data:` and `blob:`, plus a navigation delegate. Read access alone was shown to be insufficient on macOS (a picture in the folder's parent loaded).
+- `html_scan` stays only as defence in depth (where the policy and `<base>` go) and decodes leniently: an unknown or empty charset no longer refuses the page.
+
+**Consequences.** No headless browser is ever started; Edge/Chrome/Chromium is not used at all. A page with a broken charset declaration prints. `page_not_checkable` now means only that the policy could not be placed first (a doctype that never closes).
 
 ## Related
 

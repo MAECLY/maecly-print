@@ -69,6 +69,16 @@ Every screen was audited against its spec and completed end to end; the items be
 - Every converter, spooler, printer-management, submission and settings refusal is shown in the user's language, with the tool's own words kept as the technical detail; the printed test page follows the app's language.
 - A capability the OS could not read is shown as "not reported" instead of "no".
 
+### Changed — round 6
+
+- **The headless Edge/Chrome fallback for HTML, Markdown and text is removed** (`[engine] html_renderer = "browser"`, `PLURYPRINT_HTML_RENDERER`). Pages always print with the system web view, whose network layer is the security boundary. A `config.toml` that still asks for the browser keeps working; the app removes the key and says so once.
+- A page with an empty or unknown declared charset (`<meta charset="">`, `MacRoman`) prints, decoded as UTF-8 or Windows-1252, instead of failing with `page_not_checkable`.
+
+### Fixed — round 6
+
+- **Security:** on macOS a printed page could load a file from its folder's parent (`../x.png` or an absolute `file:` URL): the content rule list now admits only the document's own folder, `data:` and `blob:`, and a navigation delegate cancels navigations the worker did not start.
+- **Security:** on Windows every web-view request is answered by the worker (a logged 403 for anything outside the document's folder), frame navigations and new windows are refused, and a served file is checked on its open handle so a junction or a swapped link cannot reach outside the folder.
+
 ### Fixed — round 3
 
 - Transparent PNG and WebP images printed as a black box; they are now flattened onto white.

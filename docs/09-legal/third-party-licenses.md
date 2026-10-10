@@ -98,7 +98,7 @@ Two notes: **Tailwind CSS is MIT and its generated CSS *is* distributed** in the
 |---|---|---|---|---|
 | SumatraPDF (**3.6.1**, pinned) | **GPL-3.0** (MuPDF inside it: AGPL-3.0) | PDF printing on Windows | Yes — fetched at packaging time and bundled as a separate program | Yes; see the compliance note below |
 | LibreOffice | MPL 2.0 | Office and OpenDocument → PDF, and RTF on Windows | No (subprocess) | Yes (separate) |
-| Chromium / Microsoft Edge | BSD 3-Clause (Chromium core) | Only the hidden `html_renderer = "browser"` fallback for HTML, Markdown and text (Google Chrome or Chromium also work); the default is the system web view | No (subprocess) | Yes (separate) |
+| Chromium / Microsoft Edge | BSD 3-Clause (Chromium core) | Nothing any more: the headless-browser fallback for HTML, Markdown and text was removed in round 6; pages print with the system web view | No (subprocess) | Yes (separate) |
 | sips / Windows Imaging Component | OS components | HEIC/HEIF decoding (`sips` on macOS; WIC plus the Store *HEIF Image Extensions* and *HEVC Video Extensions* on Windows); macOS `textutil` likewise turns RTF into HTML | No (system tool / OS API) | Yes (separate) |
 | CUPS `lp` | Apache 2.0 (system component) | Printing on macOS/Linux | No (system binary) | Yes (separate) |
 | WebView2 loader | BSD-style Microsoft license (loader); Edge engine system-installed | Webview rendering, and printing HTML, Markdown and text in the render worker | Loader statically linked; engine system | Yes (loader); engine N/A |
@@ -198,7 +198,7 @@ This is the legal foundation for using LibreOffice (MPL 2.0) and Chromium (BSD 3
 
 ### Chromium / Microsoft Edge (BSD 3-Clause)
 
-- **Used for:** nothing by default. Only the hidden `[engine] html_renderer = "browser"` fallback (kept for one version, ADR-0012) prints HTML, Markdown and text with `msedge --headless --print-to-pdf=<output> <input>`; the default is the system web view.
+- **Used for:** nothing. The headless `[engine] html_renderer = "browser"` fallback that ran `msedge --headless --print-to-pdf` was removed in round 6 (ADR-0012); HTML, Markdown and text print with the system web view.
 - **License:** [BSD 3-Clause](https://opensource.org/licenses/BSD-3-Clause) (Chromium core; Edge adds Microsoft proprietary code we don't redistribute).
 - **Embedded?** No. Subprocess only. We use the system Edge installation.
 - **Compatibility:** BSD 3-Clause is permissive; subprocess invocation makes this irrelevant anyway.
