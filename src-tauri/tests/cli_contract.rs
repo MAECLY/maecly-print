@@ -90,6 +90,50 @@ fn fr_008_print_takes_files_or_files_from_but_not_neither() {
     assert!(parse(&["print", "--files-from", "/tmp/sel.json"]).is_ok());
 }
 
+/// FR-059 / NFR-082: the PDF password comes from a file or stdin, never from
+/// argv (where `ps` and the shell history would show it).
+#[test]
+fn fr_059_password_is_read_from_a_file_or_stdin_never_argv() {
+    let cli = parse(&["print", "--files", "a.pdf", "--password-file", "/tmp/pw"]).unwrap();
+    let Some(Command::Print(args)) = cli.command else {
+        panic!("expected the print subcommand");
+    };
+    assert_eq!(
+        args.password_file.as_deref(),
+        Some(std::path::Path::new("/tmp/pw"))
+    );
+    assert!(!args.password_stdin);
+
+    let cli = parse(&["print", "--files", "a.pdf", "--password-stdin"]).unwrap();
+    let Some(Command::Print(args)) = cli.command else {
+        panic!("expected the print subcommand");
+    };
+    assert!(args.password_stdin && args.password_file.is_none());
+
+    // One source at a time, and no flag takes the password itself.
+    assert!(parse(&[
+        "print",
+        "--files",
+        "a.pdf",
+        "--password-file",
+        "/tmp/pw",
+        "--password-stdin"
+    ])
+    .is_err());
+    for flag in ["--password", "--pwd", "--pass"] {
+        assert!(
+            parse(&["print", "--files", "a.pdf", flag, "hunter2"]).is_err(),
+            "{flag} must not exist"
+        );
+    }
+}
+
+/// FR-059: a protected PDF exits 13, whichever reason.
+#[test]
+fn fr_059_protected_pdf_exit_code_is_13() {
+    assert_eq!(ExitCode::PdfProtected.code(), 13);
+}
+
 #[test]
 fn fr_008_color_and_mono_are_mutually_exclusive() {
     assert!(parse(&["print", "--files", "a.pdf", "--color"]).is_ok());

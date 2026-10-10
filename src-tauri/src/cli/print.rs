@@ -114,6 +114,10 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
     // boot, so a headless run accepts exactly the files the app would.
     let engine = config.engine.clone().sanitized();
 
+    // The password (FR-059) is read before anything else touches the batch,
+    // so a bad `--password-file` stops the run with nothing printed.
+    let password = read_password(&args)?;
+
     let inputs = collect_inputs(&args)?;
     let expanded = files::expand_inputs(&inputs, engine.max_file_size_mb)?;
 
@@ -193,6 +197,7 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
             &caps,
             &effective,
             timeouts,
+            password.as_ref(),
         );
         batch.record(file, target, outcome);
     }
@@ -368,6 +373,11 @@ impl Timeouts {
 /// "Done" means the OS accepted the job, not that paper came out: no spooler
 /// tells us the latter synchronously, and claiming otherwise would be the kind
 /// of dishonesty the print-settings policy forbids.
+///
+/// `password` opens an encrypted PDF (FR-059): the decrypted copy lands in
+/// the run's private cache and is deleted with it. A protected PDF without
+/// it, or with a wrong one, fails this file only (exit 13).
+#[allow(clippy::too_many_arguments)]
 fn print_one(
     input: &Path,
     cache_dir: &Path,
@@ -376,6 +386,7 @@ fn print_one(
     caps: &crate::engine::print::PrinterCaps,
     settings: &JobSettings,
     timeouts: Timeouts,
+    password: Option<&crate::engine::PdfPassword>,
 ) -> Result<Option<String>, CliError> {
     // The CLI has no cancel channel (Ctrl-C kills the process), so the flag the
     // engine polls is always false here.
@@ -388,7 +399,7 @@ fn print_one(
         &|_| {},
         timeouts.conversion,
         &crate::engine::convert::PageSetup::for_settings(settings),
-        None,
+        password,
     )?;
 
     let pdf = converted.unwrap_or_else(|| input.to_path_buf());
@@ -406,6 +417,58 @@ fn print_one(
     // The basename (`title`), never the absolute path (NFR-082).
     tracing::info!(event = "cli_job_printed", file = %title, printer = %printer);
     Ok(outcome.os_job_id)
+}
+
+/// The password for the batch's encrypted PDFs, from `--password-file` or
+/// `--password-stdin` (FR-059, NFR-082). Never from argv, never logged.
+///
+/// `--password-stdin` refuses a terminal: reading a typed password there
+/// would echo it on screen. Pipe it in instead.
+fn read_password(args: &PrintArgs) -> Result<Option<crate::engine::PdfPassword>, CliError> {
+    use std::io::{IsTerminal, Read};
+    let text = if let Some(path) = &args.password_file {
+        let mut text = zeroize::Zeroizing::new(String::new());
+        std::fs::File::open(path)
+            .and_then(|mut f| f.read_to_string(&mut text))
+            .map_err(|e| {
+                CliError::usage(format!(
+                    "cannot read the password file {}: {e}",
+                    path.display()
+                ))
+            })?;
+        text
+    } else if args.password_stdin {
+        let stdin = std::io::stdin();
+        if stdin.is_terminal() {
+            return Err(CliError::usage(
+                "--password-stdin reads a piped password; pipe it in (for example \
+                 `printf %s \"$PW\" | pluryprint print …`) or use --password-file",
+            ));
+        }
+        let mut text = zeroize::Zeroizing::new(String::new());
+        stdin
+            .lock()
+            .read_to_string(&mut text)
+            .map_err(|e| CliError::usage(format!("cannot read the password from stdin: {e}")))?;
+        text
+    } else {
+        return Ok(None);
+    };
+    password_from_text(&text).map(Some)
+}
+
+/// The password in `text`: its first line, without the line ending. An empty
+/// one is refused (`password_empty`). Pure.
+pub fn password_from_text(text: &str) -> Result<crate::engine::PdfPassword, CliError> {
+    let line = text.split('\n').next().unwrap_or_default();
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    crate::engine::PdfPassword::new(line.to_string()).ok_or_else(|| {
+        CliError::from(IpcError::localized(
+            crate::util::error::IpcErrorCode::InvalidRequest,
+            "password_empty",
+            "the password file or stdin holds no password",
+        ))
+    })
 }
 
 /// The file list, from `--files` or from a `--files-from` handoff payload.
@@ -519,9 +582,9 @@ fn accept_files(files: &[String], max_mb: u32) -> Result<Vec<String>, CliError> 
         }
         let ext = crate::engine::extension_of(&path);
         if !crate::engine::is_supported(&ext) {
-            return Err(CliError::from(IpcError::UnsupportedFormat(format!(
-                "{file} is not a printable file type"
-            ))));
+            return Err(CliError::from(crate::queue::unsupported_format_error(
+                file, &path, &ext,
+            )));
         }
         accepted.push(path.to_string_lossy().into_owned());
     }
@@ -634,6 +697,48 @@ mod tests {
 
     fn quick() -> Profile {
         crate::profiles::builtins().remove(0)
+    }
+
+    /// FR-059: the password is the first line, without its line ending (a
+    /// file written by `echo` or Notepad works); an empty one is refused.
+    #[test]
+    fn fr_059_password_from_text_takes_the_first_line() {
+        for text in ["s3cret", "s3cret\n", "s3cret\r\n", "s3cret\nignored\n"] {
+            assert_eq!(password_from_text(text).unwrap().expose(), "s3cret");
+        }
+        // Spaces are part of a password.
+        assert_eq!(password_from_text(" a b \n").unwrap().expose(), " a b ");
+        for empty in ["", "\n", "\r\n"] {
+            let err = password_from_text(empty).unwrap_err();
+            assert_eq!(err.exit, ExitCode::Usage);
+            assert_eq!(err.error.reason(), Some("password_empty"));
+        }
+    }
+
+    /// FR-059: `--password-file` is read before the batch starts; an
+    /// unreadable one stops the run (usage, exit 2) without echoing anything
+    /// it may have held.
+    #[test]
+    fn fr_059_password_file_is_read_or_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("pw.txt");
+        std::fs::write(&file, "s3cret\n").unwrap();
+        let args = |password_file: Option<std::path::PathBuf>| PrintArgs {
+            files: vec!["a.pdf".into()],
+            files_from: None,
+            profile: None,
+            printer: None,
+            settings: SettingFlags::default(),
+            no_dialog: false,
+            wait: false,
+            password_file,
+            password_stdin: false,
+        };
+        let pw = read_password(&args(Some(file))).unwrap().unwrap();
+        assert_eq!(pw.expose(), "s3cret");
+        assert!(read_password(&args(None)).unwrap().is_none());
+        let err = read_password(&args(Some(dir.path().join("missing")))).unwrap_err();
+        assert_eq!(err.exit, ExitCode::Usage);
     }
 
     #[test]

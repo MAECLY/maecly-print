@@ -165,6 +165,18 @@ pub struct PrintArgs {
     /// completion before exiting.
     #[arg(long)]
     pub wait: bool,
+
+    /// Password for the encrypted PDFs of this batch, read from the first
+    /// line of a file (FR-059). It is never accepted on the command line,
+    /// where other users and the shell history could see it. Files that are
+    /// not encrypted ignore it.
+    #[arg(long, value_name = "PATH", conflicts_with = "password_stdin")]
+    pub password_file: Option<PathBuf>,
+
+    /// Read the password for the encrypted PDFs of this batch from standard
+    /// input (its first line), e.g. `printf %s "$PW" | pluryprint print …`.
+    #[arg(long)]
+    pub password_stdin: bool,
 }
 
 /// The print-setting overrides shared by `print` and `profiles create`.
