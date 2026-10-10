@@ -700,6 +700,24 @@ fn nfr_070_stage_bundle_names_the_files_and_drops_throwaway_signatures() {
     let twice = stage("windows_x64", &dir.path().join("t"));
     assert_eq!(twice.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&twice.stderr).contains("-setup.exe"));
+
+    // A folder that already holds files (Vite's dist/) is refused.
+    let shared = dir.path().join("shared");
+    std::fs::create_dir_all(shared.join("assets")).unwrap();
+    std::fs::write(shared.join("index.html"), "<!doctype html>").unwrap();
+    let mixed = stage("apple_silicon", &shared);
+    assert_eq!(mixed.status.code(), Some(1), "{mixed:?}");
+    assert!(String::from_utf8_lossy(&mixed.stderr).contains("not empty"));
+}
+
+/// The build job stages into its own folder, never Vite's `dist/`.
+#[test]
+fn nfr_070_release_files_are_not_staged_in_vites_dist() {
+    let release = read(".github/workflows/release.yml");
+    assert!(release.contains("--out release-staging"));
+    assert!(release.contains("path: release-staging/"));
+    assert!(!release.contains("--out dist"));
+    assert!(!release.contains("path: dist/"));
 }
 
 /// FR-085/NFR-022: latest.json is written from the signed files and their
