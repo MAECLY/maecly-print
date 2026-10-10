@@ -654,9 +654,9 @@ mod tests {
         assert_eq!(
             names(tmp.path()),
             vec![
+                "notes.txt",
                 "pluryprint-2026-07-06.jsonl",
                 "pluryprint-2026-07-20.jsonl",
-                "notes.txt",
             ]
         );
         assert!(
