@@ -186,7 +186,7 @@ describe('HomeScreen', () => {
   // CLI (FR-008) — the command exists, so the card hands it over
   // -------------------------------------------------------------------------
 
-  it('FR-008: the CLI card shows the real command and copies it', async () => {
+  it('FR-008/FR-009: off macOS the CLI card copies a pluryprint-cli command PowerShell can run', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -194,18 +194,50 @@ describe('HomeScreen', () => {
     });
     renderHome();
     const card = screen.getByRole('button', { name: /run from cli/i });
-    expect(card).toHaveTextContent('pluryprint print --files');
+    // pluryprint.exe is a GUI program PowerShell does not wait for; the
+    // console twin is what a script runs.
+    expect(card).toHaveTextContent('pluryprint-cli print --files');
     // Built around the profile the app really defaults to.
     expect(card).toHaveTextContent('--profile Quick');
     // Outside the desktop host the path is unknown, so the card says so.
     expect(card).toHaveTextContent(/not on your PATH yet/i);
+    expect(card).toHaveTextContent(
+      /replace pluryprint-cli with its full path/i,
+    );
 
     fireEvent.click(card);
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     expect(writeText.mock.calls[0]![0]).toBe(
-      "pluryprint print --files '*.pdf' --profile Quick",
+      "pluryprint-cli print --files '*.pdf' --profile Quick",
     );
     expect(toasts.success).toHaveBeenCalled();
+  });
+
+  it('FR-009: in the Windows app, the card names pluryprint-cli.exe next to the app, for PowerShell', async () => {
+    mockIPC((cmd) => {
+      if (cmd === 'app_info') {
+        return {
+          ...fixtureAppInfo,
+          os: 'windows',
+          executable:
+            'C:\\Users\\Ana\\AppData\\Local\\Pluryprint\\pluryprint.exe',
+        };
+      }
+      return null;
+    });
+    try {
+      renderHome();
+      const card = screen.getByRole('button', { name: /run from cli/i });
+      await vi.waitFor(() =>
+        expect(card).toHaveTextContent(
+          "C:\\Users\\Ana\\AppData\\Local\\Pluryprint\\pluryprint-cli.exe print --files '*.pdf' --profile Quick",
+        ),
+      );
+    } finally {
+      clearMocks();
+      delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+      delete (window as unknown as Record<string, unknown>).__TAURI__;
+    }
   });
 
   it('FR-006/FR-008: in the app, the command names the real executable, quoted', async () => {
@@ -426,25 +458,30 @@ describe('HomeScreen', () => {
     renderHome();
     const text = document.body.textContent ?? '';
     expect(text).not.toMatch(/adds itself to the right-click menu/i);
-    // The CLI, which does exist, is what the tip points at.
-    expect(text).toMatch(/pluryprint print --files/);
+    // The CLI, which does exist, is what the tip points at (off macOS, the
+    // console pluryprint-cli).
+    expect(text).toMatch(/pluryprint-cli print --files/);
   });
 
   it('FR-006: without the executable path, the tip does not promise the card has it', () => {
     renderHome();
     const text = document.body.textContent ?? '';
     // The card falls back to the bare name and says so…
-    expect(text).toMatch(/replace pluryprint with the full path/i);
+    expect(text).toMatch(/replace pluryprint-cli with its full path/i);
     // …so the tip must not claim the card copies the full path.
     expect(text).not.toMatch(/card copies a command that already does/);
-    expect(text).toMatch(/full path of the app's executable/);
+    expect(text).toMatch(/full path, in the app's folder/);
   });
 
-  it('FR-001: the tip names the Finder entry that ships, and only Windows as missing', () => {
+  it('FR-001: the tip names the right-click entry each platform really has', () => {
     renderHome();
     const text = document.body.textContent ?? '';
-    expect(text).not.toMatch(/Explorer and Finder right-click entry is not/i);
-    expect(text).toMatch(/Explorer right-click entry is built but not yet/i);
+    // The installer registers the Explorer entry (classic menu).
+    expect(text).not.toMatch(/not yet registered/i);
+    expect(text).toMatch(
+      /In Explorer, right-click files and choose Pluryprint/,
+    );
+    expect(text).toMatch(/Windows 11 the entry is under Show more options/);
     cleanup();
 
     const platform = vi

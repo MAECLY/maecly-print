@@ -69,13 +69,28 @@ export function quoteShellArg(arg: string, flavor: ShellFlavor): string {
   return `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
+/** The console front end scripts run on Windows (`src/bin/pluryprint-cli.rs`). */
+const CLI_PROGRAM_WINDOWS = 'pluryprint-cli';
+
+/**
+ * The command-line program's name on `os` (`'windows'`, `'macos'`, …):
+ * `pluryprint-cli` on Windows, where the app itself is a GUI program a shell
+ * does not wait for; the app's own `pluryprint` elsewhere.
+ */
+export function cliProgram(os: string | undefined): string {
+  return os === 'windows' ? CLI_PROGRAM_WINDOWS : 'pluryprint';
+}
+
 /**
  * The `print` command the Home screen offers to copy (FR-008).
  *
  * It names the running executable by its full path because nothing puts
  * `pluryprint` on `PATH` yet (FR-006): a bare `pluryprint` pasted into a
  * terminal would only answer "command not found". On Windows the line is for
- * PowerShell, where a quoted program path needs the `&` call operator to run.
+ * PowerShell, where a quoted program path needs the `&` call operator to run,
+ * and it names the console-subsystem `pluryprint-cli.exe` installed next to
+ * the app: `pluryprint.exe` is a GUI program, so PowerShell would neither wait
+ * for it nor show its output or exit code (FR-009).
  * The glob is quoted on purpose — the CLI expands patterns itself, and a shell
  * that expanded it first would hand over a different argument list.
  */
@@ -89,9 +104,13 @@ export function cliPrintCommand({
   profile: string;
 }): string {
   const flavor: ShellFlavor = os === 'windows' ? 'powershell' : 'posix';
-  let program = 'pluryprint';
+  let program = cliProgram(os);
   if (executable) {
-    program = quoteShellArg(executable, flavor);
+    const path =
+      os === 'windows'
+        ? executable.replace(/[^\\/]*$/, `${CLI_PROGRAM_WINDOWS}.exe`)
+        : executable;
+    program = quoteShellArg(path, flavor);
     if (flavor === 'powershell' && program.startsWith("'")) {
       program = `& ${program}`;
     }

@@ -27,7 +27,7 @@
     "copied": "Comando copiado al portapapeles",
     "copyFailed": "No se pudo acceder al portapapeles: selecciona el comando y cópialo a mano.",
     "pathNote": "Usa la ruta completa de la aplicación: todavía no está en tu PATH.",
-    "noPathNote": "Todavía no está en tu PATH: sustituye pluryprint por la ruta completa del ejecutable de la aplicación."
+    "noPathNote": "Todavía no está en tu PATH: sustituye {{program}} por su ruta completa, en la carpeta de la aplicación."
   },
   "recent": {
     "label": "Actividad reciente",
@@ -70,8 +70,8 @@
   "tip": {
     "label": "Consejo",
     "pathCopied": "Todavía nada lo añade al PATH, así que llámalo por su ruta completa: la tarjeta «Usar la CLI» copia un comando que ya la incluye.",
-    "pathManual": "Todavía nada lo añade al PATH, así que llámalo por la ruta completa del ejecutable de la aplicación.",
-    "body": "Pluryprint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. {{path}} La entrada del menú contextual del Explorador ya está hecha, pero ningún instalador la registra todavía, así que aún no aparece en Windows.",
+    "pathManual": "Todavía nada lo añade al PATH, así que llámalo por su ruta completa, en la carpeta de la aplicación.",
+    "body": "Pluryprint también imprime desde un script, sin ventana: {{command}} … ejecuta su herramienta de línea de comandos, instalada junto a la aplicación. {{path}} En el Explorador, haz clic derecho sobre los archivos y elige Pluryprint; en Windows 11 la entrada está en «Mostrar más opciones».",
     "bodyMac": "Pluryprint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. {{path}} En el Finder, selecciona archivos y elige Servicios › Imprimir con Pluryprint en el menú contextual."
   },
   "nav": {
@@ -101,7 +101,7 @@
     },
     "cli": {
       "title": "Imprime sin ventana",
-      "body": "El mismo binario es una herramienta de línea de comandos: {{command}} encola un lote sin interfaz, con códigos de salida estables para tus scripts."
+      "body": "Pluryprint tiene una herramienta de línea de comandos: {{command}} encola un lote sin interfaz, con códigos de salida estables para tus scripts."
     },
     "profiles": {
       "title": "Elige un perfil por defecto",
@@ -109,7 +109,7 @@
     },
     "ready": {
       "title": "Listo para imprimir",
-      "body": "Arrastra los archivos que quieras a la ventana o pulsa {{shortcut}}, elige un perfil y verás cómo se encolan. La entrada del menú contextual del Explorador llegará cuando un instalador la registre.",
+      "body": "Arrastra los archivos que quieras a la ventana o pulsa {{shortcut}}, elige un perfil y verás cómo se encolan. En el Explorador, haz clic derecho sobre los archivos y elige Pluryprint (en Windows 11, dentro de «Mostrar más opciones»).",
       "bodyMac": "Arrastra los archivos que quieras a la ventana o pulsa {{shortcut}}, elige un perfil y verás cómo se encolan. En el Finder, haz clic derecho sobre los archivos y elige Servicios › Imprimir con Pluryprint."
     },
     "skip": "Omitir",

@@ -18,7 +18,7 @@ import {
   MPTopBar,
 } from '@/components/ui';
 import { useLocale, useT } from '@/i18n/I18nProvider';
-import { cliPrintCommand, formatFinished } from '@/lib/format';
+import { cliPrintCommand, cliProgram, formatFinished } from '@/lib/format';
 import { fetchAppInfo, isTauri, openLogsFolder } from '@/lib/ipc';
 import { findProfileIn } from '@/lib/profiles';
 import { useProfilesStore } from '@/stores/profilesStore';
@@ -157,9 +157,13 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
     };
   }, []);
   const defaultProfile = findProfileIn(profiles, null);
+  // The backend's answer when there is one; the browser's platform until then
+  // (or in the web preview). Off macOS that means Windows (Linux is out of
+  // scope), where the command-line program is the console `pluryprint-cli`.
+  const cliOs = exe.os ?? (isMacPlatform() ? 'macos' : 'windows');
   const cliCommand = cliPrintCommand({
     executable: exe.path,
-    os: exe.os,
+    os: cliOs,
     profile: defaultProfile.name,
   });
 
@@ -494,7 +498,9 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
                     marginTop: 4,
                   }}
                 >
-                  {exe.path ? t('cli.pathNote') : t('cli.noPathNote')}
+                  {exe.path
+                    ? t('cli.pathNote')
+                    : t('cli.noPathNote', { program: cliProgram(cliOs) })}
                 </div>
               )}
             </CardButton>
@@ -585,10 +591,11 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
             style={{ fontSize: 12, color: 'var(--mp-info)', lineHeight: 1.5 }}
           >
             <strong>{t('tip.label')} · </strong>
-            {/* FR-001: the Finder Services entry ships on macOS; the
-                Explorer entry is built but not registered by an installer. */}
+            {/* FR-001: the Finder Services entry ships on macOS; on Windows
+                the installer registers the Explorer entry (classic menu, so
+                "Show more options" on Windows 11). */}
             {t(isMacPlatform() ? 'tip.bodyMac' : 'tip.body', {
-              command: 'pluryprint print --files',
+              command: `${cliProgram(cliOs)} print --files`,
               // Same condition as the card's own note: only claim the card
               // copies the full path when it actually knows it.
               path: exe.path ? t('tip.pathCopied') : t('tip.pathManual'),

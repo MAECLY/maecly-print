@@ -579,10 +579,15 @@ describe('SettingsScreen', () => {
     expect(
       screen.getByText(/these switches record consent only/),
     ).toBeInTheDocument();
-    // FR-001: off macOS the Explorer entry is described as not registered yet.
+    // FR-001: off macOS the installer registers the Explorer entry; Windows
+    // 11 keeps it under "Show more options".
     expect(
-      screen.getByText(/no installer registers it yet/),
+      screen.getByText(
+        /installer adds Pluryprint to the Explorer right-click menu/,
+      ),
     ).toBeInTheDocument();
+    expect(screen.getByText(/under Show more options/)).toBeInTheDocument();
+    expect(screen.queryByText(/no installer registers it yet/)).toBeNull();
   });
 
   it('FR-001: on macOS the shell note points at the Finder Services entry', async () => {

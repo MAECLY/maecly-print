@@ -6,6 +6,7 @@ import { ModalOverlay } from '@/components/Modal';
 import { MPButton, MPCard } from '@/components/ui';
 import { useModalFocus } from '@/components/useModal';
 import { useT } from '@/i18n/I18nProvider';
+import { cliProgram } from '@/lib/format';
 import { findProfileIn } from '@/lib/profiles';
 import { useProfilesStore } from '@/stores/profilesStore';
 
@@ -16,9 +17,10 @@ import { useProfilesStore } from '@/stores/profilesStore';
  * first thing a user reads, and a promise it cannot keep (a right-click entry
  * that does not exist, a Settings switch that was never shipped) is a broken
  * feature as far as they are concerned. The right-click entry is described per
- * platform — Finder Services on macOS, where it ships; on Windows it is named
- * as pending registration — and the default profile is read from the real
- * profile list instead of being retyped here.
+ * platform — Finder Services on macOS; on Windows the installer's Explorer
+ * entry, which Windows 11 keeps under "Show more options" — the command-line
+ * program is named per platform (`pluryprint-cli` on Windows), and the default
+ * profile is read from the real profile list instead of being retyped here.
  */
 const STEPS = [
   { key: 'welcome', icon: 'maecly' },
@@ -42,7 +44,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const cur = STEPS[step]!;
   const params = {
     name: findProfileIn(profiles, null).name,
-    command: 'pluryprint print --files "*.pdf"',
+    command: `${cliProgram(isMacPlatform() ? 'macos' : 'windows')} print --files "*.pdf"`,
     shortcut: shortcutLabel('newJob'),
   };
   // FR-001: the right-click entry and "Save as PDF" are platform-specific, so

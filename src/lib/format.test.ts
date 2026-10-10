@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   cliPrintCommand,
+  cliProgram,
   distinguishingFolders,
   formatFinished,
   quoteShellArg,
@@ -89,7 +90,9 @@ describe('cliPrintCommand', () => {
     );
   });
 
-  it('FR-008: a Windows path with spaces is invoked with the PowerShell call operator', () => {
+  it('FR-008/FR-009: on Windows it runs the console pluryprint-cli.exe next to the app, with the PowerShell call operator', () => {
+    // pluryprint.exe is a GUI-subsystem program: PowerShell neither waits
+    // for it nor shows its output or exit code. The console twin does.
     expect(
       cliPrintCommand({
         executable:
@@ -98,8 +101,26 @@ describe('cliPrintCommand', () => {
         profile: `Ana's "draft"`,
       }),
     ).toBe(
-      `& 'C:\\Users\\Ana\\AppData\\Local\\Programs\\Pluryprint App\\pluryprint.exe' print --files '*.pdf' --profile 'Ana''s "draft"'`,
+      `& 'C:\\Users\\Ana\\AppData\\Local\\Programs\\Pluryprint App\\pluryprint-cli.exe' print --files '*.pdf' --profile 'Ana''s "draft"'`,
     );
+    // A path PowerShell can run bare still names the console binary.
+    expect(
+      cliPrintCommand({
+        executable: 'C:\\Pluryprint\\Pluryprint.EXE',
+        os: 'windows',
+        profile: 'Quick',
+      }),
+    ).toBe(
+      "C:\\Pluryprint\\pluryprint-cli.exe print --files '*.pdf' --profile Quick",
+    );
+  });
+
+  it('FR-009: without a known path, Windows still names pluryprint-cli', () => {
+    expect(
+      cliPrintCommand({ executable: null, os: 'windows', profile: 'Quick' }),
+    ).toBe("pluryprint-cli print --files '*.pdf' --profile Quick");
+    expect(cliProgram('windows')).toBe('pluryprint-cli');
+    expect(cliProgram('macos')).toBe('pluryprint');
   });
 
   it('falls back to the bare command name when the executable is unknown', () => {

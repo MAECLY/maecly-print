@@ -27,7 +27,7 @@
     "copied": "Command copied to the clipboard",
     "copyFailed": "Could not reach the clipboard — select the command and copy it manually.",
     "pathNote": "Uses the app's full path — it is not on your PATH yet.",
-    "noPathNote": "Not on your PATH yet: replace pluryprint with the full path of the app's executable."
+    "noPathNote": "Not on your PATH yet: replace {{program}} with its full path, in the app's folder."
   },
   "recent": {
     "label": "Recent activity",
@@ -70,8 +70,8 @@
   "tip": {
     "label": "Tip",
     "pathCopied": "Nothing adds it to your PATH yet, so call it by its full path — the Run from CLI card copies a command that already does.",
-    "pathManual": "Nothing adds it to your PATH yet, so call it by the full path of the app's executable.",
-    "body": "Pluryprint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. {{path}} The Explorer right-click entry is built but not yet registered by an installer, so it does not appear on Windows yet.",
+    "pathManual": "Nothing adds it to your PATH yet, so call it by its full path, in the app's folder.",
+    "body": "Pluryprint also prints from a script, with no window: {{command}} … runs its command-line tool, installed next to the app. {{path}} In Explorer, right-click files and choose Pluryprint; on Windows 11 the entry is under Show more options.",
     "bodyMac": "Pluryprint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. {{path}} In Finder, select files and choose Services › Print with Pluryprint from the right-click menu."
   },
   "nav": {
@@ -101,7 +101,7 @@
     },
     "cli": {
       "title": "Print without the window",
-      "body": "The same binary is a command-line tool: {{command}} queues a batch headlessly, with stable exit codes for your scripts."
+      "body": "Pluryprint has a command-line tool: {{command}} queues a batch headlessly, with stable exit codes for your scripts."
     },
     "profiles": {
       "title": "Pick a default profile",
@@ -109,7 +109,7 @@
     },
     "ready": {
       "title": "Ready to print",
-      "body": "Drag any number of files onto the window or press {{shortcut}}, pick a profile, and watch them queue up. The Explorer right-click entry arrives once an installer registers it.",
+      "body": "Drag any number of files onto the window or press {{shortcut}}, pick a profile, and watch them queue up. In Explorer, right-click files and choose Pluryprint (on Windows 11, under Show more options).",
       "bodyMac": "Drag any number of files onto the window or press {{shortcut}}, pick a profile, and watch them queue up. In Finder, right-click files and choose Services › Print with Pluryprint."
     },
     "skip": "Skip",

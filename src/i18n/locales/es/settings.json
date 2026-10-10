@@ -40,7 +40,7 @@
       "hint": "Se aplica al trabajo cuando no se elige otro perfil."
     },
     "profilesError": "No se ha podido cargar la lista de perfiles.",
-    "shellNote": "La entrada del menú contextual del Explorador está hecha, pero ningún instalador la registra todavía, así que no aparece en Windows.",
+    "shellNote": "El instalador añade Pluryprint al menú contextual del Explorador: en Windows 11 está en «Mostrar más opciones» (o Mayús+F10) y en Windows 10, en el propio menú.",
     "shellNoteMac": "La impresión con el botón derecho funciona desde Finder › Servicios › Imprimir con Pluryprint. Esos títulos de menú siguen el idioma del sistema."
   },
   "engine": {

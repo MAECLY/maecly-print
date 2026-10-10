@@ -103,8 +103,13 @@ describe('OnboardingFlow', () => {
     expect(seen).not.toMatch(/adds a "print with pluryprint" entry/i);
     expect(seen).not.toMatch(/disable it any time in settings/i);
     expect(seen).not.toMatch(/right-click any number of files/i);
-    // Off macOS the Explorer entry is named as pending registration.
-    expect(seen).toMatch(/arrives once an installer registers it/i);
+    // Off macOS the installer's Explorer entry is named, where Windows 11
+    // really puts it.
+    expect(seen).not.toMatch(/arrives once an installer registers it/i);
+    expect(seen).toMatch(
+      /In Explorer, right-click files and choose Pluryprint/,
+    );
+    expect(seen).toMatch(/on Windows 11, under Show more options/);
     // And "Save as PDF" is not promised as a printer on the list.
     expect(seen).not.toMatch(/'Save as PDF' on Mac/);
   });
@@ -117,17 +122,19 @@ describe('OnboardingFlow', () => {
       render(<OnboardingFlow onComplete={vi.fn()} />);
       const seen = walkToEnd();
       expect(seen).toMatch(/Services › Print with Pluryprint/);
-      expect(seen).not.toMatch(/installer registers it/);
+      expect(seen).not.toMatch(/Show more options/);
+      // The macOS app binary is itself the CLI.
+      expect(seen).toMatch(/pluryprint print --files/);
       expect(seen).toMatch(/Save as PDF in your apps' own print dialog/);
     } finally {
       platform.mockRestore();
     }
   });
 
-  it('FR-008: advertises the CLI, which this build really has', () => {
+  it('FR-008/FR-009: advertises the CLI, by its console name off macOS', () => {
     render(<OnboardingFlow onComplete={vi.fn()} />);
     const seen = walkToEnd();
-    expect(seen).toMatch(/pluryprint print --files/);
+    expect(seen).toMatch(/pluryprint-cli print --files/);
   });
 
   it('NFR-034: points at a shortcut that exists', () => {

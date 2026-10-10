@@ -40,7 +40,7 @@
       "hint": "Applied to a job when no other profile is chosen."
     },
     "profilesError": "Couldn't load the profile list.",
-    "shellNote": "The Explorer right-click entry is built, but no installer registers it yet, so it does not appear on Windows.",
+    "shellNote": "The installer adds Pluryprint to the Explorer right-click menu: on Windows 11 it is under Show more options (or Shift+F10), on Windows 10 in the menu itself.",
     "shellNoteMac": "Right-click printing works from Finder › Services › Print with Pluryprint. Those menu titles follow the system language."
   },
   "engine": {
