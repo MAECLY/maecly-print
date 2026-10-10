@@ -61,7 +61,7 @@ jobs:
   # would reject. An unsigned release is worse than no release: it installs,
   # and then no installed copy can ever verify an update from it.
   guard:
-    name: Guard (secret + versions)
+    name: Guard (secret + versions + notices)
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -102,6 +102,27 @@ jobs:
             echo "::error::Versions disagree: Cargo.toml=$crate package.json=$pkg. Run scripts/bump-version.sh."
             exit 1
           fi
+
+      # THIRD-PARTY-NOTICES.md ships in every bundle and is generated from the
+      # lockfiles (scripts/licenses/generate-notices.sh). A dependency change
+      # that is not reflected in it would ship without the notices its licence
+      # requires, so no release is built from a stale copy.
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      # No dependency cache in a release (see the header): no `cache:` here.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning]
+        with:
+          node-version: 20
+
+      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: cargo-about@0.9.2
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Third-party notices must be current
+        run: scripts/licenses/generate-notices.sh --check
 
   build:
     name: Build (${{ matrix.name }})
@@ -216,6 +237,31 @@ jobs:
         run: |
           ./scripts/build-shell-ext.ps1 -Arch all
           Get-ChildItem -Recurse src-tauri/resources/shellext -Filter *.dll | ForEach-Object { "$($_.FullName) $($_.Length)" }
+
+      # Explorer instantiates the handler through these two exports; a DLL
+      # without them registers fine and never shows the menu. `dumpbin`
+      # reads both architectures from the x64 runner.
+      - name: Explorer DLLs export the COM entry points
+        if: startsWith(matrix.platform, 'windows')
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $dumpbin = Get-ChildItem -Path $vs -Filter dumpbin.exe -Recurse -ErrorAction SilentlyContinue |
+                     Where-Object { $_.FullName -match 'Hostx64\\x64' } |
+                     Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dumpbin) { throw "dumpbin.exe not found under $vs" }
+          foreach ($arch in 'x64', 'arm64') {
+            $dll = "src-tauri/resources/shellext/$arch/shell_ext_win.dll"
+            if (-not (Test-Path $dll)) { throw "$dll was not built" }
+            # One string, not an array: `-notmatch` on an array filters it
+            # instead of answering yes or no.
+            $exports = (& $dumpbin /EXPORTS $dll) -join "`n"
+            foreach ($symbol in 'DllGetClassObject', 'DllCanUnloadNow') {
+              if ($exports -notmatch "\b$symbol\b") { throw "$dll does not export $symbol" }
+            }
+            Write-Host "$dll exports DllGetClassObject and DllCanUnloadNow"
+          }
 
       # With createUpdaterArtifacts on, `tauri build` signs the update
       # artifacts and refuses to bundle without a key (and `--no-sign` would

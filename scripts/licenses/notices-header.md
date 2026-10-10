@@ -37,9 +37,9 @@ the installer, the font and the licence compatibility table. Everything from
   packages (`@types/*`) contain no shipped code and are left out. Each entry
   reproduces the package's own licence file.
 
-CI (`ci.yml`, job `notices`) regenerates the file and fails when the committed
-copy differs, so a dependency change cannot reach a release without its
-notice.
+The release workflow (`release.yml`, job `guard`) regenerates the file and
+refuses to build when the committed copy differs, so a dependency change
+cannot reach a release without its notice.
 
 ---
 
