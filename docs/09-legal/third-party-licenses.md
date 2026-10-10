@@ -43,6 +43,7 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `image` | 0.25 (jpeg/png/tiff/bmp/webp only) | MIT / Apache-2.0 | **In-process** image decoding | Yes |
 | `lopdf` | 0.39 | MIT | PDF parsing, hand-built image PDFs, encrypted-PDF detection and decryption (FR-059) | Yes |
 | `svg2pdf`, `usvg` | 0.13 / `=0.45.1` | MIT / Apache-2.0 | SVG/SVGZ → vector PDF (FR-052a); pulls in `resvg`, `fontdb`, `tiny-skia` (BSD-3-Clause), `roxmltree` | Yes |
+| `pdf-writer` | 0.12 | MIT / Apache-2.0 | The page around svg2pdf's drawing (FR-052a); the line svg2pdf is built on, already in the tree | Yes |
 | `pulldown-cmark` | 0.13 (`html` only) | MIT | Markdown → HTML without Pandoc (FR-056) | Yes |
 | `encoding_rs` | 0.8 | MIT / Apache-2.0 (+ BSD-3-Clause data) | Decoding text files that are not UTF-8 (FR-057) | Yes |
 | `zeroize` | 1 | MIT / Apache-2.0 | Wiping a PDF password from memory (FR-059, NFR-082) | Yes |
