@@ -228,10 +228,18 @@ describe('HomeScreen', () => {
     try {
       renderHome();
       const card = screen.getByRole('button', { name: /run from cli/i });
+      // The card shows the command with the folder folded into "…", so a
+      // long install path cannot stretch it; the tooltip (and the copy)
+      // carry the full path.
       await vi.waitFor(() =>
         expect(card).toHaveTextContent(
-          "C:\\Users\\Ana\\AppData\\Local\\Pluryprint\\pluryprint-cli.exe print --files '*.pdf' --profile Quick",
+          "…\\pluryprint-cli.exe print --files '*.pdf' --profile Quick",
         ),
+      );
+      expect(card).not.toHaveTextContent('AppData');
+      expect(card).toHaveAttribute(
+        'title',
+        "C:\\Users\\Ana\\AppData\\Local\\Pluryprint\\pluryprint-cli.exe print --files '*.pdf' --profile Quick",
       );
     } finally {
       clearMocks();
@@ -261,9 +269,13 @@ describe('HomeScreen', () => {
       renderHome();
       const card = screen.getByRole('button', { name: /run from cli/i });
       await vi.waitFor(() =>
-        expect(card).toHaveTextContent(
+        expect(card).toHaveAttribute(
+          'title',
           "'/Applications/Pluryprint App.app/Contents/MacOS/pluryprint' print --files '*.pdf' --profile 'Costs $HOME'",
         ),
+      );
+      expect(card).toHaveTextContent(
+        "'…/pluryprint' print --files '*.pdf' --profile 'Costs $HOME'",
       );
       expect(card).toHaveTextContent(/full path/i);
       // …and so does the tip, which only now may say the card includes it.
