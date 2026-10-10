@@ -8,6 +8,11 @@
 //! reason, its params and the English detail) and exits
 //! [`super::EXIT_FAILED`]; the parent turns that line back into the same
 //! failure. Nothing else is printed: the paths are the parent's to log.
+//!
+//! Before it reads its input it applies the memory cap its parent passed
+//! ([`crate::engine::convert::process::apply_memory_cap`]): `RLIMIT_DATA` on
+//! Unix; on Windows it waits until it is inside the parent's memory-limited
+//! Job Object, and refuses to work otherwise.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -21,6 +26,16 @@ pub fn run(args: &[OsString]) -> i32 {
         eprintln!("usage: pluryprint --worker svg <input.svg> <output.pdf>");
         return super::EXIT_USAGE;
     };
+    // Security note 8: the memory cap is in force before the input is read
+    // (on Windows: once the parent has put this process in its Job Object).
+    if let Err(e) = crate::engine::convert::process::apply_memory_cap() {
+        let failure = Failure::new(
+            "svg_convert_failed",
+            format!("the SVG worker could not apply its memory limit: {e}"),
+        );
+        eprintln!("{}", svg::report_failure(&failure));
+        return super::EXIT_FAILED;
+    }
     let (input, output) = (PathBuf::from(input), PathBuf::from(output));
     match svg::convert_in_process(&input, &output) {
         Ok(()) => super::EXIT_OK,
