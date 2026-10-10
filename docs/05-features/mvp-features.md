@@ -20,13 +20,11 @@ The MVP exists to **prove the core thesis**: that a free, open-source tool can i
 - Works for files, folders (with recursion prompt), and mixed selections.
 - Filters unsupported file types automatically and lists what was skipped.
 
-Implementation: Sparse MSIX package + COM DLL implementing `IExplorerCommand`, written in Rust rather than C++. Details in [shell-extensions.md](../04-architecture/shell-extensions.md) and [ADR-0005](../adr/0005-shell-extension-sparse-msix.md).
+Implementation: a COM DLL implementing `IExplorerCommand`, written in Rust rather than C++, registered per user as a registry verb by the installer. Details in [shell-extensions.md](../04-architecture/shell-extensions.md) and [ADR-0013](../adr/0013-explorer-command-per-user-verb.md), which supersedes the Sparse MSIX plan of [ADR-0005](../adr/0005-shell-extension-sparse-msix.md).
 
-**Status:** the DLL is implemented and tested in `shell-ext-win/`, and the app accepts the handoff (`--invoke=context-menu --files-from <PATH>`). The macOS counterpart is an `NSServices` provider declared in `src-tauri/Info.plist`. The per-profile rows and the translated labels come from `<data_local_dir>\shell-menu.json`, which the app writes at startup and on every profile or language change (`src-tauri/src/shell_menu.rs`). One thing is missing:
+**Status:** the DLL is implemented and tested in `shell-ext-win/`, and the app accepts the handoff (`--invoke=context-menu --files-from <PATH>`). The macOS counterpart is an `NSServices` provider declared in `src-tauri/Info.plist`. The per-profile rows and the translated labels come from `<data_local_dir>\shell-menu.json`, which the app writes at startup and on every profile or language change (`src-tauri/src/shell_menu.rs`). The per-user installer registers it, with the DLL of the machine's native architecture, and it was verified with real right-clicks on Windows 11 24H2 ARM64. One thing is missing:
 
-- **Packaging.** No Sparse MSIX and no installer register the handler, so on a normal machine the entry does not appear at all. That is M2.
-
-The Windows 10 fallback path (`IShellExtInit` + `IContextMenu`) is not implemented and is documented as deliberately not registered, so "modern menu" here means Windows 11 only.
+- **The Windows 11 top-level menu.** The entry is in the Windows 10 menu and, on Windows 11, under **Show more options**. The top-level menu needs a sparse package signed with a trusted certificate, which waits for a certificate (decision D3).
 
 ### 2. Format support
 
@@ -35,12 +33,14 @@ The Windows 10 fallback path (`IShellExtInit` + `IContextMenu`) is not implement
 | **PDF** (`.pdf`) | Passthrough → SumatraPDF (Win) / `lp` (macOS) | Native, no conversion |
 | **JPG/JPEG, PNG** | Rust `image` → one-page PDF (`lopdf`) → spooler | Standard image batch |
 | **TIFF, BMP, WebP** | Rust `image` → one-page PDF (`lopdf`) → spooler | Less common but cheap to include |
-| **HEIC/HEIF** | OS decoder (`sips` on macOS, WIC on Windows) → one-page PDF | Windows needs the Store *HEIF Image Extensions*. Without them the job pauses with that hint |
-| **DOCX, XLSX, PPTX, DOC, XLS, PPT, ODT, ODS, ODP, TXT, RTF** | LibreOffice headless → PDF | Needs LibreOffice. Pulled forward from v0.2 |
-| **HTML** | Edge / Chrome / Chromium headless `--print-to-pdf` | Edge ships with Windows. Pulled forward from v0.2 |
-| **Markdown** | Pandoc → HTML → the browser step | Needs Pandoc and a browser. Pulled forward from v0.2 |
+| **HEIC/HEIF** | OS decoder (`sips` on macOS, WIC on Windows) → one-page PDF | Windows needs the Store *HEIF Image Extensions* (and *HEVC Video Extensions* for `.heic`). Without them the job pauses and offers the install |
+| **SVG, SVGZ** | `usvg` + `svg2pdf` → one vector page, in a worker process | Nothing to install |
+| **DOCX, XLSX, PPTX, DOC, XLS, PPT, ODT, ODS, ODP** (and RTF on Windows) | LibreOffice headless → PDF | Needs LibreOffice. Pulled forward from v0.2 |
+| **HTML** | The system web view (WebView2 / WKWebView) in a worker process | Nothing to install. Pulled forward from v0.2 |
+| **Markdown, TXT** (and RTF on macOS) | In-process to HTML (`textutil` for RTF), then the HTML row | Nothing to install. Pulled forward from v0.2 |
+| **GIF** | — | Refused with its own message (decision D9) |
 
-The image path is **pure Rust**: the `image` crate decodes, and `lopdf` embeds the bitmap as an XObject in a one-page PDF. There is no ImageMagick dependency. Documents are converted by programs already on the machine. A missing one pauses the job with an install hint (FR-058) instead of skipping the file. The engine's supported-extension list is `SUPPORTED_EXTS` in `src-tauri/src/engine/mod.rs`. See [supported-formats.md](../03-requirements/supported-formats.md) for the full matrix and how each converter is run.
+The image path is **pure Rust**: the `image` crate decodes, and `lopdf` embeds the bitmap as an XObject in a one-page PDF. There is no ImageMagick dependency. Office and OpenDocument files need LibreOffice. A missing one pauses the job with an install hint and an **Install…** button that runs the shown command only after the user confirms (FR-058), instead of skipping the file. Encrypted PDFs ask for their password (FR-059). The engine's supported-extension list is `SUPPORTED_EXTS` in `src-tauri/src/engine/mod.rs`. See [supported-formats.md](../03-requirements/supported-formats.md) for the full matrix and how each converter is run.
 
 ### 3. Print settings
 
@@ -57,7 +57,7 @@ The user can configure (per profile or per job override):
 
 Settings not exposed in MVP: n-up, collate, watermark, separator pages, custom paper, margins. These come in v0.2 / v1.
 
-**Known gap:** a profile also carries `tray` and `quality` fields, which the profile editor lets you set and `profiles.toml` persists, but **neither reaches the print backend** — `engine::print::{cups,sumatra}` never reads them. They are stored intent, not applied settings, until the tray work in v0.2 and the quality work in v0.8 land. Do not document them as working.
+A profile also carries `tray` and `quality`. Both reach the printer: CUPS gets them as options; on Windows the tray goes to SumatraPDF as the driver's bin id and Draft/High through a temporary per-user default (decision D16). A tray or quality the driver does not offer is noted on the job instead of applied. See [print-settings.md](../03-requirements/print-settings.md).
 
 ### 4. Profiles
 
@@ -118,32 +118,32 @@ Delivered, and slightly wider than this list: the five subcommand roots are `pri
 
 Delivered:
 
-- On startup (delayed 30 s) and at most once per 24 h, check for a newer release. The check runs in Rust on a detached thread, so a cold start never waits on the network. The current implementation queries the **GitHub `releases/latest` API**, not `updates.maecly.com` — that manifest host is an M4 deliverable.
+- On startup (delayed 30 s) and at most once per 24 h, check for a newer release. The check runs in Rust on a detached thread, so a cold start never waits on the network. It reads the updater manifest (`latest.json`) of the user's channel from GitHub Releases, the same file the installer uses; there is no `updates.maecly.com`.
 - Manual "Check for updates now" from About.
 - If a newer version is available: an in-app toast (with the release notes) and an About-screen card offering **Install now**, **defer** (say nothing until the next check window) or **skip this version** (silence exactly that tag; a later release prompts again). The skipped tag is persisted.
 - **Install now** downloads the artifact named by `latest.json`, verifies its signature, installs it per-user and offers a restart ([FR-082](../03-requirements/functional-requirements.md), FR-083). A major version needs a second confirmation (FR-087). The CLI equivalent is `pluryprint update install [--yes]`. See [ADR-0008](../adr/0008-installer-nsis-per-user.md).
 
 Not delivered — this is the honest part:
 
-- **No release pipeline yet.** Nothing publishes signed artifacts or `latest.json`, so until `release.yml` exists, Install now fails with "the release does not offer an update for this platform yet".
-- Channel switching (beta/nightly) is persisted in `config.toml` and shown in Settings, but every channel resolves to the same feed. Real per-channel feeds are v0.6 / M4.
+- **No published release yet.** `release.yml` builds signed drafts on a tag ([releasing.md](../07-build-and-release/releasing.md)), but none has been published, so until then there is nothing to install.
+- Stable and beta read their own manifests; there are no nightly builds, so nightly follows beta. Switching to a lower channel asks for no confirmation.
 
 ### 10. Installer
 
-**Not started.** `installers/windows/` and `installers/macos/` contain only a `.gitkeep`. Everything below is the target, not the state:
+**Shipped** as Tauri's per-user NSIS bundle ([ADR-0008](../adr/0008-installer-nsis-per-user.md)), not Inno Setup:
 
-- **Inno Setup** generates `Pluryprint-Setup-0.1.0-x64.exe` (~10 MB).
-- Installs to `%LOCALAPPDATA%\Programs\Pluryprint`.
-- Bundles SumatraPDF binary (~10 MB additional). Today `scripts/fetch-sumatrapdf.{ps1,sh}` fetch it into `src-tauri/resources/sumatrapdf/` for development; a machine without it gets a `DependencyMissing` that pauses the job.
-- Registers Sparse MSIX for shell extension.
-- Creates Start Menu shortcut + optional desktop shortcut.
-- Code-signed with EV cert from day 1 to avoid SmartScreen warnings.
+- `Pluryprint_<version>_x64-setup.exe` and `…_arm64-setup.exe`, about 13.5 MiB for ARM64, under the 15 MB budget (NFR-006).
+- Installs to `%LOCALAPPDATA%\Pluryprint\` with no administrator rights; English and Spanish.
+- Bundles SumatraPDF 3.6.1 for its architecture, with its licence files and written source offer.
+- Registers the Explorer command per user (no sparse package, ADR-0013).
+- Creates a Start-menu shortcut, and a desktop shortcut from the last page's checkbox.
+- **Not code-signed** (ADR-0011): SmartScreen warns, and the release notes explain **More info → Run anyway**. Updates are signed with Pluryprint's own key.
 
-Until this lands there is no supported way to install Pluryprint; the context-menu entry in §1 depends on it.
+macOS ships an ad-hoc-signed `.dmg` per architecture. See [installer-windows.md](../07-build-and-release/installer-windows.md) and [releasing.md](../07-build-and-release/releasing.md).
 
 ### 11. Localization
 
-Planned as **English only**, but **Spanish landed early**. The i18n layer shipped with the screen-completeness work rather than waiting for v0.4: every user-facing string is externalized under `src/i18n/locales/{en,es}/<namespace>.json`, the first run picks the OS language (`navigator.language`, narrowed to a supported locale) and persists it, and Settings has a language selector. Backend strings are not translated.
+Planned as **English only**, but **Spanish landed early**. The i18n layer shipped with the screen-completeness work rather than waiting for v0.4: every user-facing string is externalized under `src/i18n/locales/{en,es}/<namespace>.json`, the first run picks the OS language (`navigator.language`, narrowed to a supported locale) and persists it, and Settings has a language selector. Backend errors arrive as a stable reason with parameters and are translated by the UI; the installer and the printed test page are bilingual too.
 
 This is scope pulled forward, not scope added — the v0.4 line in [v1-features.md](./v1-features.md) is marked delivered accordingly.
 
@@ -157,11 +157,12 @@ This is scope pulled forward, not scope added — the v0.4 line in [v1-features.
 |---|---|---|
 | ~~Office (DOCX/XLSX/PPTX)~~ | ~~v0.2~~ | **Shipped early** — LibreOffice headless (FR-053). |
 | ~~ODF (ODT/ODS/ODP)~~ | ~~v0.2~~ | **Shipped early** (FR-054). |
-| ~~HTML printing~~ | ~~v0.2~~ | **Shipped early** — headless Edge/Chrome (FR-055). |
-| ~~Markdown printing~~ | ~~v0.2~~ | **Shipped early** — Pandoc → HTML → browser (FR-056). |
-| ~~TXT/RTF~~ | ~~v0.2~~ | **Shipped early** — LibreOffice (FR-057). |
+| ~~HTML printing~~ | ~~v0.2~~ | **Shipped early** — the system web view in a worker (FR-055). |
+| ~~Markdown printing~~ | ~~v0.2~~ | **Shipped early** — in-process to HTML, then the web view (FR-056). |
+| ~~TXT/RTF~~ | ~~v0.2~~ | **Shipped early** — text in-process; RTF through `textutil` (macOS) or LibreOffice (Windows) (FR-057). |
+| ~~SVG~~ | ~~v2~~ | **Shipped early** — vector PDF in a worker (FR-052a). |
 | ~~HEIC/HEIF~~ | ~~v0.2+~~ | **Shipped** — OS decoder (FR-052). |
-| Tray selection | v0.2 | Field exists on a profile but is never sent to the spooler. |
+| ~~Tray selection~~ | ~~v0.2~~ | **Shipped** — sent to CUPS and, as the driver's bin id, to SumatraPDF. The Print Job screen does not override it per job. |
 | N-up | v1.0 | |
 | Custom paper sizes | v1.0 | |
 | Watermark | v1.0 | |
