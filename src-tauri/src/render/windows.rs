@@ -66,14 +66,29 @@ struct State {
 
 type Shared = Arc<Mutex<State>>;
 
-/// Record the outcome (first one wins) and stop the app.
+/// Record the outcome (first one wins) and end the worker.
+///
+/// The process exits right here, with the worker's exit code: asking the
+/// Tauri app to exit (`AppHandle::exit`) leaves `run_return` waiting on the
+/// hidden window (seen on Windows 11 ARM64), and nothing is left to do once
+/// `PrintToPdf` has reported. The web view's own processes follow their host.
 fn finish(state: &Shared, app: &tauri::AppHandle, outcome: Result<(), String>) {
     let mut st = state.lock().unwrap_or_else(|p| p.into_inner());
     if st.outcome.is_none() {
         st.outcome = Some(outcome);
     }
+    let code = match st.outcome.as_ref() {
+        Some(Ok(())) => crate::worker::EXIT_OK,
+        Some(Err(message)) => {
+            eprintln!("pluryprint worker render-pdf: {message}");
+            crate::worker::EXIT_FAILED
+        }
+        None => crate::worker::EXIT_FAILED,
+    };
     drop(st);
-    app.exit(0);
+    trace(format_args!("exit {code}"));
+    app.exit(code);
+    std::process::exit(code);
 }
 
 /// The URL the staged page is loaded from.
@@ -92,6 +107,21 @@ fn page_url(page: &Path) -> String {
 
 fn hr(context: &str) -> impl Fn(windows_core::Error) -> String + '_ {
     move |e| format!("{context}: {e}")
+}
+
+/// With `PLURYPRINT_RENDER_TRACE` set, each stage of the render is written to
+/// stderr (which the engine keeps in the job's `render.log`), for diagnosing
+/// a web view that never finishes on some machine.
+fn trace(message: impl std::fmt::Display) {
+    static ENABLED: std::sync::OnceLock<Option<std::time::Instant>> = std::sync::OnceLock::new();
+    if let Some(started) = ENABLED.get_or_init(|| {
+        std::env::var_os("PLURYPRINT_RENDER_TRACE").map(|_| std::time::Instant::now())
+    }) {
+        eprintln!(
+            "render-trace {:>8.3}s {message}",
+            started.elapsed().as_secs_f64()
+        );
+    }
 }
 
 /// Render `request` (see [`super::render`]).
@@ -113,7 +143,9 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
         .ok_or("the staged page has no folder")?
         .to_path_buf();
 
+    trace(format_args!("start, page {}", request.page.display()));
     let app = crate::render_worker_app().map_err(|e| format!("cannot start the web view: {e}"))?;
+    trace("app built");
     let handle = app.handle().clone();
     let state: Shared = Arc::default();
 
@@ -129,12 +161,14 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
     .additional_browser_args(BROWSER_ARGS)
     .build()
     .map_err(|e| format!("cannot create the web view: {e}"))?;
+    trace("window built");
 
     let request = request.clone();
     let st = state.clone();
     let h = handle.clone();
     window
         .with_webview(move |pw| {
+            trace("web view ready");
             // SAFETY: WebView2 COM calls on the UI thread that owns the view.
             let started = unsafe {
                 start(
@@ -152,7 +186,8 @@ pub fn render(request: &RenderRequest) -> Result<(), String> {
         })
         .map_err(|e| format!("cannot reach the web view: {e}"))?;
 
-    app.run_return(|_, _| {});
+    let code = app.run_return(|_, _| {});
+    trace(format_args!("event loop ended ({code})"));
     let outcome = state
         .lock()
         .unwrap_or_else(|p| p.into_inner())
@@ -213,7 +248,9 @@ unsafe fn start(
             let mut uri = PWSTR::null();
             request.Uri(&mut uri)?;
             let uri = take_pwstr(uri);
-            if !super::is_allowed_request(&uri) {
+            let allowed = super::is_allowed_request(&uri);
+            trace(format_args!("request {uri} allowed={allowed}"));
+            if !allowed {
                 let response = filter_env.CreateWebResourceResponse(
                     None,
                     403,
@@ -242,9 +279,13 @@ unsafe fn start(
             let mut st = nav_state.lock().unwrap_or_else(|p| p.into_inner());
             if st.navigation.is_none() && uri.eq_ignore_ascii_case(&nav_target) {
                 st.navigation = Some(id);
+                trace(format_args!("navigation {id} to the page {uri}"));
             } else if st.navigation.is_some() || uri != "about:blank" {
                 // A refresh, a link target, a redirect: nothing but the page.
+                trace(format_args!("navigation {id} to {uri} cancelled"));
                 args.SetCancel(true)?;
+            } else {
+                trace(format_args!("navigation {id} to {uri} allowed"));
             }
             Ok(())
         })),
@@ -262,6 +303,15 @@ unsafe fn start(
             let Some(args) = args else { return Ok(()) };
             let mut id = 0u64;
             args.NavigationId(&mut id)?;
+            let mut ok = BOOL(0);
+            args.IsSuccess(&mut ok)?;
+            let mut status = COREWEBVIEW2_WEB_ERROR_STATUS(0);
+            let _ = args.WebErrorStatus(&mut status);
+            trace(format_args!(
+                "navigation {id} completed ok={} status={}",
+                ok.as_bool(),
+                status.0
+            ));
             {
                 let mut st = done_state.lock().unwrap_or_else(|p| p.into_inner());
                 if st.navigation != Some(id) || st.printing {
@@ -269,11 +319,7 @@ unsafe fn start(
                 }
                 st.printing = true;
             }
-            let mut ok = BOOL(0);
-            args.IsSuccess(&mut ok)?;
             if !ok.as_bool() {
-                let mut status = COREWEBVIEW2_WEB_ERROR_STATUS(0);
-                let _ = args.WebErrorStatus(&mut status);
                 finish(
                     &done_state,
                     &done_app,
@@ -293,6 +339,7 @@ unsafe fn start(
     )
     .map_err(hr("completion handler"))?;
 
+    trace(format_args!("navigating to {target}"));
     core.Navigate(&HSTRING::from(target.as_str()))
         .map_err(hr("loading the page"))?;
     Ok(())
@@ -327,11 +374,13 @@ fn print(
         let _ = std::fs::remove_file(output);
         let st = state.clone();
         let app = app.clone();
+        trace("PrintToPdf issued");
         core7
             .PrintToPdf(
                 &HSTRING::from(output.as_os_str()),
                 &settings,
                 &PrintToPdfCompletedHandler::create(Box::new(move |result, ok| {
+                    trace(format_args!("PrintToPdf finished: {result:?} ok={ok}"));
                     let outcome = if result.is_ok() && ok {
                         Ok(())
                     } else {
