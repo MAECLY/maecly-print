@@ -125,6 +125,11 @@ jobs:
     env:
       # Must equal bundle.macOS.minimumSystemVersion in tauri.conf.json.
       MACOSX_DEPLOYMENT_TARGET: '13.0'
+      # The release profile strips binaries; stripping the host's proc-macro
+      # dylibs broke a cross build to x86_64-apple-darwin on a macOS 27 host
+      # ("mis-aligned LINKEDIT string pool"). Build scripts and proc macros
+      # never ship, so they are left unstripped.
+      CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP: 'false'
     steps:
       - uses: actions/checkout@v4
 
