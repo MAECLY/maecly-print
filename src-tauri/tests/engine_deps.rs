@@ -327,6 +327,22 @@ fn fr_058_report_all_blocks_formats_only_for_missing_dependencies() {
     }
 }
 
+/// Diagnostic: print this machine's dependency report (with its install
+/// options) as the UI receives it. `cargo test --test engine_deps --
+/// --ignored --nocapture fr_058_print_this_hosts_report`.
+#[test]
+#[ignore = "diagnostic: prints the host's report"]
+fn fr_058_print_this_hosts_report() {
+    let reports = deps::report_all();
+    println!("{}", serde_json::to_string_pretty(&reports).unwrap());
+    // Every missing applicable dependency offers a way to install it.
+    for report in &reports {
+        if report.applicable && !report.found {
+            assert!(!report.install.is_empty(), "{}", report.name);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // FR-058: the bundling declaration
 // ---------------------------------------------------------------------------
