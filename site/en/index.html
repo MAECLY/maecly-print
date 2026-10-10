@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <title>Pluryprint · Print 5, 50 or 500 files at once | MAECLY</title>
-<meta name="description" content="Select 5, 50 or 500 files and print them all: PDFs, images and documents in a queue that never drops a file. Free, GPL-3.0, for Windows and macOS. Pre-alpha, no download yet.">
+<meta name="description" content="Select 5, 50 or 500 files and print them all: PDFs, images and documents in one reliable queue. Free and GPL-3.0 for Windows and macOS. Pre-alpha.">
 <meta name="author" content="Miguel Esparza · MAECLY">
 <meta name="robots" content="index,follow,max-image-preview:large">
 <meta name="color-scheme" content="light dark">
@@ -15,7 +15,7 @@
 <link rel="alternate" hreflang="es" href="https://pluryprint.maecly.com/">
 <link rel="alternate" hreflang="en" href="https://pluryprint.maecly.com/en/">
 <link rel="alternate" hreflang="x-default" href="https://pluryprint.maecly.com/">
-<link rel="manifest" href="../site.webmanifest">
+<link rel="manifest" href="site.webmanifest">
 <link rel="icon" href="../favicon.ico" sizes="any">
 <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
@@ -24,13 +24,14 @@
 <script src="../assets/theme.js"></script>
 <script src="../assets/motion.js" defer></script>
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="MAECLY">
+<meta property="og:site_name" content="Pluryprint">
 <meta property="og:locale" content="en_GB">
 <meta property="og:locale:alternate" content="es_ES">
 <meta property="og:title" content="Pluryprint · Select 5, 50 or 500 files. Print them all.">
-<meta property="og:description" content="Free, GPL-3.0 batch printing for Windows and macOS: PDFs, images and documents in a queue saved on disk that retries on its own. No account, no telemetry. Pre-alpha.">
+<meta property="og:description" content="Free, GPL-3.0 batch printing for Windows and macOS: PDFs, images and documents in a queue saved on disk. No account, no telemetry. Pre-alpha.">
 <meta property="og:url" content="https://pluryprint.maecly.com/en/">
 <meta property="og:image" content="https://pluryprint.maecly.com/assets/og-en.png">
+<meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Pluryprint: “Select 5, 50 or 500 files. Print them all.” next to the printer icon with three fanned sheets and the app’s Queue screen.">
@@ -43,17 +44,10 @@
 {
 "@context": "https://schema.org",
 "@graph": [
-{"@type":"WebSite","@id":"https://pluryprint.maecly.com/#website","url":"https://pluryprint.maecly.com/","name":"Pluryprint · MAECLY","inLanguage":["es","en"]},
+{"@type":"WebSite","@id":"https://pluryprint.maecly.com/#website","url":"https://pluryprint.maecly.com/","name":"Pluryprint","alternateName":"Pluryprint by MAECLY","inLanguage":["es","en"],"publisher":{"@id":"https://www.maecly.com/#org"}},
 {"@type":"Organization","@id":"https://www.maecly.com/#org","name":"MAECLY","url":"https://www.maecly.com/"},
-{"@type":"SoftwareApplication","@id":"https://pluryprint.maecly.com/#software","name":"Pluryprint","alternateName":"Pluryprint by Maecly","description":"Free (GPL-3.0) desktop app for printing many files at once on Windows and macOS: PDFs, images and, with LibreOffice, Pandoc or a browser installed, Office, OpenDocument, HTML and Markdown documents. A queue saved on disk with retries, print profiles, a command line with JSON output and a Finder Services entry. No account, no telemetry. Version 0.0.1, pre-alpha: there is no public release yet.","url":"https://pluryprint.maecly.com/en/","applicationCategory":"UtilitiesApplication","applicationSubCategory":"Printing","operatingSystem":"Windows 10, Windows 11, macOS","softwareVersion":"0.0.1","isAccessibleForFree":true,"license":"https://www.gnu.org/licenses/gpl-3.0.html","publisher":{"@id":"https://www.maecly.com/#org"},"inLanguage":["es","en"],"image":"https://pluryprint.maecly.com/assets/og-en.png","screenshot":"https://pluryprint.maecly.com/assets/shots/en/queue-light.webp","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}},
-{"@type":"FAQPage","@id":"https://pluryprint.maecly.com/en/#faq","mainEntity":[
-{"@type":"Question","name":"Is it really free?","acceptedAnswer":{"@type":"Answer","text":"Yes. Pluryprint costs $0, needs no account and has no paid tier. It is licensed GPL-3.0."}},
-{"@type":"Question","name":"Do my files leave my computer?","acceptedAnswer":{"@type":"Answer","text":"No. Pluryprint converts and prints on your machine. It only goes online to check for updates and, if you ask it to, to download one. There is no telemetry."}},
-{"@type":"Question","name":"Can I download it yet?","acceptedAnswer":{"@type":"Answer","text":"Not yet. Pluryprint is pre-alpha (0.0.1): there is no public release and the repository is not public yet."}},
-{"@type":"Question","name":"Is there a file limit?","acceptedAnswer":{"@type":"Answer","text":"There is no limit on the number of files. There is a maximum file size, which you can change in Settings."}},
-{"@type":"Question","name":"Why does Word need LibreOffice?","acceptedAnswer":{"@type":"Answer","text":"Pluryprint turns every file into a PDF before printing it. It converts PDFs and images itself; for Word, Excel, PowerPoint, OpenDocument, TXT and RTF it uses LibreOffice, which you install separately. HTML needs Edge, Chrome or Chromium, and Markdown needs Pandoc. If something is missing, the job pauses and tells you what to install."}},
-{"@type":"Question","name":"Does it work from the right-click menu?","acceptedAnswer":{"@type":"Answer","text":"On macOS, yes: select files in Finder and choose Services › Print with Pluryprint. On Windows, the Explorer menu is written and tested, but the installer does not register it yet."}}
-]}
+{"@type":"SoftwareApplication","@id":"https://pluryprint.maecly.com/en/#software","name":"Pluryprint","alternateName":"Pluryprint by Maecly","description":"Free (GPL-3.0) desktop app for printing many files at once on Windows and macOS (Apple silicon): PDFs, images and, with LibreOffice, Pandoc or a browser installed, Office, OpenDocument, HTML and Markdown documents. A queue saved on disk with retries, print profiles, a command line with JSON output and a Finder Services entry. No account, no telemetry. Version 0.0.1, pre-alpha: there is no public release yet.","url":"https://pluryprint.maecly.com/en/","applicationCategory":"UtilitiesApplication","applicationSubCategory":"Printing","operatingSystem":"Windows 10, Windows 11, macOS (Apple silicon)","softwareVersion":"0.0.1","isAccessibleForFree":true,"license":"https://www.gnu.org/licenses/gpl-3.0.html","publisher":{"@id":"https://www.maecly.com/#org"},"inLanguage":["es","en"],"image":"https://pluryprint.maecly.com/assets/og-en.png","screenshot":"https://pluryprint.maecly.com/assets/shots/en/queue-light.webp"},
+{"@type":"FAQPage","@id":"https://pluryprint.maecly.com/en/#questions","inLanguage":"en","mainEntity":[{"@type":"Question","name":"Is it really free?","acceptedAnswer":{"@type":"Answer","text":"Yes. It costs $0, needs no account and has no paid tier. It is licensed GPL-3.0."}},{"@type":"Question","name":"Do my files leave my computer?","acceptedAnswer":{"@type":"Answer","text":"No. Pluryprint converts and prints on your machine. It only goes online to check for updates (at startup, at most once a day, or from About) and, if you ask it to, to download one. There is no telemetry."}},{"@type":"Question","name":"Do I need Adobe?","acceptedAnswer":{"@type":"Answer","text":"No. PDFs are printed as they are after a structural check, and images are converted to PDF inside the app. On Windows, printing uses SumatraPDF; if it is not found, the job pauses and tells you."}},{"@type":"Question","name":"Why does Word need LibreOffice?","acceptedAnswer":{"@type":"Answer","text":"Because every file is turned into a PDF before it is printed. For Word, Excel, PowerPoint, OpenDocument, TXT and RTF, Pluryprint uses LibreOffice, which you install separately. HTML needs Edge, Chrome or Chromium (printed with no network access), and Markdown needs Pandoc plus one of those browsers. If something is missing, the job pauses and tells you what to install."}},{"@type":"Question","name":"Is there a file limit?","acceptedAnswer":{"@type":"Answer","text":"Not on the number of files. There is a maximum file size, which you can change in Settings."}},{"@type":"Question","name":"What if a file fails?","acceptedAnswer":{"@type":"Answer","text":"If the error is transient, it is retried three times, after 1, 5 and 25 seconds; if it still fails, or if conversion or printing runs out of time, it stays in the queue with the reason. If a tool is missing or the printer cannot do a setting, the job pauses and tells you what to do. Formats it cannot handle come back with an explanation; the exception, for now, is encrypted PDFs, which are not detected yet."}},{"@type":"Question","name":"Does it work from the right-click menu?","acceptedAnswer":{"@type":"Answer","text":"On macOS, yes: select the files in Finder and choose Services › Print with Pluryprint. On Windows, the Explorer submenu (print N files, print with a profile, configure the job or add it to the queue) is written and tested, but the installer does not register it yet. Windows 10 has no fallback yet."}},{"@type":"Question","name":"Does it run on Apple silicon, Windows ARM or Linux?","acceptedAnswer":{"@type":"Answer","text":"Apple silicon, yes: that is where it is tested in CI. Windows ARM64 is targeted, but there is no binary yet. Linux is out of scope for now."}},{"@type":"Question","name":"Why will Windows and macOS warn when I open it?","acceptedAnswer":{"@type":"Answer","text":"Because the builds are not code-signed. Once there is a public release, SmartScreen and Gatekeeper will show a warning the first time."}},{"@type":"Question","name":"How does it update?","acceptedAnswer":{"@type":"Answer","text":"The app tells you when there is a new version and you choose: install now (signature verified, no administrator rights), remind me later or skip that version. It never updates by itself. No update channel is published yet."}}]}
 ]
 }
 </script>

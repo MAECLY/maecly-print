@@ -4,6 +4,8 @@
 
 ## Canonical pages
 
+The primary landing is in Spanish; the English page mirrors it section for section. The app interface is in English and Spanish.
+
 - [Spanish landing](https://pluryprint.maecly.com/)
 - [English landing](https://pluryprint.maecly.com/en/)
 - [Agent guidance](https://pluryprint.maecly.com/agents.txt)
