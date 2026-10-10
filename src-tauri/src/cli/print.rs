@@ -67,7 +67,9 @@ pub struct FileOutcome {
     /// Where this file actually went. Per file because a file-type routing rule
     /// can split one batch across printers.
     pub printer: String,
-    /// `done` or `failed` — the same vocabulary as [`crate::queue::job::JobState`].
+    /// `done` (the spooler accepted the job), `held` (accepted, but the
+    /// printer is paused or offline, so nothing prints until it is back), or
+    /// `failed`.
     pub state: String,
     /// The spooler's own job id, when the backend reports one (CUPS does).
     pub os_job_id: Option<String>,
@@ -189,6 +191,22 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
         batch.record(file, target, outcome);
     }
 
+    // "done" is "the spooler took it". When the target queue is paused or
+    // offline nothing comes out until someone fixes it, and a script must be
+    // able to tell (the spooler itself still calls such a job "normal").
+    if batch.has_done() {
+        let not_printing: std::collections::HashSet<String> = crate::platform::list_printers()
+            .map(|printers| {
+                printers
+                    .into_iter()
+                    .filter(|p| matches!(p.status, crate::ipc::printers::PrinterStatus::Offline))
+                    .map(|p| p.id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        batch.mark_held(&not_printing);
+    }
+
     let worst = batch.worst();
     let report = PrintReport {
         batch_id,
@@ -241,16 +259,49 @@ impl BatchOutcomes {
             },
             Err(err) => {
                 self.worst = self.worst.worst(err.exit);
+                let error = job_error(&err.error);
+                // The queue logs `job_failed`; a headless run must leave the
+                // same trace, or a failed scripted print cannot be explained
+                // afterwards. The file name, never its folder (NFR-082).
+                let name = Path::new(path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                tracing::warn!(
+                    event = "cli_job_failed",
+                    file = %name,
+                    ext = %crate::engine::extension_of(Path::new(path)),
+                    printer = %printer,
+                    code = %error.code,
+                    exit_code = err.exit.code(),
+                    error = %error.message,
+                );
                 FileOutcome {
                     path: path.to_string(),
                     printer,
                     state: "failed".to_string(),
                     os_job_id: None,
-                    error: Some(job_error(&err.error)),
+                    error: Some(error),
                 }
             }
         };
         self.files.push(file);
+    }
+
+    /// Whether any file was accepted by a spooler.
+    pub fn has_done(&self) -> bool {
+        self.files.iter().any(|f| f.state == "done")
+    }
+
+    /// Turn `done` into `held` for every file spooled to a queue in
+    /// `not_printing` (paused or offline). The exit code is unchanged: the job
+    /// is safely queued and prints once the printer is back.
+    pub fn mark_held(&mut self, not_printing: &std::collections::HashSet<String>) {
+        for f in &mut self.files {
+            if f.state == "done" && not_printing.contains(&f.printer) {
+                f.state = "held".to_string();
+            }
+        }
     }
 
     /// The exit code the batch reports so far.
@@ -845,6 +896,26 @@ mod tests {
             &files
         )
         .is_ok());
+    }
+
+    /// FR-008: a job spooled into a paused or offline queue is reported as
+    /// held, not done, without changing the exit code.
+    #[test]
+    fn fr_008_a_job_on_a_paused_queue_is_held_not_done() {
+        let mut batch = BatchOutcomes::with_capacity(3);
+        batch.record("/d/a.pdf", "Hold".to_string(), Ok(Some("7".to_string())));
+        batch.record("/d/b.pdf", "Office".to_string(), Ok(Some("8".to_string())));
+        batch.record(
+            "/d/c.pdf",
+            "Hold".to_string(),
+            Err(CliError::from(IpcError::PrintFailed("x".into()))),
+        );
+        assert!(batch.has_done());
+        let worst = batch.worst();
+        batch.mark_held(&["Hold".to_string()].into_iter().collect());
+        let states: Vec<_> = batch.into_files().into_iter().map(|f| f.state).collect();
+        assert_eq!(states, ["held", "done", "failed"]);
+        assert_eq!(worst.code(), ExitCode::PrintFailed.code());
     }
 
     #[test]
