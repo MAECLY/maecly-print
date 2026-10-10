@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { configDefaults } from 'vitest/config';
 import path from 'node:path';
 
-import { pluryE2eStub } from './e2e/browser/vite-plugin';
+import { pluryE2eStub } from './e2e/browser/vite-plugin.ts';
 
 const host = process.env.TAURI_DEV_HOST;
 
@@ -13,7 +13,7 @@ export default defineConfig(async () => ({
   plugins: [react(), pluryE2eStub(process.env)],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src'),
+      '@': path.resolve(import.meta.dirname, 'src'),
     },
   },
   clearScreen: false,
