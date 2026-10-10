@@ -809,7 +809,11 @@ export type Dependency =
 /**
  * One dependency's status, as shipped to the UI.
  */
-export type DependencyReport = { id: Dependency; 
+export type DependencyReport = { 
+/**
+ * Which dependency this row reports on.
+ */
+id: Dependency; 
 /**
  * Display name, e.g. `"SumatraPDF"`.
  */
@@ -826,7 +830,11 @@ found: boolean;
 /**
  * Where it was found, for diagnostics.
  */
-path: string | null; found_in: FoundIn | null; 
+path: string | null; 
+/**
+ * Which search step found it, for diagnostics.
+ */
+found_in: FoundIn | null; 
 /**
  * Extensions that cannot be printed today because this is missing. Empty
  * whenever the dependency is present, not applicable, or gates no format
@@ -1761,11 +1769,19 @@ export type SkipReason =
 /**
  * One discarded entry, with a human explanation ready for the job log.
  */
-export type SkippedFile = { path: string; 
+export type SkippedFile = { 
+/**
+ * Full path of the discarded entry.
+ */
+path: string; 
 /**
  * File name, or the whole path when it has none.
  */
-name: string; reason: SkipReason; 
+name: string; 
+/**
+ * Why it was discarded, for the UI to translate.
+ */
+reason: SkipReason; 
 /**
  * User-facing detail (`"Unsupported file type (.docx)"`).
  */

@@ -35,6 +35,7 @@ pub mod windows;
 /// id recovered after SumatraPDF hands off — and is what [`job_state`] follows
 /// until the job leaves the queue, and what a cancel deletes.
 pub struct SpoolOutcome {
+    /// The spooler's own job id, when the backend reports one.
     pub os_job_id: Option<String>,
 }
 
@@ -59,17 +60,25 @@ pub struct SpoolOutcome {
 pub enum PrintError {
     /// The spooler child outlived its wall-clock budget and was killed.
     #[error("printing timed out after {seconds}s")]
-    TimedOut { seconds: u64 },
+    TimedOut {
+        /// The budget that was exceeded, in seconds.
+        seconds: u64,
+    },
 
     /// The requested printer is not among the queues the OS enumerates.
     #[error("printer '{printer}' is not installed — choose another printer")]
-    PrinterMissing { printer: String },
+    PrinterMissing {
+        /// The printer name the job asked for.
+        printer: String,
+    },
 
     /// The requested name matches several OS queues (two queues share a
     /// display name). Never guessed at: the job pauses for a choice.
     #[error("printer name '{printer}' matches several queues ({}) — choose one", candidates.join(", "))]
     PrinterAmbiguous {
+        /// The printer name the job asked for.
         printer: String,
+        /// The queues that name matches.
         candidates: Vec<String>,
     },
 
@@ -80,7 +89,10 @@ pub enum PrintError {
     /// The job resolved to a printer the user disabled in MaeclyPrint. Like a
     /// missing printer it is user-fixable, so the job is paused, never sent.
     #[error("printer '{printer}' is disabled in MaeclyPrint — enable it on the Printers screen or choose another printer")]
-    PrinterDisabled { printer: String },
+    PrinterDisabled {
+        /// The disabled printer the job resolved to.
+        printer: String,
+    },
 
     /// Any other engine failure, handled by the ordinary retry policy.
     #[error(transparent)]

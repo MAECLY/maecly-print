@@ -56,8 +56,11 @@ use specta::Type;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum Os {
+    /// Microsoft Windows.
     Windows,
+    /// Apple macOS.
     MacOs,
+    /// Linux (CUPS, like macOS).
     Linux,
 }
 
@@ -116,7 +119,14 @@ pub enum FoundIn {
 /// The outcome of a search: where the executable is, or nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Resolution {
-    Found { path: PathBuf, found_in: FoundIn },
+    /// The executable exists.
+    Found {
+        /// Absolute path of the executable.
+        path: PathBuf,
+        /// Which search step found it.
+        found_in: FoundIn,
+    },
+    /// No candidate location held the executable.
     Missing,
 }
 
@@ -223,6 +233,7 @@ fn first_hit(dirs: &[PathBuf], executables: &[&str], exists: fn(&Path) -> bool) 
 /// The static facts about one dependency on one OS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Spec {
+    /// Which dependency these facts describe.
     pub id: Dependency,
     /// The name we print in messages, spelled the way the vendor spells it.
     pub name: &'static str,
@@ -446,6 +457,7 @@ pub fn install_dirs(dep: Dependency, os: Os, env: &dyn Fn(&str) -> Option<String
 /// One dependency's status, as shipped to the UI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct DependencyReport {
+    /// Which dependency this row reports on.
     pub id: Dependency,
     /// Display name, e.g. `"SumatraPDF"`.
     pub name: String,
@@ -456,6 +468,7 @@ pub struct DependencyReport {
     pub found: bool,
     /// Where it was found, for diagnostics.
     pub path: Option<String>,
+    /// Which search step found it, for diagnostics.
     pub found_in: Option<FoundIn>,
     /// Extensions that cannot be printed today because this is missing. Empty
     /// whenever the dependency is present, not applicable, or gates no format

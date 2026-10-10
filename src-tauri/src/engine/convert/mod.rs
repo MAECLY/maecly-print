@@ -135,11 +135,17 @@ pub fn css_page_size(
 /// Which converter handles a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Route {
+    /// Already a PDF: printed as is.
     Passthrough,
+    /// A raster image, laid onto a PDF page in-process.
     Image,
+    /// HEIC/HEIF photo, decoded by the OS's own HEIF decoder first.
     Heif,
+    /// Office document, converted by LibreOffice.
     Office,
+    /// HTML page, rendered to PDF by a Chromium-class browser.
     Html,
+    /// Markdown, turned into HTML by Pandoc and then printed by Chromium.
     Markdown,
 }
 
@@ -193,6 +199,7 @@ impl WorkDir {
             })
     }
 
+    /// The directory's path.
     pub fn path(&self) -> &Path {
         self.0.path()
     }

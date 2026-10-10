@@ -123,9 +123,11 @@ pub enum SkipReason {
 /// One discarded entry, with a human explanation ready for the job log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 pub struct SkippedFile {
+    /// Full path of the discarded entry.
     pub path: String,
     /// File name, or the whole path when it has none.
     pub name: String,
+    /// Why it was discarded, for the UI to translate.
     pub reason: SkipReason,
     /// User-facing detail (`"Unsupported file type (.docx)"`).
     pub detail: String,
@@ -331,7 +333,12 @@ pub enum EngineError {
     /// silently degrade the output (currently only duplex — see
     /// [`print::check_supported`]).
     #[error("the driver for '{printer}' does not support {setting}")]
-    UnsupportedSetting { setting: String, printer: String },
+    UnsupportedSetting {
+        /// The setting that cannot be honoured, e.g. `"duplex"`.
+        setting: String,
+        /// The printer whose driver lacks it.
+        printer: String,
+    },
 
     /// A required external program (CUPS `lp`, SumatraPDF, LibreOffice, a
     /// Chromium-class browser, Pandoc, the HEIF codec) is not installed or

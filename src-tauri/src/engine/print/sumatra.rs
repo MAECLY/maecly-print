@@ -70,7 +70,9 @@ use std::process::Command;
 /// (an A4 page forced onto a Letter-only printer stops it with "load A4").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaperToken {
+    /// Send the job's own `paper_size` as SumatraPDF's `paper=` setting.
     FromSettings,
+    /// Send no `paper=` at all, leaving the driver's default media.
     Omit,
 }
 
