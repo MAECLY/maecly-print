@@ -75,7 +75,7 @@
         "offline": "Could not reach github.com. Check your connection.",
         "bad_status": "github.com returned an unexpected status ({{status}}).",
         "bad_response": "GitHub sent an unexpected response. Try again later.",
-        "repo_missing": "This build's repository was not found on github.com.",
+        "repo_missing": "This build's releases could not be reached on github.com: the repository is private or no longer exists.",
         "not_configured": "This build has no update repository configured."
       },
       "Internal": {

@@ -273,9 +273,10 @@ pub enum QueueCmd {
 
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum UpdateCmd {
-    /// Ask GitHub whether a newer release exists.
+    /// Ask whether a newer release exists (GitHub releases, or the manifest
+    /// MAECLYPRINT_UPDATE_ENDPOINT names).
     Check,
-    /// Download and install an update (not available in this version).
+    /// Download, verify and install the newest release (asks first unless --yes).
     Install {
         /// Skip the confirmation prompt.
         #[arg(long)]

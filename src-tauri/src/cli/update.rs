@@ -31,12 +31,7 @@ use crate::util::error::IpcError;
 pub fn run(paths: &Paths, emitter: Emitter, cmd: UpdateCmd) -> Result<(), CliError> {
     match cmd {
         UpdateCmd::Check => {
-            let (owner, repo) = crate::update::repo_slug().ok_or_else(|| {
-                CliError::from(IpcError::UpdateCheckFailed(
-                    "repository not configured".to_string(),
-                ))
-            })?;
-            let release = crate::update::fetch_latest(&owner, &repo)
+            let release = crate::update::fetch_configured_latest()
                 .map_err(|e| CliError::from(IpcError::from(e)))?;
             let check = crate::update::evaluate(
                 env!("CARGO_PKG_VERSION"),

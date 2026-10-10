@@ -229,8 +229,8 @@ pub fn interpret_repo_probe(status: u16) -> Result<(), LocalizedError> {
     if status == 404 {
         return Err(failure(
             "repo_missing",
-            "the configured repository was not found on github.com — this build's \
-             repository URL is wrong",
+            "the releases could not be reached on github.com: the repository is \
+             private or no longer exists",
         ));
     }
     Ok(())
@@ -317,6 +317,83 @@ pub fn fetch_latest(owner: &str, repo: &str) -> Result<Option<ReleaseInfo>, Loca
     }
 
     Ok(release)
+}
+
+/// The release an updater manifest (`latest.json`) describes: its `version`
+/// as the tag and its `notes` as the body; the manifest URL stands in for the
+/// release page. `None` when the document has no version. Pure.
+pub fn parse_manifest(json: &str, manifest_url: &str) -> Option<ReleaseInfo> {
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    let version = v.get("version")?.as_str()?.trim().to_string();
+    if version.is_empty() {
+        return None;
+    }
+    Some(ReleaseInfo {
+        tag_name: version,
+        html_url: manifest_url.to_string(),
+        body: v
+            .get("notes")
+            .and_then(|n| n.as_str())
+            .map(str::to_string)
+            .filter(|s| !s.is_empty()),
+    })
+}
+
+/// Map an updater manifest response, like [`interpret_response`] does for the
+/// GitHub API: `404` is "nothing published", anything else unexpected is an
+/// error naming the status. Pure.
+pub fn interpret_manifest_response(
+    status: u16,
+    body: &str,
+    manifest_url: &str,
+) -> Result<Option<ReleaseInfo>, LocalizedError> {
+    match status {
+        200 => parse_manifest(body, manifest_url).map(Some).ok_or_else(|| {
+            failure(
+                "bad_response",
+                "the update server's manifest has no version",
+            )
+        }),
+        404 => Ok(None),
+        other => Err(failure(
+            "bad_status",
+            format!("the update server returned an unexpected status ({other})"),
+        )
+        .param("status", other)),
+    }
+}
+
+/// The newest release from the source this build checks: the updater
+/// manifest named by [`install::ENDPOINT_ENV`] when it is set (so a test
+/// server drives the check, the launch-time check and `update install` alike),
+/// the GitHub releases API otherwise.
+pub fn fetch_configured_latest() -> Result<Option<ReleaseInfo>, LocalizedError> {
+    let override_value = std::env::var(install::ENDPOINT_ENV)
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    if let Some(raw) = override_value {
+        let url =
+            install::resolve_endpoint(Some(&raw)).map_err(|m| failure("not_configured", m))?;
+        let user_agent = format!("MaeclyPrint/{}", env!("CARGO_PKG_VERSION"));
+        let (status, body) = match build_agent()
+            .get(url.as_str())
+            .set("User-Agent", &user_agent)
+            .call()
+        {
+            Ok(resp) => (resp.status(), resp.into_string().unwrap_or_default()),
+            Err(ureq::Error::Status(code, resp)) => (code, resp.into_string().unwrap_or_default()),
+            Err(ureq::Error::Transport(_)) => {
+                return Err(failure(
+                    "offline",
+                    "could not reach the update server — check your connection",
+                ))
+            }
+        };
+        return interpret_manifest_response(status, &body, url.as_str());
+    }
+    let (owner, repo) =
+        repo_slug().ok_or_else(|| failure("not_configured", "repository not configured"))?;
+    fetch_latest(&owner, &repo)
 }
 
 // ---------------------------------------------------------------------------
@@ -616,17 +693,47 @@ pub fn run_startup_check() -> Option<UpdateCheck> {
         &state_path(),
         OffsetDateTime::now_utc(),
         env!("CARGO_PKG_VERSION"),
-        || {
-            let (owner, repo) =
-                repo_slug().ok_or_else(|| "repository not configured".to_string())?;
-            fetch_latest(&owner, &repo).map_err(|e| e.message)
-        },
+        || fetch_configured_latest().map_err(|e| e.message),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FR-080: with MAECLYPRINT_UPDATE_ENDPOINT set, the check reads the same
+    /// updater manifest `update install` does.
+    #[test]
+    fn fr_080_an_updater_manifest_reads_as_a_release() {
+        let url = "http://127.0.0.1:8787/latest.json";
+        let r = interpret_manifest_response(
+            200,
+            r#"{"version":"0.0.2","notes":"Fixes","pub_date":"2026-10-09T00:00:00Z","platforms":{}}"#,
+            url,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r.tag_name, "0.0.2");
+        assert_eq!(r.body.as_deref(), Some("Fixes"));
+        assert_eq!(r.html_url, url);
+        assert!(is_newer("0.0.1", &r.tag_name));
+
+        assert_eq!(interpret_manifest_response(404, "", url).unwrap(), None);
+        let bad = interpret_manifest_response(200, r#"{"notes":"x"}"#, url).unwrap_err();
+        assert_eq!(bad.reason, "bad_response");
+        let status = interpret_manifest_response(500, "", url).unwrap_err();
+        assert_eq!(status.reason, "bad_status");
+    }
+
+    /// FR-080: a private or deleted repository is reported as unreachable
+    /// releases, not as a broken build.
+    #[test]
+    fn fr_080_a_missing_repository_does_not_blame_the_build() {
+        let e = interpret_repo_probe(404).unwrap_err();
+        assert_eq!(e.reason, "repo_missing");
+        assert!(!e.message.contains("wrong"), "{}", e.message);
+        assert!(e.message.contains("private"), "{}", e.message);
+    }
 
     #[test]
     fn repo_slug_parses_the_configured_repository() {

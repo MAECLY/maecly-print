@@ -171,7 +171,7 @@ Releases are signed so the installed app can verify an update before installing 
 
 PR and `main` builds have no key and must not get one. With `createUpdaterArtifacts` on, Tauri refuses to bundle without a private key, so `ci.yml` builds with `--config src-tauri/tauri.ci.conf.json`, which turns updater artifacts off for that build only.
 
-To test an update end to end without publishing, serve a `latest.json` and a signed artifact locally, then point a **debug** build at it with `MAECLYPRINT_UPDATE_ENDPOINT=http://127.0.0.1:<port>/latest.json`. Release builds only accept `https`. A copy of the artifact with one byte changed must fail with "failed its signature check and was NOT installed" (exit code 11 from `update install`).
+To test an update end to end without publishing, serve a `latest.json` and a signed artifact locally, then point a **debug** build at it with `MAECLYPRINT_UPDATE_ENDPOINT=http://127.0.0.1:<port>/latest.json`. Release builds only accept `https`. The variable also redirects `update check`, the About screen's check and the launch-time check, which then read that manifest's `version` and `notes` instead of the GitHub releases API (`update::fetch_configured_latest`), so the whole flow can be exercised against one test server. A copy of the artifact with one byte changed must fail with "failed its signature check and was NOT installed" (exit code 11 from `update install`).
 
 `BUILD_DATE` (About, issue reports) is the build script's run date, re-stamped on every source change. A reproducible release pins it with `SOURCE_DATE_EPOCH`.
 
