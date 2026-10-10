@@ -113,9 +113,7 @@ impl QueueHandle {
             }
             let ext = crate::engine::extension_of(path);
             if !crate::engine::is_supported(&ext) {
-                return Err(IpcError::UnsupportedFormat(format!(
-                    "{file} is not a printable file type"
-                )));
+                return Err(unsupported_format_error(file, path, &ext));
             }
 
             let mut job = Job::new(
@@ -292,6 +290,28 @@ pub fn spawn(app: tauri::AppHandle) -> anyhow::Result<QueueHandle> {
     Ok(QueueHandle { tx, state })
 }
 
+/// The refusal of a file whose format cannot be printed. A GIF says so by
+/// name (decision D9: GIF stays unsupported, `gif_not_supported`); any other
+/// type gets the plain family error. Shared with the CLI so both surfaces say
+/// the same thing.
+pub(crate) fn unsupported_format_error(file: &str, path: &Path, ext: &str) -> IpcError {
+    if ext == "gif" {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| file.to_string());
+        return IpcError::localized(
+            crate::util::error::IpcErrorCode::UnsupportedFormat,
+            "gif_not_supported",
+            format!(
+                "{file} is a GIF image, and GIF is not supported: convert it to PNG or JPEG first"
+            ),
+        )
+        .with_param("name", name);
+    }
+    IpcError::UnsupportedFormat(format!("{file} is not a printable file type"))
+}
+
 /// True iff `bytes` exceeds the `max_mb` megabyte ceiling. Pure `u64` math so the
 /// `MB → bytes` multiplication cannot overflow for any realistic limit; the
 /// settings validator keeps `max_mb` in `1..=4096`, so a legitimate limit never
@@ -400,6 +420,21 @@ mod tests {
             )),
             Err(IpcError::FileNotFound(_))
         ));
+    }
+
+    /// D9: a GIF is refused by name with its own reason, on every surface
+    /// that uses this (the queue's submit and the CLI).
+    #[test]
+    fn fr_052_gif_refusal_names_the_file_and_says_why() {
+        let err = unsupported_format_error("/x/anim.gif", Path::new("/x/anim.gif"), "gif");
+        assert_eq!(err.reason(), Some("gif_not_supported"));
+        assert!(err.to_string().contains("PNG or JPEG"), "{err}");
+        let IpcError::Localized(l) = &err else {
+            panic!("{err:?}")
+        };
+        assert_eq!(l.params["name"], "anim.gif");
+        let other = unsupported_format_error("/x/a.exe", Path::new("/x/a.exe"), "exe");
+        assert!(matches!(other, IpcError::UnsupportedFormat(_)));
     }
 
     #[test]

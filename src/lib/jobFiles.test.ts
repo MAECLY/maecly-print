@@ -160,6 +160,61 @@ describe('jobFiles', () => {
     }
   });
 
+  it('FR-052 (D9): a GIF is refused with its own sentence, dropped or found in a folder', async () => {
+    useSettingsStore.setState({
+      settings: {
+        ...fixtureAppSettings,
+        app: { ...fixtureAppSettings.app, locale: 'es-ES' },
+      },
+    });
+    ipc.inspectFiles.mockResolvedValue([
+      fileInfo('/docs/anim.gif', {
+        supported: false,
+        reason: 'GIF images are not supported',
+        reason_code: 'gif_unsupported',
+      }),
+    ]);
+    try {
+      const out = await inspectPaths(['/docs/anim.gif']);
+      expect(out.rejected).toEqual([
+        {
+          name: 'anim.gif',
+          reason:
+            'Las imágenes GIF no se admiten: conviértelas antes a PNG o JPEG',
+        },
+      ]);
+
+      ipc.inspectFiles.mockResolvedValue([]);
+      ipc.expandFolders.mockResolvedValue([
+        expansion({
+          root: '/docs/r',
+          skipped: [
+            {
+              path: '/docs/r/anim.GIF',
+              name: 'anim.GIF',
+              reason: 'unsupported_format',
+              detail: 'Unsupported file type (.gif)',
+            },
+          ],
+        }),
+      ]);
+      await expandFolderIntoJob(
+        { path: '/docs/r', name: 'r', hasSubfolders: false },
+        'top_level',
+        collector().setFiles,
+      );
+      const [, opts] = toasts.warning.mock.calls[0] as [
+        string,
+        { description: string },
+      ];
+      expect(opts.description).toContain(
+        'anim.GIF — Las imágenes GIF no se admiten',
+      );
+    } finally {
+      useSettingsStore.setState({ settings: null });
+    }
+  });
+
   it('strips the extension from the display name and rounds the size', async () => {
     ipc.inspectFiles.mockResolvedValue([
       fileInfo('/docs/report.PDF', {

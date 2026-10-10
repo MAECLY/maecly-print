@@ -72,6 +72,9 @@ pub enum RejectReason {
     NotAFile,
     /// Bigger than the configured `max_file_size_mb` ceiling.
     TooLarge,
+    /// A GIF image: refused on purpose (decision D9), with its own sentence
+    /// ("convert it to PNG or JPEG first").
+    GifUnsupported,
     /// Any other extension the engine cannot print.
     UnsupportedType,
 }
@@ -577,6 +580,11 @@ fn classify_one(path_str: &str, max_mb: u32) -> FileInfo {
                 ))
             } else if crate::engine::is_supported(&ext) {
                 None
+            } else if ext == "gif" {
+                Some((
+                    RejectReason::GifUnsupported,
+                    "GIF images are not supported: convert them to PNG or JPEG first".to_string(),
+                ))
             } else {
                 Some((
                     RejectReason::UnsupportedType,
@@ -832,6 +840,16 @@ mod tests {
             inspect(&exe, 100).reason.as_deref(),
             Some("Unsupported file type")
         );
+        assert_eq!(
+            inspect(&exe, 100).reason_code,
+            Some(RejectReason::UnsupportedType)
+        );
+
+        // D9: a GIF is refused with its own reason.
+        let gif = write(dir.path(), "anim.GIF", b"GIF89a");
+        let info = inspect(&gif, 100);
+        assert!(!info.supported);
+        assert_eq!(info.reason_code, Some(RejectReason::GifUnsupported));
     }
 
     #[test]

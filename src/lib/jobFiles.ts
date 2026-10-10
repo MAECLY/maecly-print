@@ -79,6 +79,8 @@ function skipReason(s: Pick<SkippedFile, 'name' | 'reason'>): string {
   if (s.reason !== 'unsupported_format') return t(`skipReason.${s.reason}`);
   const dot = s.name.lastIndexOf('.');
   const ext = dot > 0 ? s.name.slice(dot + 1).toLowerCase() : '';
+  // D9: GIF is refused on purpose, and says what to do instead.
+  if (ext === 'gif') return t('rejectReason.gif_unsupported');
   return ext
     ? t('skipReason.unsupported_format', { ext })
     : t('rejectReason.unsupported_type');

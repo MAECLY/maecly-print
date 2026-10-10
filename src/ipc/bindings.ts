@@ -1930,6 +1930,11 @@ export type RejectReason =
  */
 "too_large" | 
 /**
+ * A GIF image: refused on purpose (decision D9), with its own sentence
+ * ("convert it to PNG or JPEG first").
+ */
+"gif_unsupported" | 
+/**
  * Any other extension the engine cannot print.
  */
 "unsupported_type"
