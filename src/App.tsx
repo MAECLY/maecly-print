@@ -474,16 +474,18 @@ function App() {
     // (the CLI); either way the cached list is not the authority.
     const profiles = await freshProfiles();
     const named = findProfileByRef(profiles, selection.profile_id);
-    const unknown = Boolean(selection.profile_id) && !named;
+    // The reference the integration asked for and nothing matched.
+    const unknownRef =
+      selection.profile_id && !named ? selection.profile_id : null;
 
-    if (selection.action === 'configure' || unknown) {
-      if (unknown) {
+    if (selection.action === 'configure' || unknownRef !== null) {
+      if (unknownRef !== null) {
         toast.error(
           t(
             selection.action === 'configure'
               ? 'print.unknownProfile'
               : 'print.unknownProfileNotPrinted',
-            { name: selection.profile_id },
+            { name: unknownRef },
           ),
         );
       }
