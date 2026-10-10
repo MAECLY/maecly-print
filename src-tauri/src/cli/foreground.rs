@@ -26,6 +26,9 @@
 //!   `SetForegroundWindow` ([`bring_to_front`]). If Windows still says no, the
 //!   taskbar button flashes until the user switches to it. No keystroke is
 //!   ever faked.
+//! - Before that, the running instance leaves menu mode if its window is in
+//!   it (`EndMenu`), whoever pressed the Alt: the callback runs on the
+//!   window's thread, inside the modal loop, so it is the one place that can.
 
 use tauri::{Runtime, WebviewWindow};
 
@@ -101,9 +104,16 @@ pub fn bring_to_front<R: Runtime>(window: &WebviewWindow<R>) -> Raise {
 fn windows_raise<R: Runtime>(window: &WebviewWindow<R>) -> Raise {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        FlashWindowEx, GetForegroundWindow, SetForegroundWindow, FLASHWINFO, FLASHW_TIMERNOFG,
-        FLASHW_TRAY,
+        EndMenu, FlashWindowEx, GetForegroundWindow, SetForegroundWindow, FLASHWINFO,
+        FLASHW_TIMERNOFG, FLASHW_TRAY,
     };
+
+    // A window in menu mode (a lone Alt, from the user or from anyone else's
+    // faked input) holds its thread in a modal loop, and the selection would
+    // wait for the next key or click (measured: never within 40 s, at once
+    // after Escape). This callback runs on that thread, inside the loop, so it
+    // can end the mode itself. Fails harmlessly when no menu is active.
+    let _ = unsafe { EndMenu() };
 
     let Ok(raw) = window.hwnd() else {
         return Raise::Flashed;
