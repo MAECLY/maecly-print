@@ -1382,13 +1382,9 @@ mod tests {
     /// testing-strategy.md` § "When to skip subprocess tests" requires exactly
     /// this gate.
     ///
-    /// Nothing in the blocking CI lanes runs it: the only job that does is the
-    /// advisory `ignored-tests` lane in `.github/workflows/ci.yml`, which runs
-    /// `cargo test -- --ignored` on a schedule (Mondays) or on demand, on
-    /// macOS, with `continue-on-error: true`. So a failure here never blocks a
-    /// merge — treat it as a weekly signal, and run it locally with
-    /// `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored
-    /// list_printers_smoke`.
+    /// CI never runs it, so a failure here never blocks a merge. Run it
+    /// locally with `cargo test --manifest-path src-tauri/Cargo.toml --
+    /// --ignored list_printers_smoke`.
     #[test]
     #[ignore = "requires a real CUPS install; run with -- --ignored"]
     fn list_printers_smoke() {

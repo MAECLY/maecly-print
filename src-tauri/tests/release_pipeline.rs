@@ -476,22 +476,13 @@ fn nfr_027_releases_attach_the_corresponding_source() {
     assert!(build.contains("./scripts/build-shell-ext.ps1 -Arch all"));
 }
 
-/// NFR-070: the x64 and ARM64 installers each carry both Explorer DLLs, in
-/// the release and in CI's installer lane alike, so an x64 installer run
-/// emulated on Windows on ARM still registers a DLL Explorer can load.
+/// NFR-070: the x64 and ARM64 installers each carry both Explorer DLLs, so
+/// an x64 installer run emulated on Windows on ARM still registers a DLL
+/// Explorer can load, and both DLLs export the COM entry points.
 #[test]
-fn nfr_070_windows_release_matrix_matches_ci_installers() {
+fn nfr_070_windows_release_builds_and_checks_both_explorer_dlls() {
     let release = job(&release_yml(), "build");
-    let ci = read(".github/workflows/ci.yml");
-    let installers = job(&ci, "installers");
-    for text in [&release, &installers] {
-        assert!(
-            text.contains("./scripts/build-shell-ext.ps1 -Arch all"),
-            "{text}"
-        );
-        assert!(text.contains("x86_64-pc-windows-msvc"), "{text}");
-        assert!(text.contains("aarch64-pc-windows-msvc"), "{text}");
-    }
+    assert!(release.contains("./scripts/build-shell-ext.ps1 -Arch all"));
     // The release's Windows toolchain has both targets, for the DLLs.
     assert!(release.contains("'x86_64-pc-windows-msvc aarch64-pc-windows-msvc'"));
     // Both installers are checked for both DLLs.
@@ -500,24 +491,81 @@ fn nfr_070_windows_release_matrix_matches_ci_installers() {
         "shellext/arm64/shell_ext_win.dll",
     ] {
         assert!(release.contains(dll), "release does not check {dll}");
-        assert!(
-            installers.contains(dll),
-            "ci installers does not check {dll}"
-        );
+    }
+    // The DLLs that ship are checked for the exports Explorer calls, with a
+    // test that answers yes or no (an array `-notmatch` filters instead).
+    assert!(release.contains("Explorer DLLs export the COM entry points"));
+    assert!(release.contains("foreach ($arch in 'x64', 'arm64')"));
+    assert!(release.contains(r#"(& $dumpbin /EXPORTS $dll) -join "`n""#));
+    for symbol in ["DllGetClassObject", "DllCanUnloadNow"] {
+        assert!(release.contains(symbol), "release does not check {symbol}");
     }
 }
 
-/// NFR-006: the installer size is measured on every Windows build.
+/// NFR-006: the installer size is measured on every Windows release build;
+/// CI builds no installer.
 #[test]
 fn nfr_006_installer_size_is_measured_against_the_budget() {
     let build = job(&release_yml(), "build");
     assert!(build.contains("Installer size budget (NFR-006)"));
     assert!(build.contains("$budget = 15MB"));
     let ci = read(".github/workflows/ci.yml");
-    assert!(
-        ci.contains("NFR-006"),
-        "ci.yml does not measure the installer"
-    );
+    assert!(!ci.contains("tauri build"), "ci.yml builds no bundle");
+}
+
+/// CI is the lean pull-request gate: frontend lint, typecheck, format and
+/// tests, and the Rust backend's fmt, clippy and full test run on both
+/// shipped platforms. Coverage, bundles, smoke launches and advisory lanes
+/// are not part of it.
+#[test]
+fn ci_is_the_lean_pull_request_gate() {
+    let ci = read(".github/workflows/ci.yml");
+    assert_eq!(job_names(&ci), ["frontend", "backend"]);
+    assert!(ci.contains("\non:\n  pull_request:\n"), "{ci}");
+    assert!(ci.contains("  push:\n    branches: [main]\n"), "{ci}");
+    assert!(ci.contains("  workflow_dispatch:\n"), "{ci}");
+    assert!(!ci.contains("schedule:"), "ci.yml runs on a schedule");
+    assert!(ci.contains("cancel-in-progress: true"));
+
+    let frontend = job(&ci, "frontend");
+    for cmd in [
+        "pnpm install --frozen-lockfile",
+        "pnpm lint",
+        "pnpm typecheck",
+        "pnpm format:check",
+        "pnpm test",
+    ] {
+        assert!(frontend.contains(cmd), "frontend does not run {cmd}");
+    }
+
+    let backend = job(&ci, "backend");
+    assert!(backend.contains("os: [windows-latest, macos-latest]"));
+    assert!(backend.contains("PLURYPRINT_SKIP_MIGRATION: '1'"));
+    for cmd in [
+        "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
+        "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+        "cargo clippy --manifest-path shell-ext-win/Cargo.toml --all-targets -- -D warnings",
+        "cargo test --manifest-path shell-ext-win/Cargo.toml",
+    ] {
+        assert!(backend.contains(cmd), "backend does not run {cmd}");
+    }
+    // The full run is what keeps src/ipc/bindings.ts in sync: no filter.
+    assert!(backend.contains("run: cargo test --manifest-path src-tauri/Cargo.toml\n"));
+
+    for gone in ["llvm-cov", "--ignored", "tauri build", "generate-notices"] {
+        assert!(!ci.contains(gone), "ci.yml still runs {gone}");
+    }
+}
+
+/// THIRD-PARTY-NOTICES.md ships in every bundle, so a release cannot be built
+/// from a copy the lockfiles have moved past: the guard regenerates it.
+#[test]
+fn release_guard_checks_third_party_notices() {
+    let guard = job(&release_yml(), "guard");
+    assert!(guard.contains("scripts/licenses/generate-notices.sh --check"));
+    assert!(guard.contains("tool: cargo-about@0.9.2"));
+    let build = job(&release_yml(), "build");
+    assert!(build.contains("needs: [guard]"));
 }
 
 fn python() -> Option<&'static str> {

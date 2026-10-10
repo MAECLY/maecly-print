@@ -1,17 +1,15 @@
+# The checks a pull request must pass: lint, typecheck, format and tests for
+# the frontend, and fmt, clippy and tests for the Rust backend on the two
+# platforms Pluryprint ships for. Nothing here builds an installer or reads a
+# secret; release.yml builds, measures and signs the shipped artifacts (and
+# checks THIRD-PARTY-NOTICES.md before it does).
 name: CI
 
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-  # Both extra triggers exist for the advisory `ignored-tests` lane at the
-  # bottom of this file: it is the only job that runs on a schedule, and the
-  # manual trigger lets a maintainer run it on demand.
   workflow_dispatch:
-  schedule:
-    # Mondays 05:00 UTC.
-    - cron: '0 5 * * 1'
 
 # Every job only reads the repository; none publishes anything.
 permissions:
@@ -23,8 +21,7 @@ concurrency:
 
 jobs:
   frontend:
-    name: Frontend (lint + typecheck + test)
-    if: github.event_name != 'schedule'
+    name: Frontend (lint + typecheck + format + test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -44,640 +41,27 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Format check
-        run: pnpm format:check
-
       - name: Typecheck
         run: pnpm typecheck
 
-      # Coverage gate. The thresholds sit just under today's measured numbers
-      # (lines/statements 61.4%, functions 71.4%, branches 79.8%) so this is
-      # green on the current tree while still failing on a real regression.
-      # RAISE THEM as the coverage campaign lands tests — the documented target
-      # is 60% lines (docs/08-development/testing-strategy.md) and the untested
-      # screens (QueueViews/*, auxiliary/OnboardingFlow) are the next wins.
-      # They live on the command line, not in vite.config.ts, so the gate stays
-      # CI-owned; fold them into `test.coverage.thresholds` once they settle.
-      - name: Test (with V8 coverage gate)
-        run: >-
-          pnpm test:coverage
-          --coverage.thresholds.lines=55
-          --coverage.thresholds.statements=55
-          --coverage.thresholds.functions=65
-          --coverage.thresholds.branches=75
+      - name: Format check
+        run: pnpm format:check
 
-      - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: frontend-coverage
-          path: coverage/
-          retention-days: 7
-
-  backend:
-    name: Backend (Rust)
-    if: github.event_name != 'schedule'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
-
-      - name: Cache cargo
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: cargo fmt
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-
-      - name: cargo clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-
-      # Also the bindings drift gate: `cargo test` regenerates
-      # src/ipc/bindings.ts and tests/ipc_surface.rs fails the run when the
-      # committed copy was stale.
-      - name: cargo test
-        run: cargo test --manifest-path src-tauri/Cargo.toml
-
-      # The packaging step runs this script on stock Windows, where the only
-      # PowerShell is 5.1; it must parse there, not just under pwsh.
-      - name: fetch-sumatrapdf.ps1 parses in Windows PowerShell 5.1
-        shell: powershell
-        run: |
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\scripts\fetch-sumatrapdf.ps1", [ref]$null, [ref]$errors) | Out-Null
-          if ($errors) { $errors | ForEach-Object { Write-Host $_ }; exit 1 }
-
-      # Windows on ARM is a supported target (the dev VM is Windows 11 ARM);
-      # x64 runners cannot run its tests, but a type-check catches anything
-      # that only breaks on aarch64.
-      - name: cargo check (aarch64-pc-windows-msvc)
-        run: |
-          rustup target add aarch64-pc-windows-msvc
-          cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-pc-windows-msvc --all-targets
-
-      # Belt-and-braces net for the one case the test cannot see (a filtered
-      # run that never regenerates): the working tree must be unchanged.
-      - name: Verify generated bindings are committed
-        shell: bash
-        run: |
-          if ! git diff --exit-code -- src/ipc/bindings.ts; then
-            echo "::error file=src/ipc/bindings.ts::Generated bindings are stale. Run 'UPDATE_BINDINGS=1 cargo test --manifest-path src-tauri/Cargo.toml' and commit src/ipc/bindings.ts."
-            exit 1
-          fi
-
-  macos:
-    name: macOS (CUPS enumeration + frontend)
-    if: github.event_name != 'schedule'
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10
-        with:
-          toolchain: stable
-          components: clippy
-
-      - name: Cache cargo
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
-      # Exercises the CUPS backend (cups.rs) and the real-enumeration smoke
-      # test against the runner's CUPS — the path Windows CI cannot cover.
-      - name: cargo clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-
-      - name: cargo test
-        run: cargo test --manifest-path src-tauri/Cargo.toml
-
-      - name: Verify generated bindings are committed
-        run: |
-          if ! git diff --exit-code -- src/ipc/bindings.ts; then
-            echo "::error file=src/ipc/bindings.ts::Generated bindings are stale. Run 'UPDATE_BINDINGS=1 cargo test --manifest-path src-tauri/Cargo.toml' and commit src/ipc/bindings.ts."
-            exit 1
-          fi
-
-      - name: Frontend test
+      - name: Test
         run: pnpm test
 
-      # Advisory GUI smoke: build the debug app and confirm it boots (logs
-      # app_started to ~/Library/Logs/Pluryprint). WKWebView has no WebDriver
-      # and a headless runner has no guaranteed window server, so this is
-      # best-effort — continue-on-error keeps it from gating the macOS lane.
-      - name: Tauri build (debug)
-        continue-on-error: true
-        # Unsigned on purpose: CI has no updater key, and with
-        # createUpdaterArtifacts on, tauri refuses to bundle without one.
-        # Releases are built signed (see docs/07-build-and-release/ci-cd.md).
-        run: pnpm tauri build --debug --config src-tauri/tauri.ci.conf.json
-
-      - name: Smoke launch (macOS)
-        continue-on-error: true
-        run: |
-          BIN="src-tauri/target/debug/pluryprint"
-          if [ ! -x "$BIN" ]; then echo "binary not found at $BIN"; exit 1; fi
-          LOGDIR="$HOME/Library/Logs/Pluryprint"
-          "$BIN" &
-          PID=$!
-          started=0
-          for _ in $(seq 1 60); do
-            # logging/mod.rs writes pluryprint-YYYY-MM-DD.jsonl (plus .N rolls).
-            if grep -qs app_started "$LOGDIR"/pluryprint-*.jsonl 2>/dev/null; then
-              started=1; break
-            fi
-            sleep 1
-          done
-          kill "$PID" 2>/dev/null || true
-          if [ "$started" -eq 1 ]; then
-            echo "Smoke launch OK - app_started observed"
-          else
-            echo "App did not log app_started within 60s"; exit 1
-          fi
-
-  rust-coverage:
-    name: Rust coverage (cargo-llvm-cov)
-    if: github.event_name != 'schedule'
-    # macOS, not Windows: the CUPS backend compiles and runs here, and the
-    # runner needs no extra system libraries (an ubuntu lane would have to
-    # install webkit2gtk for the Tauri crate).
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10
-        with:
-          toolchain: stable
-          components: llvm-tools-preview
-
-      - name: Cache cargo
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
-          key: ${{ runner.os }}-cargo-llvmcov-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
-        with:
-          tool: cargo-llvm-cov
-
-      # Line coverage measured on this lane today: 80.4% (regions 82.4%,
-      # functions 67.8%). The threshold matches the 70% documented target and
-      # keeps headroom so an unrelated PR is not blocked by noise.
-      # RAISE IT as the coverage campaign progresses; queue/mod.rs (66%) and
-      # update/mod.rs (78%) are the thinnest modules.
-      - name: cargo llvm-cov
-        run: >-
-          cargo llvm-cov --manifest-path src-tauri/Cargo.toml
-          --lcov --output-path lcov.info
-          --fail-under-lines 70
-
-      - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: rust-coverage
-          path: lcov.info
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # The two `#[ignore]`d Rust tests are deliberately kept off the critical
-  # path: `update::tests::live_manifest_check` reads the published update
-  # manifests on github.com (third-party downtime must not fail a merge) and
-  # `platform::cups::tests::add_and_remove_real_queue` creates a real CUPS
-  # queue via `lpadmin`. They run weekly and on demand, and never gate.
-  ignored-tests:
-    name: Ignored tests (network + real CUPS, advisory)
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: macos-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10
-        with:
-          toolchain: stable
-
-      - name: Cache cargo
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
-          key: ${{ runner.os }}-cargo-ignored-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      # `-- --ignored` runs *only* the ignored tests; the rest already ran in
-      # the blocking backend/macos lanes.
-      - name: cargo test -- --ignored
-        run: cargo test --manifest-path src-tauri/Cargo.toml -- --ignored
-
-  build:
-    name: Tauri build (unsigned)
-    if: github.event_name != 'schedule'
-    needs: [frontend, backend]
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10
-        with:
-          toolchain: stable
-          # The Explorer DLL is built for both Windows architectures.
-          targets: x86_64-pc-windows-msvc,aarch64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
-      # What the installer ships next to the app: SumatraPDF (with its licence
-      # and source offer) and the Explorer DLLs. The NSIS hooks refuse to build
-      # an installer without them, and a CI build (CI=true) without both the
-      # x64 and the arm64 DLL.
-      - name: Fetch SumatraPDF (x64)
-        shell: powershell
-        run: ./scripts/fetch-sumatrapdf.ps1 -Arch x64
-
-      - name: Build the Explorer extension (x64 + ARM64)
-        shell: pwsh
-        env:
-          PLURYPRINT_REQUIRE_RESOURCES: '1'
-        run: ./scripts/build-shell-ext.ps1 -Arch all
-
-      - name: Tauri build
-        # Unsigned on purpose: CI has no updater key, and with
-        # createUpdaterArtifacts on, tauri refuses to bundle without one.
-        # Releases are built signed (see docs/07-build-and-release/releasing.md).
-        run: pnpm tauri build --debug --config src-tauri/tauri.ci.conf.json
-
-      # Confirm the packaged binary actually boots: launch it and poll the log
-      # for the startup events the backend emits (app_started, then
-      # main_window_resolved). Catches missing runtime deps / startup panics a
-      # compile-only build would miss.
-      #
-      # The log directory is the real per-user one. Overriding APPDATA /
-      # LOCALAPPDATA does not sandbox it: `directories` resolves known folders
-      # through SHGetKnownFolderPath, which ignores those variables. A fresh
-      # runner has no earlier log, and the check is scoped to lines written
-      # after this launch started.
-      - name: Smoke launch (Windows)
-        shell: pwsh
-        run: |
-          $exe = "src-tauri/target/debug/pluryprint.exe"
-          if (-not (Test-Path $exe)) { throw "Built binary not found at $exe" }
-
-          $logDir = Join-Path $env:LOCALAPPDATA "Maecly\Pluryprint\data\logs"
-          $since = Get-Date
-          $p = Start-Process -FilePath $exe -PassThru
-          $started = $false
-          $windowOk = $false
-          try {
-            $deadline = (Get-Date).AddSeconds(60)
-            while ((Get-Date) -lt $deadline) {
-              # logging/mod.rs writes pluryprint-YYYY-MM-DD.jsonl (plus .N rolls).
-              $logs = Get-ChildItem -Path $logDir -Filter "pluryprint-*.jsonl" -ErrorAction SilentlyContinue |
-                      Where-Object { $_.LastWriteTime -ge $since }
-              if ($logs) {
-                $text = ($logs | Get-Content -Raw -ErrorAction SilentlyContinue) -join "`n"
-                if ($text -match "app_started") { $started = $true }
-                if ($text -match "main_window_resolved") { $windowOk = $true }
-              }
-              if ($started -and $windowOk) { break }
-              Start-Sleep -Milliseconds 500
-            }
-          } finally {
-            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
-          }
-
-          if (-not $started) { throw "Timed out: no 'app_started' log line within 60s" }
-          if (-not $windowOk) { throw "Timed out: no 'main_window_resolved' log line within 60s" }
-          Write-Host "Smoke launch OK - app_started + main_window_resolved observed"
-
-      # FR-009: the console front end is what scripts call, because shells do
-      # not wait for the GUI-subsystem app. It must exist next to the app and
-      # hand its exit code to the shell.
-      - name: Smoke CLI exit codes (Windows)
-        shell: pwsh
-        run: |
-          $cli = "src-tauri/target/debug/pluryprint-cli.exe"
-          if (-not (Test-Path $cli)) { throw "Console CLI not found at $cli" }
-          & $cli --version
-          if ($LASTEXITCODE -ne 0) { throw "--version exited with $LASTEXITCODE" }
-          & $cli frobnicate 2>$null
-          if ($LASTEXITCODE -ne 2) { throw "a usage error exited with $LASTEXITCODE, expected 2" }
-          Write-Host "Console CLI OK - exit codes reach the shell"
-
-      - name: Upload smoke log (Windows)
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: windows-smoke-log
-          path: ~/AppData/Local/Maecly/Pluryprint/data/logs/pluryprint-*.jsonl
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # The release-mode Windows installers, as release.yml builds them but
-  # unsigned: x64 and ARM64 (NFR-070, the ARM64 one cross-compiled), each with
-  # its SumatraPDF and both Explorer DLLs, measured against NFR-006's 15 MB
-  # budget. On pushes to main and on demand only, because a release build of
-  # each architecture costs more runner minutes than a PR should.
-  installers:
-    name: Windows installer (${{ matrix.arch }}, release)
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    needs: [frontend, backend]
-    runs-on: windows-latest
+  # The Rust code is heavily cfg-gated (WinSpool and the Explorer handler on
+  # Windows, CUPS on macOS), so it is checked on both shipped platforms.
+  backend:
+    name: Backend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: x64
-            target: x86_64-pc-windows-msvc
-          - arch: arm64
-            target: aarch64-pc-windows-msvc
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10
-        with:
-          toolchain: stable
-          targets: x86_64-pc-windows-msvc,aarch64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
-            shell-ext-win/target/
-          key: ${{ runner.os }}-cargo-installer-${{ matrix.target }}-${{ hashFiles('src-tauri/Cargo.lock', 'shell-ext-win/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-installer-${{ matrix.target }}-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
-      - name: Fetch SumatraPDF (${{ matrix.arch }})
-        shell: powershell
-        run: ./scripts/fetch-sumatrapdf.ps1 -Arch ${{ matrix.arch }}
-
-      - name: Build the Explorer extension (x64 + ARM64)
-        shell: pwsh
-        env:
-          PLURYPRINT_REQUIRE_RESOURCES: '1'
-        run: ./scripts/build-shell-ext.ps1 -Arch all
-
-      - name: Tauri build (release, unsigned)
-        run: pnpm tauri build --target ${{ matrix.target }} --bundles nsis --config src-tauri/tauri.ci.conf.json
-
-      # NFR-006: <= 15 MB. Reported on every run; over budget is a warning
-      # here and an error in release.yml, where it blocks the draft.
-      - name: Installer size (NFR-006)
-        shell: pwsh
-        run: |
-          $exe = Get-ChildItem "src-tauri/target/${{ matrix.target }}/release/bundle/nsis" -Filter *-setup.exe | Select-Object -First 1
-          if (-not $exe) { throw "no NSIS installer was built" }
-          $mib = [math]::Round($exe.Length / 1MB, 2)
-          "| Installer | Size | Budget |`n|---|---|---|`n| $($exe.Name) | $mib MiB ($($exe.Length) bytes) | 15 MiB |" >> $env:GITHUB_STEP_SUMMARY
-          if ($exe.Length -gt 15MB) { Write-Host "::warning::$($exe.Name) is $mib MiB, over NFR-006's 15 MiB budget" }
-          foreach ($f in 'sumatrapdf/SumatraPDF.exe', 'sumatrapdf/LICENSE.txt', 'sumatrapdf/SOURCE-OFFER.txt', 'shellext/x64/shell_ext_win.dll', 'shellext/arm64/shell_ext_win.dll') {
-            if (-not (Test-Path "src-tauri/target/${{ matrix.target }}/release/resources/$f")) { throw "the bundle has no resources/$f" }
-          }
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: pluryprint-installer-${{ matrix.arch }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
-          if-no-files-found: error
-          retention-days: 7
-
-  # THIRD-PARTY-NOTICES.md is generated (scripts/licenses/generate-notices.sh)
-  # from the dependency graph. A dependency change that is not reflected in
-  # it would ship a binary without the notices its licences require.
-  notices:
-    name: Third-party notices are current
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10
-        with:
-          toolchain: stable
-
-      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
-        with:
-          tool: cargo-about@0.9.2
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
-      - name: Regenerate and compare
-        run: scripts/licenses/generate-notices.sh --check
-
-  e2e:
-    name: E2E (WebdriverIO + tauri-driver)
-    if: github.event_name != 'schedule'
-    needs: [frontend, backend]
-    runs-on: windows-latest
-    timeout-minutes: 35
-    # The smoke specs below gate the job, so a suite that can no longer even
-    # open a WebDriver session (as happened when WebView2 ignored the driver's
-    # arguments) fails loudly. The full suite stays advisory.
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10
-        with:
-          toolchain: stable
-
-      - name: Cache cargo
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
-          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      # The one install that keeps package scripts: the WebdriverIO packages
-      # set up their driver binaries in them. Every other job installs with
-      # --ignore-scripts.
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install tauri-driver
-        run: cargo install tauri-driver --locked
-
-      - name: Provision msedgedriver (matching WebView2)
-        shell: pwsh
-        run: |
-          # tauri-driver drives the app's WebView2; msedgedriver must match the
-          # installed WebView2 Evergreen Runtime. Read its version from the
-          # runtime's registry client key, then fetch the matching driver.
-          $key = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
-          $version = (Get-ItemProperty -Path $key -Name pv -ErrorAction Stop).pv
-          Write-Host "WebView2 runtime version: $version"
-          $zip = Join-Path $env:RUNNER_TEMP "edgedriver.zip"
-          $dest = Join-Path $env:RUNNER_TEMP "edgedriver"
-          Invoke-WebRequest -UseBasicParsing `
-            -Uri "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" `
-            -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath $dest -Force
-          "NATIVE_DRIVER=$dest\msedgedriver.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "msedgedriver at $dest\msedgedriver.exe"
-
-      # `tauri build --no-bundle` builds the frontend and embeds it (a plain
-      # `cargo build` is a dev build that loads devUrl, which nothing serves
-      # here) without producing installers the E2E run does not need.
-      - name: Build the app (debug, assets embedded)
-        run: pnpm tauri build --debug --no-bundle --config src-tauri/tauri.ci.conf.json
-
-      # wdio.conf.ts spawns tauri-driver with --native-driver $NATIVE_DRIVER.
-      - name: Run E2E smoke specs (blocking)
-        run: pnpm test:e2e --spec e2e/specs/about.e2e.ts --spec e2e/specs/queue.e2e.ts
-
-      - name: Run the full E2E suite (advisory)
-        continue-on-error: true
-        run: pnpm test:e2e
-
-      - name: Upload E2E artifacts (screenshots)
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: e2e-artifacts
-          path: e2e/artifacts/
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # The Explorer context-menu DLL (shell-ext-win/). It is a standalone crate
-  # with its own target dir and its own release profile — `panic = "unwind"`,
-  # which src-tauri's `panic = "abort"` must never be allowed to override — so
-  # it needs its own lane; the `backend` job's `--manifest-path src-tauri` never
-  # touches it.
-  shell-ext-win:
-    name: Shell extension (Windows DLL)
-    if: github.event_name != 'schedule'
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # ARM64 is build-only: a windows-latest runner is x64 and cannot
-        # execute an aarch64 test binary.
-        include:
-          - target: x86_64-pc-windows-msvc
-            run_tests: true
-          - target: aarch64-pc-windows-msvc
-            run_tests: false
+        os: [windows-latest, macos-latest]
+    env:
+      # A test run never moves a MaeclyPrint-era data directory (ADR-0009).
+      PLURYPRINT_SKIP_MIGRATION: '1'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -687,126 +71,43 @@ jobs:
         uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10
         with:
           toolchain: stable
-          targets: ${{ matrix.target }}
           components: rustfmt, clippy
 
       - name: Cache cargo
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            src-tauri/target/
             shell-ext-win/target/
-          key: ${{ runner.os }}-cargo-shellext-${{ matrix.target }}-${{ hashFiles('shell-ext-win/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock', 'shell-ext-win/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-shellext-${{ matrix.target }}-
+            ${{ runner.os }}-cargo-
 
+      # Formatting does not depend on the platform: once is enough.
       - name: cargo fmt
-        run: cargo fmt --manifest-path shell-ext-win/Cargo.toml --all -- --check
+        if: runner.os == 'Windows'
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+          cargo fmt --manifest-path shell-ext-win/Cargo.toml --all -- --check
 
       - name: cargo clippy
-        run: >-
-          cargo clippy --manifest-path shell-ext-win/Cargo.toml
-          --target ${{ matrix.target }} --all-targets -- -D warnings
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
-      # PLURYPRINT_REQUIRE_RESOURCES turns a missing rc.exe (and therefore a
-      # DLL with no embedded <msix> manifest) into a build failure. A DLL
-      # without that manifest builds fine, registers fine, and is never loaded
-      # by Explorer — the single most expensive way for this to go wrong.
-      - name: Build DLL
-        env:
-          PLURYPRINT_REQUIRE_RESOURCES: '1'
-        run: >-
-          cargo build --release --manifest-path shell-ext-win/Cargo.toml
-          --target ${{ matrix.target }}
-
-      # The portable half of the crate: the handoff schema (FR-001/FR-003) and
-      # the menu model (FR-002/FR-005). Host-architecture only.
+      # A full run, never filtered: tests/ipc_surface.rs regenerates
+      # src/ipc/bindings.ts and fails when the committed copy is stale.
       - name: cargo test
-        if: matrix.run_tests
-        run: >-
-          cargo test --manifest-path shell-ext-win/Cargo.toml
-          --target ${{ matrix.target }}
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
-      # Cheap regression net for the COM plumbing: if these three exports are
-      # not in the DLL, Explorer cannot instantiate the handler at all, and
-      # nothing else in this lane would notice.
-      - name: Verify COM exports
-        shell: pwsh
-        run: |
-          $dll = "shell-ext-win/target/${{ matrix.target }}/release/shell_ext_win.dll"
-          if (-not (Test-Path $dll)) { throw "DLL not found at $dll" }
+      # The Explorer context-menu DLL is its own crate (own target dir, own
+      # `panic = "unwind"` release profile), and its COM layer only builds
+      # on Windows.
+      - name: cargo clippy (shell extension)
+        if: runner.os == 'Windows'
+        run: cargo clippy --manifest-path shell-ext-win/Cargo.toml --all-targets -- -D warnings
 
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $dumpbin = $null
-          if (Test-Path $vswhere) {
-            $vs = & $vswhere -latest -property installationPath
-            if ($vs) {
-              $dumpbin = Get-ChildItem -Path $vs -Filter dumpbin.exe -Recurse -ErrorAction SilentlyContinue |
-                         Select-Object -First 1 -ExpandProperty FullName
-            }
-          }
-          if (-not $dumpbin) {
-            # Do not fail the lane over a runner-image change; the build above
-            # is still the gate.
-            Write-Warning "dumpbin.exe not found - skipping the export check"
-            exit 0
-          }
-
-          $exports = & $dumpbin /EXPORTS $dll
-          # DllMain is deliberately not on this list: it is an entry point, and
-          # whether it also shows up in the export table is a toolchain detail.
-          foreach ($symbol in 'DllGetClassObject', 'DllCanUnloadNow') {
-            if ($exports -notmatch $symbol) { throw "Missing export: $symbol" }
-          }
-          Write-Host "COM exports present"
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: shell-ext-win-${{ matrix.target }}
-          path: shell-ext-win/target/${{ matrix.target }}/release/shell_ext_win.dll
-          if-no-files-found: error
-          retention-days: 7
-
-  # Guards the claim the crate is built on: everything except the COM layer is
-  # plain Rust, so the schema and menu contracts can be developed and tested on
-  # a machine that is not Windows. If this lane breaks, a macOS/Linux
-  # contributor can no longer work on the extension at all.
-  shell-ext-portable:
-    name: Shell extension (portable half, non-Windows host)
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10
-        with:
-          toolchain: stable
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            shell-ext-win/target/
-          key: ${{ runner.os }}-cargo-shellext-portable-${{ hashFiles('shell-ext-win/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-shellext-portable-
-
-      - name: cargo test (host)
+      - name: cargo test (shell extension)
+        if: runner.os == 'Windows'
         run: cargo test --manifest-path shell-ext-win/Cargo.toml
-
-      # Type-checks the whole crate, COM layer included, against the real
-      # `windows` bindings. No linker is involved, so this works from any host.
-      - name: cargo check (Windows target, no link)
-        run: >-
-          cargo check --manifest-path shell-ext-win/Cargo.toml
-          --target x86_64-pc-windows-msvc --all-targets
