@@ -315,9 +315,30 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/**
+ * Everything the Printers screen shows, asked of the OS at once. Only the
+ * printer list itself can fail the load; the rest degrade to "unknown".
+ */
+async function fetchPrintersView() {
+  const [list, def, prefs, policy, info] = await Promise.all([
+    listPrinters(),
+    fetchDefaultPrinter().catch(() => null),
+    getPrinterPrefs().catch(() => ({}) as PrinterPrefs),
+    getPrinterPolicy().catch(() => null),
+    // Platform-dependent copy and the add-by-IP protocol list read this;
+    // a failure just leaves the OS unknown, which every consumer handles.
+    fetchAppInfo().catch(() => null),
+  ]);
+  return { list, def, prefs, policy, info };
+}
+type PrintersView = Awaited<ReturnType<typeof fetchPrintersView>>;
+
 export function PrintersScreen() {
   const t = useT('printers');
-  const [printers, setPrinters] = useState<UiPrinter[] | null>(null);
+  // Outside Tauri there is nothing to list: no spinner, the no-host notice.
+  const [printers, setPrinters] = useState<UiPrinter[] | null>(() =>
+    isTauri() ? null : [],
+  );
   const [prefs, setPrefs] = useState<PrinterPrefs>({});
   // Latest prefs for slow async handlers: merging into a render-time capture
   // after an awaited OS call would silently revert concurrent prefs changes.
@@ -338,47 +359,58 @@ export function PrintersScreen() {
   // Reassign target for the missing-printer banner (falls back to first ready).
   const [reassignTarget, setReassignTarget] = useState<string | null>(null);
 
+  /** Show what the OS answered. */
+  const show = useCallback((view: PrintersView) => {
+    const { list, def, prefs: p, policy: pol, info } = view;
+    setPrinters(list);
+    primePrinterNames(list);
+    setPrefs(p ?? {});
+    setPolicy(pol);
+    setOs(toOsId(info?.os));
+    setDefaultId(def ?? list.find((q) => q.isDefault)?.id ?? null);
+    setSelectedId((cur) =>
+      cur && list.some((q) => q.id === cur) ? cur : (list[0]?.id ?? null),
+    );
+  }, []);
+  const showFailure = useCallback((e: unknown) => {
+    setError(errText(e));
+    setPrinters([]);
+  }, []);
+
+  /** Rescan: back to the loading state, then ask again. */
   const load = useCallback(async () => {
-    if (!isTauri()) {
-      setError(t('notice.noHost'));
-      setPrinters([]);
-      return;
-    }
+    if (!isTauri()) return;
     setPrinters(null);
     setError(null);
     // "Keep paused" lasts until the next Rescan/reload (spec § Edge states).
     setDismissedMissing(new Set());
-    try {
-      const [list, def, p, pol, info] = await Promise.all([
-        listPrinters(),
-        fetchDefaultPrinter().catch(() => null),
-        getPrinterPrefs().catch(() => ({}) as PrinterPrefs),
-        getPrinterPolicy().catch(() => null),
-        // Platform-dependent copy and the add-by-IP protocol list read this;
-        // a failure just leaves the OS unknown, which every consumer handles.
-        fetchAppInfo().catch(() => null),
-      ]);
-      setPrinters(list);
-      primePrinterNames(list);
-      setPrefs(p ?? {});
-      setPolicy(pol);
-      setOs(toOsId(info?.os));
-      setDefaultId(def ?? list.find((q) => q.isDefault)?.id ?? null);
-      setSelectedId((cur) =>
-        cur && list.some((q) => q.id === cur) ? cur : (list[0]?.id ?? null),
-      );
-    } catch (e) {
-      setError(errText(e));
-      setPrinters([]);
-    }
-  }, [t]);
+    await fetchPrintersView().then(show, showFailure);
+  }, [show, showFailure]);
 
+  // The first load: the initial state already is the loading state.
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!isTauri()) return;
+    let alive = true;
+    fetchPrintersView().then(
+      (view) => {
+        if (alive) show(view);
+      },
+      (e: unknown) => {
+        if (alive) showFailure(e);
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [show, showFailure]);
 
-  // Reset the inline "add rule" input whenever the selected printer changes.
-  useEffect(() => setRuleDraft(null), [selectedId]);
+  // Reset the inline "add rule" input whenever the selected printer changes
+  // (adjusted while rendering, so no frame shows it under another printer).
+  const [ruleDraftFor, setRuleDraftFor] = useState(selectedId);
+  if (ruleDraftFor !== selectedId) {
+    setRuleDraftFor(selectedId);
+    setRuleDraft(null);
+  }
 
   // Persist a prefs change optimistically; reload + toast on failure. Resolves
   // to whether the save landed, so a caller chaining it after an OS action
@@ -442,7 +474,7 @@ export function PrintersScreen() {
         {topBar}
         <CenteredNotice
           loading={printers === null}
-          error={error}
+          error={isTauri() ? error : t('notice.noHost')}
           loadingTitle={t('notice.loadingTitle')}
           loadingBody={t('notice.loadingBody')}
           emptyTitle={t('notice.emptyTitle')}
@@ -1976,21 +2008,23 @@ function NetworkTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
   const unsupported = os === 'windows';
   // null = still scanning; discovery re-runs each time this tab mounts.
   const [discovered, setDiscovered] = useState<UiDiscoveredPrinter[] | null>(
-    null,
+    unsupported ? [] : null,
   );
   const [addingId, setAddingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [scanError, setScanError] = useState<string | null>(null);
+  // The OS can be learnt after the tab mounted: start over, adjusted while
+  // rendering, whenever that changes whether there is anything to scan.
+  const [scanFor, setScanFor] = useState(unsupported);
+  if (scanFor !== unsupported) {
+    setScanFor(unsupported);
+    setDiscovered(unsupported ? [] : null);
+    setScanError(null);
+  }
 
   useEffect(() => {
-    if (unsupported) {
-      setDiscovered([]);
-      setScanError(null);
-      return;
-    }
+    if (unsupported) return;
     let alive = true;
-    setDiscovered(null);
-    setScanError(null);
     discoverPrinters()
       .then((d) => {
         if (alive) setDiscovered(d);
