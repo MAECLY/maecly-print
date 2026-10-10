@@ -93,7 +93,7 @@ The runbook, with the secrets and settings to add, is
   reaches users until a person publishes the draft.
 - The same manifest drives the notice and the install, on both channels.
 - Every release is checked before it can be published: four platforms in
-  `latest.json`, valid signatures, the installer under 15 MB, SumatraPDF and
+  `latest.json`, valid signatures, the installer under 20 MB, SumatraPDF and
   both DLLs in each Windows installer, the right architecture in each Mac app.
 - The licence obligations travel with the binaries: notices, licence texts,
   source archives and the written offer.
