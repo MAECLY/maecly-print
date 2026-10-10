@@ -352,510 +352,508 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 
 ## Rust crates
 
-500 crates are compiled into the shipped binaries. The table names each one, the licence it is offered under, the licence Pluryprint uses it under, and where it ships; the licence texts follow, each with the crates that ship it.
+498 crates are compiled into the shipped binaries. The table names each one, the licence it is offered under, the licence Pluryprint uses it under, and where it ships; the licence texts follow, each with the crates that ship it.
 
-| Crate                               | Version          | Offered under                                       | Used under               | Ships in                          |
-| ----------------------------------- | ---------------- | --------------------------------------------------- | ------------------------ | --------------------------------- |
-| `Inflector`                         | 0.11.4           | BSD-2-Clause                                        | BSD-2-Clause             | app                               |
-| `adler2`                            | 2.0.1            | 0BSD OR MIT OR Apache-2.0                           | Apache-2.0               | app                               |
-| `aes`                               | 0.8.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `aho-corasick`                      | 1.1.4            | Unlicense OR MIT                                    | MIT                      | app                               |
-| `aliasable`                         | 0.1.3            | MIT                                                 | MIT                      | app                               |
-| `alloc-no-stdlib`                   | 2.0.4            | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
-| `alloc-no-stdlib`                   | 3.0.0            | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
-| `alloc-stdlib`                      | 0.2.2            | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
-| `alloc-stdlib`                      | 0.3.0            | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
-| `allsorts`                          | 0.16.1           | Apache-2.0                                          | Apache-2.0               | app                               |
-| `anstream`                          | 1.0.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `anstyle`                           | 1.0.14           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `anstyle-parse`                     | 1.0.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `anstyle-query`                     | 1.1.5            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `anstyle-wincon`                    | 3.0.11           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `anyhow`                            | 1.0.102          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `arrayref`                          | 0.3.9            | BSD-2-Clause                                        | BSD-2-Clause             | app                               |
-| `arrayvec`                          | 0.7.8            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `atomic-waker`                      | 1.1.2            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `base64`                            | 0.21.7           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `base64`                            | 0.22.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `bit-set`                           | 0.8.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `bit-vec`                           | 0.8.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `bitflags`                          | 1.3.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `bitflags`                          | 2.11.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `bitreader`                         | 0.3.11           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `block-buffer`                      | 0.10.4           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `block-padding`                     | 0.3.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `block2`                            | 0.6.2            | MIT                                                 | MIT                      | app                               |
-| `brotli`                            | 8.0.2            | BSD-3-Clause AND MIT                                | BSD-3-Clause, MIT        | app                               |
-| `brotli`                            | 9.0.0            | BSD-3-Clause AND MIT                                | BSD-3-Clause, MIT        | app                               |
-| `brotli-decompressor`               | 5.0.0            | BSD-3-Clause OR MIT                                 | MIT                      | app                               |
-| `brotli-decompressor`               | 6.0.1            | BSD-3-Clause OR MIT                                 | MIT                      | app                               |
-| `bytecount`                         | 0.6.9            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `bytemuck`                          | 1.25.0           | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
-| `bytemuck_derive`                   | 1.12.1           | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
-| `byteorder`                         | 1.5.0            | Unlicense OR MIT                                    | MIT                      | app                               |
-| `byteorder-lite`                    | 0.1.0            | Unlicense OR MIT                                    | MIT                      | app                               |
-| `bytes`                             | 1.11.1           | MIT                                                 | MIT                      | app                               |
-| `camino`                            | 1.2.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `cargo-platform`                    | 0.1.9            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `cargo_metadata`                    | 0.19.2           | MIT                                                 | MIT                      | app                               |
-| `cbc`                               | 0.1.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `cfb`                               | 0.14.0           | MIT                                                 | MIT                      | app                               |
-| `cfb`                               | 0.7.3            | MIT                                                 | MIT                      | app                               |
-| `cfg-if`                            | 1.0.4            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `chrono`                            | 0.4.44           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `cipher`                            | 0.4.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `clap`                              | 4.6.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `clap_builder`                      | 4.6.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `clap_derive`                       | 4.6.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `clap_lex`                          | 1.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `color_quant`                       | 1.1.0            | MIT                                                 | MIT                      | app                               |
-| `colorchoice`                       | 1.0.5            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `cookie`                            | 0.18.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `core-foundation`                   | 0.10.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `core-foundation`                   | 0.9.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `core-foundation-sys`               | 0.8.7            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `core-graphics`                     | 0.25.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `core-graphics-types`               | 0.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `core_maths`                        | 0.1.1            | MIT                                                 | MIT                      | app                               |
-| `cpufeatures`                       | 0.2.17           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `crc32fast`                         | 1.5.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `crossbeam-channel`                 | 0.5.15           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `crossbeam-deque`                   | 0.8.7            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `crossbeam-epoch`                   | 0.9.20           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `crossbeam-utils`                   | 0.8.21           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `crypto-common`                     | 0.1.7            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `cssparser`                         | 0.37.0           | MPL-2.0                                             | MPL-2.0                  | app                               |
-| `cssparser-macros`                  | 0.7.1            | MPL-2.0                                             | MPL-2.0                  | app                               |
-| `ctor`                              | 1.0.13           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `darling`                           | 0.23.0           | MIT                                                 | MIT                      | app                               |
-| `darling_core`                      | 0.23.0           | MIT                                                 | MIT                      | app                               |
-| `darling_macro`                     | 0.23.0           | MIT                                                 | MIT                      | app                               |
-| `data-url`                          | 0.3.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `deranged`                          | 0.5.8            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `derive_more`                       | 2.1.1            | MIT                                                 | MIT                      | app                               |
-| `derive_more-impl`                  | 2.1.1            | MIT                                                 | MIT                      | app                               |
-| `digest`                            | 0.10.7           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `directories`                       | 6.0.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `dirs`                              | 6.0.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `dirs-sys`                          | 0.5.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `dispatch2`                         | 0.3.1            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
-| `displaydoc`                        | 0.2.5            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `dom_query`                         | 0.28.0           | MIT                                                 | MIT                      | app                               |
-| `dpi`                               | 0.1.2            | Apache-2.0 AND MIT                                  | Apache-2.0, MIT          | app                               |
-| `dtoa`                              | 1.0.11           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `dtoa-short`                        | 0.3.5            | MPL-2.0                                             | MPL-2.0                  | app                               |
-| `dunce`                             | 1.0.5            | CC0-1.0 OR MIT-0 OR Apache-2.0                      | Apache-2.0               | app                               |
-| `dyn-clone`                         | 1.0.20           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `ecb`                               | 0.1.2            | MIT                                                 | MIT                      | app                               |
-| `either`                            | 1.16.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `embed_plist`                       | 1.2.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `encoding_rs`                       | 0.8.35           | (Apache-2.0 OR MIT) AND BSD-3-Clause                | Apache-2.0, BSD-3-Clause | app                               |
-| `equivalent`                        | 1.0.2            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `erased-serde`                      | 0.4.10           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `errno`                             | 0.3.14           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `fastrand`                          | 2.4.1            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `fax`                               | 0.2.7            | MIT                                                 | MIT                      | app                               |
-| `fdeflate`                          | 0.3.7            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `filetime`                          | 0.2.29           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `flate2`                            | 1.1.9            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `float-cmp`                         | 0.9.0            | MIT                                                 | MIT                      | app                               |
-| `fnv`                               | 1.0.7            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `foldhash`                          | 0.2.0            | Zlib                                                | Zlib                     | app                               |
-| `font-types`                        | 0.11.3           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `fontdb`                            | 0.23.0           | MIT                                                 | MIT                      | app                               |
-| `foreign-types`                     | 0.5.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `foreign-types-macros`              | 0.2.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `foreign-types-shared`              | 0.3.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `form_urlencoded`                   | 1.2.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `futures-channel`                   | 0.3.32           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `futures-core`                      | 0.3.32           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `futures-macro`                     | 0.3.32           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `futures-sink`                      | 0.3.32           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `futures-task`                      | 0.3.32           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `futures-util`                      | 0.3.32           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `generic-array`                     | 0.14.7           | MIT                                                 | MIT                      | app                               |
-| `getrandom`                         | 0.2.17           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `getrandom`                         | 0.3.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `getrandom`                         | 0.4.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `getrandom`                         | 0.4.3            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `gif`                               | 0.13.3           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `gif`                               | 0.14.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `glob`                              | 0.3.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `glyph-names`                       | 0.2.0            | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
-| `half`                              | 2.7.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `hashbrown`                         | 0.17.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `heck`                              | 0.4.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `heck`                              | 0.5.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `html5ever`                         | 0.39.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `http`                              | 1.4.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `http-body`                         | 1.0.1            | MIT                                                 | MIT                      | app                               |
-| `http-body-util`                    | 0.1.3            | MIT                                                 | MIT                      | app                               |
-| `httparse`                          | 1.10.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `hyper`                             | 1.9.0            | MIT                                                 | MIT                      | app                               |
-| `hyper-rustls`                      | 0.27.10          | Apache-2.0 OR ISC OR MIT                            | Apache-2.0               | app                               |
-| `hyper-util`                        | 0.1.20           | MIT                                                 | MIT                      | app                               |
-| `iana-time-zone`                    | 0.1.65           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `ico`                               | 0.5.0            | MIT                                                 | MIT                      | app                               |
-| `icu_collections`                   | 2.2.0            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `icu_locale_core`                   | 2.2.0            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `icu_normalizer`                    | 2.2.0            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `icu_normalizer_data`               | 2.2.0            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `icu_properties`                    | 2.2.0            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `icu_properties_data`               | 2.2.0            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `icu_provider`                      | 2.2.0            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `ident_case`                        | 1.0.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `idna`                              | 1.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `idna_adapter`                      | 1.2.2            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `image`                             | 0.25.10          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `image-webp`                        | 0.2.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `imagesize`                         | 0.13.0           | MIT                                                 | MIT                      | app                               |
-| `indexmap`                          | 2.14.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `infer`                             | 0.19.0           | MIT                                                 | MIT                      | app                               |
-| `infer`                             | 0.22.0           | MIT                                                 | MIT                      | app                               |
-| `inout`                             | 0.1.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `ipnet`                             | 2.12.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `iri-string`                        | 0.7.12           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `is_terminal_polyfill`              | 1.70.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `itertools`                         | 0.10.5           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `itoa`                              | 1.0.18           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `jiff`                              | 0.2.38           | Unlicense OR MIT                                    | MIT                      | app                               |
-| `jiff-core`                         | 0.1.1            | Unlicense OR MIT                                    | MIT                      | app                               |
-| `jiff-tzdb`                         | 0.1.9            | Unlicense OR MIT                                    | MIT                      | app                               |
-| `jiff-tzdb-platform`                | 0.1.3            | Unlicense OR MIT                                    | MIT                      | app                               |
-| `json-patch`                        | 3.0.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `json-patch`                        | 4.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `jsonptr`                           | 0.6.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `jsonptr`                           | 0.7.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `keyboard-types`                    | 0.7.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `kurbo`                             | 0.11.3           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `kurbo`                             | 0.13.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `lazy_static`                       | 1.5.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `libc`                              | 0.2.186          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `libc`                              | 0.2.187          | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `libm`                              | 0.2.16           | MIT                                                 | MIT                      | app                               |
-| `litemap`                           | 0.8.2            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `lock_api`                          | 0.4.14           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `log`                               | 0.4.29           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `lopdf`                             | 0.39.0           | MIT                                                 | MIT                      | app                               |
-| `mac-notification-sys`              | 0.6.15           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `markup5ever`                       | 0.39.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `matchers`                          | 0.2.0            | MIT                                                 | MIT                      | app                               |
-| `md-5`                              | 0.10.6           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `memchr`                            | 2.8.0            | Unlicense OR MIT                                    | MIT                      | app                               |
-| `memchr`                            | 2.8.3            | Unlicense OR MIT                                    | MIT                      | Explorer extension (Windows)      |
-| `memmap2`                           | 0.9.11           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `mime`                              | 0.3.17           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `minisign-verify`                   | 0.2.5            | MIT                                                 | MIT                      | app                               |
-| `miniz_oxide`                       | 0.8.9            | MIT OR Zlib OR Apache-2.0                           | Apache-2.0               | app                               |
-| `mio`                               | 1.2.0            | MIT                                                 | MIT                      | app                               |
-| `moxcms`                            | 0.8.1            | BSD-3-Clause OR Apache-2.0                          | Apache-2.0               | app                               |
-| `muda`                              | 0.19.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `new_debug_unreachable`             | 1.0.6            | MIT                                                 | MIT                      | app                               |
-| `nom`                               | 8.0.0            | MIT                                                 | MIT                      | app                               |
-| `nom_locate`                        | 5.0.0            | MIT                                                 | MIT                      | app                               |
-| `notify-rust`                       | 4.18.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `nu-ansi-term`                      | 0.50.3           | MIT                                                 | MIT                      | app                               |
-| `num-conv`                          | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `num-conv`                          | 0.2.2            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `num-traits`                        | 0.2.19           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `objc2`                             | 0.6.4            | MIT                                                 | MIT                      | app                               |
-| `objc2-app-kit`                     | 0.3.2            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
-| `objc2-core-foundation`             | 0.3.2            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
-| `objc2-core-graphics`               | 0.3.2            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
-| `objc2-encode`                      | 4.1.0            | MIT                                                 | MIT                      | app                               |
-| `objc2-exception-helper`            | 0.1.1            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
-| `objc2-foundation`                  | 0.3.2            | MIT                                                 | MIT                      | app                               |
-| `objc2-osa-kit`                     | 0.3.2            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
-| `objc2-quartz-core`                 | 0.3.2            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
-| `objc2-web-kit`                     | 0.3.2            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
-| `once_cell`                         | 1.21.4           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `once_cell_polyfill`                | 1.70.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `open`                              | 5.3.6            | MIT                                                 | MIT                      | app                               |
-| `option-ext`                        | 0.2.0            | MPL-2.0                                             | MPL-2.0                  | Explorer extension (Windows), app |
-| `osakit`                            | 0.3.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `ouroboros`                         | 0.17.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `ouroboros_macro`                   | 0.17.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `parking_lot`                       | 0.12.5           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `parking_lot_core`                  | 0.9.12           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `paste`                             | 1.0.15           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `pathfinder_geometry`               | 0.5.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `pathfinder_simd`                   | 0.5.6            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `pdf-writer`                        | 0.12.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `percent-encoding`                  | 2.3.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `phf`                               | 0.13.1           | MIT                                                 | MIT                      | app                               |
-| `phf_generator`                     | 0.13.1           | MIT                                                 | MIT                      | app                               |
-| `phf_macros`                        | 0.13.1           | MIT                                                 | MIT                      | app                               |
-| `phf_shared`                        | 0.13.1           | MIT                                                 | MIT                      | app                               |
-| `pico-args`                         | 0.5.0            | MIT                                                 | MIT                      | app                               |
-| `pin-project-lite`                  | 0.2.17           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `plist`                             | 1.9.0            | MIT                                                 | MIT                      | app                               |
-| `png`                               | 0.17.16          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `png`                               | 0.18.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `polycool`                          | 0.4.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `potential_utf`                     | 0.1.5            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `powerfmt`                          | 0.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `ppv-lite86`                        | 0.2.21           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `precomputed-hash`                  | 0.1.1            | MIT                                                 | MIT                      | app                               |
-| `printpdf`                          | 0.9.1            | MIT                                                 | MIT                      | app                               |
-| `proc-macro-error`                  | 1.0.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `proc-macro-error-attr`             | 1.0.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `proc-macro2`                       | 1.0.106          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `proc-macro2`                       | 1.0.107          | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `pulldown-cmark`                    | 0.13.4           | MIT                                                 | MIT                      | app                               |
-| `pulldown-cmark-escape`             | 0.11.0           | MIT                                                 | MIT                      | app                               |
-| `pxfm`                              | 0.1.30           | BSD-3-Clause OR Apache-2.0                          | Apache-2.0               | app                               |
-| `quick-error`                       | 2.0.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `quick-xml`                         | 0.39.2           | MIT                                                 | MIT                      | app                               |
-| `quote`                             | 1.0.45           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `quote`                             | 1.0.47           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `rand`                              | 0.9.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `rand_chacha`                       | 0.9.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `rand_core`                         | 0.9.5            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `rangemap`                          | 1.7.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `raw-window-handle`                 | 0.6.2            | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
-| `rayon`                             | 1.12.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `rayon-core`                        | 1.13.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `read-fonts`                        | 0.39.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `regex`                             | 1.12.3           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `regex-automata`                    | 0.4.14           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `regex-syntax`                      | 0.8.10           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `reqwest`                           | 0.13.3           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `resvg`                             | 0.45.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `rfd`                               | 0.16.0           | MIT                                                 | MIT                      | app                               |
-| `rgb`                               | 0.8.53           | MIT                                                 | MIT                      | app                               |
-| `ring`                              | 0.17.14          | Apache-2.0 AND ISC                                  | Apache-2.0, ISC          | app                               |
-| `roxmltree`                         | 0.20.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `rustc-hash`                        | 1.1.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `rustc-hash`                        | 2.1.2            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `rustix`                            | 1.1.4            | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | Apache-2.0               | app                               |
-| `rustls`                            | 0.23.41          | Apache-2.0 OR ISC OR MIT                            | Apache-2.0               | app                               |
-| `rustls-pki-types`                  | 1.15.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `rustls-platform-verifier`          | 0.7.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `rustls-webpki`                     | 0.103.13         | ISC                                                 | ISC                      | app                               |
-| `rustybuzz`                         | 0.20.1           | MIT                                                 | MIT                      | app                               |
-| `ryu`                               | 1.0.23           | Apache-2.0 OR BSL-1.0                               | Apache-2.0               | app                               |
-| `same-file`                         | 1.0.6            | Unlicense OR MIT                                    | MIT                      | app                               |
-| `schemars`                          | 0.8.22           | MIT                                                 | MIT                      | app                               |
-| `schemars_derive`                   | 0.8.22           | MIT                                                 | MIT                      | app                               |
-| `scopeguard`                        | 1.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `security-framework`                | 3.7.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `security-framework-sys`            | 2.17.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `selectors`                         | 0.38.0           | MPL-2.0                                             | MPL-2.0                  | app                               |
-| `semver`                            | 1.0.28           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serde`                             | 1.0.228          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serde`                             | 1.0.229          | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `serde-untagged`                    | 0.1.9            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serde_core`                        | 1.0.228          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serde_core`                        | 1.0.229          | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `serde_derive`                      | 1.0.228          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serde_derive`                      | 1.0.229          | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `serde_derive_internals`            | 0.29.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serde_json`                        | 1.0.152          | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `serde_repr`                        | 0.1.20           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serde_spanned`                     | 0.6.9            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serde_spanned`                     | 1.1.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serde_with`                        | 3.19.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serde_with_macros`                 | 3.19.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serialize-to-javascript`           | 0.1.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `serialize-to-javascript-impl`      | 0.1.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `servo_arc`                         | 0.4.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `sha2`                              | 0.10.9           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `sharded-slab`                      | 0.1.7            | MIT                                                 | MIT                      | app                               |
-| `signal-hook-registry`              | 1.4.8            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `simd-adler32`                      | 0.3.9            | MIT                                                 | MIT                      | app                               |
-| `simplecss`                         | 0.2.2            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `siphasher`                         | 1.0.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `skrifa`                            | 0.42.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `slab`                              | 0.4.12           | MIT                                                 | MIT                      | app                               |
-| `slotmap`                           | 1.1.1            | Zlib                                                | Zlib                     | app                               |
-| `smallvec`                          | 1.15.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `socket2`                           | 0.6.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `softbuffer`                        | 0.4.8            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `specta`                            | 2.0.0-rc.22      | MIT                                                 | MIT                      | app                               |
-| `specta-macros`                     | 2.0.0-rc.18      | MIT                                                 | MIT                      | app                               |
-| `specta-serde`                      | 0.0.9            | MIT                                                 | MIT                      | app                               |
-| `specta-typescript`                 | 0.0.9            | MIT                                                 | MIT                      | app                               |
-| `stable_deref_trait`                | 1.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `static_assertions`                 | 1.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `strict-num`                        | 0.1.1            | MIT                                                 | MIT                      | app                               |
-| `string_cache`                      | 0.9.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `stringprep`                        | 0.1.5            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `strsim`                            | 0.11.1           | MIT                                                 | MIT                      | app                               |
-| `subsetter`                         | 0.2.6            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `subtle`                            | 2.6.1            | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
-| `svg2pdf`                           | 0.13.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `svgtypes`                          | 0.15.3           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `swift-rs`                          | 1.0.9            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `symlink`                           | 0.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `syn`                               | 1.0.109          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `syn`                               | 2.0.117          | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `syn`                               | 2.0.119          | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `syn`                               | 3.0.2            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `syn`                               | 3.0.6            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `sync_wrapper`                      | 1.0.2            | Apache-2.0                                          | Apache-2.0               | app                               |
-| `synstructure`                      | 0.13.2           | MIT                                                 | MIT                      | app                               |
-| `system-configuration`              | 0.7.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `system-configuration-sys`          | 0.6.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `tao`                               | 0.35.0           | Apache-2.0                                          | Apache-2.0               | app                               |
-| `tar`                               | 0.4.46           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `tauri`                             | 2.11.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-codegen`                     | 2.6.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-macros`                      | 2.6.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-dialog`               | 2.7.3            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-fs`                   | 2.5.2            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-notification`         | 2.4.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-opener`               | 2.5.5            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-single-instance`      | 2.4.3            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-plugin-updater`              | 2.12.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-runtime`                     | 2.11.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-runtime-wry`                 | 2.11.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-specta`                      | 2.0.0-rc.21      | MIT                                                 | MIT                      | app                               |
-| `tauri-specta-macros`               | 2.0.0-rc.16      | MIT                                                 | MIT                      | app                               |
-| `tauri-utils`                       | 2.10.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `tauri-winrt-notification`          | 0.8.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `tempfile`                          | 3.27.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `tendril`                           | 0.5.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `thiserror`                         | 1.0.69           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `thiserror`                         | 2.0.18           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `thiserror-impl`                    | 1.0.69           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `thiserror-impl`                    | 2.0.18           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `thread_local`                      | 1.1.9            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `tiff`                              | 0.11.3           | MIT                                                 | MIT                      | app                               |
-| `time`                              | 0.3.47           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `time`                              | 0.3.54           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `time-core`                         | 0.1.8            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `time-core`                         | 0.1.9            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `time-macros`                       | 0.2.27           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `tiny-skia`                         | 0.11.4           | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
-| `tiny-skia-path`                    | 0.11.4           | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
-| `tinystr`                           | 0.8.3            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `tinyvec`                           | 1.11.0           | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
-| `tinyvec_macros`                    | 0.1.1            | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
-| `tokio`                             | 1.53.2           | MIT                                                 | MIT                      | app                               |
-| `tokio-macros`                      | 2.7.0            | MIT                                                 | MIT                      | app                               |
-| `tokio-rustls`                      | 0.26.6           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `tokio-util`                        | 0.7.18           | MIT                                                 | MIT                      | app                               |
-| `toml`                              | 0.8.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `toml`                              | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `toml_datetime`                     | 0.6.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `toml_datetime`                     | 1.1.1+spec-1.1.0 | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `toml_edit`                         | 0.20.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `toml_parser`                       | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `toml_writer`                       | 1.1.1+spec-1.1.0 | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `tower`                             | 0.5.3            | MIT                                                 | MIT                      | app                               |
-| `tower-http`                        | 0.6.8            | MIT                                                 | MIT                      | app                               |
-| `tower-layer`                       | 0.3.3            | MIT                                                 | MIT                      | app                               |
-| `tower-service`                     | 0.3.3            | MIT                                                 | MIT                      | app                               |
-| `tracing`                           | 0.1.44           | MIT                                                 | MIT                      | app                               |
-| `tracing-appender`                  | 0.2.5            | MIT                                                 | MIT                      | app                               |
-| `tracing-attributes`                | 0.1.31           | MIT                                                 | MIT                      | app                               |
-| `tracing-core`                      | 0.1.36           | MIT                                                 | MIT                      | app                               |
-| `tracing-log`                       | 0.2.0            | MIT                                                 | MIT                      | app                               |
-| `tracing-serde`                     | 0.2.0            | MIT                                                 | MIT                      | app                               |
-| `tracing-subscriber`                | 0.3.23           | MIT                                                 | MIT                      | app                               |
-| `try-lock`                          | 0.2.5            | MIT                                                 | MIT                      | app                               |
-| `ttf-parser`                        | 0.25.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `typeid`                            | 1.0.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `typenum`                           | 1.20.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `ucd-trie`                          | 0.1.7            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unicase`                           | 2.10.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unicode-bidi`                      | 0.3.18           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unicode-bidi-mirroring`            | 0.4.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unicode-canonical-combining-class` | 1.0.0            | Apache-2.0                                          | Apache-2.0               | app                               |
-| `unicode-ccc`                       | 0.4.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unicode-general-category`          | 1.1.0            | Apache-2.0                                          | Apache-2.0               | app                               |
-| `unicode-ident`                     | 1.0.24           | (MIT OR Apache-2.0) AND Unicode-3.0                 | Apache-2.0, Unicode-3.0  | Explorer extension (Windows), app |
-| `unicode-joining-type`              | 1.0.0            | Apache-2.0                                          | Apache-2.0               | app                               |
-| `unicode-normalization`             | 0.1.25           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unicode-properties`                | 0.1.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unicode-script`                    | 0.5.8            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unicode-segmentation`              | 1.13.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `unicode-vo`                        | 0.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `untrusted`                         | 0.9.0            | ISC                                                 | ISC                      | app                               |
-| `ureq`                              | 2.12.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `url`                               | 2.5.8            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `urlpattern`                        | 0.6.0            | MIT                                                 | MIT                      | app                               |
-| `usvg`                              | 0.45.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `utf-8`                             | 0.7.6            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `utf8_iter`                         | 1.0.4            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `utf8parse`                         | 0.2.2            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `uuid`                              | 1.23.1           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `uuid`                              | 1.24.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | Explorer extension (Windows)      |
-| `wait-timeout`                      | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `walkdir`                           | 2.5.0            | Unlicense OR MIT                                    | MIT                      | app                               |
-| `want`                              | 0.3.1            | MIT                                                 | MIT                      | app                               |
-| `web-time`                          | 1.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `web_atoms`                         | 0.2.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `webpki-roots`                      | 0.26.11          | CDLA-Permissive-2.0                                 | CDLA-Permissive-2.0      | app                               |
-| `webpki-roots`                      | 1.0.8            | CDLA-Permissive-2.0                                 | CDLA-Permissive-2.0      | app                               |
-| `webview2-com`                      | 0.38.2           | MIT                                                 | MIT                      | app                               |
-| `webview2-com-macros`               | 0.8.1            | MIT                                                 | MIT                      | app                               |
-| `webview2-com-sys`                  | 0.38.2           | MIT                                                 | MIT                      | app                               |
-| `weezl`                             | 0.1.12           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `winapi-util`                       | 0.1.11           | Unlicense OR MIT                                    | MIT                      | app                               |
-| `window-vibrancy`                   | 0.6.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `windows`                           | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows`                           | 0.61.3           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows`                           | 0.62.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-collections`               | 0.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-collections`               | 0.3.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-core`                      | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows-core`                      | 0.61.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-core`                      | 0.62.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-future`                    | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-future`                    | 0.3.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-implement`                 | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows-implement`                 | 0.60.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-interface`                 | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows-interface`                 | 0.59.3           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-link`                      | 0.1.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-link`                      | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows-numerics`                  | 0.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-numerics`                  | 0.3.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-registry`                  | 0.6.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-result`                    | 0.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows-result`                    | 0.3.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-result`                    | 0.4.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-strings`                   | 0.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows-strings`                   | 0.4.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-strings`                   | 0.5.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-sys`                       | 0.52.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-sys`                       | 0.59.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-sys`                       | 0.60.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-sys`                       | 0.61.2           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows-targets`                   | 0.52.6           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows-targets`                   | 0.53.5           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-threading`                 | 0.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-threading`                 | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-version`                   | 0.1.7            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows_aarch64_msvc`              | 0.52.6           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows_aarch64_msvc`              | 0.53.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows_x86_64_msvc`               | 0.52.6           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
-| `windows_x86_64_msvc`               | 0.53.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `winnow`                            | 0.5.40           | MIT                                                 | MIT                      | app                               |
-| `winnow`                            | 1.0.2            | MIT                                                 | MIT                      | app                               |
-| `write-fonts`                       | 0.48.1           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `writeable`                         | 0.6.3            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `wry`                               | 0.55.0           | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `xattr`                             | 1.6.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `xmlwriter`                         | 0.1.0            | MIT                                                 | MIT                      | app                               |
-| `yoke`                              | 0.8.2            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `yoke-derive`                       | 0.8.2            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `zerocopy`                          | 0.8.50           | BSD-2-Clause OR Apache-2.0 OR MIT                   | Apache-2.0               | app                               |
-| `zerocopy-derive`                   | 0.8.50           | BSD-2-Clause OR Apache-2.0 OR MIT                   | Apache-2.0               | app                               |
-| `zerofrom`                          | 0.1.7            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `zerofrom-derive`                   | 0.1.7            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `zeroize`                           | 1.9.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `zerotrie`                          | 0.2.4            | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `zerovec`                           | 0.11.6           | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `zerovec-derive`                    | 0.11.3           | Unicode-3.0                                         | Unicode-3.0              | app                               |
-| `zip`                               | 4.6.1            | MIT                                                 | MIT                      | app                               |
-| `zmij`                              | 1.0.21           | MIT                                                 | MIT                      | app                               |
-| `zmij`                              | 1.0.23           | MIT                                                 | MIT                      | Explorer extension (Windows)      |
-| `zune-core`                         | 0.4.12           | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
-| `zune-core`                         | 0.5.1            | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
-| `zune-jpeg`                         | 0.4.21           | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
-| `zune-jpeg`                         | 0.5.15           | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
+| Crate                               | Version           | Offered under                                       | Used under               | Ships in                          |
+| ----------------------------------- | ----------------- | --------------------------------------------------- | ------------------------ | --------------------------------- |
+| `Inflector`                         | 0.11.4            | BSD-2-Clause                                        | BSD-2-Clause             | app                               |
+| `adler2`                            | 2.0.1             | 0BSD OR MIT OR Apache-2.0                           | Apache-2.0               | app                               |
+| `aes`                               | 0.8.4             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `aho-corasick`                      | 1.1.4             | Unlicense OR MIT                                    | MIT                      | app                               |
+| `aliasable`                         | 0.1.3             | MIT                                                 | MIT                      | app                               |
+| `alloc-no-stdlib`                   | 2.0.4             | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
+| `alloc-no-stdlib`                   | 3.0.0             | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
+| `alloc-stdlib`                      | 0.2.2             | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
+| `alloc-stdlib`                      | 0.3.0             | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
+| `allsorts`                          | 0.16.1            | Apache-2.0                                          | Apache-2.0               | app                               |
+| `anstream`                          | 1.0.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `anstyle`                           | 1.0.14            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `anstyle-parse`                     | 1.0.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `anstyle-query`                     | 1.1.5             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `anstyle-wincon`                    | 3.0.11            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `anyhow`                            | 1.0.102           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `arrayref`                          | 0.3.9             | BSD-2-Clause                                        | BSD-2-Clause             | app                               |
+| `arrayvec`                          | 0.7.8             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `atomic-waker`                      | 1.1.2             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `base64`                            | 0.21.7            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `base64`                            | 0.22.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `bit-set`                           | 0.8.0             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `bit-vec`                           | 0.8.0             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `bitflags`                          | 1.3.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `bitflags`                          | 2.11.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `bitreader`                         | 0.3.11            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `block-buffer`                      | 0.10.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `block-padding`                     | 0.3.3             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `block2`                            | 0.6.2             | MIT                                                 | MIT                      | app                               |
+| `brotli`                            | 8.0.2             | BSD-3-Clause AND MIT                                | BSD-3-Clause, MIT        | app                               |
+| `brotli`                            | 9.0.0             | BSD-3-Clause AND MIT                                | BSD-3-Clause, MIT        | app                               |
+| `brotli-decompressor`               | 5.0.0             | BSD-3-Clause OR MIT                                 | MIT                      | app                               |
+| `brotli-decompressor`               | 6.0.1             | BSD-3-Clause OR MIT                                 | MIT                      | app                               |
+| `bytecount`                         | 0.6.9             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `bytemuck`                          | 1.25.0            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
+| `bytemuck_derive`                   | 1.12.1            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
+| `byteorder`                         | 1.5.0             | Unlicense OR MIT                                    | MIT                      | app                               |
+| `byteorder-lite`                    | 0.1.0             | Unlicense OR MIT                                    | MIT                      | app                               |
+| `bytes`                             | 1.11.1            | MIT                                                 | MIT                      | app                               |
+| `camino`                            | 1.2.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `cargo-platform`                    | 0.1.9             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `cargo_metadata`                    | 0.19.2            | MIT                                                 | MIT                      | app                               |
+| `cbc`                               | 0.1.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `cfb`                               | 0.14.0            | MIT                                                 | MIT                      | app                               |
+| `cfb`                               | 0.7.3             | MIT                                                 | MIT                      | app                               |
+| `cfg-if`                            | 1.0.4             | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `chrono`                            | 0.4.44            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `cipher`                            | 0.4.4             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `clap`                              | 4.6.3             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `clap_builder`                      | 4.6.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `clap_derive`                       | 4.6.3             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `clap_lex`                          | 1.1.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `color_quant`                       | 1.1.0             | MIT                                                 | MIT                      | app                               |
+| `colorchoice`                       | 1.0.5             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `cookie`                            | 0.18.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `core-foundation`                   | 0.10.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `core-foundation`                   | 0.9.4             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `core-foundation-sys`               | 0.8.7             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `core-graphics`                     | 0.25.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `core-graphics-types`               | 0.2.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `core_maths`                        | 0.1.1             | MIT                                                 | MIT                      | app                               |
+| `cpufeatures`                       | 0.2.17            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `crc32fast`                         | 1.5.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `crossbeam-channel`                 | 0.5.15            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `crossbeam-deque`                   | 0.8.7             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `crossbeam-epoch`                   | 0.9.20            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `crossbeam-utils`                   | 0.8.21            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `crypto-common`                     | 0.1.7             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `cssparser`                         | 0.37.0            | MPL-2.0                                             | MPL-2.0                  | app                               |
+| `cssparser-macros`                  | 0.7.1             | MPL-2.0                                             | MPL-2.0                  | app                               |
+| `ctor`                              | 1.0.13            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `darling`                           | 0.23.0            | MIT                                                 | MIT                      | app                               |
+| `darling_core`                      | 0.23.0            | MIT                                                 | MIT                      | app                               |
+| `darling_macro`                     | 0.23.0            | MIT                                                 | MIT                      | app                               |
+| `data-url`                          | 0.3.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `deranged`                          | 0.5.8             | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `derive_more`                       | 2.1.1             | MIT                                                 | MIT                      | app                               |
+| `derive_more-impl`                  | 2.1.1             | MIT                                                 | MIT                      | app                               |
+| `digest`                            | 0.10.7            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `directories`                       | 6.0.0             | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `dirs`                              | 6.0.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `dirs-sys`                          | 0.5.0             | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `dispatch2`                         | 0.3.1             | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
+| `displaydoc`                        | 0.2.5             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `dom_query`                         | 0.28.0            | MIT                                                 | MIT                      | app                               |
+| `dpi`                               | 0.1.2             | Apache-2.0 AND MIT                                  | Apache-2.0, MIT          | app                               |
+| `dtoa`                              | 1.0.11            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `dtoa-short`                        | 0.3.5             | MPL-2.0                                             | MPL-2.0                  | app                               |
+| `dunce`                             | 1.0.5             | CC0-1.0 OR MIT-0 OR Apache-2.0                      | Apache-2.0               | app                               |
+| `dyn-clone`                         | 1.0.20            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `ecb`                               | 0.1.2             | MIT                                                 | MIT                      | app                               |
+| `either`                            | 1.16.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `embed_plist`                       | 1.2.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `encoding_rs`                       | 0.8.35            | (Apache-2.0 OR MIT) AND BSD-3-Clause                | Apache-2.0, BSD-3-Clause | app                               |
+| `equivalent`                        | 1.0.2             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `erased-serde`                      | 0.4.10            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `errno`                             | 0.3.14            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `fastrand`                          | 2.4.1             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `fax`                               | 0.2.7             | MIT                                                 | MIT                      | app                               |
+| `fdeflate`                          | 0.3.7             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `filetime`                          | 0.2.29            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `flate2`                            | 1.1.9             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `float-cmp`                         | 0.9.0             | MIT                                                 | MIT                      | app                               |
+| `fnv`                               | 1.0.7             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `foldhash`                          | 0.2.0             | Zlib                                                | Zlib                     | app                               |
+| `font-types`                        | 0.11.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `fontdb`                            | 0.23.0            | MIT                                                 | MIT                      | app                               |
+| `foreign-types`                     | 0.5.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `foreign-types-macros`              | 0.2.3             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `foreign-types-shared`              | 0.3.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `form_urlencoded`                   | 1.2.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `futures-channel`                   | 0.3.32            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `futures-core`                      | 0.3.32            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `futures-macro`                     | 0.3.32            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `futures-sink`                      | 0.3.32            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `futures-task`                      | 0.3.32            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `futures-util`                      | 0.3.32            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `generic-array`                     | 0.14.7            | MIT                                                 | MIT                      | app                               |
+| `getrandom`                         | 0.2.17            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `getrandom`                         | 0.3.4             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `getrandom`                         | 0.4.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `getrandom`                         | 0.4.3             | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `gif`                               | 0.13.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `gif`                               | 0.14.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `glob`                              | 0.3.3             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `glyph-names`                       | 0.2.0             | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
+| `half`                              | 2.7.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `hashbrown`                         | 0.17.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `heck`                              | 0.4.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `heck`                              | 0.5.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `html5ever`                         | 0.39.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `http`                              | 1.4.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `http-body`                         | 1.0.1             | MIT                                                 | MIT                      | app                               |
+| `http-body-util`                    | 0.1.3             | MIT                                                 | MIT                      | app                               |
+| `httparse`                          | 1.10.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `hyper`                             | 1.9.0             | MIT                                                 | MIT                      | app                               |
+| `hyper-rustls`                      | 0.27.10           | Apache-2.0 OR ISC OR MIT                            | Apache-2.0               | app                               |
+| `hyper-util`                        | 0.1.20            | MIT                                                 | MIT                      | app                               |
+| `iana-time-zone`                    | 0.1.65            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `ico`                               | 0.5.0             | MIT                                                 | MIT                      | app                               |
+| `icu_collections`                   | 2.2.0             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `icu_locale_core`                   | 2.2.0             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `icu_normalizer`                    | 2.2.0             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `icu_normalizer_data`               | 2.2.0             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `icu_properties`                    | 2.2.0             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `icu_properties_data`               | 2.2.0             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `icu_provider`                      | 2.2.0             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `ident_case`                        | 1.0.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `idna`                              | 1.1.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `idna_adapter`                      | 1.2.2             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `image`                             | 0.25.10           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `image-webp`                        | 0.2.4             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `imagesize`                         | 0.13.0            | MIT                                                 | MIT                      | app                               |
+| `indexmap`                          | 2.14.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `infer`                             | 0.19.0            | MIT                                                 | MIT                      | app                               |
+| `infer`                             | 0.22.0            | MIT                                                 | MIT                      | app                               |
+| `inout`                             | 0.1.4             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `ipnet`                             | 2.12.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `iri-string`                        | 0.7.12            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `is_terminal_polyfill`              | 1.70.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `itertools`                         | 0.10.5            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `itoa`                              | 1.0.18            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `jiff`                              | 0.2.38            | Unlicense OR MIT                                    | MIT                      | app                               |
+| `jiff-core`                         | 0.1.1             | Unlicense OR MIT                                    | MIT                      | app                               |
+| `jiff-tzdb`                         | 0.1.9             | Unlicense OR MIT                                    | MIT                      | app                               |
+| `jiff-tzdb-platform`                | 0.1.3             | Unlicense OR MIT                                    | MIT                      | app                               |
+| `json-patch`                        | 3.0.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `json-patch`                        | 4.2.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `jsonptr`                           | 0.6.3             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `jsonptr`                           | 0.7.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `keyboard-types`                    | 0.7.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `kurbo`                             | 0.11.3            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `kurbo`                             | 0.13.1            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `lazy_static`                       | 1.5.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `libc`                              | 0.2.186           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `libc`                              | 0.2.187           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `libm`                              | 0.2.16            | MIT                                                 | MIT                      | app                               |
+| `litemap`                           | 0.8.2             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `lock_api`                          | 0.4.14            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `log`                               | 0.4.29            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `lopdf`                             | 0.39.0            | MIT                                                 | MIT                      | app                               |
+| `mac-notification-sys`              | 0.6.15            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `markup5ever`                       | 0.39.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `matchers`                          | 0.2.0             | MIT                                                 | MIT                      | app                               |
+| `md-5`                              | 0.10.6            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `memchr`                            | 2.8.0             | Unlicense OR MIT                                    | MIT                      | app                               |
+| `memchr`                            | 2.8.3             | Unlicense OR MIT                                    | MIT                      | Explorer extension (Windows)      |
+| `memmap2`                           | 0.9.11            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `mime`                              | 0.3.17            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `minisign-verify`                   | 0.2.5             | MIT                                                 | MIT                      | app                               |
+| `miniz_oxide`                       | 0.8.9             | MIT OR Zlib OR Apache-2.0                           | Apache-2.0               | app                               |
+| `mio`                               | 1.2.0             | MIT                                                 | MIT                      | app                               |
+| `moxcms`                            | 0.8.1             | BSD-3-Clause OR Apache-2.0                          | Apache-2.0               | app                               |
+| `muda`                              | 0.19.1            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `new_debug_unreachable`             | 1.0.6             | MIT                                                 | MIT                      | app                               |
+| `nom`                               | 8.0.0             | MIT                                                 | MIT                      | app                               |
+| `nom_locate`                        | 5.0.0             | MIT                                                 | MIT                      | app                               |
+| `notify-rust`                       | 4.18.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `nu-ansi-term`                      | 0.50.3            | MIT                                                 | MIT                      | app                               |
+| `num-conv`                          | 0.2.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `num-conv`                          | 0.2.2             | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `num-traits`                        | 0.2.19            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `objc2`                             | 0.6.4             | MIT                                                 | MIT                      | app                               |
+| `objc2-app-kit`                     | 0.3.2             | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
+| `objc2-core-foundation`             | 0.3.2             | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
+| `objc2-core-graphics`               | 0.3.2             | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
+| `objc2-encode`                      | 4.1.0             | MIT                                                 | MIT                      | app                               |
+| `objc2-exception-helper`            | 0.1.1             | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
+| `objc2-foundation`                  | 0.3.2             | MIT                                                 | MIT                      | app                               |
+| `objc2-osa-kit`                     | 0.3.2             | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
+| `objc2-quartz-core`                 | 0.3.2             | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
+| `objc2-web-kit`                     | 0.3.2             | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
+| `once_cell`                         | 1.21.4            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `once_cell_polyfill`                | 1.70.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `open`                              | 5.3.6             | MIT                                                 | MIT                      | app                               |
+| `option-ext`                        | 0.2.0             | MPL-2.0                                             | MPL-2.0                  | Explorer extension (Windows), app |
+| `osakit`                            | 0.3.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `ouroboros`                         | 0.17.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `ouroboros_macro`                   | 0.17.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `parking_lot`                       | 0.12.5            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `parking_lot_core`                  | 0.9.12            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `paste`                             | 1.0.15            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `pathfinder_geometry`               | 0.5.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `pathfinder_simd`                   | 0.5.6             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `pdf-writer`                        | 0.12.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `percent-encoding`                  | 2.3.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `phf`                               | 0.13.1            | MIT                                                 | MIT                      | app                               |
+| `phf_generator`                     | 0.13.1            | MIT                                                 | MIT                      | app                               |
+| `phf_macros`                        | 0.13.1            | MIT                                                 | MIT                      | app                               |
+| `phf_shared`                        | 0.13.1            | MIT                                                 | MIT                      | app                               |
+| `pico-args`                         | 0.5.0             | MIT                                                 | MIT                      | app                               |
+| `pin-project-lite`                  | 0.2.17            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `plist`                             | 1.9.0             | MIT                                                 | MIT                      | app                               |
+| `png`                               | 0.17.16           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `png`                               | 0.18.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `polycool`                          | 0.4.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `potential_utf`                     | 0.1.5             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `powerfmt`                          | 0.2.0             | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `ppv-lite86`                        | 0.2.21            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `precomputed-hash`                  | 0.1.1             | MIT                                                 | MIT                      | app                               |
+| `printpdf`                          | 0.9.1             | MIT                                                 | MIT                      | app                               |
+| `proc-macro-error`                  | 1.0.4             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `proc-macro-error-attr`             | 1.0.4             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `proc-macro2`                       | 1.0.106           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `proc-macro2`                       | 1.0.107           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `pulldown-cmark`                    | 0.13.4            | MIT                                                 | MIT                      | app                               |
+| `pulldown-cmark-escape`             | 0.11.0            | MIT                                                 | MIT                      | app                               |
+| `pxfm`                              | 0.1.30            | BSD-3-Clause OR Apache-2.0                          | Apache-2.0               | app                               |
+| `quick-error`                       | 2.0.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `quick-xml`                         | 0.39.2            | MIT                                                 | MIT                      | app                               |
+| `quote`                             | 1.0.45            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `quote`                             | 1.0.47            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `rand`                              | 0.9.4             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `rand_chacha`                       | 0.9.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `rand_core`                         | 0.9.5             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `rangemap`                          | 1.7.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `raw-window-handle`                 | 0.6.2             | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
+| `rayon`                             | 1.12.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `rayon-core`                        | 1.13.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `read-fonts`                        | 0.39.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `regex`                             | 1.12.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `regex-automata`                    | 0.4.14            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `regex-syntax`                      | 0.8.10            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `reqwest`                           | 0.13.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `resvg`                             | 0.45.1            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `rfd`                               | 0.16.0            | MIT                                                 | MIT                      | app                               |
+| `rgb`                               | 0.8.53            | MIT                                                 | MIT                      | app                               |
+| `ring`                              | 0.17.14           | Apache-2.0 AND ISC                                  | Apache-2.0, ISC          | app                               |
+| `roxmltree`                         | 0.20.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `rustc-hash`                        | 1.1.0             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `rustc-hash`                        | 2.1.2             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `rustix`                            | 1.1.4             | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | Apache-2.0               | app                               |
+| `rustls`                            | 0.23.41           | Apache-2.0 OR ISC OR MIT                            | Apache-2.0               | app                               |
+| `rustls-pki-types`                  | 1.15.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `rustls-platform-verifier`          | 0.7.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `rustls-webpki`                     | 0.103.13          | ISC                                                 | ISC                      | app                               |
+| `rustybuzz`                         | 0.20.1            | MIT                                                 | MIT                      | app                               |
+| `ryu`                               | 1.0.23            | Apache-2.0 OR BSL-1.0                               | Apache-2.0               | app                               |
+| `same-file`                         | 1.0.6             | Unlicense OR MIT                                    | MIT                      | app                               |
+| `schemars`                          | 0.8.22            | MIT                                                 | MIT                      | app                               |
+| `schemars_derive`                   | 0.8.22            | MIT                                                 | MIT                      | app                               |
+| `scopeguard`                        | 1.2.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `security-framework`                | 3.7.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `security-framework-sys`            | 2.17.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `selectors`                         | 0.38.0            | MPL-2.0                                             | MPL-2.0                  | app                               |
+| `semver`                            | 1.0.28            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `serde`                             | 1.0.228           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `serde`                             | 1.0.229           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `serde-untagged`                    | 0.1.9             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `serde_core`                        | 1.0.228           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `serde_core`                        | 1.0.229           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `serde_derive`                      | 1.0.228           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `serde_derive`                      | 1.0.229           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `serde_derive_internals`            | 0.29.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `serde_json`                        | 1.0.152           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `serde_repr`                        | 0.1.20            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `serde_spanned`                     | 1.1.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `serde_with`                        | 3.19.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `serde_with_macros`                 | 3.19.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `serialize-to-javascript`           | 0.1.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `serialize-to-javascript-impl`      | 0.1.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `servo_arc`                         | 0.4.3             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `sha2`                              | 0.10.9            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `sharded-slab`                      | 0.1.7             | MIT                                                 | MIT                      | app                               |
+| `signal-hook-registry`              | 1.4.8             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `simd-adler32`                      | 0.3.9             | MIT                                                 | MIT                      | app                               |
+| `simplecss`                         | 0.2.2             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `siphasher`                         | 1.0.3             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `skrifa`                            | 0.42.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `slab`                              | 0.4.12            | MIT                                                 | MIT                      | app                               |
+| `slotmap`                           | 1.1.1             | Zlib                                                | Zlib                     | app                               |
+| `smallvec`                          | 1.15.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `socket2`                           | 0.6.3             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `softbuffer`                        | 0.4.8             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `specta`                            | 2.0.0-rc.22       | MIT                                                 | MIT                      | app                               |
+| `specta-macros`                     | 2.0.0-rc.18       | MIT                                                 | MIT                      | app                               |
+| `specta-serde`                      | 0.0.9             | MIT                                                 | MIT                      | app                               |
+| `specta-typescript`                 | 0.0.9             | MIT                                                 | MIT                      | app                               |
+| `stable_deref_trait`                | 1.2.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `static_assertions`                 | 1.1.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `strict-num`                        | 0.1.1             | MIT                                                 | MIT                      | app                               |
+| `string_cache`                      | 0.9.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `stringprep`                        | 0.1.5             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `strsim`                            | 0.11.1            | MIT                                                 | MIT                      | app                               |
+| `subsetter`                         | 0.2.6             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `subtle`                            | 2.6.1             | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
+| `svg2pdf`                           | 0.13.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `svgtypes`                          | 0.15.3            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `swift-rs`                          | 1.0.9             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `symlink`                           | 0.1.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `syn`                               | 1.0.109           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `syn`                               | 2.0.117           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `syn`                               | 2.0.119           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `syn`                               | 3.0.2             | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `syn`                               | 3.0.6             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `sync_wrapper`                      | 1.0.2             | Apache-2.0                                          | Apache-2.0               | app                               |
+| `synstructure`                      | 0.13.2            | MIT                                                 | MIT                      | app                               |
+| `system-configuration`              | 0.7.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `system-configuration-sys`          | 0.6.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `tao`                               | 0.35.0            | Apache-2.0                                          | Apache-2.0               | app                               |
+| `tar`                               | 0.4.46            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `tauri`                             | 2.11.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-codegen`                     | 2.6.0             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-macros`                      | 2.6.0             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-dialog`               | 2.7.3             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-fs`                   | 2.5.2             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-notification`         | 2.4.0             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-opener`               | 2.5.5             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-single-instance`      | 2.4.3             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-plugin-updater`              | 2.12.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-runtime`                     | 2.11.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-runtime-wry`                 | 2.11.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-specta`                      | 2.0.0-rc.21       | MIT                                                 | MIT                      | app                               |
+| `tauri-specta-macros`               | 2.0.0-rc.16       | MIT                                                 | MIT                      | app                               |
+| `tauri-utils`                       | 2.10.1            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `tauri-winrt-notification`          | 0.8.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `tempfile`                          | 3.27.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `tendril`                           | 0.5.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `thiserror`                         | 1.0.69            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `thiserror`                         | 2.0.18            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `thiserror-impl`                    | 1.0.69            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `thiserror-impl`                    | 2.0.18            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `thread_local`                      | 1.1.9             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `tiff`                              | 0.11.3            | MIT                                                 | MIT                      | app                               |
+| `time`                              | 0.3.47            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `time`                              | 0.3.54            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `time-core`                         | 0.1.8             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `time-core`                         | 0.1.9             | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `time-macros`                       | 0.2.27            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `tiny-skia`                         | 0.11.4            | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
+| `tiny-skia-path`                    | 0.11.4            | BSD-3-Clause                                        | BSD-3-Clause             | app                               |
+| `tinystr`                           | 0.8.3             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `tinyvec`                           | 1.11.0            | Zlib OR Apache-2.0 OR MIT                           | Apache-2.0               | app                               |
+| `tinyvec_macros`                    | 0.1.1             | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
+| `tokio`                             | 1.53.2            | MIT                                                 | MIT                      | app                               |
+| `tokio-macros`                      | 2.7.0             | MIT                                                 | MIT                      | app                               |
+| `tokio-rustls`                      | 0.26.6            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `tokio-util`                        | 0.7.18            | MIT                                                 | MIT                      | app                               |
+| `toml`                              | 0.9.12+spec-1.1.0 | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `toml`                              | 1.1.8+spec-1.1.0  | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `toml_datetime`                     | 0.7.5+spec-1.1.0  | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `toml_datetime`                     | 1.1.2+spec-1.1.0  | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `toml_parser`                       | 1.1.5+spec-1.1.0  | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `toml_writer`                       | 1.1.3+spec-1.1.0  | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `tower`                             | 0.5.3             | MIT                                                 | MIT                      | app                               |
+| `tower-http`                        | 0.6.8             | MIT                                                 | MIT                      | app                               |
+| `tower-layer`                       | 0.3.3             | MIT                                                 | MIT                      | app                               |
+| `tower-service`                     | 0.3.3             | MIT                                                 | MIT                      | app                               |
+| `tracing`                           | 0.1.44            | MIT                                                 | MIT                      | app                               |
+| `tracing-appender`                  | 0.2.5             | MIT                                                 | MIT                      | app                               |
+| `tracing-attributes`                | 0.1.31            | MIT                                                 | MIT                      | app                               |
+| `tracing-core`                      | 0.1.36            | MIT                                                 | MIT                      | app                               |
+| `tracing-log`                       | 0.2.0             | MIT                                                 | MIT                      | app                               |
+| `tracing-serde`                     | 0.2.0             | MIT                                                 | MIT                      | app                               |
+| `tracing-subscriber`                | 0.3.23            | MIT                                                 | MIT                      | app                               |
+| `try-lock`                          | 0.2.5             | MIT                                                 | MIT                      | app                               |
+| `ttf-parser`                        | 0.25.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `typeid`                            | 1.0.3             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `typenum`                           | 1.20.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `ucd-trie`                          | 0.1.7             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `unicase`                           | 2.10.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `unicode-bidi`                      | 0.3.18            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `unicode-bidi-mirroring`            | 0.4.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `unicode-canonical-combining-class` | 1.0.0             | Apache-2.0                                          | Apache-2.0               | app                               |
+| `unicode-ccc`                       | 0.4.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `unicode-general-category`          | 1.1.0             | Apache-2.0                                          | Apache-2.0               | app                               |
+| `unicode-ident`                     | 1.0.24            | (MIT OR Apache-2.0) AND Unicode-3.0                 | Apache-2.0, Unicode-3.0  | Explorer extension (Windows), app |
+| `unicode-joining-type`              | 1.0.0             | Apache-2.0                                          | Apache-2.0               | app                               |
+| `unicode-normalization`             | 0.1.25            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `unicode-properties`                | 0.1.4             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `unicode-script`                    | 0.5.8             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `unicode-segmentation`              | 1.13.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `unicode-vo`                        | 0.1.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `untrusted`                         | 0.9.0             | ISC                                                 | ISC                      | app                               |
+| `ureq`                              | 2.12.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `url`                               | 2.5.8             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `urlpattern`                        | 0.6.0             | MIT                                                 | MIT                      | app                               |
+| `usvg`                              | 0.45.1            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `utf-8`                             | 0.7.6             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `utf8_iter`                         | 1.0.4             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `utf8parse`                         | 0.2.2             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `uuid`                              | 1.23.1            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `uuid`                              | 1.24.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | Explorer extension (Windows)      |
+| `wait-timeout`                      | 0.2.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `walkdir`                           | 2.5.0             | Unlicense OR MIT                                    | MIT                      | app                               |
+| `want`                              | 0.3.1             | MIT                                                 | MIT                      | app                               |
+| `web-time`                          | 1.1.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `web_atoms`                         | 0.2.4             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `webpki-roots`                      | 0.26.11           | CDLA-Permissive-2.0                                 | CDLA-Permissive-2.0      | app                               |
+| `webpki-roots`                      | 1.0.8             | CDLA-Permissive-2.0                                 | CDLA-Permissive-2.0      | app                               |
+| `webview2-com`                      | 0.38.2            | MIT                                                 | MIT                      | app                               |
+| `webview2-com-macros`               | 0.8.1             | MIT                                                 | MIT                      | app                               |
+| `webview2-com-sys`                  | 0.38.2            | MIT                                                 | MIT                      | app                               |
+| `weezl`                             | 0.1.12            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `winapi-util`                       | 0.1.11            | Unlicense OR MIT                                    | MIT                      | app                               |
+| `window-vibrancy`                   | 0.6.0             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `windows`                           | 0.58.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows`                           | 0.61.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows`                           | 0.62.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-collections`               | 0.2.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-collections`               | 0.3.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-core`                      | 0.58.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-core`                      | 0.61.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-core`                      | 0.62.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-future`                    | 0.2.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-future`                    | 0.3.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-implement`                 | 0.58.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-implement`                 | 0.60.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-interface`                 | 0.58.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-interface`                 | 0.59.3            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-link`                      | 0.1.3             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-link`                      | 0.2.1             | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-numerics`                  | 0.2.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-numerics`                  | 0.3.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-registry`                  | 0.6.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-result`                    | 0.2.0             | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-result`                    | 0.3.4             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-result`                    | 0.4.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-strings`                   | 0.1.0             | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-strings`                   | 0.4.2             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-strings`                   | 0.5.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-sys`                       | 0.52.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-sys`                       | 0.59.0            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-sys`                       | 0.60.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-sys`                       | 0.61.2            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-targets`                   | 0.52.6            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-targets`                   | 0.53.5            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-threading`                 | 0.1.0             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-threading`                 | 0.2.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows-version`                   | 0.1.7             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows_aarch64_msvc`              | 0.52.6            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows_aarch64_msvc`              | 0.53.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `windows_x86_64_msvc`               | 0.52.6            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows_x86_64_msvc`               | 0.53.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `winnow`                            | 0.7.15            | MIT                                                 | MIT                      | app                               |
+| `winnow`                            | 1.0.2             | MIT                                                 | MIT                      | app                               |
+| `write-fonts`                       | 0.48.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `writeable`                         | 0.6.3             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `wry`                               | 0.55.0            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `xattr`                             | 1.6.1             | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
+| `xmlwriter`                         | 0.1.0             | MIT                                                 | MIT                      | app                               |
+| `yoke`                              | 0.8.2             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `yoke-derive`                       | 0.8.2             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `zerocopy`                          | 0.8.50            | BSD-2-Clause OR Apache-2.0 OR MIT                   | Apache-2.0               | app                               |
+| `zerocopy-derive`                   | 0.8.50            | BSD-2-Clause OR Apache-2.0 OR MIT                   | Apache-2.0               | app                               |
+| `zerofrom`                          | 0.1.7             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `zerofrom-derive`                   | 0.1.7             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `zeroize`                           | 1.9.0             | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
+| `zerotrie`                          | 0.2.4             | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `zerovec`                           | 0.11.6            | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `zerovec-derive`                    | 0.11.3            | Unicode-3.0                                         | Unicode-3.0              | app                               |
+| `zip`                               | 4.6.1             | MIT                                                 | MIT                      | app                               |
+| `zmij`                              | 1.0.21            | MIT                                                 | MIT                      | app                               |
+| `zmij`                              | 1.0.23            | MIT                                                 | MIT                      | Explorer extension (Windows)      |
+| `zune-core`                         | 0.4.12            | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
+| `zune-core`                         | 0.5.1             | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
+| `zune-jpeg`                         | 0.4.21            | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
+| `zune-jpeg`                         | 0.5.15            | MIT OR Apache-2.0 OR Zlib                           | Apache-2.0               | app                               |
 
 ### Licence texts of the Rust crates
 
@@ -1316,15 +1314,9 @@ Used by:
 - `notify-rust` 4.18.2 (https://github.com/hoodie/notify-rust), by Hendrik Sollich
 - `once_cell_polyfill` 1.70.2 (https://github.com/polyfill-rs/once_cell_polyfill)
 - `quick-error` 2.0.1 (http://github.com/tailhook/quick-error), by Paul Colomiets, Colin Kiegel
-- `serde_spanned` 0.6.9 (https://github.com/toml-rs/toml)
-- `serde_spanned` 1.1.1 (https://github.com/toml-rs/toml)
 - `stringprep` 0.1.5 (https://github.com/sfackler/rust-stringprep), by Steven Fackler
-- `toml` 0.8.2 (https://github.com/toml-rs/toml), by Alex Crichton
-- `toml` 1.1.2+spec-1.1.0 (https://github.com/toml-rs/toml)
-- `toml_datetime` 1.1.1+spec-1.1.0 (https://github.com/toml-rs/toml)
-- `toml_edit` 0.20.2 (https://github.com/toml-rs/toml), by Andronik Ordian, Ed Page
-- `toml_parser` 1.1.2+spec-1.1.0 (https://github.com/toml-rs/toml)
-- `toml_writer` 1.1.1+spec-1.1.0 (https://github.com/toml-rs/toml)
+- `toml` 0.9.12+spec-1.1.0 (https://github.com/toml-rs/toml)
+- `toml_datetime` 0.7.5+spec-1.1.0 (https://github.com/toml-rs/toml)
 - `unicode-canonical-combining-class` 1.0.0 (https://github.com/yeslogic/unicode-canonical-combining-class), by YesLogic Pty. Ltd.
 - `unicode-general-category` 1.1.0 (https://github.com/yeslogic/unicode-general-category), by YesLogic Pty. Ltd.
 - `unicode-joining-type` 1.0.0 (https://github.com/yeslogic/unicode-joining-type), by YesLogic Pty. Ltd.
@@ -1797,7 +1789,6 @@ Used by:
 - `tempfile` 3.27.0 (https://github.com/Stebalien/tempfile), by Steven Allen, The Rust Project Developers, Ashley Mannix, Jason White
 - `tendril` 0.5.0 (https://github.com/servo/html5ever), by Keegan McAllister, Simon Sapin, Chris Morgan
 - `thread_local` 1.1.9 (https://github.com/Amanieu/thread_local-rs), by Amanieu d'Antras
-- `toml_datetime` 0.6.3 (https://github.com/toml-rs/toml), by Alex Crichton
 - `ttf-parser` 0.25.1 (https://github.com/harfbuzz/ttf-parser), by Caleb Maclennan, Laurenz Stampfl, Yevhenii Reizner, خالد حسني (Khaled Hosny)
 - `ucd-trie` 0.1.7 (https://github.com/BurntSushi/ucd-generate), by Andrew Gallant
 - `unicase` 2.10.0 (https://github.com/seanmonstar/unicase), by Sean McArthur
@@ -6930,6 +6921,220 @@ limitations under the License.
 
 Used by:
 
+- `serde_spanned` 1.1.2 (https://github.com/toml-rs/toml)
+- `toml` 1.1.8+spec-1.1.0 (https://github.com/toml-rs/toml)
+- `toml_datetime` 1.1.2+spec-1.1.0 (https://github.com/toml-rs/toml)
+- `toml_parser` 1.1.5+spec-1.1.0 (https://github.com/toml-rs/toml)
+- `toml_writer` 1.1.3+spec-1.1.0 (https://github.com/toml-rs/toml)
+
+```text
+                              Apache License
+                        Version 2.0, January 2004
+                     http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+   "License" shall mean the terms and conditions for use, reproduction,
+   and distribution as defined by Sections 1 through 9 of this document.
+
+   "Licensor" shall mean the copyright owner or entity authorized by
+   the copyright owner that is granting the License.
+
+   "Legal Entity" shall mean the union of the acting entity and all
+   other entities that control, are controlled by, or are under common
+   control with that entity. For the purposes of this definition,
+   "control" means (i) the power, direct or indirect, to cause the
+   direction or management of such entity, whether by contract or
+   otherwise, or (ii) ownership of fifty percent (50%) or more of the
+   outstanding shares, or (iii) beneficial ownership of such entity.
+
+   "You" (or "Your") shall mean an individual or Legal Entity
+   exercising permissions granted by this License.
+
+   "Source" form shall mean the preferred form for making modifications,
+   including but not limited to software source code, documentation
+   source, and configuration files.
+
+   "Object" form shall mean any form resulting from mechanical
+   transformation or translation of a Source form, including but
+   not limited to compiled object code, generated documentation,
+   and conversions to other media types.
+
+   "Work" shall mean the work of authorship, whether in Source or
+   Object form, made available under the License, as indicated by a
+   copyright notice that is included in or attached to the work
+   (an example is provided in the Appendix below).
+
+   "Derivative Works" shall mean any work, whether in Source or Object
+   form, that is based on (or derived from) the Work and for which the
+   editorial revisions, annotations, elaborations, or other modifications
+   represent, as a whole, an original work of authorship. For the purposes
+   of this License, Derivative Works shall not include works that remain
+   separable from, or merely link (or bind by name) to the interfaces of,
+   the Work and Derivative Works thereof.
+
+   "Contribution" shall mean any work of authorship, including
+   the original version of the Work and any modifications or additions
+   to that Work or Derivative Works thereof, that is intentionally
+   submitted to Licensor for inclusion in the Work by the copyright owner
+   or by an individual or Legal Entity authorized to submit on behalf of
+   the copyright owner. For the purposes of this definition, "submitted"
+   means any form of electronic, verbal, or written communication sent
+   to the Licensor or its representatives, including but not limited to
+   communication on electronic mailing lists, source code control systems,
+   and issue tracking systems that are managed by, or on behalf of, the
+   Licensor for the purpose of discussing and improving the Work, but
+   excluding communication that is conspicuously marked or otherwise
+   designated in writing by the copyright owner as "Not a Contribution."
+
+   "Contributor" shall mean Licensor and any individual or Legal Entity
+   on behalf of whom a Contribution has been received by Licensor and
+   subsequently incorporated within the Work.
+
+2. Grant of Copyright License. Subject to the terms and conditions of
+   this License, each Contributor hereby grants to You a perpetual,
+   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+   copyright license to reproduce, prepare Derivative Works of,
+   publicly display, publicly perform, sublicense, and distribute the
+   Work and such Derivative Works in Source or Object form.
+
+3. Grant of Patent License. Subject to the terms and conditions of
+   this License, each Contributor hereby grants to You a perpetual,
+   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+   (except as stated in this section) patent license to make, have made,
+   use, offer to sell, sell, import, and otherwise transfer the Work,
+   where such license applies only to those patent claims licensable
+   by such Contributor that are necessarily infringed by their
+   Contribution(s) alone or by combination of their Contribution(s)
+   with the Work to which such Contribution(s) was submitted. If You
+   institute patent litigation against any entity (including a
+   cross-claim or counterclaim in a lawsuit) alleging that the Work
+   or a Contribution incorporated within the Work constitutes direct
+   or contributory patent infringement, then any patent licenses
+   granted to You under this License for that Work shall terminate
+   as of the date such litigation is filed.
+
+4. Redistribution. You may reproduce and distribute copies of the
+   Work or Derivative Works thereof in any medium, with or without
+   modifications, and in Source or Object form, provided that You
+   meet the following conditions:
+
+   (a) You must give any other recipients of the Work or
+       Derivative Works a copy of this License; and
+
+   (b) You must cause any modified files to carry prominent notices
+       stating that You changed the files; and
+
+   (c) You must retain, in the Source form of any Derivative Works
+       that You distribute, all copyright, patent, trademark, and
+       attribution notices from the Source form of the Work,
+       excluding those notices that do not pertain to any part of
+       the Derivative Works; and
+
+   (d) If the Work includes a "NOTICE" text file as part of its
+       distribution, then any Derivative Works that You distribute must
+       include a readable copy of the attribution notices contained
+       within such NOTICE file, excluding those notices that do not
+       pertain to any part of the Derivative Works, in at least one
+       of the following places: within a NOTICE text file distributed
+       as part of the Derivative Works; within the Source form or
+       documentation, if provided along with the Derivative Works; or,
+       within a display generated by the Derivative Works, if and
+       wherever such third-party notices normally appear. The contents
+       of the NOTICE file are for informational purposes only and
+       do not modify the License. You may add Your own attribution
+       notices within Derivative Works that You distribute, alongside
+       or as an addendum to the NOTICE text from the Work, provided
+       that such additional attribution notices cannot be construed
+       as modifying the License.
+
+   You may add Your own copyright statement to Your modifications and
+   may provide additional or different license terms and conditions
+   for use, reproduction, or distribution of Your modifications, or
+   for any such Derivative Works as a whole, provided Your use,
+   reproduction, and distribution of the Work otherwise complies with
+   the conditions stated in this License.
+
+5. Submission of Contributions. Unless You explicitly state otherwise,
+   any Contribution intentionally submitted for inclusion in the Work
+   by You to the Licensor shall be under the terms and conditions of
+   this License, without any additional terms or conditions.
+   Notwithstanding the above, nothing herein shall supersede or modify
+   the terms of any separate license agreement you may have executed
+   with Licensor regarding such Contributions.
+
+6. Trademarks. This License does not grant permission to use the trade
+   names, trademarks, service marks, or product names of the Licensor,
+   except as required for reasonable and customary use in describing the
+   origin of the Work and reproducing the content of the NOTICE file.
+
+7. Disclaimer of Warranty. Unless required by applicable law or
+   agreed to in writing, Licensor provides the Work (and each
+   Contributor provides its Contributions) on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+   implied, including, without limitation, any warranties or conditions
+   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+   PARTICULAR PURPOSE. You are solely responsible for determining the
+   appropriateness of using or redistributing the Work and assume any
+   risks associated with Your exercise of permissions under this License.
+
+8. Limitation of Liability. In no event and under no legal theory,
+   whether in tort (including negligence), contract, or otherwise,
+   unless required by applicable law (such as deliberate and grossly
+   negligent acts) or agreed to in writing, shall any Contributor be
+   liable to You for damages, including any direct, indirect, special,
+   incidental, or consequential damages of any character arising as a
+   result of this License or out of the use or inability to use the
+   Work (including but not limited to damages for loss of goodwill,
+   work stoppage, computer failure or malfunction, or any and all
+   other commercial damages or losses), even if such Contributor
+   has been advised of the possibility of such damages.
+
+9. Accepting Warranty or Additional Liability. While redistributing
+   the Work or Derivative Works thereof, You may choose to offer,
+   and charge a fee for, acceptance of support, warranty, indemnity,
+   or other liability obligations and/or rights consistent with this
+   License. However, in accepting such obligations, You may act only
+   on Your own behalf and on Your sole responsibility, not on behalf
+   of any other Contributor, and only if You agree to indemnify,
+   defend, and hold each Contributor harmless for any liability
+   incurred by, or claims asserted against, such Contributor by reason
+   of your accepting any such warranty or additional liability.
+
+END OF TERMS AND CONDITIONS
+
+APPENDIX: How to apply the Apache License to your work.
+
+   To apply the Apache License to your work, attach the following
+   boilerplate notice, with the fields enclosed by brackets "{}"
+   replaced with your own identifying information. (Don't include
+   the brackets!)  The text should be enclosed in the appropriate
+   comment syntax for the file format. We also recommend that a
+   file or class name and description of purpose be included on the
+   same "printed page" as the copyright notice for easier
+   identification within third-party archives.
+
+Copyright Individual contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+#### 31. Apache License 2.0 (Apache-2.0)
+
+Used by:
+
 - `softbuffer` 0.4.8 (https://github.com/rust-windowing/softbuffer)
 
 ```text
@@ -7136,7 +7341,7 @@ Apache License
    limitations under the License.
 ```
 
-#### 31. Apache License 2.0 (Apache-2.0)
+#### 32. Apache License 2.0 (Apache-2.0)
 
 Used by:
 
@@ -7346,7 +7551,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-#### 32. Apache License 2.0 (Apache-2.0)
+#### 33. Apache License 2.0 (Apache-2.0)
 
 Used by:
 
@@ -7556,7 +7761,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-#### 33. Apache License 2.0 (Apache-2.0)
+#### 34. Apache License 2.0 (Apache-2.0)
 
 Used by:
 
@@ -7766,7 +7971,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-#### 34. Apache License 2.0 (Apache-2.0)
+#### 35. Apache License 2.0 (Apache-2.0)
 
 Used by:
 
@@ -7976,7 +8181,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-#### 35. Apache License 2.0 (Apache-2.0)
+#### 36. Apache License 2.0 (Apache-2.0)
 
 Used by:
 
@@ -8186,7 +8391,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-#### 36. Apache License 2.0 (Apache-2.0)
+#### 37. Apache License 2.0 (Apache-2.0)
 
 Used by:
 
@@ -8396,7 +8601,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-#### 37. Apache License 2.0 (Apache-2.0)
+#### 38. Apache License 2.0 (Apache-2.0)
 
 Used by:
 
@@ -8643,7 +8848,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-#### 38. Apache License 2.0 (Apache-2.0)
+#### 39. Apache License 2.0 (Apache-2.0)
 
 Used by:
 
@@ -8854,7 +9059,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-#### 39. BSD 2-Clause "Simplified" License (BSD-2-Clause)
+#### 40. BSD 2-Clause "Simplified" License (BSD-2-Clause)
 
 Used by:
 
@@ -8872,7 +9077,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 40. BSD 2-Clause "Simplified" License (BSD-2-Clause)
+#### 41. BSD 2-Clause "Simplified" License (BSD-2-Clause)
 
 Used by:
 
@@ -8907,7 +9112,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 41. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 42. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -8930,7 +9135,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 42. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 43. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -8952,7 +9157,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 43. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 44. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -9015,7 +9220,7 @@ pub(crate) static GB18030_2022_OVERRIDE_BYTES: [[u8; 2]; 18] = [
 ];
 ```
 
-#### 44. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 45. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -9050,7 +9255,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 45. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 46. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -9092,7 +9297,7 @@ OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 46. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 47. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -9127,7 +9332,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 47. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 48. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -9165,7 +9370,7 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 48. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+#### 49. BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
 
@@ -9205,7 +9410,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-#### 49. Community Data License Agreement Permissive 2.0 (CDLA-Permissive-2.0)
+#### 50. Community Data License Agreement Permissive 2.0 (CDLA-Permissive-2.0)
 
 Used by:
 
@@ -9276,7 +9481,7 @@ of Data, including for example machine learning models and models'
 insights.
 ```
 
-#### 50. ISC License (ISC)
+#### 51. ISC License (ISC)
 
 Used by:
 
@@ -9319,7 +9524,7 @@ typedef struct {
 #endif // OPENSSL_HEADER_EC_ECP_NISTZ384_H
 ```
 
-#### 51. ISC License (ISC)
+#### 52. ISC License (ISC)
 
 Used by:
 
@@ -9360,7 +9565,7 @@ pub fn eddsa_digest(signature_r: &[u8], public_key: &[u8], msg: &[u8]) -> digest
 }
 ```
 
-#### 52. ISC License (ISC)
+#### 53. ISC License (ISC)
 
 Used by:
 
@@ -9406,7 +9611,7 @@ impl N0 {
 }
 ```
 
-#### 53. ISC License (ISC)
+#### 54. ISC License (ISC)
 
 Used by:
 
@@ -9437,7 +9642,7 @@ pub fn verify_slices_are_equal(a: &[u8], b: &[u8]) -> Result<(), error::Unspecif
 }
 ```
 
-#### 54. ISC License (ISC)
+#### 55. ISC License (ISC)
 
 Used by:
 
@@ -9468,7 +9673,7 @@ mod ops;
 mod scalar;
 ```
 
-#### 55. ISC License (ISC)
+#### 56. ISC License (ISC)
 
 Used by:
 
@@ -9510,7 +9715,7 @@ impl From<KeyRejected> for Unspecified {
 }
 ```
 
-#### 56. ISC License (ISC)
+#### 57. ISC License (ISC)
 
 Used by:
 
@@ -9550,7 +9755,7 @@ pub use self::positive::Positive;
 pub(crate) use self::writer::TooLongError;
 ```
 
-#### 57. ISC License (ISC)
+#### 58. ISC License (ISC)
 
 Used by:
 
@@ -9593,7 +9798,7 @@ mod sha2_32;
 mod sha2_64;
 ```
 
-#### 58. ISC License (ISC)
+#### 59. ISC License (ISC)
 
 Used by:
 
@@ -9629,7 +9834,7 @@ pub const fn from_ref<T: ?Sized>(r: &T) -> *const T {
 }
 ```
 
-#### 59. ISC License (ISC)
+#### 60. ISC License (ISC)
 
 Used by:
 
@@ -9655,7 +9860,7 @@ Used by:
 mod bits_tests;
 ```
 
-#### 60. ISC License (ISC)
+#### 61. ISC License (ISC)
 
 Used by:
 
@@ -9687,7 +9892,7 @@ mod base;
 mod partial_block;
 ```
 
-#### 61. ISC License (ISC)
+#### 62. ISC License (ISC)
 
 Used by:
 
@@ -9713,7 +9918,7 @@ Used by:
 pub(in super::super) mod mont;
 ```
 
-#### 62. ISC License (ISC)
+#### 63. ISC License (ISC)
 
 Used by:
 
@@ -9739,7 +9944,7 @@ Used by:
 pub(in super::super::super) mod mont;
 ```
 
-#### 63. ISC License (ISC)
+#### 64. ISC License (ISC)
 
 Used by:
 
@@ -9765,7 +9970,7 @@ mod storage;
 pub(super) use self::storage::{AlignedStorage, LIMBS_PER_CHUNK};
 ```
 
-#### 64. ISC License (ISC)
+#### 65. ISC License (ISC)
 
 Used by:
 
@@ -9790,7 +9995,7 @@ pub(super) mod aarch64;
 pub(super) mod x86_64;
 ```
 
-#### 65. ISC License (ISC)
+#### 66. ISC License (ISC)
 
 Used by:
 
@@ -9812,7 +10017,7 @@ OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-#### 66. ISC License (ISC)
+#### 67. ISC License (ISC)
 
 Used by:
 
@@ -9840,7 +10045,7 @@ The files under third-party/chromium are licensed as described in
 third-party/chromium/LICENSE.
 ```
 
-#### 67. ISC License (ISC)
+#### 68. ISC License (ISC)
 
 Used by:
 
@@ -9862,7 +10067,7 @@ Used by:
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-#### 68. MIT License (MIT)
+#### 69. MIT License (MIT)
 
 Used by:
 
@@ -9901,7 +10106,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 69. MIT License (MIT)
+#### 70. MIT License (MIT)
 
 Used by:
 
@@ -9931,7 +10136,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 70. MIT License (MIT)
+#### 71. MIT License (MIT)
 
 Used by:
 
@@ -9975,7 +10180,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTI
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 71. MIT License (MIT)
+#### 72. MIT License (MIT)
 
 Used by:
 
@@ -10004,7 +10209,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 72. MIT License (MIT)
+#### 73. MIT License (MIT)
 
 Used by:
 
@@ -10038,7 +10243,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 73. MIT License (MIT)
+#### 74. MIT License (MIT)
 
 Used by:
 
@@ -10072,7 +10277,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 74. MIT License (MIT)
+#### 75. MIT License (MIT)
 
 Used by:
 
@@ -10103,7 +10308,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 75. MIT License (MIT)
+#### 76. MIT License (MIT)
 
 Used by:
 
@@ -10133,7 +10338,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 76. MIT License (MIT)
+#### 77. MIT License (MIT)
 
 Used by:
 
@@ -10163,7 +10368,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 77. MIT License (MIT)
+#### 78. MIT License (MIT)
 
 Used by:
 
@@ -10195,7 +10400,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 78. MIT License (MIT)
+#### 79. MIT License (MIT)
 
 Used by:
 
@@ -10226,7 +10431,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 79. MIT License (MIT)
+#### 80. MIT License (MIT)
 
 Used by:
 
@@ -10262,7 +10467,7 @@ derived from the "nipper" project (https://github.com/importcjj/nipper),
 developed by Chen Jiaju, licensed under the MIT License and the Apache License 2.0 (dual licensed).
 ```
 
-#### 80. MIT License (MIT)
+#### 81. MIT License (MIT)
 
 Used by:
 
@@ -10292,7 +10497,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 81. MIT License (MIT)
+#### 82. MIT License (MIT)
 
 Used by:
 
@@ -10308,7 +10513,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 82. MIT License (MIT)
+#### 83. MIT License (MIT)
 
 Used by:
 
@@ -10336,7 +10541,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 ```
 
-#### 83. MIT License (MIT)
+#### 84. MIT License (MIT)
 
 Used by:
 
@@ -10366,7 +10571,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 84. MIT License (MIT)
+#### 85. MIT License (MIT)
 
 Used by:
 
@@ -10396,7 +10601,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 85. MIT License (MIT)
+#### 86. MIT License (MIT)
 
 Used by:
 
@@ -10430,7 +10635,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 86. MIT License (MIT)
+#### 87. MIT License (MIT)
 
 Used by:
 
@@ -10464,7 +10669,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 87. MIT License (MIT)
+#### 88. MIT License (MIT)
 
 Used by:
 
@@ -10492,7 +10697,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 88. MIT License (MIT)
+#### 89. MIT License (MIT)
 
 Used by:
 
@@ -10520,7 +10725,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 89. MIT License (MIT)
+#### 90. MIT License (MIT)
 
 Used by:
 
@@ -10550,7 +10755,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 90. MIT License (MIT)
+#### 91. MIT License (MIT)
 
 Used by:
 
@@ -10580,7 +10785,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 91. MIT License (MIT)
+#### 92. MIT License (MIT)
 
 Used by:
 
@@ -10611,7 +10816,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 92. MIT License (MIT)
+#### 93. MIT License (MIT)
 
 Used by:
 
@@ -10641,7 +10846,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 93. MIT License (MIT)
+#### 94. MIT License (MIT)
 
 Used by:
 
@@ -10669,7 +10874,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 94. MIT License (MIT)
+#### 95. MIT License (MIT)
 
 Used by:
 
@@ -10697,7 +10902,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 95. MIT License (MIT)
+#### 96. MIT License (MIT)
 
 Used by:
 
@@ -10731,7 +10936,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 96. MIT License (MIT)
+#### 97. MIT License (MIT)
 
 Used by:
 
@@ -10760,7 +10965,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 97. MIT License (MIT)
+#### 98. MIT License (MIT)
 
 Used by:
 
@@ -10788,7 +10993,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 98. MIT License (MIT)
+#### 99. MIT License (MIT)
 
 Used by:
 
@@ -10819,7 +11024,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 99. MIT License (MIT)
+#### 100. MIT License (MIT)
 
 Used by:
 
@@ -10853,7 +11058,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 100. MIT License (MIT)
+#### 101. MIT License (MIT)
 
 Used by:
 
@@ -10885,7 +11090,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 101. MIT License (MIT)
+#### 102. MIT License (MIT)
 
 Used by:
 
@@ -10913,7 +11118,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 102. MIT License (MIT)
+#### 103. MIT License (MIT)
 
 Used by:
 
@@ -10941,7 +11146,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 103. MIT License (MIT)
+#### 104. MIT License (MIT)
 
 Used by:
 
@@ -10971,7 +11176,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 104. MIT License (MIT)
+#### 105. MIT License (MIT)
 
 Used by:
 
@@ -11001,7 +11206,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 105. MIT License (MIT)
+#### 106. MIT License (MIT)
 
 Used by:
 
@@ -11032,7 +11237,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 106. MIT License (MIT)
+#### 107. MIT License (MIT)
 
 Used by:
 
@@ -11064,7 +11269,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 107. MIT License (MIT)
+#### 108. MIT License (MIT)
 
 Used by:
 
@@ -11094,7 +11299,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 108. MIT License (MIT)
+#### 109. MIT License (MIT)
 
 Used by:
 
@@ -11124,7 +11329,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 109. MIT License (MIT)
+#### 110. MIT License (MIT)
 
 Used by:
 
@@ -11154,7 +11359,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE
 ```
 
-#### 110. MIT License (MIT)
+#### 111. MIT License (MIT)
 
 Used by:
 
@@ -11185,7 +11390,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 111. MIT License (MIT)
+#### 112. MIT License (MIT)
 
 Used by:
 
@@ -11216,7 +11421,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 112. MIT License (MIT)
+#### 113. MIT License (MIT)
 
 Used by:
 
@@ -11247,7 +11452,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 113. MIT License (MIT)
+#### 114. MIT License (MIT)
 
 Used by:
 
@@ -11309,7 +11514,7 @@ fn is_meta_character(c: char) -> bool {
 }
 ```
 
-#### 114. MIT License (MIT)
+#### 115. MIT License (MIT)
 
 Used by:
 
@@ -11337,7 +11542,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 115. MIT License (MIT)
+#### 116. MIT License (MIT)
 
 Used by:
 
@@ -11367,7 +11572,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 116. MIT License (MIT)
+#### 117. MIT License (MIT)
 
 Used by:
 
@@ -11401,7 +11606,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 117. MIT License (MIT)
+#### 118. MIT License (MIT)
 
 Used by:
 
@@ -11429,7 +11634,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 118. MIT License (MIT)
+#### 119. MIT License (MIT)
 
 Used by:
 
@@ -11461,7 +11666,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 119. MIT License (MIT)
+#### 120. MIT License (MIT)
 
 Used by:
 
@@ -11477,7 +11682,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 120. MIT License (MIT)
+#### 121. MIT License (MIT)
 
 Used by:
 
@@ -11507,7 +11712,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 121. MIT License (MIT)
+#### 122. MIT License (MIT)
 
 Used by:
 
@@ -11538,7 +11743,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 122. MIT License (MIT)
+#### 123. MIT License (MIT)
 
 Used by:
 
@@ -11569,7 +11774,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 123. MIT License (MIT)
+#### 124. MIT License (MIT)
 
 Used by:
 
@@ -11605,7 +11810,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 124. MIT License (MIT)
+#### 125. MIT License (MIT)
 
 Used by:
 
@@ -11639,7 +11844,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 125. MIT License (MIT)
+#### 126. MIT License (MIT)
 
 Used by:
 
@@ -11679,7 +11884,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-#### 126. MIT License (MIT)
+#### 127. MIT License (MIT)
 
 Used by:
 
@@ -11709,7 +11914,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 127. MIT License (MIT)
+#### 128. MIT License (MIT)
 
 Used by:
 
@@ -11738,7 +11943,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 128. MIT License (MIT)
+#### 129. MIT License (MIT)
 
 Used by:
 
@@ -11768,7 +11973,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 129. MIT License (MIT)
+#### 130. MIT License (MIT)
 
 Used by:
 
@@ -11796,11 +12001,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-#### 130. MIT License (MIT)
+#### 131. MIT License (MIT)
 
 Used by:
 
-- `winnow` 0.5.40 (https://github.com/winnow-rs/winnow)
+- `winnow` 0.7.15 (https://github.com/winnow-rs/winnow)
 - `winnow` 1.0.2 (https://github.com/winnow-rs/winnow)
 
 ```text
@@ -11824,7 +12029,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-#### 131. MIT License (MIT)
+#### 132. MIT License (MIT)
 
 Used by:
 
@@ -11854,7 +12059,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-#### 132. MIT License (MIT)
+#### 133. MIT License (MIT)
 
 Used by:
 
@@ -11887,7 +12092,7 @@ Some files in the "tests/data" subdirectory of this repository are under other
 licences; see files named LICENSE.*.txt for details.
 ```
 
-#### 133. Mozilla Public License 2.0 (MPL-2.0)
+#### 134. Mozilla Public License 2.0 (MPL-2.0)
 
 Used by:
 
@@ -12271,7 +12476,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
   defined by the Mozilla Public License, v. 2.0.
 ```
 
-#### 134. Mozilla Public License 2.0 (MPL-2.0)
+#### 135. Mozilla Public License 2.0 (MPL-2.0)
 
 Used by:
 
@@ -12654,7 +12859,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
   defined by the Mozilla Public License, v. 2.0.
 ```
 
-#### 135. Unicode License v3 (Unicode-3.0)
+#### 136. Unicode License v3 (Unicode-3.0)
 
 Used by:
 
@@ -12726,7 +12931,7 @@ Portions of ICU4X may have been adapted from ICU4C and/or ICU4J.
 ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation and others.
 ```
 
-#### 136. Unicode License v3 (Unicode-3.0)
+#### 137. Unicode License v3 (Unicode-3.0)
 
 Used by:
 
@@ -12774,7 +12979,7 @@ dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 ```
 
-#### 137. zlib License (Zlib)
+#### 138. zlib License (Zlib)
 
 Used by:
 
@@ -12802,7 +13007,7 @@ the following restrictions:
 3. This notice may not be removed or altered from any source distribution.
 ```
 
-#### 138. zlib License (Zlib)
+#### 139. zlib License (Zlib)
 
 Used by:
 

@@ -22,7 +22,7 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `tauri-plugin-notification` | ~2.4 | MIT / Apache-2.0 | Native OS notifications (FR-072) | Yes |
 | `tauri-plugin-updater` | ~2.12 | MIT / Apache-2.0 | Signed update download, verification and install (FR-082/083) | Yes |
 | `serde`, `serde_json` | 1 | MIT / Apache-2.0 | Serialization | Yes |
-| `toml` | 0.8 | MIT / Apache-2.0 | `config.toml`, `profiles.toml` | Yes |
+| `toml` | 1 | MIT / Apache-2.0 | `config.toml`, `profiles.toml` | Yes |
 | `tokio` | 1.41 | MIT | Async runtime (queue dispatcher) | Yes |
 | `tracing`, `tracing-subscriber`, `tracing-appender` | 0.1 / 0.3 / 0.2 | MIT | Structured logging | Yes |
 | `thiserror` | **2** | MIT / Apache-2.0 | Library error types | Yes |
