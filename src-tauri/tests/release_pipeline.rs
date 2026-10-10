@@ -96,6 +96,10 @@ fn nfr_022_release_requires_signature_secret() {
         finalise.contains("a tampered artifact verified"),
         "{finalise}"
     );
+    // Each platform is paired with its file through the asset listing, and
+    // the workings stay out of assets/, which SHA256SUMS covers.
+    assert!(finalise.contains("release_tools.py extract-signatures"));
+    assert!(finalise.contains("--out sigcheck"));
 }
 
 /// The version a release is tagged with is the version every source carries:
