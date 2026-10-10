@@ -475,7 +475,7 @@ The installer would **detect** but never **install** optional runtimes:
 | Dependency | Detection method | If missing |
 |---|---|---|
 | WebView2 Runtime | `HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}\pv` | Hard error: WebView2 is required (preinstalled on Win 11; bootstrap link shown for Win 10). |
-| LibreOffice | `HKLM` or `HKCU` `SOFTWARE\LibreOffice\UNO\InstallPath` | Soft warning: Office, OpenDocument, TXT and RTF jobs will pause until it is installed. |
+| LibreOffice | `HKLM` or `HKCU` `SOFTWARE\LibreOffice\UNO\InstallPath` | Soft warning: Office, OpenDocument and RTF jobs will pause until it is installed (plain text prints with the system web view and never needs it). |
 | Pandoc, Edge / Chrome | Not checked | Nothing: Markdown, HTML and text print with the system web view (ADR-0012), and the headless-browser fallback was removed in round 6. An earlier draft of this table listed both. |
 | HEIF Image Extensions | WIC decoder lookup (the app does this at conversion time) | Soft warning: HEIC/HEIF jobs pause with a Microsoft Store link. |
 
