@@ -16,10 +16,11 @@ Where things stand on 2026-10-10:
 - **Nothing has been published.** The repository is **private** (decision D1:
   it goes public with the first stable release). While it is private, every
   anonymous request for a release file answers 404, so the app's update check
-  reports that nothing is published, and `releases/latest/...` links do not
-  download for anyone without access.
+  reports that no update is published on the channel (`channel_unavailable`,
+  a neutral notice in About; the launch-time check only logs it), and
+  `releases/latest/...` links do not download for anyone without access.
 - **The pipeline is ready**: `.github/workflows/release.yml` (build, sign,
-  checksums, draft) and `.github/workflows/release-channels.yml` (moves the beta
+  draft with checksums) and `.github/workflows/release-channels.yml` (moves the beta
   channel when a draft is published). It has not run yet: it needs the secrets
   in section 2.
 - **Verified by hand**: the ARM64 installer built natively on Windows 11 ARM
@@ -70,7 +71,7 @@ Settings → Secrets and variables → Actions → **Repository secrets**:
 
 | Secret | Value | Needed |
 |---|---|---|
-| `TAURI_SIGNING_PRIVATE_KEY` | the **contents** of `~/.maecly/updater.key`, not its path | always. The `guard` job stops every tag build without it |
+| `TAURI_SIGNING_PRIVATE_KEY` | the **contents** of `~/.maecly/updater.key`, not its path | for every tag build. The `guard` job stops one without it. Only one step of the `sign` job reads it (section 5) |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | the key's password | yes. ADR-0008: release keys have a password, because a passwordless key can leave a Windows build waiting at Tauri's password prompt (Windows has no empty environment variables). Versorium's empty password did build on `windows-latest` through tauri-action, but this project's rule stands |
 
 `GITHUB_TOKEN` is provided by Actions; do not create it. No other secret is
@@ -82,10 +83,10 @@ Repository settings:
 
 | Setting | Value | Why |
 |---|---|---|
-| Actions → General → Workflow permissions | either; the release jobs ask for `contents: write` themselves | they create the draft and upload assets |
+| Actions → General → Workflow permissions | **read** (the default for new repositories) | every workflow states its own permissions. In `release.yml` only the `publish` job asks for `contents: write`, to create the draft and upload its files |
 | Visibility | **public, at the first stable release** (D1) | until then anonymous downloads of `latest.json` and the installers answer 404, so no installed copy can update and the landing page cannot link the files |
 | Rules → Rulesets → tag rule for `v*` (restrict creation and deletion to maintainers) | recommended | a pushed tag starts a release build. On the free plan, rulesets on a private repository are not available; they are once it is public |
-| Environments | none needed | the draft is the human gate: nothing is published until a person publishes it |
+| Environments | none needed | the draft is the human gate: nothing is published until a person publishes it. A `release` environment that holds the two signing secrets and is required by the `sign` job would also keep them from any other workflow; it is optional |
 
 ## 3. The channels
 
@@ -135,55 +136,95 @@ If a dependency changed since the last release, regenerate the notices first
 
 ## 5. What the workflow does
 
-`release.yml`, on a pushed `v*` tag:
+`release.yml`, on a pushed `v*` tag. Every action is pinned to a full commit
+SHA (the version is in a comment beside it), every checkout keeps no git
+credentials (`persist-credentials: false`), no job uses a cache, and every
+`pnpm install` runs with `--ignore-scripts`. The workflow grants nothing by
+default (`permissions: {}`); each job asks for what it needs:
 
-1. **guard** (ubuntu): stops when `TAURI_SIGNING_PRIVATE_KEY` is empty, or when
-   the tag, `Cargo.toml` and `package.json` disagree, or `tauri.conf.json` pins
-   a version.
-2. **build**, four jobs, `fail-fast: false`, each uploading into one draft
-   release through `tauri-apps/tauri-action` pinned to commit `1deb371b`
-   (`action-v1.0.0`):
+| Job | Runner | Token | Secrets | What it runs |
+|---|---|---|---|---|
+| `guard` | ubuntu | `contents: read` | tests that the key is set | shell checks |
+| `build` ×4 | macOS / Windows | `contents: read` | **none** | the whole build: every crate's build script and proc macro, the npm packages, the bundler |
+| `sign` | ubuntu | `contents: read` | the signing key, in **one step** | `tauri signer sign` on the finished files, nothing else |
+| `publish` | ubuntu | `contents: write` | `GITHUB_TOKEN` | `gh`, `python3 -I scripts/release/release_tools.py`, `minisign`; no third-party build code |
 
-   | Job | Runner | Target | Bundles |
-   |---|---|---|---|
-   | macOS (Apple silicon) | `macos-latest` | `aarch64-apple-darwin` | `app`, `dmg` |
-   | macOS (Intel) | `macos-latest` | `x86_64-apple-darwin` | `app`, `dmg` |
-   | Windows (x64) | `windows-latest` | `x86_64-pc-windows-msvc` | `nsis` |
-   | Windows (ARM64) | `windows-latest`, cross-compiled | `aarch64-pc-windows-msvc` | `nsis` |
+1. **guard**: stops when `TAURI_SIGNING_PRIVATE_KEY` is empty, or when the
+   tag, `Cargo.toml` and `package.json` disagree, or `tauri.conf.json` pins a
+   version.
+2. **build**, four jobs, `fail-fast: false`:
+
+   | Job | Runner | Target | Bundles | Label |
+   |---|---|---|---|---|
+   | macOS (Apple silicon) | `macos-latest` | `aarch64-apple-darwin` | `app`, `dmg` | `apple_silicon` |
+   | macOS (Intel) | `macos-latest` | `x86_64-apple-darwin` | `app`, `dmg` | `apple_intel` |
+   | Windows (x64) | `windows-latest` | `x86_64-pc-windows-msvc` | `nsis` | `windows_x64` |
+   | Windows (ARM64) | `windows-latest`, cross-compiled | `aarch64-pc-windows-msvc` | `nsis` | `windows_arm64` |
 
    The Windows jobs first fetch SumatraPDF for their architecture
    (`scripts/fetch-sumatrapdf.ps1`, pinned 3.6.1 with its licence and
    `SOURCE-OFFER.txt`) and build the Explorer DLL for **both** architectures
-   into `src-tauri/resources/shellext/<arch>/`, because Explorer on Windows on
-   ARM is ARM64 and cannot load the x64 DLL even when the x64 installer ran
-   there. They then check the installer against NFR-006's 15 MB (an error: a
-   red job keeps the draft from being published) and that the bundle carries
-   SumatraPDF, its licence, the offer and both DLLs. The macOS jobs check that
-   every binary is the architecture its name says, that no `SumatraPDF.exe`
-   slipped in, and start the Intel build under Rosetta.
-3. **finalise** (ubuntu), only when all four builds passed:
-   - rewrites `latest.json` to the API asset URLs
-     (`https://api.github.com/repos/<repo>/releases/assets/<id>`), checks
-     every URL names a file of this release, requires `darwin-aarch64`,
-     `darwin-x86_64`, `windows-x86_64` and `windows-aarch64`, and copies the
-     release body into `notes` (the update dialog shows it);
+   (`scripts/build-shell-ext.ps1 -Arch all`) into
+   `src-tauri/resources/shellext/<arch>/`, because Explorer on Windows on ARM
+   is ARM64 and cannot load the x64 DLL even when the x64 installer ran
+   there. The NSIS hooks refuse a CI build that lacks either DLL. CI's
+   `installers` lane builds the same two installers the same way.
+
+   With `createUpdaterArtifacts` on, `tauri build` signs the update artifacts
+   and will not bundle without a key (`--no-sign` would also drop the macOS
+   ad hoc signature). So each build generates a **throwaway key** with a
+   random password, builds with it and deletes it. Those signatures never
+   leave the job: `release_tools.py stage-bundle` copies the `.dmg`, the
+   `.app.tar.gz` or the NSIS installer to `dist/` under its release name
+   (`Pluryprint_<version>_<label><ext>`) without them, and `dist/` is uploaded
+   as the workflow artifact `unsigned-<label>`.
+
+   Then the checks: the Windows installer against NFR-006's 15 MB (an error),
+   and that the bundle carries SumatraPDF, its licence, the offer and both
+   DLLs; on macOS, that every binary is the architecture its name says, that
+   no `SumatraPDF.exe` slipped in, and that the Intel build starts under
+   Rosetta.
+3. **sign**, only when all four builds passed: downloads the four
+   `unsigned-*` artifacts and runs `tauri signer sign` (the CLI version the
+   lockfile pins) on the four update artifacts, with the key and its password
+   in the environment of that step only. It fails unless it signed exactly
+   four, and uploads the `.sig` files as `update-signatures`.
+4. **publish**, only when signing passed:
+   - creates the draft (`gh release create --draft --verify-tag`, a
+     prerelease when the tag has a suffix) with the notes from
+     `.github/release-notes.md`, the version filled in. A re-run reuses the
+     draft; a tag whose release is already published is refused;
+   - uploads the installers, the update artifacts and their `.sig` files;
+   - writes `latest.json` (`release_tools.py make-manifest`): for each of
+     `darwin-aarch64`, `darwin-x86_64`, `windows-x86_64` and
+     `windows-aarch64`, the `.sig` contents and the API asset URL
+     (`https://api.github.com/repos/<repo>/releases/assets/<id>`) of the file
+     just uploaded. A platform without its file, its signature or its upload
+     fails the job. The release body becomes `notes` (the update dialog shows
+     it);
    - verifies each platform's signature with `minisign` against the public
-     key in `tauri.conf.json`, and that a one-byte change fails;
+     key in `tauri.conf.json`, and that a one-byte change fails. This also
+     catches a throwaway signature that slipped through;
    - attaches the Corresponding Source: `pluryprint-X.Y.Z-source.tar.gz`
      (`git archive` of the tag) and `SumatraPDF-3.6.1-source.tar.gz` (the
      commit the fetch script pins);
    - writes `SHA256SUMS` over every file and uploads it with `latest.json`.
 
-`workflow_dispatch` (Actions → release → Run workflow) builds the four targets
-as workflow artifacts without touching a release. It needs the signing secret
-too: with `createUpdaterArtifacts` on, `tauri build` refuses to bundle without
-it.
+`workflow_dispatch` (Actions → release → Run workflow) runs only the four
+builds and leaves their `unsigned-*` artifacts (kept 7 days). It needs no
+secret: the builds never have one.
 
-Each matrix entry's `assetPattern` (tauri-action's `releaseAssetNamePattern`)
-names its files for the computer they are for. `[ext]` drops tauri's own
-`-setup`/`_en-US` parts, so two files of one kind in one build would get one
-name; `src-tauri/tests/release_pipeline.rs` checks the four patterns cannot
-collide.
+The labels, the names they give the files and the `latest.json` key each
+serves are one table, `PLATFORMS` in `scripts/release/release_tools.py`.
+`src-tauri/tests/release_pipeline.rs` checks that the matrix uses them, that
+no two builds can produce the same file name, and the permission, pinning and
+secret rules above.
+
+Checked on a Mac on 2026-10-10, with stand-in keys: the throwaway-key build of
+the Apple silicon app, `stage-bundle`, `tauri signer sign`, `make-manifest`,
+`extract-signatures` and `minisign -V` against the stand-in public key, in
+that order. The bundle kept its ad hoc signature. The workflow itself has not
+run.
 
 ## 6. Verify the draft before you publish
 
@@ -195,21 +236,23 @@ collide.
    | macOS (Intel) | `Pluryprint_X.Y.Z_apple_intel.dmg`, `.app.tar.gz`, `.app.tar.gz.sig` |
    | Windows (x64) | `Pluryprint_X.Y.Z_windows_x64.exe`, `.exe.sig` |
    | Windows (ARM64) | `Pluryprint_X.Y.Z_windows_arm64.exe`, `.exe.sig` |
-   | finalise | `latest.json`, `SHA256SUMS`, `pluryprint-X.Y.Z-source.tar.gz`, `SumatraPDF-3.6.1-source.tar.gz` |
+   | publish | `latest.json`, `SHA256SUMS`, `pluryprint-X.Y.Z-source.tar.gz`, `SumatraPDF-3.6.1-source.tar.gz` |
 
    A name missing is a build that failed. A name in tauri's own form
-   (`_aarch64.dmg`, `_x64-setup.exe`) means the pattern did not reach the
-   action.
+   (`_aarch64.dmg`, `_x64-setup.exe`) means staging was skipped.
 
 2. **`latest.json`** has `version` X.Y.Z and these keys, each with a `url` on
    `api.github.com` and a `signature`:
 
    | Key | File |
    |---|---|
-   | `darwin-aarch64`, `darwin-aarch64-app` | `Pluryprint_X.Y.Z_apple_silicon.app.tar.gz` |
-   | `darwin-x86_64`, `darwin-x86_64-app` | `Pluryprint_X.Y.Z_apple_intel.app.tar.gz` |
-   | `windows-x86_64`, `windows-x86_64-nsis` | `Pluryprint_X.Y.Z_windows_x64.exe` |
-   | `windows-aarch64`, `windows-aarch64-nsis` | `Pluryprint_X.Y.Z_windows_arm64.exe` |
+   | `darwin-aarch64` | `Pluryprint_X.Y.Z_apple_silicon.app.tar.gz` |
+   | `darwin-x86_64` | `Pluryprint_X.Y.Z_apple_intel.app.tar.gz` |
+   | `windows-x86_64` | `Pluryprint_X.Y.Z_windows_x64.exe` |
+   | `windows-aarch64` | `Pluryprint_X.Y.Z_windows_arm64.exe` |
+
+   The updater looks up `{os}-{arch}-{installer}` first and then
+   `{os}-{arch}`, so the four plain keys serve every build.
 
    The updater resolves its target at build time, so an x64 build running
    emulated on Windows on ARM keeps updating to x64: the download page must
@@ -226,8 +269,9 @@ collide.
    section 7, and print a page to a paused or held queue.
 
 5. **Edit the notes** if you want to say what changed (the body starts with
-   the install notices). If you edit them after `finalise` ran, the update
-   dialog still shows the old text: re-run the `finalise` job.
+   the install notices). If you edit them after `publish` ran, the update
+   dialog still shows the old text: re-run the `publish` job, which reuses
+   the draft.
 
 Then publish, in the web UI or:
 
@@ -241,7 +285,8 @@ release visible to collaborators only.
 
 ## 7. The install notices
 
-`releaseBody` in `release.yml` writes these into every release, in English and
+`.github/release-notes.md` is the body of every release (`publish` fills in
+the version). It writes these into every release, in English and
 Spanish, with a table of which file is for which computer. They are repeated
 here so the wording stays the same wherever it is quoted (the landing page,
 support answers).
@@ -323,12 +368,17 @@ tag (`git push origin :refs/tags/vX.Y.Z`) and push it again.
 **The tag build stops at "Tag must match the app version".** Run
 `scripts/bump-version.sh` with the tag's version, commit, and re-tag.
 
-**`finalise` says "latest.json has no windows-aarch64 entry".** The four builds
-merge their entries into one `latest.json` in turn, and two that finish
-together can drop one. Re-run that platform's build job, then `finalise`.
+**`publish` says "latest.json has no windows-aarch64 entry".** That build did
+not stage its update artifact, or the file was not uploaded. Re-run the
+failed jobs; `publish` reuses the draft.
 
-**A dry run fails at bundling with "A public key has been found, but no private
-key".** The signing secret is missing; a dry run needs it too.
+**`sign` says "signed 3 update artifacts, expected 4".** One build uploaded no
+`.app.tar.gz` or `.exe`. Look at that build's "Stage the release files" step.
+
+**`publish` fails at "Verify the update signatures".** A signature does not
+verify against the key in `tauri.conf.json`: the secret is not the partner of
+that public key (section 1), or a throwaway signature reached the draft. Do
+not publish; fix the secret and re-run from `sign`.
 
 **A Windows job fails at "Installer size budget".** The installer passed
 15 MB. Look at what grew (`cargo bloat`, the SumatraPDF version) before raising
