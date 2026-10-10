@@ -1,0 +1,46 @@
+# Pluryprint by MAECLY
+
+> Free batch file printing for Windows and macOS, licensed GPL-3.0. Select 5, 50 or 500 files and print them all as one job with one set of print settings. Local by design: no account, no cloud, no telemetry. Status on 2026-10-09: pre-alpha, version 0.0.1. There is no public release and no download yet, and the source repository is not public yet.
+
+## Canonical pages
+
+- [Spanish landing](https://pluryprint.maecly.com/)
+- [English landing](https://pluryprint.maecly.com/en/)
+- [Agent guidance](https://pluryprint.maecly.com/agents.txt)
+- [Licence: GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.html)
+
+## What it does today (in the code, not yet released)
+
+- Formats: 25 file extensions. PDF is printed as-is after a structural check. JPG, JPEG, PNG, TIF, TIFF, BMP and WebP are converted to PDF inside the app, with no external program. HEIC and HEIF use the built-in `sips` on macOS; on Windows they need the Microsoft Store HEIF and HEVC extensions. DOCX, DOC, XLSX, XLS, PPTX, PPT, ODT, ODS, ODP, RTF and TXT need LibreOffice installed (it is not bundled). HTML and HTM need Edge, Chrome or Chromium installed and are printed with no network access. MD and MARKDOWN need Pandoc plus a browser; raw HTML is printed as text and remote images are blocked.
+- If a converter is missing, the job pauses and names what to install. No file is skipped silently; refused files come back with a reason.
+- Not supported: GIF, SVG, EPUB, email (EML/MSG), CAD, PostScript, archives, and encrypted PDFs (there is no password prompt yet).
+- Print options: copies, collate, duplex (long or short edge), colour or grayscale, paper size, orientation, scaling (fit, shrink, 100%) and page ranges. The app warns when the chosen printer cannot do the chosen sides or colour, and shows the exact resolved print command (`lp` on macOS, SumatraPDF on Windows).
+- Queue: saved on disk, with crash recovery. Up to 2 conversions at once and 1 print at a time. Failed jobs retry 3 times automatically (after 1 s, 5 s and 25 s). Pause, resume or cancel one job or the whole queue. Finished-job history is capped at 200. List, Board and Timeline views.
+- Profiles: three built-ins (Quick, the default; Duplex BW; Photo Color) plus any number of custom profiles: create, clone, edit, set as default, delete with a 5-second undo, import and export.
+- Printers: lists system printers with live status, capabilities and supply levels; finds network printers through mDNS/Bonjour or adds one by IP address (IPP/IPPS; WSD is not supported yet); set default and test page; choose which printers the app shows; send each file type to a different printer; reassign or forget a missing printer; an organisation can lock the default printer through `policy.json`.
+- Command line: the same binary has the subcommands `print`, `printers`, `profiles`, `queue` and `update`, with `--help` on each, `--json` output and fixed exit codes. A command-line run opens no window. The command is not added to PATH yet, and its final name may change before the first release.
+- Right-click on macOS: Finder → Services → "Print with Pluryprint", or with the default profile. Built into the app; there is no extension to enable.
+- Right-click on Windows: an Explorer submenu (print N files, up to 8 "print with <profile>" rows, configure the print job, add to the queue) is written and tested in CI, with no file-count limit. No installer registers it yet, so normal users do not see it. There is no Windows 10 fallback yet.
+- Updates: the app checks GitHub at startup (after 30 s, at most once a day) and from About, and offers Install now (signature-verified, per-user, no admin), Remind me later or Skip this version. It never updates by itself. No update feed is published yet, so in practice nothing updates today.
+- App: seven screens (Home, Print Job, Queue, Printers, Profiles, Settings, About); English and Spanish interface (some backend messages are English only); light, dark and system themes; keyboard shortcuts; native notifications; drag and drop; folders with or without subfolders.
+- Privacy: no account and no telemetry. The only network traffic is the update check and an update download the user starts.
+
+## Platforms
+
+- Windows 10 and 11, x64: built in CI. Planned installer: per-user NSIS, no administrator rights.
+- macOS, Apple silicon: built and tested in CI. .app and .dmg. No universal binary.
+- Windows ARM64: targeted (it is checked to compile), no binary.
+- Linux: out of scope for now.
+- Nothing is code-signed, so Windows SmartScreen and macOS Gatekeeper will warn once a build exists.
+
+## Limits
+
+- No public release, no download and no public repository yet.
+- Office, OpenDocument, TXT and RTF need LibreOffice; HTML needs Edge, Chrome or Chromium; Markdown needs Pandoc; Windows HEIC needs the Store codecs; Windows printing needs SumatraPDF (found on the system, not bundled yet).
+- Tray and quality are stored in profiles but are not sent to the printer.
+- There is a configurable maximum file size; there is no limit on the number of files.
+- Not built: N-up, watermarks, separator pages, hot folders, Windows service mode, plugin API, file-list import.
+
+## Compared with alternatives
+
+Vendor list prices for one user, as collected in the project's 2026 research and not re-checked since: Print Conductor $149 (volume pricing down to $59 per user), 2Printer $149, Batch & Print Pro $79.95 Standard or $109.95 Premium, FolderMill by quote. They support many more formats (30 to 90+). Print Conductor already offers an "Add to Windows Explorer context menu" option, so do not say Pluryprint is the only tool with Explorer integration. Pluryprint's difference: free and GPL-3.0, it prints straight from the menu with a profile instead of only loading files into another window, it runs on macOS, and it has a native Finder Services entry.
