@@ -56,3 +56,7 @@ installers/windows/*.exe
 installers/windows/*.msi
 installers/macos/*.dmg
 installers/macos/*.pkg
+
+# Fetched at packaging time by scripts/fetch-sumatrapdf.{ps1,sh}; never committed
+src-tauri/resources/sumatrapdf/*
+!src-tauri/resources/sumatrapdf/README.md

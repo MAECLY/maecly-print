@@ -133,7 +133,7 @@ cargo clippy --manifest-path shell-ext-win/Cargo.toml --all-targets -- -D warnin
 pnpm tauri build          # or: make build
 ```
 
-On Windows, run `pwsh -File scripts/fetch-sumatrapdf.ps1` first (POSIX twin: `scripts/fetch-sumatrapdf.sh`). It downloads SumatraPDF from a pinned vendor URL, verifies a pinned SHA-256, and drops the executable plus the upstream `LICENSE.txt` into `src-tauri/resources/sumatrapdf/`, which `bundle.resources` copies into the bundle. The binary is deliberately not committed; without this step the app builds but every print job fails with `DependencyMissing`.
+On Windows, run `powershell -ExecutionPolicy Bypass -File scripts\fetch-sumatrapdf.ps1` first (it runs in the stock Windows PowerShell 5.1 as well as `pwsh`, and picks the host architecture unless given `-Arch x64|arm64`; POSIX twin: `scripts/fetch-sumatrapdf.sh --arch x64|arm64`). It downloads SumatraPDF from a pinned vendor URL, verifies a pinned SHA-256, fetches the licence files from the pinned upstream commit (each verified), and drops the executable plus `LICENSE.txt`, `COPYING.BSD.txt`, `AUTHORS.txt` and `SOURCE.txt` into `src-tauri/resources/sumatrapdf/`, which `bundle.resources` copies into the bundle. The binary is deliberately not committed; without this step the app builds but every print job fails with `DependencyMissing`.
 
 Output:
 

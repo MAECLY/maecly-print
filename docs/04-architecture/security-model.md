@@ -314,7 +314,7 @@ Before tagging a release, the maintainer verifies:
 - [ ] `cargo deny check` clean.
 - [ ] `pnpm audit --audit-level high` clean.
 - [ ] All artifacts signed (Authenticode / Apple Developer ID).
-- [ ] The bundled SumatraPDF matches the pinned version **and checksum** in `scripts/fetch-sumatrapdf.*`, and its upstream `LICENSE` was copied next to the executable (GPLv3 §6 obligation — see [`../09-legal/third-party-licenses.md`](../09-legal/third-party-licenses.md)).
+- [ ] The bundled SumatraPDF matches the pinned version **and checksum** in `scripts/fetch-sumatrapdf.*`, for the installer's architecture (x64 or ARM64), and its licence files (`LICENSE.txt`, `COPYING.BSD.txt`, `AUTHORS.txt`, fetched from the pinned upstream commit) and `SOURCE.txt` sit next to the executable (GPLv3 §6 obligation — see [`../09-legal/third-party-licenses.md`](../09-legal/third-party-licenses.md)).
 - [ ] CSP unchanged (or change reviewed).
 - [ ] Capability allowlist unchanged (or change reviewed).
 - [ ] No new outbound URLs added without privacy-doc update.

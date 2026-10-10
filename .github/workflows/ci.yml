@@ -105,6 +105,15 @@ jobs:
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+      # The packaging step runs this script on stock Windows, where the only
+      # PowerShell is 5.1; it must parse there, not just under pwsh.
+      - name: fetch-sumatrapdf.ps1 parses in Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\scripts\fetch-sumatrapdf.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Host $_ }; exit 1 }
+
       # Windows on ARM is a supported target (the dev VM is Windows 11 ARM);
       # x64 runners cannot run its tests, but a type-check catches anything
       # that only breaks on aarch64.

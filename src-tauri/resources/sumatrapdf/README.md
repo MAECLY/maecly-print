@@ -15,15 +15,18 @@ Instead it is fetched from the vendor's own release at packaging time, with a
 pinned URL and a pinned SHA-256:
 
 ```powershell
-pwsh -File scripts/fetch-sumatrapdf.ps1     # Windows / CI
+powershell -ExecutionPolicy Bypass -File scripts\fetch-sumatrapdf.ps1 -Arch arm64   # or x64
 ```
 
 ```bash
-scripts/fetch-sumatrapdf.sh                 # POSIX twin, for cross-builds
+scripts/fetch-sumatrapdf.sh --arch arm64    # POSIX twin, for cross-builds
 ```
 
-Both scripts drop `SumatraPDF.exe` and the upstream `LICENSE.txt` in this
-directory. `bundle.resources` in `src-tauri/tauri.conf.json` is
+Both scripts drop `SumatraPDF.exe` (the build for the installer's
+architecture), its licence (`LICENSE.txt`, `COPYING.BSD.txt`, `AUTHORS.txt`,
+fetched from the pinned upstream source commit, since the portable archives
+carry none) and a `SOURCE.txt` naming the version, architecture and source
+commit in this directory. Everything here except this README is git-ignored. `bundle.resources` in `src-tauri/tauri.conf.json` is
 `"resources/sumatrapdf/*"`, so whatever is here is copied verbatim into the
 bundle's resource directory — which is the first place
 `engine::deps::bundled_dirs` looks.

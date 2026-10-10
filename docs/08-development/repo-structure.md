@@ -345,7 +345,7 @@ Single-purpose shell / PowerShell scripts. Each script does one thing; the file 
 
 | Script | Purpose |
 |---|---|
-| `fetch-sumatrapdf.ps1` | Downloads the SumatraPDF build MaeclyPrint bundles on Windows, from a pinned vendor URL, verified against a pinned SHA-256, into `src-tauri/resources/sumatrapdf/` along with the upstream `LICENSE.txt`. The binary is deliberately **not** committed: it is a ~20 MB third-party artifact, and re-hosting it in our tree would make us its distributor with the GPLv3 obligations that follow. |
+| `fetch-sumatrapdf.ps1` | Downloads the SumatraPDF build MaeclyPrint bundles on Windows, from a pinned vendor URL, verified against a pinned SHA-256, into `src-tauri/resources/sumatrapdf/` along with its licence files, fetched from the pinned upstream source commit and verified the same way. Picks the x64 or ARM64 build (`-Arch`). Kept ASCII so Windows PowerShell 5.1 parses it. The binary is deliberately **not** committed: it is a ~20 MB third-party artifact, and re-hosting it in our tree would make us its distributor with the GPLv3 obligations that follow. |
 | `fetch-sumatrapdf.sh` | POSIX twin of the above, for cross-builds from macOS/Linux. |
 
 Everything else the release process will eventually need (signing, notarization, artifact upload, manifest updates) is **unwritten**. Earlier drafts of this table listed ten scripts as if they existed; they never did. See [ci-cd.md](../07-build-and-release/ci-cd.md) § "What does not exist yet".

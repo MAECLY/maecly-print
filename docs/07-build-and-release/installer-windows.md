@@ -445,7 +445,7 @@ After a clean uninstall (with user data wiped), `regedit` and `Process Monitor` 
 
 **This file does not exist.** `installers/windows/build.ps1` would be the single entrypoint. It would:
 
-0. Run `scripts/fetch-sumatrapdf.ps1` (or verify a previous run left `SumatraPDF.exe` and `LICENSE.txt` in `src-tauri/resources/sumatrapdf/`). Skipping this is the difference between a working installer and one whose every print job fails.
+0. Run `scripts/fetch-sumatrapdf.ps1 -Arch <x64|arm64>` for the installer's architecture (or verify a previous run left `SumatraPDF.exe`, `LICENSE.txt` and a `SOURCE.txt` naming that architecture in `src-tauri/resources/sumatrapdf/`). Skipping this is the difference between a working installer and one whose every print job fails.
 1. Validate that `maeclyprint.exe`, `shell_ext_win.dll` and `SumatraPDF.exe` exist in expected locations — note the DLL comes out of `shell-ext-win/target/<triple>/release/`, a *separate* target directory from the app's, because the crate is not a workspace member.
 2. Read the version from `src-tauri/tauri.conf.json`.
 3. Generate the sparse MSIX with `MakeAppx.exe` from the Windows SDK.
