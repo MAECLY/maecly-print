@@ -68,7 +68,7 @@
     "nameEmpty": "Enter a profile name.",
     "nameTooLong": "Name must be 100 characters or fewer.",
     "nameTaken": "A profile with this name already exists.",
-    "trayQualityNote": "Tray and quality are sent with every job. The tray must match the bin name your printer driver uses. On Windows the quality can't be applied, and the job says so.",
+    "trayQualityNote": "Tray and quality are sent with every job. The tray must match the bin name your printer driver uses. On Windows, Draft and High are applied by making them the printer's default for your account only while the job is sent; if the driver has no such quality, the print preview says so.",
     "restored": "Unsaved changes from your last visit were restored.",
     "cancel": "Cancel",
     "create": "Create profile",

@@ -263,9 +263,10 @@ pub struct JobSettings {
     /// [`JobSettings::validate`].
     pub page_ranges: Option<String>,
     /// Print-quality preset. Reaches the spooler as CUPS's
-    /// `print-quality`/`cupsPrintQuality`; SumatraPDF has no equivalent switch,
-    /// which [`crate::engine::print::sumatra::quality_note`] states out loud
-    /// instead of pretending otherwise.
+    /// `print-quality`/`cupsPrintQuality`; on Windows, where SumatraPDF has no
+    /// such switch, Draft and High go through a temporary per-user default
+    /// ([`crate::engine::print::devmode_swap`]), and
+    /// [`crate::engine::print::sumatra::quality_note`] says which will happen.
     ///
     /// `#[serde(default)]`: a `queue.json` written before this field existed
     /// must still load (FR-103), reading as [`Quality::Normal`].

@@ -68,7 +68,7 @@
     "nameEmpty": "Escribe un nombre para el perfil.",
     "nameTooLong": "El nombre no puede superar los 100 caracteres.",
     "nameTaken": "Ya existe un perfil con este nombre.",
-    "trayQualityNote": "La bandeja y la calidad se envían con cada trabajo. La bandeja debe coincidir con el nombre que usa el driver de tu impresora. En Windows la calidad no se puede aplicar, y el trabajo lo indica.",
+    "trayQualityNote": "La bandeja y la calidad se envían con cada trabajo. La bandeja debe coincidir con el nombre que usa el driver de tu impresora. En Windows, Borrador y Alta se aplican convirtiéndolas en la configuración predeterminada de la impresora para tu cuenta solo mientras se envía el trabajo; si el driver no ofrece esa calidad, la vista previa de impresión lo indica.",
     "restored": "Se han recuperado los cambios sin guardar de tu última visita.",
     "cancel": "Cancelar",
     "create": "Crear perfil",
