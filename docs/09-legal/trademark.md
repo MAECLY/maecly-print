@@ -2,11 +2,11 @@
 
 > **TL;DR.** "Pluryprint", its wordmark and the Abanico mark (the Pluryprint logo) are unregistered trademarks that belong to the founder (maecly); see also the repository's [`TRADEMARKS.md`](../../TRADEMARKS.md). Refer to us, link to us, write about us — that's all welcome and protected as fair use. Do not use the name or logo to imply our endorsement of your product or service. Forks must use a different name.
 
-This policy explains how the Pluryprint name, logo, and visual identity may and may not be used. It is independent of the [GPLv3 license](./license.md) on the source code: copyright and trademark are different rights.
+This policy explains how the Pluryprint name, logo, and visual identity may and may not be used. It is independent of the [AGPL-3.0 license](./license.md) on the source code: copyright and trademark are different rights. The one place the two meet is an additional term under section 7(e) of the AGPL, stated in [`TRADEMARKS.md`](../../TRADEMARKS.md): the licence grants no rights under trademark law to these names and marks beyond reasonable and customary use in describing where the work came from (for example, "a fork of Pluryprint").
 
 ## Why a trademark policy
 
-GPLv3 protects the **source code** but says nothing about names and logos. Without an explicit trademark policy:
+The AGPL-3.0 licenses the **source code**; apart from the section 7(e) term above, it says nothing about names and logos. Without an explicit trademark policy:
 
 - Someone could ship a malware-laced fork branded "Pluryprint" and damage user trust.
 - Companies could imply we endorse their products by using our logo on packaging.
@@ -61,7 +61,7 @@ These uses are **not permitted** under any circumstances:
 
 ## Forks
 
-If you fork Pluryprint (which GPLv3 explicitly permits) and **distribute** the fork:
+If you fork Pluryprint (which the AGPL-3.0 explicitly permits) and **distribute** the fork:
 
 - **Rename it.** Use a clearly different name. Examples of acceptable rebrand: "PrinterStack" (totally different), "MyPrinter" (clearly distinct).
 - **Remove or replace our logo.** Use your own visual identity.

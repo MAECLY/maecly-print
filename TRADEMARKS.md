@@ -16,10 +16,10 @@ are the mark:
 The icon draws the mark in the brand oranges (`#C2410C` and `#F97316`) and
 ink (`#1C1917`). Inside the app the mark takes the current theme's accent.
 
-- The code is licensed under the GNU General Public License v3.0 only (see
-  `LICENSE`). As an additional term under its section 7(e), the licence grants no
-  rights under trademark law to these names and marks beyond reasonable and
-  customary use in describing where the work came from, for example "a fork of
+- The code is licensed under the GNU Affero General Public License v3.0 (see
+  `LICENSE`). As an additional term under its section 7(e), the licence grants
+  no rights under trademark law to these names and marks beyond reasonable and
+  customary use in describing where the work came from — for example, "a fork of
   Pluryprint".
 - Forks and derivatives **must** change the product name, wordmark and mark before
   distributing. The name "Pluryprint" may not be used to market a fork as if it
