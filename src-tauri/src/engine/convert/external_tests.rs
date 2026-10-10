@@ -281,6 +281,57 @@ done"#,
         assert!(!output.exists());
     }
 
+    /// ADR-0014, round 7: the render worker runs under the same memory cap
+    /// as the SVG worker, over its whole process tree: it is told the cap,
+    /// and a helper of it that grows past the cap ends the job with the
+    /// terminal `page_too_large`, naming the cap.
+    #[test]
+    fn nfr_security_render_worker_runs_under_a_memory_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let seen = dir.path().join("cap");
+        let worker = script(
+            dir.path(),
+            "pluryprint",
+            &format!(
+                "echo \"$PLURYPRINT_WORKER_MEMORY_CAP\" > '{}'; \
+                 perl -e '$x = q(a) x (400*1024*1024); sleep 30'; exit 0",
+                seen.display()
+            ),
+        );
+        let output = dir.path().join("out.pdf");
+        let work = WorkDir::new("job").unwrap();
+        let started = std::time::Instant::now();
+        let err = html::render_system_capped(
+            &worker,
+            b"<p>x",
+            dir.path(),
+            &output,
+            &work,
+            &AtomicBool::new(false),
+            Some(Duration::from_secs(60)),
+            &PageSetup::default(),
+            64 * 1024 * 1024,
+        )
+        .unwrap_err();
+        match &err {
+            EngineError::ConversionFailed(f) => {
+                assert_eq!(f.reason, Some("page_too_large"), "{f:?}");
+                assert_eq!(f.params["limit"], "64");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(crate::util::reasons::is_terminal_conversion_reason(
+            "page_too_large"
+        ));
+        assert!(started.elapsed() < Duration::from_secs(30));
+        assert_eq!(
+            std::fs::read_to_string(&seen).unwrap().trim(),
+            (64u64 * 1024 * 1024).to_string()
+        );
+        assert!(!output.exists());
+        assert_eq!(html::RENDER_WORKER_MEMORY_CAP, 2 * 1024 * 1024 * 1024);
+    }
+
     /// A hung worker is killed at the timeout like any converter.
     #[test]
     fn fr_055_a_hung_worker_is_killed_at_the_timeout() {

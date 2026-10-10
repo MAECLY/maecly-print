@@ -274,6 +274,9 @@ pub const JOB_REASONS: &[ReasonSpec<&'static str>] = &[
     ("conversion_failed", "svg_convert_failed", &[]),
     // FR-055/056/057 (HTML, Markdown, TXT through the system web view).
     ("conversion_failed", "render_failed", &[]),
+    // The render worker and its web view needed more memory than their cap
+    // (ADR-0014, round 7).
+    ("conversion_failed", "page_too_large", &["limit"]),
     // The console CLI without the app next to it (the app is the renderer).
     ("conversion_failed", "render_worker_missing", &[]),
     // No longer emitted: only the headless-browser fallback, removed in
@@ -336,6 +339,7 @@ pub const TERMINAL_CONVERSION_REASONS: &[&str] = &[
     "share_reference_refused",
     "page_not_checkable",
     "svg_too_large",
+    "page_too_large",
     "heif_size_unsupported",
 ];
 

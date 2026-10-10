@@ -76,6 +76,7 @@ Every screen was audited against its spec and completed end to end; the items be
 
 ### Fixed — round 7
 
+- **Security:** the HTML/Markdown/text render worker now runs under a 2 GiB memory cap for itself and the web view processes it starts (a Job Object on Windows, a watchdog on macOS), like the SVG worker. A page that needs more ends with the new terminal reason `page_too_large`.
 - **Security:** an SVG whose clip paths or masks use the default `userSpaceOnUse` units and are nested inside each other (3.6 KB) no longer turns into a 78 MB PDF: every reference is charged, so it fails at once as `svg_too_large`.
 
 ### Fixed — round 6

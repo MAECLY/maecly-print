@@ -11,6 +11,11 @@
 //! tail), `2` for arguments it does not understand. The engine bounds the run
 //! with the conversion timeout and the job's cancel flag and kills the whole
 //! process tree when either fires, web view helpers included.
+//!
+//! Before it reads the page it applies the memory cap its parent passed
+//! ([`crate::engine::convert::process::apply_memory_cap`]), as the SVG worker
+//! does: on Windows it waits until it is inside the parent's Job Object,
+//! whose limit covers the web view's processes too.
 
 use std::ffi::OsString;
 
@@ -25,6 +30,11 @@ pub fn run(args: &[OsString]) -> i32 {
             return super::EXIT_USAGE;
         }
     };
+    // ADR-0014: the memory cap is in force before the page is read.
+    if let Err(e) = crate::engine::convert::process::apply_memory_cap() {
+        eprintln!("pluryprint worker render-pdf: could not apply the memory limit: {e}");
+        return super::EXIT_FAILED;
+    }
     match render::render(&request) {
         Ok(()) => super::EXIT_OK,
         Err(message) => {

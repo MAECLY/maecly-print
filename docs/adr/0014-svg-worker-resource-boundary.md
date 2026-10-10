@@ -49,8 +49,16 @@ The worker process is the boundary for memory and time. The pre-checks stay as d
 
 ### Risks / Open Questions
 
-- The render worker (HTML, Markdown and text) does not run under a memory cap yet. The same `run_capped` could take it.
+- ~~The render worker (HTML, Markdown and text) does not run under a memory cap yet.~~ Closed in round 7, see the amendment below.
 - 1 GiB is a constant. A legitimate drawing that needs more (a very large filter region near the 64 Mpx pre-check) fails as `svg_too_large`.
+
+## Amendment: round 7
+
+- **The render worker is capped too.** HTML, Markdown and text (and RTF on macOS) render through `run_capped` with `CapScope::Tree` and a 2 GiB cap (`html::RENDER_WORKER_MEMORY_CAP`) for the worker and every helper it starts together. The SVG worker keeps `CapScope::Process`.
+  - **Windows:** the WebView2 browser, renderer and GPU processes are the worker's children, so the job cannot limit them to one process. The tree job uses `JOB_OBJECT_LIMIT_JOB_MEMORY` (all processes together) with kill-on-close, and its completion port reports `JOB_OBJECT_MSG_JOB_MEMORY_LIMIT`. The worker waits until it is inside a job with a limit at or under the cap before it reads the page.
+  - **macOS:** the parent's 20 ms watchdog sums the footprint of the worker's process group. WebKit's web-content and networking processes are XPC services that launchd starts, so they are outside that group and outside the cap. WebKit's own memory-pressure handling is all that bounds them.
+  - A render worker stopped for memory ends the job with the new terminal reason `page_too_large`, which names the cap in MB.
+- **Clip paths and masks are charged per use.** usvg shares the `userSpaceOnUse` ones, but svg2pdf writes them out again for every element that uses them, so a 3.6 KB nest of default-unit clip paths became a 78 MB PDF after 16 s. The expansion walk now charges every reference to a mask, clip path or filter in full, whatever its units. It re-uses the cost of the first walk of each one, so the check itself stays cheap. The worker already refused a PDF over 512 MB (`MAX_PDF_BYTES`) before writing it.
 
 ## Related
 

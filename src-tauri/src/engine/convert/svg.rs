@@ -182,7 +182,7 @@ pub fn convert_with_worker_capped(
     timeout: Option<Duration>,
     caps: WorkerCaps,
 ) -> Result<(), EngineError> {
-    use super::process::{run_capped, CappedError};
+    use super::process::{run_capped, CapScope, CappedError};
     let tag = output
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
@@ -195,7 +195,15 @@ pub fn convert_with_worker_capped(
         .arg(input)
         .arg(output)
         .current_dir(work.path());
-    match run_capped(cmd, "SVG converter", cancel, timeout, &log, caps.memory) {
+    match run_capped(
+        cmd,
+        "SVG converter",
+        cancel,
+        timeout,
+        &log,
+        caps.memory,
+        CapScope::Process,
+    ) {
         Ok(()) => match std::fs::metadata(output) {
             Ok(meta) if meta.is_file() && meta.len() <= MAX_PDF_BYTES => Ok(()),
             Ok(meta) if meta.is_file() => {

@@ -22,9 +22,12 @@
 //!   Windows open `\\host\share` over SMB/WebDAV, handing the user's NTLM
 //!   credentials to that host, through `file://host/…` or a protocol-relative
 //!   `//host/…` reference).
-//! - The worker is bounded by the conversion timeout and the job's cancel flag
-//!   like any converter ([`super::process::run_until`]): a page that hangs or
-//!   crashes the web view kills the worker, never the app.
+//! - The worker is bounded by the conversion timeout, the job's cancel flag
+//!   and a memory cap, like the SVG worker ([`super::process::run_capped`]
+//!   over the worker's whole process tree, [`RENDER_WORKER_MEMORY_CAP`];
+//!   ADR-0014): a page that hangs, crashes the web view or needs too much
+//!   memory kills the worker, never the app. Out of memory is the terminal
+//!   `page_too_large`.
 //!
 //! - Text pre-scanning is **not** the security boundary. An HTML parser that
 //!   is not the web view's own will always read some page differently from
@@ -52,7 +55,7 @@ use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use super::process::run_until;
+use super::process::{run_capped, CapScope, CappedError};
 use super::{PageSetup, WorkDir};
 use crate::engine::{EngineError, Failure};
 
@@ -66,6 +69,24 @@ pub const WORKER_EXE_ENV: &str = "PLURYPRINT_WORKER_EXE";
 
 /// Label of the render worker in messages.
 const RENDERER_LABEL: &str = "The page renderer";
+
+/// Most memory the render worker and the web view processes it starts may
+/// use together (ADR-0014, round 7): 2 GiB. A web view printing an ordinary
+/// page uses a few hundred MB; a page that needs more is stopped and the job
+/// fails with the terminal `page_too_large`.
+pub const RENDER_WORKER_MEMORY_CAP: u64 = 2 * 1024 * 1024 * 1024;
+
+/// `page_too_large`, naming the cap in MB as its `limit` param.
+fn page_too_large(cap: u64) -> EngineError {
+    let limit = (cap / (1024 * 1024)).to_string();
+    EngineError::ConversionFailed(
+        Failure::new(
+            "page_too_large",
+            format!("the page needed more memory than the renderer may use ({limit} MB)"),
+        )
+        .param("limit", limit),
+    )
+}
 
 /// Convert the HTML page at `input` into a PDF at `output`, laid out on the
 /// job's paper. The route's entry point.
@@ -196,7 +217,8 @@ pub fn paper_inches(css_size: &str) -> Option<(f64, f64)> {
 }
 
 /// Stage `html` and print it with the render worker run by `exe` (module
-/// docs). [`render_document`] passes [`worker_exe`]; tests pass a fake.
+/// docs), under [`RENDER_WORKER_MEMORY_CAP`]. [`render_document`] passes
+/// [`worker_exe`]; tests pass a fake.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_system_with(
     exe: &Path,
@@ -207,6 +229,33 @@ pub(crate) fn render_system_with(
     cancel: &AtomicBool,
     timeout: Option<Duration>,
     setup: &PageSetup,
+) -> Result<(), EngineError> {
+    render_system_capped(
+        exe,
+        html,
+        base_dir,
+        output,
+        work,
+        cancel,
+        timeout,
+        setup,
+        RENDER_WORKER_MEMORY_CAP,
+    )
+}
+
+/// [`render_system_with`] under a memory cap of `memory_cap` bytes for the
+/// worker's whole process tree.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_system_capped(
+    exe: &Path,
+    html: &[u8],
+    base_dir: &Path,
+    output: &Path,
+    work: &WorkDir,
+    cancel: &AtomicBool,
+    timeout: Option<Duration>,
+    setup: &PageSetup,
+    memory_cap: u64,
 ) -> Result<(), EngineError> {
     let page = stage_page(html, &crate::render::base_href(base_dir), setup, work)?;
     let produced = work.path().join("out.pdf");
@@ -227,9 +276,21 @@ pub(crate) fn render_system_with(
         .args(request.to_args())
         .current_dir(work.path());
     let log = work.path().join("render.log");
-    match run_until(cmd, RENDERER_LABEL, cancel, timeout, &log, None) {
+    match run_capped(
+        cmd,
+        RENDERER_LABEL,
+        cancel,
+        timeout,
+        &log,
+        memory_cap,
+        CapScope::Tree,
+    ) {
         Ok(()) => {}
-        Err(EngineError::ConversionFailed(failure)) => {
+        Err(CappedError::OverMemory) => {
+            let _ = std::fs::remove_file(&produced);
+            return Err(page_too_large(memory_cap));
+        }
+        Err(CappedError::Engine(EngineError::ConversionFailed(failure))) => {
             // The worker gave up on its own watchdog: a timeout, terminal
             // like the engine's own, never a render failure to retry.
             let full = std::fs::read_to_string(&log).unwrap_or_default();
@@ -247,7 +308,7 @@ pub(crate) fn render_system_with(
                 },
             )));
         }
-        Err(other) => return Err(other),
+        Err(CappedError::Engine(other)) => return Err(other),
     }
     super::take_output(&produced, output, RENDERER_LABEL, &log)
 }
