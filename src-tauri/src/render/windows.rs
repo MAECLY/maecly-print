@@ -98,6 +98,11 @@ fn finish(state: &Shared, app: &tauri::AppHandle, outcome: Result<(), String>) {
     std::process::exit(code);
 }
 
+/// Debug builds only: set to `1`, the staged page is served without its
+/// Content-Security-Policy header, so a test can show the request filter
+/// alone refusing what the page asks for. Ignored by release builds.
+const TEST_NO_CSP_HEADER_ENV: &str = "PLURYPRINT_RENDER_TEST_NO_CSP_HEADER";
+
 /// Largest file the worker serves to the page. A bigger one is answered
 /// 404 (it is read into memory once it has been checked on its handle).
 const MAX_SERVED_BYTES: u64 = 256 * 1024 * 1024;
@@ -175,10 +180,20 @@ unsafe fn respond(
 ) -> windows_core::Result<ICoreWebView2WebResourceResponse> {
     let (path, root, headers) = match served {
         Served::Page(path) => {
-            let headers = format!(
-                "Content-Type: text/html\nContent-Security-Policy: {}",
-                crate::engine::convert::html::page_csp()
-            );
+            // Debug builds only: a test can drop the policy header to prove
+            // that the request filter alone keeps a page off the network
+            // (the policy otherwise stops most requests before the filter
+            // sees them). Release builds always send it.
+            let without_policy = cfg!(debug_assertions)
+                && std::env::var_os(TEST_NO_CSP_HEADER_ENV).is_some_and(|v| v == "1");
+            let headers = if without_policy {
+                "Content-Type: text/html".to_string()
+            } else {
+                format!(
+                    "Content-Type: text/html\nContent-Security-Policy: {}",
+                    crate::engine::convert::html::page_csp()
+                )
+            };
             let root = page.parent().unwrap_or(page).to_path_buf();
             (path, root, headers)
         }
