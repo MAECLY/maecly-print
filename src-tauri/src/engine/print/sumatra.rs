@@ -665,8 +665,8 @@ pub fn spool_with(
     });
 
     if let (Some(target), true) = (target, swapped) {
-        let outcome = match os_job_id {
-            Some(id) => swap::job_quality(printer, id, target),
+        let outcome = match &os_job_id {
+            Some(job) => swap::job_quality(printer, job.id, target),
             None => QualityOutcome::Unverified("the job could not be found in the queue".into()),
         };
         match outcome {

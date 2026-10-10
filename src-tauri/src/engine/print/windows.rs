@@ -494,13 +494,15 @@ pub fn find_spooled_job(printer: &str, before: &[u32], pdf: &str) -> Option<JobR
 }
 
 /// [`find_spooled_job`] without the logging, for polling: the job of ours
-/// for `pdf` that was not on `printer` before, once it is there.
+/// for `pdf` that was not on `printer` before, once it is there, with its
+/// submission stamp ([`JobRef`]) like [`find_spooled_job`]'s.
 #[cfg(windows)]
-pub fn new_job_of(printer: &str, before: &[u32], pdf: &str) -> Option<u32> {
+pub fn new_job_of(printer: &str, before: &[u32], pdf: &str) -> Option<JobRef> {
     let user = std::env::var("USERNAME").unwrap_or_default();
-    ffi::jobs(printer)
-        .ok()
-        .and_then(|after| pick_new_job(before, &after, pdf, &user))
+    let after = ffi::jobs(printer).ok()?;
+    pick_new_job(before, &after, pdf, &user)
+        .and_then(|id| after.iter().find(|j| j.id == id))
+        .map(JobRef::of)
 }
 
 /// What the job now carrying `job.id` says about `job`. Pure.
