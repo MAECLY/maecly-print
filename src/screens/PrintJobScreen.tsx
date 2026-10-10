@@ -23,6 +23,7 @@ import {
   type ReactNode,
   type SetStateAction,
 } from 'react';
+import { useLatest } from '@/lib/useLatest';
 import { toast } from 'sonner';
 import {
   builtInProfiles,
@@ -184,8 +185,7 @@ export function PrintJobScreen({
 
   // What is in the job right now, for the "added N files" counts: a folder
   // dropped twice must not claim to have added its files the second time.
-  const filesRef = useRef(files);
-  filesRef.current = files;
+  const filesRef = useLatest(files);
   const currentPaths = () => new Set(filesRef.current.map((f) => f.path));
 
   // Profiles come from the shared store (built-ins + customs). Init is

@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
+import { useLatest } from '@/lib/useLatest';
 
 import { useAnyModalOpen } from '@/components/useModal';
 
@@ -130,14 +131,12 @@ export function useAppShortcuts(
   handlers: Partial<Record<ShortcutId, () => void>>,
   enabled = true,
 ): void {
-  const latest = useRef(handlers);
-  latest.current = handlers;
+  const latest = useLatest(handlers);
   // Shortcuts stand down while any modal owns the keyboard (a11y), but the
   // listener itself stays installed so the webview's print chord is still
   // swallowed below.
   const modalOpen = useAnyModalOpen();
-  const enabledRef = useRef(enabled && !modalOpen);
-  enabledRef.current = enabled && !modalOpen;
+  const enabledRef = useLatest(enabled && !modalOpen);
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       // The webview's own Ctrl/⌘+P (WebView2 keeps browser accelerators on)
@@ -155,7 +154,7 @@ export function useAppShortcuts(
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [enabledRef, latest]);
 }
 
 /** Platform-mod + P, with or without other keys held, repeats included. */

@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { useLatest } from '@/lib/useLatest';
 
 import { CenteredNotice } from '@/components/CenteredNotice';
 import { ConfirmDialog, type ConfirmState } from '@/components/ConfirmDialog';
@@ -320,8 +321,7 @@ export function PrintersScreen() {
   const [prefs, setPrefs] = useState<PrinterPrefs>({});
   // Latest prefs for slow async handlers: merging into a render-time capture
   // after an awaited OS call would silently revert concurrent prefs changes.
-  const prefsRef = useRef(prefs);
-  prefsRef.current = prefs;
+  const prefsRef = useLatest(prefs);
   const [policy, setPolicy] = useState<PrinterPolicy | null>(null);
   const [os, setOs] = useState<OsId>(null);
   const [error, setError] = useState<string | null>(null);

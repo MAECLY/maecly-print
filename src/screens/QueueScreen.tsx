@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { useLatest } from '@/lib/useLatest';
 import { toast } from 'sonner';
 
 import { ConfirmDialog, type ConfirmState } from '@/components/ConfirmDialog';
@@ -159,8 +160,7 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
   // page becoming visible again) probes the dependencies afresh and resumes
   // what is now unblocked — the promise the "opened" install result makes.
   const waitingOnDependency = uiJobs.some((j) => missingDependency(j) !== null);
-  const resolvedRef = useRef(onDependencyResolved);
-  resolvedRef.current = onDependencyResolved;
+  const resolvedRef = useLatest(onDependencyResolved);
   useEffect(() => {
     if (!waitingOnDependency) return;
     let probing = false;
@@ -188,7 +188,7 @@ export function QueueScreen({ view, setView }: QueueScreenProps) {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [waitingOnDependency]);
+  }, [waitingOnDependency, resolvedRef]);
 
   const attention = {
     onEnterPassword: (j: UiQueueJobView) => openPasswordPrompt(j.id, j.file),
