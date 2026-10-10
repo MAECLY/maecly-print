@@ -17,6 +17,10 @@ export default tseslint.config(
       'src/ipc/bindings.ts',
       'docs',
       'claude design',
+      // Agent worktrees are whole checkouts of this repo (with their own
+      // node_modules and build output); linting them from here would lint
+      // every branch twice and pick up their generated files.
+      '.claude/**',
     ],
   },
   {
