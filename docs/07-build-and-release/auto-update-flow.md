@@ -1,19 +1,20 @@
 # Auto-Update Flow
 
-> **TL;DR.** Pluryprint uses Tauri's built-in updater backed by a static JSON manifest hosted at `updates.maecly.com/pluryprint/{channel}.json`. The client checks every 24 hours, downloads signed binaries from the manifest URL, verifies the signature against an embedded public key, replaces the binary, and restarts. Channels (stable, beta, nightly) are switched in Settings.
+> **TL;DR.** Pluryprint uses Tauri's built-in updater backed by a static JSON manifest per channel on this repository's GitHub Releases (see *As built* below; the `updates.maecly.com` design further down was not adopted, [ADR-0011](../adr/0011-release-channel.md)). The client checks every 24 hours, downloads signed binaries from the manifest URL, verifies the signature against an embedded public key, replaces the binary, and restarts. Channels (stable, beta, nightly) are switched in Settings.
 
 This document covers the end-to-end auto-update flow: build, sign, host, manifest schema, client behavior, UX, rollback, and channel switching. It is the operational runbook for delivering updates.
 
-## As built (2026-10-09)
+## As built (2026-10-10)
 
 Where this runbook and the code differ, the code wins. What actually ships ([ADR-0008](../adr/0008-installer-nsis-per-user.md)):
 
-- **Two steps, both explicit.** The launch-time check (30 s after start, at most once per 24 h, `updater.check_on_startup`) and About's **Check for updates** ask the GitHub `releases/latest` API whether something newer exists. Nothing is downloaded until the user picks **Install now** in About, or runs `pluryprint update install`. There is no silent or background install.
-- **Manifest.** `tauri-plugin-updater` reads `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json`, a GitHub release asset, not `updates.maecly.com`. One manifest serves every channel for now. `PLURYPRINT_UPDATE_ENDPOINT` overrides it for local testing.
+- **Two steps, both explicit.** The launch-time check (30 s after start, at most once per 24 h, `updater.check_on_startup`) and About's **Check for updates** read the update manifest of the user's channel, the same document the installer reads, to see whether something newer exists. The GitHub REST API is not used. Nothing is downloaded until the user picks **Install now** in About, or runs `pluryprint update install`. There is no silent or background install.
+- **Manifests (FR-085).** Stable: `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json` (the newest published non-prerelease). Beta, and nightly, which has no builds: `https://github.com/MAECLY/maecly-print/releases/download/channel-beta/latest.json`, which `release-channels.yml` moves forward whenever a release is published, so beta users also get the stable release of the same version and never move back (FR-086). `PLURYPRINT_UPDATE_ENDPOINT` overrides either for local testing. While the repository is private both answer 404, which the app reports as nothing published.
 - **Verify, then install.** The artifact's minisign signature is checked against `plugins.updater.pubkey` before anything is written. A failure is reported as `UpdateSignatureInvalid` ("failed its signature check and was NOT installed"). Windows runs the per-user NSIS setup passively, and the app exits and is restarted by the installer. macOS swaps the `.app` in place and offers **Restart now**. A binary outside an `.app` bundle refuses to update itself.
 - **FR-087.** A major version jump needs a second confirmation: a dialog in About, or `--yes` / a typed "yes" to a prompt that names the major update on the CLI.
 - **Signing.** `TAURI_SIGNING_PRIVATE_KEY` at release build time. See [ci-cd.md § Updater signing](./ci-cd.md#updater-signing). `requireSignedVersion` is off because the Tauri CLI in use does not yet record the version in the signature.
-- **Not built yet:** the release workflow that signs and uploads artifacts and `latest.json`, per-channel manifests, staged rollout, and the CDN described below.
+- **Release workflow:** `.github/workflows/release.yml` builds, signs and uploads the artifacts, `latest.json` and `SHA256SUMS` into a draft; the runbook is [releasing.md](./releasing.md). It has not run yet (the signing secrets are not set).
+- **Not built:** staged rollout, the downgrade confirmation of FR-086, and the CDN described below.
 
 ## High-level flow
 

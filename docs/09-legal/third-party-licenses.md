@@ -270,17 +270,15 @@ Every bundle carries, via `bundle.resources` in `tauri.conf.json` (checked by `s
 
 On macOS `<resource-dir>` is `Pluryprint.app/Contents/Resources/`; on Windows it is the install folder.
 
-`THIRD-PARTY-NOTICES.md` is written by hand from `cargo tree` (per release target) and a production `vite build`; its "How this list was made" section has the exact commands. It is still incomplete — it names the 62 MIT-only crates but does not reproduce their notices — and its "Open items" say what is missing. Generating it instead of writing it is open work:
+`THIRD-PARTY-NOTICES.md` is generated. Its first part (SumatraPDF, the native code, the WebView2 loader, the NSIS installer stub, the font, the compatibility table) is hand-written in `scripts/licenses/notices-header.md`; the rest reproduces the licence text, with its copyright lines, of every crate compiled into the app or the Explorer DLL for the four release targets (cargo-about, `scripts/licenses/about.toml`) and of every frontend package in the bundle (`pnpm licenses list --prod`):
 
 ```bash
-# Rust deps
-cargo about generate templates/about.hbs > LICENSES-rust.txt
-
-# Frontend deps
-pnpm licenses list --long --prod > LICENSES-frontend.txt
+cargo install cargo-about --locked --features cli --version 0.9.2   # once
+scripts/licenses/generate-notices.sh          # after any dependency change
+scripts/licenses/generate-notices.sh --check  # CI's `notices` job
 ```
 
-`THIRD-PARTY-NOTICES.md` is reviewed during release prep (see [release-checklist.md](../08-development/release-checklist.md)) to catch new dependencies that don't have a license declared.
+A crate whose licence is not in `about.toml`'s accepted list fails the generator instead of shipping unnoticed; adding a licence there needs the compatibility analysis in this document first. `src-tauri/tests/third_party_notices.rs` checks that every direct dependency has an entry and every entry is still in a lockfile.
 
 ## Compatibility check process
 

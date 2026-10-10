@@ -16,6 +16,7 @@
 | 0008 | [Installer: per-user NSIS with signed updater artifacts](./0008-installer-nsis-per-user.md) | Accepted | 2026-10-09 |
 | 0009 | [Rename the product from MaeclyPrint to Pluryprint](./0009-rename-to-pluryprint.md) | Accepted | 2026-10-09 |
 | 0010 | [Relicense to AGPL-3.0](./0010-relicense-to-agpl-3.0.md)                        | Accepted | 2026-10-09 |
+| 0011 | [Release channel on GitHub Releases, beta manifest, no OS code signing](./0011-release-channel.md) | Accepted | 2026-10-10 |
 
 ## Format
 

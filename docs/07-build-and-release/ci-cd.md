@@ -1,14 +1,17 @@
 # CI/CD
 
-> **TL;DR.** GitHub Actions runs **one** workflow today: `ci.yml` (every PR and push to `main` — lint, test, coverage gates, unsigned build, GUI smoke, shell-extension lanes). There is no sign-off check: contributions come in under the [CLA](../../CLA.md), which the pull request template asks for. There is **no release workflow and no nightly workflow**: nothing in this repository signs, notarizes, publishes or tags a release. That pipeline is designed but unbuilt, and this document separates the two halves explicitly.
+> **TL;DR.** `ci.yml` runs on every PR and push to `main` (lint, test, coverage gates, unsigned build, GUI smoke, shell-extension lanes, the third-party notices check, and on `main` the release-mode x64 and ARM64 installers). `release.yml` builds a signed release into a **draft** on every `v*` tag, and `release-channels.yml` moves the beta channel when a person publishes it: see [releasing.md](./releasing.md), the runbook, and [ADR-0011](../adr/0011-release-channel.md). Nothing is notarized or Authenticode-signed (decision D2), there is no nightly workflow, and no release has run yet: the two signing secrets are not set. There is no sign-off check: contributions come in under the [CLA](../../CLA.md), which the pull request template asks for.
 
-This document specifies what CI does today, then records the release pipeline design that has not been implemented, so the gap is visible rather than hidden.
+This document specifies what CI does; [releasing.md](./releasing.md) covers the release workflows.
 
 ## Workflows that exist
 
 | Workflow | File | Trigger | Signs? | Publishes? |
 |---|---|---|---|---|
 | **CI** | `.github/workflows/ci.yml` | `pull_request` → `main`, `push` → `main`, `workflow_dispatch`, weekly `schedule` | No | No (artifacts kept 7 days for debugging) |
+| **release** | `.github/workflows/release.yml` | `push` of a `v*` tag; `workflow_dispatch` (build only) | Update artifacts (minisign); no OS code signing | A **draft** release, published by a person |
+| **release-channels** | `.github/workflows/release-channels.yml` | `release: published` | No | Overwrites `latest.json` on the `channel-beta` prerelease, forward only |
+| **Pages** | `.github/workflows/pages.yml` | `push` → `main` touching `site/` | No | The landing page |
 
 `workflow_dispatch` and `schedule` exist on `ci.yml` for exactly one job: the advisory `ignored-tests` lane. Every other job carries `if: github.event_name != 'schedule'`, so a scheduled run executes that lane and nothing else.
 
@@ -87,11 +90,11 @@ macOS rather than Windows because the CUPS backend compiles and runs there, and 
 cargo test --manifest-path src-tauri/Cargo.toml -- --ignored
 ```
 
-`-- --ignored` runs *only* the ignored tests; everything else already ran in the blocking lanes. The tests in question hit `api.github.com` and drive real `lpadmin`/CUPS — rate limits and third-party downtime must never fail a merge. See [testing-strategy.md](../08-development/testing-strategy.md) § *Ignored tests*.
+`-- --ignored` runs *only* the ignored tests; everything else already ran in the blocking lanes. The tests in question read the published update manifests on github.com and drive real `lpadmin`/CUPS — rate limits and third-party downtime must never fail a merge. See [testing-strategy.md](../08-development/testing-strategy.md) § *Ignored tests*.
 
 ### `build` — windows-latest, blocking, `needs: [frontend, backend]`
 
-`pnpm tauri build --debug`, then **Smoke launch (Windows)**, which is the strictest GUI assertion in the pipeline and *does* gate:
+`scripts/fetch-sumatrapdf.ps1 -Arch x64` and `scripts/build-shell-ext.ps1 -Arch x64` (the NSIS hooks refuse to build an installer without the DLL), `pnpm tauri build --debug`, then **Smoke launch (Windows)**, which is the strictest GUI assertion in the pipeline and *does* gate:
 
 - Starts the binary and polls the real log directory, `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\pluryprint-*.jsonl` (only files written after the launch), for **both** `app_started` and `main_window_resolved`, 60 s deadline. Overriding `APPDATA`/`LOCALAPPDATA` does not sandbox it — `directories` resolves known folders through `SHGetKnownFolderPath`, which ignores those variables — which is why an earlier version of this step could never pass.
 - Throws if either never appears; the process is killed in a `finally` block either way.
@@ -99,6 +102,14 @@ cargo test --manifest-path src-tauri/Cargo.toml -- --ignored
 - On failure uploads `windows-smoke-log`.
 
 This catches missing runtime dependencies and startup panics that a compile-only build would sail past.
+
+### `installers` — windows-latest, push to `main` and manual runs, matrix x64 / ARM64
+
+The release-mode NSIS installers, built as `release.yml` builds them but unsigned (`tauri.ci.conf.json`): SumatraPDF for the installer's architecture, the Explorer DLL for both architectures under `resources/shellext/<arch>/`, then `pnpm tauri build --target <triple> --bundles nsis`. The ARM64 one is cross-compiled (NFR-070). The job writes the installer size to the summary against NFR-006's 15 MB (a warning here, an error in `release.yml`), checks the bundle carries SumatraPDF, its licence, its source offer and both DLLs, and uploads the installer as `pluryprint-installer-<arch>`. Not on PRs: two release builds per PR would cost more runner minutes than they save.
+
+### `notices` — ubuntu-latest, blocking
+
+Runs `scripts/licenses/generate-notices.sh --check` with cargo-about 0.9.2: `THIRD-PARTY-NOTICES.md` must equal what the lockfiles generate, so a dependency change cannot ship without its notices.
 
 ### `e2e` — windows-latest, non-blocking, `needs: [frontend, backend]`
 
@@ -147,15 +158,13 @@ Everything in this section is **unimplemented**. It is recorded as design intent
 
 | Missing | Status |
 |---|---|
-| `.github/workflows/release.yml` | Not written. No tag-triggered pipeline; a `v*` tag currently does nothing. |
 | `.github/workflows/nightly.yml` | Not written. There are no nightly builds and no nightly channel. |
-| Code signing of any kind | No signing step exists anywhere. No EV certificate, no Apple Developer ID, no notarization, no stapling. Artifacts from `ci.yml` are unsigned debug builds. |
-| Updater bundle signing in CI | The app side is done: `tauri.conf.json` carries `plugins.updater.pubkey` and `createUpdaterArtifacts`, and the app verifies and installs signed updates (see [Updater signing](#updater-signing)). No workflow signs or publishes them yet. |
-| Artifact publication (Cloudflare R2, channel manifests) | No upload step, no manifest generator, no bucket. |
-| GitHub Release creation | Not automated. |
+| OS code signing | No Authenticode certificate, no Apple Developer ID, no notarization, no stapling (decision D2). macOS bundles are signed ad hoc. Update artifacts **are** signed, by `release.yml`. |
+| A release that has run | `release.yml` exists but has never run: `TAURI_SIGNING_PRIVATE_KEY` is not set, and the repository is private until the first stable release. |
+| Artifact publication outside GitHub (Cloudflare R2, own domain) | Not planned for now: releases and manifests live on GitHub Releases ([ADR-0011](../adr/0011-release-channel.md)). |
 | `installers/windows/build.ps1`, `installers/macos/*.sh` | The `installers/` tree contains only `.gitkeep` files. |
 | `scripts/sign-*.ps1`, `scripts/upload-to-r2.sh`, `scripts/update-manifest.sh`, `scripts/build-mac-universal.sh`, `scripts/setup-apple-certs.sh`, `scripts/verify-windows-signatures.ps1` | None exist. `scripts/` holds `fetch-sumatrapdf.ps1` and `fetch-sumatrapdf.sh` and nothing else. |
-| Universal macOS binary / arch matrix | `ci.yml` builds only the runner's native architecture. There is no `aarch64-apple-darwin` × `x86_64-apple-darwin` matrix and no `lipo` step. The only cross-architecture matrix in the repo is `shell-ext-win`'s x64/ARM64 pair. |
+| Universal macOS binary | Not built: `release.yml` builds Apple silicon and Intel as separate downloads (Versorium's layout). `ci.yml` builds macOS only for the runner's architecture. |
 | `cargo audit` / `pnpm audit` (NFR-065) | No scheduled dependency-audit workflow. Dependabot (`.github/dependabot.yml`) is the only dependency automation. |
 | `gitleaks` secret scanning (NFR-027) | Not configured. |
 | Reproducible-build verification (NFR-064) | Not automated. |
@@ -167,24 +176,22 @@ Releases are signed so the installed app can verify an update before installing 
 - **Public key** — committed, in `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`. Every build embeds it and accepts only artifacts signed by the matching private key.
 - **Private key** — **never committed**. A release build reads it from the `TAURI_SIGNING_PRIVATE_KEY` secret (the key file's contents), plus `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if the key has a password. With both set, `pnpm tauri build` writes a `.sig` next to every updater artifact: the NSIS setup on Windows, `Pluryprint.app.tar.gz` on macOS. Keep an offline backup. If the key is lost, installed copies cannot be updated in place. If it leaks, rotate it and ship the new public key through a release signed with the old one.
 - **The private key must have a password.** Tauri asks for the password whenever `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is not set, and a passwordless key can only be used by setting that variable to an empty string. Windows PowerShell cannot do that: `$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""` *deletes* the variable (verified with `Test-Path env:...` on 5.1), so `pnpm tauri build` finishes both bundles and then waits forever at the password prompt, with no `.sig` written. In a non-interactive job (a scheduled task, CI) that is a hang, not an error. Generate release keys with a non-empty password (`pnpm tauri signer generate -w <file>` asks for one), and run signing builds with `CI=true` and a job timeout so a missing password fails instead of hanging. If an existing key has no password, sign the artifact explicitly instead, from `cmd.exe`: `pnpm tauri signer sign -f <key file> -p "" <artifact>`. Windows PowerShell 5.1 drops empty arguments to native programs, so the same line typed there loses the `""`; `cmd.exe` passes it through.
-- **Manifest** — the release uploads `latest.json` as a release asset: `version`, `notes`, `pub_date`, and a `platforms` map (`windows-x86_64`, `darwin-aarch64`, `darwin-x86_64`) of `{ url, signature }`, where `signature` is the contents of the matching `.sig`. The app reads it from `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json`.
+- **Manifest** — the release uploads `latest.json` as a release asset: `version`, `notes`, `pub_date`, and a `platforms` map (`windows-x86_64`, `windows-aarch64`, `darwin-aarch64`, `darwin-x86_64`, plus the `-nsis`/`-app` variants) of `{ url, signature }`, where `signature` is the contents of the matching `.sig`. The stable channel reads it from `https://github.com/MAECLY/maecly-print/releases/latest/download/latest.json`, the beta channel from the `channel-beta` release (see [releasing.md](./releasing.md) §3).
 
 PR and `main` builds have no key and must not get one. With `createUpdaterArtifacts` on, Tauri refuses to bundle without a private key, so `ci.yml` builds with `--config src-tauri/tauri.ci.conf.json`, which turns updater artifacts off for that build only.
 
-To test an update end to end without publishing, serve a `latest.json` and a signed artifact locally, then point a **debug** build at it with `PLURYPRINT_UPDATE_ENDPOINT=http://127.0.0.1:<port>/latest.json`. Release builds only accept `https`. The variable also redirects `update check`, the About screen's check and the launch-time check, which then read that manifest's `version` and `notes` instead of the GitHub releases API (`update::fetch_configured_latest`), so the whole flow can be exercised against one test server. A copy of the artifact with one byte changed must fail with "failed its signature check and was NOT installed" (exit code 11 from `update install`).
+To test an update end to end without publishing, serve a `latest.json` and a signed artifact locally, then point a **debug** build at it with `PLURYPRINT_UPDATE_ENDPOINT=http://127.0.0.1:<port>/latest.json`. Release builds only accept `https`. The variable also redirects `update check`, the About screen's check and the launch-time check, which read that manifest's `version` and `notes` exactly as they read the channel's published manifest (`update::fetch_configured_latest`), so the whole flow can be exercised against one test server. A copy of the artifact with one byte changed must fail with "failed its signature check and was NOT installed" (exit code 11 from `update install`).
 
 `BUILD_DATE` (About, issue reports) is the build script's run date, re-stamped on every source change. A reproducible release pins it with `SOURCE_DATE_EPOCH`.
 
 ### Required secrets
 
-**None** for `ci.yml`. A release pipeline needs `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (release keys must have a password; see above). `ci.yml` reads no `secrets.*` value; every job runs on the default `GITHUB_TOKEN`. That is a direct consequence of the table above: nothing signs, uploads or publishes. The secret inventory a release pipeline would need (EV signing credentials, Apple certificates and notarization identifiers, the Ed25519 updater key, object-storage keys) is specified in [code-signing.md](./code-signing.md); it should be created when the pipeline that consumes it is written, not before.
+**None** for `ci.yml`, which reads no `secrets.*` value. `release.yml` needs `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (release keys must have a password; see above), and its `guard` job fails a tag build when the key is not set. The full list of secrets and repository settings is in [releasing.md](./releasing.md) §2.
 
-### Design intent for the release pipeline
+### Constraints the release pipeline keeps
 
-When `release.yml` is written, these constraints hold:
-
-- **Tag-triggered** on `v*`, with the channel derived from the tag (`-beta.`/`-rc.` → beta, otherwise stable).
-- **Manual approval gate.** The publishing job binds to a GitHub Environment (`production`) with required reviewers, so signed binaries never reach a CDN without a human confirming that builds succeeded, signatures verified and notarization passed. This is the primary defence against a compromised PR reaching users.
+- **Tag-triggered** on `v*`, with the channel derived from the tag (any `-` suffix → prerelease, beta channel; otherwise stable).
+- **Manual approval gate.** The workflow only ever builds a **draft**; a person publishes it after the checks in [releasing.md](./releasing.md) §6. On the free plan with a private repository, Environments with required reviewers are not available; the draft is the gate.
 - **No signing in CI.** PR and `main` builds must never have access to signing material; forks and contributors cannot accidentally sign.
 - **`scripts/fetch-sumatrapdf.ps1` runs before any Windows packaging step.** `SumatraPDF.exe` is not committed (see `src-tauri/resources/sumatrapdf/README.md`), so a packaging job that skips this produces an installer whose every print job fails with `DependencyMissing`.
 - **No self-hosted runners.** GitHub-hosted runners are sufficient at our scale, and a self-hosted runner with access to signing secrets is a supply-chain liability. If cost becomes a concern, narrow the PR matrix rather than moving off hosted runners.
