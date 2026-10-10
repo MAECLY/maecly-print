@@ -795,6 +795,108 @@ mod tests {
         );
     }
 
+    /// A one-page PDF whose page points (`/Deep 4 0 R`) at object 4, `depth`
+    /// levels of `open`…`close` nesting. With `encrypt`, the trailer also names
+    /// object 4 as its `/Encrypt` dictionary, so the encryption inspection
+    /// (FR-059) parses the file too. Offsets in the xref table are exact.
+    fn nested_pdf(open: &str, close: &str, depth: usize, encrypt: bool) -> Vec<u8> {
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Deep 4 0 R >>".to_owned(),
+            format!("{}{}", open.repeat(depth), close.repeat(depth)),
+        ];
+        let mut pdf = b"%PDF-1.4\n".to_vec();
+        let mut offsets = Vec::new();
+        for (i, body) in objects.iter().enumerate() {
+            offsets.push(pdf.len());
+            pdf.extend(format!("{} 0 obj\n{body}\nendobj\n", i + 1).bytes());
+        }
+        let xref = pdf.len();
+        pdf.extend(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).bytes());
+        for offset in offsets {
+            pdf.extend(format!("{offset:010} 00000 n \n").bytes());
+        }
+        let encrypt = if encrypt { " /Encrypt 4 0 R" } else { "" };
+        pdf.extend(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R{encrypt} >>\nstartxref\n{xref}\n%%EOF\n",
+                objects.len() + 1
+            )
+            .bytes(),
+        );
+        pdf
+    }
+
+    /// RUSTSEC-2026-0187: lopdf before 0.42 parsed nested arrays and
+    /// dictionaries recursively without a limit, so a user's PDF with deeply
+    /// nested objects overflowed the stack and aborted the whole app (a stack
+    /// overflow cannot be caught). Every place that parses a user PDF — the
+    /// passthrough checks, the encryption inspection and the page-count probe —
+    /// must now come back with an answer instead.
+    ///
+    /// Run on an 8 MiB thread: lopdf now stops at 100 levels, which a release
+    /// build parses in well under 256 KiB of stack, but unoptimised parser
+    /// frames are far bigger and a debug build needs a few MiB for it. lopdf
+    /// is built without `rayon`, so it parses on this thread (and in the app on
+    /// the caller's), not on a pool thread with a stack of its own. The
+    /// unbounded 0.39 parser overflowed even 16 MiB in release on this input.
+    #[test]
+    fn rustsec_2026_0187_deeply_nested_pdf_objects_do_not_overflow_the_stack() {
+        std::thread::Builder::new()
+            .stack_size(8 << 20)
+            .spawn(|| {
+                const DEPTH: usize = 100_000;
+                let dir = tempfile::tempdir().unwrap();
+                let cancel = AtomicBool::new(false);
+                let progress = |_p: f32| {};
+                let cases = [
+                    ("arrays", "[", "]", false),
+                    ("dictionaries", "<< /K ", " >>", false),
+                    ("encrypt-arrays", "[", "]", true),
+                    ("encrypt-dictionaries", "<< /K ", " >>", true),
+                ];
+                for (name, open, close, encrypt) in cases {
+                    let bytes = nested_pdf(open, close, DEPTH, encrypt);
+                    let pdf = dir.path().join(format!("{name}.pdf"));
+                    std::fs::write(&pdf, &bytes).unwrap();
+
+                    let result = convert_to_pdf(
+                        &pdf,
+                        dir.path(),
+                        name,
+                        &cancel,
+                        &progress,
+                        None,
+                        &PageSetup::default(),
+                        None,
+                    );
+                    if encrypt {
+                        // A trailer naming an `/Encrypt` lopdf cannot read is
+                        // refused (as protected or as damaged), never printed.
+                        assert!(
+                            matches!(
+                                result,
+                                Err(EngineError::PdfProtected(_) | EngineError::ConversionFailed(_))
+                            ),
+                            "{name}: {result:?}"
+                        );
+                    } else {
+                        // The nested object is not one the page needs: the
+                        // file is printed in place like any other PDF.
+                        assert!(matches!(result, Ok(None)), "{name}: {result:?}");
+                    }
+
+                    // Whatever the count is, it is an answer, not a crash.
+                    let _ = crate::queue::probe_pages(&pdf, "pdf", bytes.len() as u64);
+                    let _ = pdf_security::inspect(&pdf, bytes.len() as u64);
+                }
+            })
+            .unwrap()
+            .join()
+            .expect("parsing a deeply nested PDF must not panic");
+    }
+
     #[test]
     fn junk_bytes_named_pdf_are_rejected() {
         let dir = tempfile::tempdir().unwrap();

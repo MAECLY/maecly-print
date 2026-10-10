@@ -1,6 +1,6 @@
-# The checks a pull request must pass: lint, typecheck, format and tests for
-# the frontend, and fmt, clippy and tests for the Rust backend on the two
-# platforms Pluryprint ships for. Nothing here builds an installer or reads a
+# The checks a pull request must pass: lint, typecheck, format, tests and a
+# dependency audit for the frontend, and fmt, clippy, tests and a dependency
+# audit for the Rust backend on the two platforms Pluryprint ships for. Nothing here builds an installer or reads a
 # secret; release.yml builds, measures and signs the shipped artifacts (and
 # checks THIRD-PARTY-NOTICES.md before it does).
 name: CI
@@ -50,6 +50,12 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # Known vulnerabilities in what ships in the bundle. Dev-only
+      # advisories that cannot be fixed yet are listed, with reasons, in
+      # docs/07-build-and-release/ci-cd.md (package.json auditConfig).
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high
+
   # The Rust code is heavily cfg-gated (WinSpool and the Explorer handler on
   # Windows, CUPS on macOS), so it is checked on both shipped platforms.
   backend:
@@ -89,6 +95,25 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock', 'shell-ext-win/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
+
+      # Known vulnerabilities (RustSec) in both locked trees. Fails on any
+      # advisory not ignored, with its reason, in src-tauri/.cargo/audit.toml.
+      # The lockfiles are the same on every runner: once is enough.
+      - name: Install cargo-audit
+        if: runner.os == 'macOS'
+        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: cargo-audit@0.22.2
+
+      - name: cargo audit
+        if: runner.os == 'macOS'
+        working-directory: src-tauri
+        run: cargo audit
+
+      - name: cargo audit (shell extension)
+        if: runner.os == 'macOS'
+        working-directory: shell-ext-win
+        run: cargo audit
 
       # Formatting does not depend on the platform: once is enough.
       - name: cargo fmt

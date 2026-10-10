@@ -1819,7 +1819,7 @@ mod tests {
         let page = *doc.get_pages().values().next().unwrap();
         let page_dict = doc.get_dictionary(page).unwrap();
         let resources = dict_at(&doc, page_dict.get(b"Resources").unwrap()).clone();
-        let content = doc.get_page_content(page).unwrap();
+        let content = doc.get_page_content(page);
         let mut found = Vec::new();
         let identity = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
         patterns_in(&doc, &resources, &content, identity, &mut found);

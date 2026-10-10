@@ -6,9 +6,10 @@
 //!
 //! Why hand-build with `lopdf` instead of `printpdf`'s image API: `printpdf` is
 //! pulled in with `default-features = false`, which disables its `images`
-//! feature — its image-XObject serialiser is then a `panic!` stub. `lopdf` is
-//! already a direct dependency and lets us emit a minimal, correct image
-//! XObject (`/DeviceRGB`, 8 bits-per-component) with no extra crates.
+//! feature — in printpdf 0.9 its image-XObject serialiser was then a `panic!`
+//! stub (0.12 writes raw pixels instead). `lopdf` is already a direct
+//! dependency and lets us emit a minimal, correct image XObject
+//! (`/DeviceRGB`, 8 bits-per-component) with no extra crates.
 //!
 //! Known limitations (documented, not bugs):
 //! - **EXIF orientation is not applied.** The `image` crate does not auto-rotate

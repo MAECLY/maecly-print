@@ -39,9 +39,9 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `specta` | `=2.0.0-rc.22` | MIT / Apache-2.0 | Type reflection for the IPC bindings | Yes |
 | `specta-typescript` | `=0.0.9` | MIT / Apache-2.0 | TypeScript emitter | Yes |
 | `tauri-specta` | `=2.0.0-rc.21` | MIT / Apache-2.0 | Typed command/event bindings | Yes |
-| `printpdf` | 0.9.1 (`default-features = false`) | MIT | PDF primitives | Yes |
+| `printpdf` | 0.12.8 (`default-features = false`) | MIT | PDF primitives for the printer test page (writes only, never parses input) | Yes |
 | `image` | 0.25 (jpeg/png/tiff/bmp/webp only) | MIT / Apache-2.0 | **In-process** image decoding | Yes |
-| `lopdf` | 0.39 | MIT | PDF parsing, hand-built image PDFs, encrypted-PDF detection and decryption (FR-059) | Yes |
+| `lopdf` | 0.44 (`default-features = false`) | MIT | PDF parsing, hand-built image PDFs, encrypted-PDF detection and decryption (FR-059); the line printpdf 0.12 is built on | Yes |
 | `svg2pdf`, `usvg` | 0.13 / `=0.45.1` | MIT / Apache-2.0 | SVG/SVGZ → vector PDF (FR-052a); pulls in `resvg`, `fontdb`, `tiny-skia` (BSD-3-Clause), `roxmltree` | Yes |
 | `pdf-writer` | 0.12 | MIT / Apache-2.0 | The page around svg2pdf's drawing (FR-052a); the line svg2pdf is built on, already in the tree | Yes |
 | `pulldown-cmark` | 0.13 (`html` only) | MIT | Markdown → HTML without Pandoc (FR-056) | Yes |

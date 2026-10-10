@@ -75,7 +75,10 @@ specta = { version = "=2.0.0-rc.22", features = ["derive"] }
 specta-typescript = "=0.0.9"
 tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
 # Core PDF building only — no `html` default (drops azul-layout/kuchiki/etc.).
-printpdf = { version = "0.9.1", default-features = false }
+# Writes the printer test page and nothing else: it never parses user input.
+# 0.12 is the first line built on a lopdf that bounds object nesting
+# (RUSTSEC-2026-0187), the same lopdf line as ours below.
+printpdf = { version = "0.12.8", default-features = false }
 
 # --- Print engine (M1) ---
 # Pure-Rust image decoding for the image→PDF converter; codecs only, no extras.
@@ -89,9 +92,14 @@ image = { version = "0.25", default-features = false, features = [
 # PDF parsing: page counts for the Print Job screen + converter test assertions,
 # and (FR-059) encrypted-PDF detection and decryption. 0.39 is the first line
 # that reads AES-128/AES-256 (V4/V5) security handlers and offers
-# `load_with_password`; it is also the copy printpdf already pulls in, so the
-# tree keeps a single lopdf. MSRV 1.85, below ours.
-lopdf = "0.39"
+# `load_with_password`; 0.42 is the first that bounds object nesting
+# (RUSTSEC-2026-0187: a deeply nested user PDF overflowed the stack and
+# aborted the app). 0.44 is the line printpdf 0.12 is built on, so the tree
+# keeps a single lopdf. MSRV 1.88, below ours. No default features: `rayon`
+# parsed objects on pool threads with stacks of their own (a thread pool is
+# not worth it for a page count), `chrono-clock` only stamps dates on PDFs
+# lopdf writes, which we do not need.
+lopdf = { version = "0.44", default-features = false }
 # FR-052a: SVG/SVGZ -> vector PDF in-process (Typst's converter). `usvg` is
 # pinned to the exact line svg2pdf 0.13 is built on, so the tree never holds
 # two copies of the SVG parser. Both MIT OR Apache-2.0.
