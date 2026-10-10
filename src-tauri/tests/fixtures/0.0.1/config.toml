@@ -1,0 +1,43 @@
+schema_version = 1
+
+[app]
+locale = "es-ES"
+theme = "dark"
+launch_minimized = true
+density = "compact"
+native_notifications = false
+locale_detected = true
+onboarding_complete = true
+
+[printers]
+default_printer = "HP LaserJet \"Oficina\" 2º"
+disabled = [
+    "Old_Fax",
+    '\\server\Shared Printer',
+]
+
+[printers.routes]
+".docx" = "HP LaserJet \"Oficina\" 2º"
+".pdf" = "Brother_HL"
+
+[printers.overrides.Brother_HL]
+tray = "Tray 1"
+paper = "A4"
+
+[printers.overrides."\\\\server\\Shared Printer"]
+paper = "Letter"
+
+[engine]
+max_concurrent_conversions = 4
+conversion_timeout_seconds = 0
+max_file_size_mb = 512
+print_timeout_seconds = 900
+default_profile = "builtin-photo-color"
+
+[updater]
+channel = "beta"
+check_on_startup = false
+
+[telemetry]
+crash_reports = true
+anonymous_usage_metrics = true
