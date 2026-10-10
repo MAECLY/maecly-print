@@ -197,26 +197,27 @@ The job is then followed until it leaves the queue (`engine::print::job_state`):
            |
            v
 +--------------------+
-| 1. Format detect   |  mime_guess by extension; infer fallback by magic bytes.
-|    per file        |  Output: Vec<JobPlan>
+| 1. Format detect   |  By extension, lowercased (convert::route); no magic-byte
+|    per file        |  fallback. Unsupported or GIF: refused at submit.
 +----------+---------+
            |
            v
 +--------------------+
-| 2. Router selects  |  Each job gets a Converter trait object.
-|    Converter       |  Passthrough for PDF, etc.
+| 2. Router selects  |  A match on Route (§4.1): PDF passes through, the
+|    a route         |  rest goes to its converter or worker.
 +----------+---------+
            |
            v
 +--------------------+
-| 3. Plan validation |  Sanity-check: file exists, readable, < max size,
-|    + dedupe        |  not encrypted (when detectable).
+| 3. Submit checks   |  File exists (canonical path), <= max_file_size_mb.
+|                    |  An encrypted PDF is inspected, not refused (§4.1).
 +----------+---------+
            |
            v
 +--------------------+
-| 4. Conversion pool |  Up to N parallel converters via rayon.
-|    (parallel)      |  Each writes to %LOCALAPPDATA%\Maecly\Pluryprint\cache\<job>.pdf
+| 4. Conversions     |  Up to max_concurrent_conversions (default 2) on the
+|    (parallel)      |  dispatcher's blocking tasks. Each writes
+|                    |  <cache>/conversions/<job-id>.pdf (§4.2)
 +----------+---------+
            |
            v
