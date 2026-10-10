@@ -200,7 +200,7 @@ The per-user config-dir fallback lets developers and testers exercise the locked
 
 **Read-only semantics.** When `default_printer` is set, the Printers screen shows a lock note and disables **Set default**; policy **wins over user preferences**, giving the effective-default precedence `policy.default_printer ?? prefs.default_printer ?? OS default`. Because the file is only ever read, the lock cannot be lifted from inside the app — only by an admin editing (or removing) the file.
 
-**Failure behavior.** A missing file is not an error — policy is optional and absence means "unmanaged". A malformed file is **logged with a warning and ignored** (degrades to no-policy); it never blocks app startup. The loader is total: it always returns a value, so the UI can rely on a response.
+**Failure behavior.** A missing file is not an error — policy is optional and absence means "unmanaged". The file may be UTF-8 (with or without a byte-order mark) or UTF-16 with its mark, which is what Notepad ("Unicode") and PowerShell 5 (`Out-File`, `Set-Content -Encoding UTF8`) write. A malformed file, or a trusted one that cannot be read as text, is **logged with a warning (`policy_parse_failed` / `policy_unreadable`) and ignored** (degrades to no-policy, and later locations are not consulted); it never blocks app startup. The loader is total: it always returns a value, so the UI can rely on a response.
 
 Policy is read **at page load** (each time the Printers screen mounts). There is no daemon watching the file for live changes yet — a change takes effect on the next load/rescan. A background watch is a documented follow-up.
 

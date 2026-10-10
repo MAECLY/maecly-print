@@ -163,6 +163,17 @@ fn read_source(source: &Source) -> Found {
                     );
                     return Found::Nothing;
                 }
+                PolicyFile::Unreadable(why) => {
+                    // An admin deployed it, so it is not "absent": say so,
+                    // and apply no policy rather than one from further down.
+                    tracing::warn!(
+                        event = "policy_unreadable",
+                        path = %path.display(),
+                        reason = %why,
+                        "ignoring a policy.json that could not be read as text"
+                    );
+                    return Found::Malformed;
+                }
                 PolicyFile::Trusted(raw) => raw,
             };
             match parse_policy(&raw) {
@@ -233,9 +244,29 @@ fn system_policy_path(app: &str) -> Option<PathBuf> {
 }
 
 /// Parse policy JSON, returning `None` on malformed input (so the caller can
-/// log and fall back). Pure, for unit tests.
+/// log and fall back). A leading byte-order mark is not part of the JSON
+/// (PowerShell 5's `Set-Content -Encoding UTF8` writes one). Pure, for unit
+/// tests.
 fn parse_policy(raw: &str) -> Option<PrinterPolicy> {
-    serde_json::from_str(raw).ok()
+    serde_json::from_str(raw.trim_start_matches('\u{feff}')).ok()
+}
+
+/// The text of a policy file as an admin may have saved it: UTF-8 (with or
+/// without a byte-order mark) or UTF-16 with its mark — what Notepad writes
+/// as "Unicode" and PowerShell 5's `Out-File` writes by default. `None` when
+/// the bytes are none of those. Pure, for unit tests.
+fn decode_policy_text(bytes: &[u8]) -> Option<String> {
+    let decode16 = |encoding: &'static encoding_rs::Encoding, body: &[u8]| {
+        encoding
+            .decode_without_bom_handling_and_without_replacement(body)
+            .map(|text| text.into_owned())
+    };
+    match bytes {
+        [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8(rest.to_vec()).ok(),
+        [0xFF, 0xFE, rest @ ..] => decode16(encoding_rs::UTF_16LE, rest),
+        [0xFE, 0xFF, rest @ ..] => decode16(encoding_rs::UTF_16BE, rest),
+        _ => String::from_utf8(bytes.to_vec()).ok(),
+    }
 }
 
 /// A policy from the registry value, if it is set and not blank. Pure, for
@@ -274,6 +305,9 @@ enum PolicyFile {
     Missing,
     /// Present, but a standard user could have written it (or its folder).
     Untrusted,
+    /// Trusted, but its content could not be read as text (an I/O error, or
+    /// an encoding [`decode_policy_text`] does not know). Carries why.
+    Unreadable(String),
     /// The content of a file only an administrator could have written.
     Trusted(String),
 }
@@ -289,10 +323,13 @@ fn read_trusted(path: &std::path::Path) -> PolicyFile {
     if !handle_is_admin_owned(&file) || !folder_is_admin_owned(path) {
         return PolicyFile::Untrusted;
     }
-    let mut raw = String::new();
-    match file.read_to_string(&mut raw) {
-        Ok(_) => PolicyFile::Trusted(raw),
-        Err(_) => PolicyFile::Missing,
+    let mut bytes = Vec::new();
+    if let Err(e) = file.read_to_end(&mut bytes) {
+        return PolicyFile::Unreadable(e.to_string());
+    }
+    match decode_policy_text(&bytes) {
+        Some(raw) => PolicyFile::Trusted(raw),
+        None => PolicyFile::Unreadable("not UTF-8 or UTF-16 text".to_string()),
     }
 }
 
@@ -601,6 +638,48 @@ mod tests {
     fn parse_policy_rejects_malformed() {
         assert!(parse_policy("{not json").is_none());
         assert!(parse_policy("").is_none());
+    }
+
+    /// FR-044 (managed default): an admin's `policy.json` saved by Notepad as
+    /// "Unicode" (UTF-16 LE with a mark), by PowerShell 5 (`Out-File`:
+    /// UTF-16; `Set-Content -Encoding UTF8`: UTF-8 with a mark) or as plain
+    /// UTF-8 all apply the same policy.
+    #[test]
+    fn fr_044_a_policy_saved_as_utf16_or_with_a_bom_still_applies() {
+        let json = r#"{"default_printer": "Front Desk"}"#;
+        let utf16le: Vec<u8> = [0xFF, 0xFE]
+            .into_iter()
+            .chain(json.encode_utf16().flat_map(u16::to_le_bytes))
+            .collect();
+        let utf16be: Vec<u8> = [0xFE, 0xFF]
+            .into_iter()
+            .chain(json.encode_utf16().flat_map(u16::to_be_bytes))
+            .collect();
+        let utf8_bom: Vec<u8> = [0xEF, 0xBB, 0xBF].into_iter().chain(json.bytes()).collect();
+        for bytes in [utf16le, utf16be, utf8_bom, json.as_bytes().to_vec()] {
+            let text = decode_policy_text(&bytes).expect("decodes");
+            let policy = parse_policy(&text).expect("parses");
+            assert_eq!(policy.default_printer.as_deref(), Some("Front Desk"));
+        }
+        // A BOM that survived decoding elsewhere is not JSON either.
+        assert!(parse_policy(&format!("\u{feff}{json}")).is_some());
+        // Neither UTF-8 nor marked UTF-16: unreadable, not silently absent.
+        assert!(decode_policy_text(&[0x7B, 0xFF, 0x7D]).is_none());
+    }
+
+    /// A trusted file that cannot be read as text is reported (and applies no
+    /// policy), never mistaken for "no policy deployed here".
+    #[cfg(unix)]
+    #[test]
+    fn fr_044_an_undecodable_trusted_policy_is_unreadable_not_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("policy.json");
+        std::fs::write(&path, [0x7B, 0xFF, 0x7D]).unwrap();
+        assert!(matches!(read_trusted(&path), PolicyFile::Unreadable(_)));
+        assert_eq!(
+            read_trusted(&dir.path().join("absent.json")),
+            PolicyFile::Missing
+        );
     }
 
     #[test]
