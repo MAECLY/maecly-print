@@ -101,7 +101,7 @@
   "dialog": {
     "exportTitle": "Export profile",
     "importTitle": "Import profiles",
-    "fileType": "MaeclyPrint profile",
+    "fileType": "Pluryprint profile",
     "failed": "Couldn't open the file dialog."
   }
 }

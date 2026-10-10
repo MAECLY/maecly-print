@@ -845,7 +845,7 @@ describe('queueStore — jobs that stop and need the user (FR-071)', () => {
             file_name: 'a.pdf',
             error: {
               code: 'printer_disabled',
-              message: "printer 'EPSON_L15160' is disabled in MaeclyPrint",
+              message: "printer 'EPSON_L15160' is disabled in Pluryprint",
               params: { printer: 'EPSON_L15160' },
             },
           }),
@@ -855,7 +855,7 @@ describe('queueStore — jobs that stop and need the user (FR-071)', () => {
       const [text, opts] = error.mock.calls[0] ?? [];
       expect(text).toBe('La impresión se detuvo: a.pdf necesita tu atención');
       expect((opts as { description: string }).description).toBe(
-        'La impresora «EPSON L15160 Series» ya no se gestiona en MaeclyPrint. Restáurala en la pantalla Impresoras o elige otra impresora — corrígelo y reanuda el trabajo desde la cola.',
+        'La impresora «EPSON L15160 Series» ya no se gestiona en Pluryprint. Restáurala en la pantalla Impresoras o elige otra impresora — corrígelo y reanuda el trabajo desde la cola.',
       );
     } finally {
       useSettingsStore.setState({ status: 'idle', settings: null });
@@ -890,7 +890,7 @@ describe('queueStore — jobs that stop and need the user (FR-071)', () => {
       ]),
     );
     emitQueueUpdated(
-      stuck('interrupted_by_shutdown', 'MaeclyPrint closed mid-job'),
+      stuck('interrupted_by_shutdown', 'Pluryprint closed mid-job'),
     );
     expect(error).not.toHaveBeenCalled();
   });

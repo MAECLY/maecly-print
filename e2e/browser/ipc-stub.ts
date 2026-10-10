@@ -2,21 +2,21 @@
  * Browser E2E harness: a fake Tauri host for the Vite dev server.
  *
  * Loaded as the first module script of `index.html` when Vite runs with
- * `MAECLY_E2E_STUB=1` (`pnpm dev:e2e`; see the `maeclyE2eStub` plugin in
+ * `PLURY_E2E_STUB=1` (`pnpm dev:e2e`; see the `pluryE2eStub` plugin in
  * `vite.config.ts`, which never applies to `vite build`). It installs
  * `window.__TAURI_INTERNALS__` before the app boots, so `isTauri()` is true and
  * every `@tauri-apps/api` call (invoke, events, dialogs, webview metadata)
  * lands on the in-memory {@link FakeBackend}.
  *
  * Test drivers (Chrome DevTools MCP, Playwright, a human in the console) reach
- * the backend through `window.__MAECLY_E2E__`:
+ * the backend through `window.__PLURY_E2E__`:
  *
  * ```js
- * __MAECLY_E2E__.backend.queue            // live queue state
- * __MAECLY_E2E__.backend.tick()           // advance the queue by hand
- * __MAECLY_E2E__.backend.openPaths = [..] // what the next file picker returns
- * __MAECLY_E2E__.forwardSelection({ paths: ['/x.pdf'], action: 'configure', profile_id: null })
- * __MAECLY_E2E__.dropFiles(['/x.pdf'])    // a native drag-and-drop
+ * __PLURY_E2E__.backend.queue            // live queue state
+ * __PLURY_E2E__.backend.tick()           // advance the queue by hand
+ * __PLURY_E2E__.backend.openPaths = [..] // what the next file picker returns
+ * __PLURY_E2E__.forwardSelection({ paths: ['/x.pdf'], action: 'configure', profile_id: null })
+ * __PLURY_E2E__.dropFiles(['/x.pdf'])    // a native drag-and-drop
  * ```
  *
  * URL query flags: `?e2e-seed=1` starts from the fixture queue (every job
@@ -48,7 +48,7 @@ export interface E2eHarness {
 
 declare global {
   interface Window {
-    __MAECLY_E2E__?: E2eHarness;
+    __PLURY_E2E__?: E2eHarness;
   }
 }
 
@@ -172,7 +172,7 @@ export function installIpcStub(
       emit('tauri://drag-drop', { paths, position: { x: 200, y: 200 } }),
     calls: () => [...backend.calls],
   };
-  win.__MAECLY_E2E__ = harness;
+  win.__PLURY_E2E__ = harness;
   return harness;
 }
 
@@ -195,10 +195,10 @@ if (typeof window !== 'undefined' && !import.meta.env?.VITEST) {
   ) {
     try {
       // Keep in sync with ONBOARD_KEY in src/App.tsx.
-      window.localStorage.setItem('maeclyprint:onboarding-complete', '1');
+      window.localStorage.setItem('pluryprint:onboarding-complete', '1');
     } catch {
       // Storage blocked: onboarding simply shows.
     }
   }
-  console.info('[maecly-e2e] fake Tauri host installed');
+  console.info('[plury-e2e] fake Tauri host installed');
 }

@@ -644,7 +644,7 @@ describe('ProfilesScreen', () => {
         }),
       ).toBeInTheDocument(),
     );
-    // A printer disabled in MaeclyPrint is not offered, as on Print Job.
+    // A printer disabled in Pluryprint is not offered, as on Print Job.
     expect(
       within(printerSelect()).queryByRole('option', {
         name: 'Brother HL-L2350DW',
@@ -706,7 +706,7 @@ describe('ProfilesScreen', () => {
   it('FR-024: exports the selected profile through the save dialog', async () => {
     const calls = mockProfiles();
     saveDialogMock.mockResolvedValue(
-      '/tmp/Contracts-duplex.maecly-profile.toml',
+      '/tmp/Contracts-duplex.pluryprint-profile.toml',
     );
     render(<Harness initialId={CUSTOM_ID} />);
     await screen.findByDisplayValue('Contracts duplex');
@@ -718,10 +718,12 @@ describe('ProfilesScreen', () => {
     );
     const call = calls.find((c) => c.cmd === 'export_profile')!;
     expect(call.args.id).toBe(CUSTOM_ID);
-    expect(call.args.path).toBe('/tmp/Contracts-duplex.maecly-profile.toml');
-    // The dialog is seeded with the `<name>.maecly-profile.toml` convention.
+    expect(call.args.path).toBe(
+      '/tmp/Contracts-duplex.pluryprint-profile.toml',
+    );
+    // The dialog is seeded with the `<name>.pluryprint-profile.toml` convention.
     expect(saveDialogMock.mock.calls[0]?.[0]).toMatchObject({
-      defaultPath: 'Contracts duplex.maecly-profile.toml',
+      defaultPath: 'Contracts duplex.pluryprint-profile.toml',
     });
     expect(
       await screen.findByText('Exported "Contracts duplex"'),
@@ -741,7 +743,7 @@ describe('ProfilesScreen', () => {
 
   it('FR-024: imports profiles, reloads the list and selects the first one', async () => {
     const calls = mockProfiles();
-    openMock.mockResolvedValue('/tmp/shared.maecly-profile.toml');
+    openMock.mockResolvedValue('/tmp/shared.pluryprint-profile.toml');
     render(<Harness />);
     await screen.findByText('Photo Color');
 
@@ -751,7 +753,7 @@ describe('ProfilesScreen', () => {
       expect(calls.some((c) => c.cmd === 'import_profiles')).toBe(true),
     );
     expect(calls.find((c) => c.cmd === 'import_profiles')!.args.path).toBe(
-      '/tmp/shared.maecly-profile.toml',
+      '/tmp/shared.pluryprint-profile.toml',
     );
     // The renamed copy is in the list and selected, and the toast counts it.
     expect(await screen.findAllByText('Contracts duplex 2')).not.toHaveLength(
@@ -831,20 +833,24 @@ describe('ProfilesScreen', () => {
 });
 
 describe('exportFileName', () => {
-  it('FR-024: follows the <name>.maecly-profile.toml convention', () => {
-    expect(exportFileName('Press A')).toBe('Press A.maecly-profile.toml');
+  it('FR-024: follows the <name>.pluryprint-profile.toml convention', () => {
+    expect(exportFileName('Press A')).toBe('Press A.pluryprint-profile.toml');
   });
 
   it('FR-024: strips path separators and reserved characters', () => {
     expect(exportFileName('a/b\\c:d*e?f"g<h>i|j')).toBe(
-      'a-b-c-d-e-f-g-h-i-j.maecly-profile.toml',
+      'a-b-c-d-e-f-g-h-i-j.pluryprint-profile.toml',
     );
-    expect(exportFileName('  ...leading')).toBe('leading.maecly-profile.toml');
-    expect(exportFileName('   ')).toBe('profile.maecly-profile.toml');
+    expect(exportFileName('  ...leading')).toBe(
+      'leading.pluryprint-profile.toml',
+    );
+    expect(exportFileName('   ')).toBe('profile.pluryprint-profile.toml');
   });
 
   it('FR-024: caps the length so no OS rejects the path', () => {
     const name = exportFileName('x'.repeat(200));
-    expect(name.length).toBeLessThanOrEqual(60 + '.maecly-profile.toml'.length);
+    expect(name.length).toBeLessThanOrEqual(
+      60 + '.pluryprint-profile.toml'.length,
+    );
   });
 });

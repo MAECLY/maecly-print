@@ -166,7 +166,7 @@ export function PrintJobScreen({
   const tauri = isTauri();
 
   // Real installed printers for the override dropdown (empty outside Tauri),
-  // excluding printers disabled in MaeclyPrint. The *id* is the queue name the
+  // excluding printers disabled in Pluryprint. The *id* is the queue name the
   // spooler needs (`lp -d`, SumatraPDF `-print-to`); the display name only
   // labels it, and on CUPS the two genuinely differ (`printer-info` vs the
   // queue name). Sending the label would produce a job for a printer that does
@@ -180,9 +180,9 @@ export function PrintJobScreen({
       duplex: boolean;
     }[]
   >([]);
-  // "System default" falls back to the OS default printer when MaeclyPrint
+  // "System default" falls back to the OS default printer when Pluryprint
   // has no usable default of its own. If that printer was removed from
-  // MaeclyPrint the job is refused at print time, so name it here.
+  // Pluryprint the job is refused at print time, so name it here.
   const [removedSystemDefault, setRemovedSystemDefault] = useState<
     string | null
   >(null);

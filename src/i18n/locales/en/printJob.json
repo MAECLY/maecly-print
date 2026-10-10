@@ -127,6 +127,6 @@
   "capability": {
     "noDuplex": "{{name}} cannot print two-sided: the job will pause until you choose Single or another printer.",
     "noColor": "{{name}} prints in black and white only: color pages come out in grey.",
-    "systemDefaultRemoved": "System default is {{name}}, which is removed from MaeclyPrint: choose a printer, or files that are not routed elsewhere will not print."
+    "systemDefaultRemoved": "System default is {{name}}, which is removed from Pluryprint: choose a printer, or files that are not routed elsewhere will not print."
   }
 }

@@ -255,7 +255,7 @@ export async function discoverPrinters(): Promise<UiDiscoveredPrinter[]> {
 // Printer preferences (persisted) + OS actions
 // ---------------------------------------------------------------------------
 
-/** Read the persisted MaeclyPrint printer preferences. */
+/** Read the persisted Pluryprint printer preferences. */
 export async function getPrinterPrefs(): Promise<PrinterPrefs> {
   if (!isTauri()) throw noHost();
   return unwrap(commands.getPrinterPrefs());
@@ -390,7 +390,7 @@ export async function expandFolders(
   return unwrap(commands.expandFolders(paths, scan));
 }
 
-/** The exact command MaeclyPrint would run for `req` (honesty preview). */
+/** The exact command Pluryprint would run for `req` (honesty preview). */
 export async function previewCommand(req: PrintRequest): Promise<string> {
   if (!isTauri()) throw noHost();
   return unwrap(commands.previewCommand(req));

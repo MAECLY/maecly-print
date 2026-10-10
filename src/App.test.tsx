@@ -104,9 +104,9 @@ function mockShell(overrides: Record<string, unknown> = {}) {
 describe('App', () => {
   beforeEach(() => {
     // Skip onboarding modal so the main shell is visible.
-    window.localStorage.setItem('maeclyprint:onboarding-complete', '1');
-    window.localStorage.removeItem('maeclyprint:theme');
-    window.localStorage.removeItem('maeclyprint:density');
+    window.localStorage.setItem('pluryprint:onboarding-complete', '1');
+    window.localStorage.removeItem('pluryprint:theme');
+    window.localStorage.removeItem('pluryprint:density');
     document.documentElement.classList.remove('mp-light', 'mp-dark');
     // Module-level zustand stores leak state across tests — reset them.
     useProfilesStore.setState({
@@ -259,7 +259,7 @@ describe('App', () => {
   });
 
   it('integration: the backend theme wins over the localStorage cache on boot', async () => {
-    window.localStorage.setItem('maeclyprint:theme', 'light');
+    window.localStorage.setItem('pluryprint:theme', 'light');
     mockShell({
       get_app_settings: {
         ...fixtureAppSettings,
@@ -271,7 +271,7 @@ describe('App', () => {
       expect(document.documentElement.classList.contains('mp-dark')).toBe(true),
     );
     // The reconciled value is mirrored back into the localStorage cache.
-    expect(window.localStorage.getItem('maeclyprint:theme')).toBe('dark');
+    expect(window.localStorage.getItem('pluryprint:theme')).toBe('dark');
   });
 
   // -------------------------------------------------------------------------
@@ -279,7 +279,7 @@ describe('App', () => {
   //
   // The seam these cover is the one the feature used to fall through: the
   // backend parked the selection and emitted the event, and nothing in the
-  // webview ever asked for it, so "Print with MaeclyPrint" opened an empty
+  // webview ever asked for it, so "Print with Pluryprint" opened an empty
   // Home screen. Each test drives one of the two arrival routes end to end —
   // drain on mount, and the doorbell event — through the real ingestion
   // pipeline.
@@ -400,7 +400,7 @@ describe('App', () => {
 
       expect(
         await screen.findByText(
-          /Only the first 1 of the 12000 selected items reached MaeclyPrint/,
+          /Only the first 1 of the 12000 selected items reached Pluryprint/,
         ),
       ).toBeInTheDocument();
       // The part that did arrive is still loaded.
@@ -424,7 +424,7 @@ describe('App', () => {
       expect(calls.filter((c) => c.cmd === 'inspect_files')).toHaveLength(1);
     });
 
-    it('FR-001: “Print with MaeclyPrint” prints the selection with the profile it named', async () => {
+    it('FR-001: “Print with Pluryprint” prints the selection with the profile it named', async () => {
       const { calls, park } = mockSelections();
       park([selection('print-default', CUSTOM_PROFILE_ID)]);
 
@@ -472,7 +472,7 @@ describe('App', () => {
       const copies = await screen.findByDisplayValue('1');
       fireEvent.change(copies, { target: { value: '5' } });
 
-      // …then right-clicks another file and picks "Print with MaeclyPrint".
+      // …then right-clicks another file and picks "Print with Pluryprint".
       park([selection('print-default')]);
       ringDoorbell();
       await waitFor(() =>
@@ -543,7 +543,7 @@ describe('App', () => {
       await waitFor(() =>
         expect(eventMock.registry.selectionForwarded.size).toBe(1),
       );
-      // …then `maeclyprint-cli profiles create` adds one, and the refreshed
+      // …then `pluryprint-cli profiles create` adds one, and the refreshed
       // shell menu offers it straight away.
       writeProfiles([
         ...fixtureProfiles,

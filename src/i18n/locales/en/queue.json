@@ -47,7 +47,7 @@
     "loadingTitle": "Loading the queue…",
     "loadingBody": "Reading the current print jobs.",
     "unavailableTitle": "Queue unavailable",
-    "unavailableBody": "The print queue is managed by the desktop app — run MaeclyPrint to see and control jobs.",
+    "unavailableBody": "The print queue is managed by the desktop app — run Pluryprint to see and control jobs.",
     "errorTitle": "Queue unavailable",
     "errorBody": "The queue could not be read.",
     "errorHint": "Nothing was lost — the jobs are still in the desktop app. Retry to read the queue again."
@@ -131,10 +131,10 @@
       "cancelled": "The job was cancelled.",
       "print_timeout": "The printer did not finish within {{secs}} s. The job is still in the system print queue: check the printer before retrying.",
       "printer_unavailable": "Printer “{{printer}}” is not installed. Choose another printer.",
-      "printer_disabled": "Printer “{{printer}}” was removed from MaeclyPrint. Restore it on the Printers screen, or choose another printer.",
+      "printer_disabled": "Printer “{{printer}}” was removed from Pluryprint. Restore it on the Printers screen, or choose another printer.",
       "os_cancelled": "The job was cancelled in the system print queue.",
       "print_aborted": "The printer aborted the job. Check the printer, then retry.",
-      "interrupted_by_shutdown": "MaeclyPrint was closed while this job was in progress."
+      "interrupted_by_shutdown": "Pluryprint was closed while this job was in progress."
     },
     "reasons": {
       "conversion_timeout": {

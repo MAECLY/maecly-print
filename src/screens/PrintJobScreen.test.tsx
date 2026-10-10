@@ -286,7 +286,7 @@ describe('PrintJobScreen', () => {
     resetStore();
     openMock.mockReset();
     dnd.handler = null;
-    window.localStorage.setItem('maeclyprint:onboarding-complete', '1');
+    window.localStorage.setItem('pluryprint:onboarding-complete', '1');
   });
   afterEach(() => clearMocks());
 
@@ -584,7 +584,7 @@ describe('PrintJobScreen', () => {
     expect(screen.queryByRole('note')).toBeNull();
   });
 
-  it('FR-044: warns when System default resolves to a printer removed from MaeclyPrint', async () => {
+  it('FR-044: warns when System default resolves to a printer removed from Pluryprint', async () => {
     mockIPC((cmd) => {
       if (cmd === 'list_printers')
         return [{ ...printerRow('EPSON', 'EPSON L15160'), is_default: true }];
@@ -596,7 +596,7 @@ describe('PrintJobScreen', () => {
     render(<Harness initial={[uiFile('/docs/a.pdf')]} />);
 
     expect(await screen.findByRole('note')).toHaveTextContent(
-      'System default is EPSON L15160, which is removed from MaeclyPrint',
+      'System default is EPSON L15160, which is removed from Pluryprint',
     );
   });
 

@@ -73,7 +73,7 @@ export function quoteShellArg(arg: string, flavor: ShellFlavor): string {
  * The `print` command the Home screen offers to copy (FR-008).
  *
  * It names the running executable by its full path because nothing puts
- * `maeclyprint` on `PATH` yet (FR-006): a bare `maeclyprint` pasted into a
+ * `pluryprint` on `PATH` yet (FR-006): a bare `pluryprint` pasted into a
  * terminal would only answer "command not found". On Windows the line is for
  * PowerShell, where a quoted program path needs the `&` call operator to run.
  * The glob is quoted on purpose — the CLI expands patterns itself, and a shell
@@ -89,7 +89,7 @@ export function cliPrintCommand({
   profile: string;
 }): string {
   const flavor: ShellFlavor = os === 'windows' ? 'powershell' : 'posix';
-  let program = 'maeclyprint';
+  let program = 'pluryprint';
   if (executable) {
     program = quoteShellArg(executable, flavor);
     if (flavor === 'powershell' && program.startsWith("'")) {

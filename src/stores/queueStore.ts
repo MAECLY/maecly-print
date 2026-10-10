@@ -387,7 +387,7 @@ function notifyBatchComplete(jobs: readonly Job[]): void {
   }
   const summary = t('notify.batchDone', { count: total, done, total });
   toast.success(summary);
-  notifyOs('MaeclyPrint', summary);
+  notifyOs('Pluryprint', summary);
 }
 
 /** Turn an unknown thrown value into a user-facing message. */

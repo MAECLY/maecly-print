@@ -40,7 +40,7 @@ function loaded(locale: string) {
 
 describe('I18nProvider', () => {
   beforeEach(() => {
-    window.localStorage.removeItem('maeclyprint:locale-detected');
+    window.localStorage.removeItem('pluryprint:locale-detected');
     setBrowserLanguage('en-US');
     useSettingsStore.setState({
       status: 'idle',
@@ -130,7 +130,7 @@ describe('I18nProvider', () => {
       await Promise.resolve();
     });
     expect(
-      window.localStorage.getItem('maeclyprint:locale-detected'),
+      window.localStorage.getItem('pluryprint:locale-detected'),
     ).toBeNull();
   });
 
@@ -145,7 +145,7 @@ describe('I18nProvider', () => {
       </I18nProvider>,
     );
     await waitFor(() =>
-      expect(window.localStorage.getItem('maeclyprint:locale-detected')).toBe(
+      expect(window.localStorage.getItem('pluryprint:locale-detected')).toBe(
         '1',
       ),
     );
@@ -201,7 +201,7 @@ describe('I18nProvider', () => {
     });
     expect(patch).not.toHaveBeenCalled();
     expect(
-      window.localStorage.getItem('maeclyprint:locale-detected'),
+      window.localStorage.getItem('pluryprint:locale-detected'),
     ).toBeNull();
   });
 
@@ -211,7 +211,7 @@ describe('I18nProvider', () => {
     useSettingsStore.setState({ patch });
     // The user explicitly chose English in Settings; detection must stand down.
     loaded('en-US');
-    window.localStorage.setItem('maeclyprint:locale-detected', '1');
+    window.localStorage.setItem('pluryprint:locale-detected', '1');
     render(
       <I18nProvider>
         <Probe />

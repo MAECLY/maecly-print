@@ -65,7 +65,7 @@ const LIMITS: EngineLimits = {
   },
 };
 
-const CONFIG_PATH = '/home/u/.config/MaeclyPrint/config.toml';
+const CONFIG_PATH = '/home/u/.config/Pluryprint/config.toml';
 
 function meta(over: Partial<SettingsMeta> = {}): SettingsMeta {
   return {
@@ -592,7 +592,7 @@ describe('SettingsScreen', () => {
       renderSettings();
       await waitReady();
       expect(
-        screen.getByText(/Finder › Services › Print with MaeclyPrint/),
+        screen.getByText(/Finder › Services › Print with Pluryprint/),
       ).toBeInTheDocument();
       // It is not a future milestone any more.
       expect(screen.queryByText(/\(M2\)/)).not.toBeInTheDocument();

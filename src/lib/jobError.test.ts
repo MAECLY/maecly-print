@@ -143,7 +143,7 @@ describe('localizeJobError (FR-092)', () => {
 describe('toUiQueueJob error notes', () => {
   const shutdown = {
     code: 'interrupted_by_shutdown',
-    message: 'MaeclyPrint was closed while this job was in progress.',
+    message: 'Pluryprint was closed while this job was in progress.',
   };
 
   it('a paused job interrupted by a shutdown offers to resume', () => {

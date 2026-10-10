@@ -9,7 +9,7 @@
     "emptyTitle": "No printers installed",
     "errorTitle": "Printers unavailable",
     "hint": "Use \"Add printer\" to install one from the network or by IP address, or press Rescan.",
-    "noHost": "Printers are read from the operating system — run the MaeclyPrint desktop app to manage them.",
+    "noHost": "Printers are read from the operating system — run the Pluryprint desktop app to manage them.",
     "loadingBody": "Reading the system print spooler."
   },
   "actions": {
@@ -58,8 +58,8 @@
     "testPageTitle": "Send test page",
     "testPageMessage": "Send a test page to {{name}}? It will print on paper.",
     "testPageConfirm": "Send test page",
-    "removeTitle": "Remove {{name}} from MaeclyPrint?",
-    "removeAppDefault": "It is MaeclyPrint's default printer: that setting will be cleared.",
+    "removeTitle": "Remove {{name}} from Pluryprint?",
+    "removeAppDefault": "It is Pluryprint's default printer: that setting will be cleared.",
     "removeRoutes_one": "Files of type {{exts}} are routed to it; while it is removed they go to the default printer instead.",
     "removeRoutes_other": "Files of type {{exts}} are routed to it; while it is removed they go to the default printer instead.",
     "removeOsDefault": "It is also the system's default printer, so jobs left on System default will not print until you choose another default printer.",
@@ -68,11 +68,11 @@
   "toast": {
     "settingDefault": "Setting {{name}} as default…",
     "defaultSet": "{{name}} is now the default",
-    "defaultSetPartial": "{{name}} is now the system default, but MaeclyPrint could not save it as its own default.",
+    "defaultSetPartial": "{{name}} is now the system default, but Pluryprint could not save it as its own default.",
     "sendingTestPage": "Sending test page to {{name}}…",
     "testPageSent": "Test page sent to {{name}} — if nothing comes out, check the printer's own queue.",
-    "removed": "Removed {{name}} from MaeclyPrint (still installed in {{os}})",
-    "removedUnknownOs": "Removed {{name}} from MaeclyPrint (the system print queue is untouched)",
+    "removed": "Removed {{name}} from Pluryprint (still installed in {{os}})",
+    "removedUnknownOs": "Removed {{name}} from Pluryprint (the system print queue is untouched)",
     "restored": "Restored {{name}}",
     "savedTray": "Saved default tray",
     "savedPaper": "Saved default paper",
@@ -84,12 +84,12 @@
     "added": "{{name}} added",
     "referencesUpdated": "References updated to {{name}}",
     "referencesRemoved": "Removed references to the missing printer",
-    "hidden": "{{name}} hidden from MaeclyPrint",
-    "managed": "{{name}} is managed by MaeclyPrint again"
+    "hidden": "{{name}} hidden from Pluryprint",
+    "managed": "{{name}} is managed by Pluryprint again"
   },
   "missing": {
-    "title": "Printer referenced by MaeclyPrint settings is no longer available",
-    "body": "{{id}} is referenced by your MaeclyPrint settings, but the system spooler no longer reports it. Jobs sent to it are {{outcome}} until you reassign or forget it.",
+    "title": "Printer referenced by Pluryprint settings is no longer available",
+    "body": "{{id}} is referenced by your Pluryprint settings, but the system spooler no longer reports it. Jobs sent to it are {{outcome}} until you reassign or forget it.",
     "bodyOutcome": "paused, not failed,",
     "more_one": "({{count}} more also missing.)",
     "more_other": "({{count}} more also missing.)",
@@ -199,7 +199,7 @@
     }
   },
   "system": {
-    "intro": "Queues already known to {{os}}. Unticking one hides it from MaeclyPrint (soft-disable) — the OS print queue is left untouched.",
-    "introUnknownOs": "Queues the operating system already reports. Unticking one hides it from MaeclyPrint (soft-disable) — the OS print queue is left untouched."
+    "intro": "Queues already known to {{os}}. Unticking one hides it from Pluryprint (soft-disable) — the OS print queue is left untouched.",
+    "introUnknownOs": "Queues the operating system already reports. Unticking one hides it from Pluryprint (soft-disable) — the OS print queue is left untouched."
   }
 }

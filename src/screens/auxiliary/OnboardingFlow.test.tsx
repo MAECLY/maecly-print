@@ -39,14 +39,14 @@ describe('OnboardingFlow', () => {
 
   it('walks forward and back through every step', () => {
     render(<OnboardingFlow onComplete={vi.fn()} />);
-    expect(screen.getByText(/welcome to maeclyprint/i)).toBeInTheDocument();
+    expect(screen.getByText(/welcome to pluryprint/i)).toBeInTheDocument();
     // The first step has nothing to go back to.
     expect(screen.queryByRole('button', { name: /back/i })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /continue/i }));
     expect(screen.getByText(/detect your printers/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /back/i }));
-    expect(screen.getByText(/welcome to maeclyprint/i)).toBeInTheDocument();
+    expect(screen.getByText(/welcome to pluryprint/i)).toBeInTheDocument();
   });
 
   it('completes from the last step and from Skip', () => {
@@ -65,7 +65,7 @@ describe('OnboardingFlow', () => {
   it('FR-111/NFR-044: is a labelled modal dialog that takes the focus', () => {
     render(<OnboardingFlow onComplete={vi.fn()} />);
     const dialog = screen.getByRole('dialog', {
-      name: /welcome to maeclyprint/i,
+      name: /welcome to pluryprint/i,
     });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(screen.getByRole('button', { name: /continue/i })).toHaveFocus();
@@ -100,7 +100,7 @@ describe('OnboardingFlow', () => {
   it('does not promise the shell right-click menu, nor a Settings switch for it', () => {
     render(<OnboardingFlow onComplete={vi.fn()} />);
     const seen = walkToEnd();
-    expect(seen).not.toMatch(/adds a "print with maeclyprint" entry/i);
+    expect(seen).not.toMatch(/adds a "print with pluryprint" entry/i);
     expect(seen).not.toMatch(/disable it any time in settings/i);
     expect(seen).not.toMatch(/right-click any number of files/i);
     // Off macOS the Explorer entry is named as pending registration.
@@ -116,7 +116,7 @@ describe('OnboardingFlow', () => {
     try {
       render(<OnboardingFlow onComplete={vi.fn()} />);
       const seen = walkToEnd();
-      expect(seen).toMatch(/Services › Print with MaeclyPrint/);
+      expect(seen).toMatch(/Services › Print with Pluryprint/);
       expect(seen).not.toMatch(/installer registers it/);
       expect(seen).toMatch(/Save as PDF in your apps' own print dialog/);
     } finally {
@@ -127,7 +127,7 @@ describe('OnboardingFlow', () => {
   it('FR-008: advertises the CLI, which this build really has', () => {
     render(<OnboardingFlow onComplete={vi.fn()} />);
     const seen = walkToEnd();
-    expect(seen).toMatch(/maeclyprint print --files/);
+    expect(seen).toMatch(/pluryprint print --files/);
   });
 
   it('NFR-034: points at a shortcut that exists', () => {

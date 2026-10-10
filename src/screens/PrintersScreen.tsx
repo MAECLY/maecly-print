@@ -465,7 +465,7 @@ export function PrintersScreen() {
   const sm = STATUS_META[sel.status];
 
   const disabledSet = new Set(prefs.disabled ?? []);
-  // Effective default: org policy wins, then the MaeclyPrint app default, then
+  // Effective default: org policy wins, then the Pluryprint app default, then
   // whatever the OS reports.
   // An admin may write the display name in policy.json; resolve it to the
   // queue id the same way the print path does, so the star lands on the
@@ -505,7 +505,7 @@ export function PrintersScreen() {
     .filter((id) => !enumeratedIds.has(id) && !dismissedMissing.has(id))
     .sort();
   const missingId = missingIds[0] ?? null;
-  // Reassign targets: ready, not soft-disabled in MaeclyPrint, and not a
+  // Reassign targets: ready, not soft-disabled in Pluryprint, and not a
   // virtual queue — routing a physical printer's rules to "Save as PDF" is
   // almost never what the user meant.
   const reassignCandidates = printers.filter(
@@ -546,7 +546,7 @@ export function PrintersScreen() {
       if (saved) {
         toast.success(t('toast.defaultSet', { name: sel.name }), { id });
       } else {
-        // The OS default changed but MaeclyPrint's did not: say exactly that
+        // The OS default changed but Pluryprint's did not: say exactly that
         // (savePrefs already toasted the reason) instead of claiming success.
         toast.warning(t('toast.defaultSetPartial', { name: sel.name }), {
           id,
@@ -593,7 +593,7 @@ export function PrintersScreen() {
       ? t('toast.removed', { name: sel.name, os: OS_LABEL[os] })
       : t('toast.removedUnknownOs', { name: sel.name });
     const saved: PrinterPrefs = { ...prefsRef.current, disabled: [...next] };
-    // A removed printer cannot be MaeclyPrint's default: the backend would
+    // A removed printer cannot be Pluryprint's default: the backend would
     // skip it anyway, so clear it rather than leave a star on a dead entry.
     if (disable && saved.default_printer === sel.id) {
       saved.default_printer = null;
@@ -606,13 +606,13 @@ export function PrintersScreen() {
 
   /**
    * Remove (soft-disable) or restore the selected printer. Removing a printer
-   * jobs currently land on — MaeclyPrint's default, the system default, or a
+   * jobs currently land on — Pluryprint's default, the system default, or a
    * file-type route target — first says where those jobs will go instead.
    */
   const handleToggleDisabled = async (disable: boolean) => {
     if (!disable) return setDisabled(false);
     const isAppDefault = prefs.default_printer === sel.id;
-    // Jobs on "System default" end up on the OS default when MaeclyPrint has
+    // Jobs on "System default" end up on the OS default when Pluryprint has
     // no default of its own (or when that default is the one going away).
     const isOsFallback =
       defaultId === sel.id && (!prefs.default_printer || isAppDefault);
@@ -2343,7 +2343,7 @@ function IpTab({ onAdded, os }: { onAdded: () => void; os: OsId }) {
   );
 }
 
-/** "From system" tab — tick queues to manage in MaeclyPrint (soft-disable). */
+/** "From system" tab — tick queues to manage in Pluryprint (soft-disable). */
 function SystemTab({
   printers,
   prefs,

@@ -38,7 +38,7 @@
     "unknownProfileNotPrinted": "No hay ningún perfil llamado «{{name}}», así que no se ha impreso nada. Los archivos están en la pantalla Trabajo de impresión: elige allí un perfil."
   },
   "selection": {
-    "truncated": "Solo han llegado a MaeclyPrint los primeros {{sent}} de los {{total}} elementos seleccionados. Selecciona el resto por separado para imprimirlos."
+    "truncated": "Solo han llegado a Pluryprint los primeros {{sent}} de los {{total}} elementos seleccionados. Selecciona el resto por separado para imprimirlos."
   },
   "shellMenu": {
     "print_one": "Imprimir 1 archivo",
@@ -46,7 +46,7 @@
     "printWithProfile": "Imprimir con «{{name}}»",
     "configure": "Configurar el trabajo de impresión…",
     "queue": "Añadir a la cola de impresión",
-    "tooltip": "Imprime por lotes los archivos seleccionados con MaeclyPrint"
+    "tooltip": "Imprime por lotes los archivos seleccionados con Pluryprint"
   },
   "errorBoundary": {
     "title": "La aplicación ha encontrado un error inesperado",
@@ -100,11 +100,11 @@
         "page_range": "El intervalo de páginas no es válido.",
         "import_too_large": "El archivo es demasiado grande para ser un archivo de perfiles.",
         "import_unreadable": "No se pudo leer el archivo.",
-        "import_malformed": "Este no es un archivo de perfiles de MaeclyPrint.",
+        "import_malformed": "Este no es un archivo de perfiles de Pluryprint.",
         "import_unsupported_version": "El archivo usa la versión {{version}} del formato de perfiles, que esta versión no sabe leer.",
         "import_empty": "El archivo no contiene ningún perfil.",
         "import_invalid_profile": "El perfil «{{name}}» del archivo no es válido.",
-        "add_printer_unsupported_scheme": "MaeclyPrint no puede añadir una impresora mediante {{scheme}}://. Añádela desde la configuración de impresoras del sistema.",
+        "add_printer_unsupported_scheme": "Pluryprint no puede añadir una impresora mediante {{scheme}}://. Añádela desde la configuración de impresoras del sistema.",
         "major_update_unconfirmed": "{{version}} es una actualización mayor desde {{current}}; solo se instala cuando la confirmas.",
         "major_update_changed": "Confirmaste {{confirmed}}, pero la actualización disponible ahora es {{version}}. Vuelve a buscar actualizaciones y confirma esa versión.",
         "reserved_id": "Los identificadores de perfil que empiezan por «builtin-» están reservados."
@@ -122,14 +122,14 @@
       "UpdateInstallFailed": {
         "download_failed": "No se pudo descargar la actualización. Comprueba la conexión e inténtalo de nuevo.",
         "no_platform_update": "Esta versión todavía no ofrece una actualización para esta plataforma.",
-        "not_an_installed_app": "Esta copia de MaeclyPrint no es una aplicación instalada, así que no puede actualizarse sola. Descarga la versión desde la página de versiones."
+        "not_an_installed_app": "Esta copia de Pluryprint no es una aplicación instalada, así que no puede actualizarse sola. Descarga la versión desde la página de versiones."
       },
       "InvalidState": {
         "update_in_progress": "Ya se está instalando una actualización.",
         "resume_no_printer": "No hay ninguna impresora configurada. Añade una o elige una predeterminada en la pantalla Impresoras y reanuda este trabajo.",
         "resume_printer_missing": "La impresora «{{printer}}» sigue sin estar instalada y no hay otra configurada. Vuelve a instalarla o reasígnala en la pantalla Impresoras y reanuda este trabajo.",
         "resume_printer_ambiguous": "Hay varias impresoras con el nombre «{{printer}}». Elige una en la pantalla Impresoras o elimina la duplicada y reanuda este trabajo.",
-        "resume_printer_disabled": "La impresora «{{printer}}» está desactivada en MaeclyPrint. Actívala en la pantalla Impresoras y reanuda este trabajo."
+        "resume_printer_disabled": "La impresora «{{printer}}» está desactivada en Pluryprint. Actívala en la pantalla Impresoras y reanuda este trabajo."
       }
     },
     "noHost": "Esto necesita la aplicación de escritorio (se está ejecutando en una vista previa del navegador)."

@@ -48,7 +48,7 @@ import { SettingsScreen } from '@/screens/SettingsScreen';
 import { AboutScreen } from '@/screens/AboutScreen';
 import { OnboardingFlow } from '@/screens/auxiliary/OnboardingFlow';
 
-const ONBOARD_KEY = 'maeclyprint:onboarding-complete';
+const ONBOARD_KEY = 'pluryprint:onboarding-complete';
 
 /**
  * How long the "an update is available" toast stays up. Long enough to be read
@@ -441,7 +441,7 @@ function App() {
    *   the same pipeline a drop uses (same inspection, refusal toasts and
    *   FR-004 folder question), and let the user decide;
    * - `print-default` — print straight away with the requested (or default)
-   *   profile, which is the whole point of the "Print with MaeclyPrint" entry;
+   *   profile, which is the whole point of the "Print with Pluryprint" entry;
    * - `queue` — enqueue without starting, for review in the Queue screen.
    *
    * The last two never pass through the interactive job: folders are walked

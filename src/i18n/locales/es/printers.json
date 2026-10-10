@@ -9,7 +9,7 @@
     "emptyTitle": "No hay impresoras instaladas",
     "errorTitle": "Impresoras no disponibles",
     "hint": "Usa «Añadir impresora» para instalar una desde la red o por dirección IP, o pulsa Reexplorar.",
-    "noHost": "Las impresoras se leen del sistema operativo: abre la aplicación de escritorio MaeclyPrint para gestionarlas.",
+    "noHost": "Las impresoras se leen del sistema operativo: abre la aplicación de escritorio Pluryprint para gestionarlas.",
     "loadingBody": "Leyendo la cola de impresión del sistema."
   },
   "actions": {
@@ -58,8 +58,8 @@
     "testPageTitle": "Enviar página de prueba",
     "testPageMessage": "¿Enviar una página de prueba a {{name}}? Se imprimirá en papel.",
     "testPageConfirm": "Enviar página de prueba",
-    "removeTitle": "¿Quitar {{name}} de MaeclyPrint?",
-    "removeAppDefault": "Es la impresora predeterminada de MaeclyPrint: ese ajuste se borrará.",
+    "removeTitle": "¿Quitar {{name}} de Pluryprint?",
+    "removeAppDefault": "Es la impresora predeterminada de Pluryprint: ese ajuste se borrará.",
     "removeRoutes_one": "Los archivos {{exts}} se envían a ella; mientras esté quitada, irán a la impresora predeterminada.",
     "removeRoutes_other": "Los archivos {{exts}} se envían a ella; mientras esté quitada, irán a la impresora predeterminada.",
     "removeOsDefault": "También es la impresora predeterminada del sistema, así que los trabajos con «Predeterminada del sistema» no se imprimirán hasta que elijas otra impresora predeterminada.",
@@ -68,11 +68,11 @@
   "toast": {
     "settingDefault": "Estableciendo {{name}} como predeterminada…",
     "defaultSet": "{{name}} ya es la impresora predeterminada",
-    "defaultSetPartial": "{{name}} ya es la predeterminada del sistema, pero MaeclyPrint no pudo guardarla como su predeterminada.",
+    "defaultSetPartial": "{{name}} ya es la predeterminada del sistema, pero Pluryprint no pudo guardarla como su predeterminada.",
     "sendingTestPage": "Enviando página de prueba a {{name}}…",
     "testPageSent": "Página de prueba enviada a {{name}}: si no sale nada, revisa la cola de la propia impresora.",
-    "removed": "{{name}} ya no se gestiona en MaeclyPrint (sigue instalada en {{os}})",
-    "removedUnknownOs": "{{name}} ya no se gestiona en MaeclyPrint (la cola del sistema queda intacta)",
+    "removed": "{{name}} ya no se gestiona en Pluryprint (sigue instalada en {{os}})",
+    "removedUnknownOs": "{{name}} ya no se gestiona en Pluryprint (la cola del sistema queda intacta)",
     "restored": "{{name}} restaurada",
     "savedTray": "Bandeja predeterminada guardada",
     "savedPaper": "Papel predeterminado guardado",
@@ -84,12 +84,12 @@
     "added": "{{name}} añadida",
     "referencesUpdated": "Referencias actualizadas a {{name}}",
     "referencesRemoved": "Se han eliminado las referencias a la impresora que falta",
-    "hidden": "{{name}} oculta en MaeclyPrint",
-    "managed": "{{name}} vuelve a gestionarse en MaeclyPrint"
+    "hidden": "{{name}} oculta en Pluryprint",
+    "managed": "{{name}} vuelve a gestionarse en Pluryprint"
   },
   "missing": {
-    "title": "Una impresora a la que apuntan los ajustes de MaeclyPrint ya no está disponible",
-    "body": "Tus ajustes de MaeclyPrint hacen referencia a {{id}}, pero el sistema de impresión ya no la reporta. Los trabajos que se le envíen quedarán {{outcome}} hasta que la reasignes o la olvides.",
+    "title": "Una impresora a la que apuntan los ajustes de Pluryprint ya no está disponible",
+    "body": "Tus ajustes de Pluryprint hacen referencia a {{id}}, pero el sistema de impresión ya no la reporta. Los trabajos que se le envíen quedarán {{outcome}} hasta que la reasignes o la olvides.",
     "bodyOutcome": "en pausa, no fallidos,",
     "more_one": "({{count}} más también falta.)",
     "more_other": "({{count}} más también faltan.)",
@@ -199,7 +199,7 @@
     }
   },
   "system": {
-    "intro": "Colas que {{os}} ya conoce. Al desmarcar una se oculta en MaeclyPrint (desactivación suave); la cola del sistema no se toca.",
-    "introUnknownOs": "Colas que el sistema operativo ya reporta. Al desmarcar una se oculta en MaeclyPrint (desactivación suave); la cola del sistema no se toca."
+    "intro": "Colas que {{os}} ya conoce. Al desmarcar una se oculta en Pluryprint (desactivación suave); la cola del sistema no se toca.",
+    "introUnknownOs": "Colas que el sistema operativo ya reporta. Al desmarcar una se oculta en Pluryprint (desactivación suave); la cola del sistema no se toca."
   }
 }

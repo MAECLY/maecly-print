@@ -11,7 +11,7 @@ import { isTauri } from '@/lib/ipc';
 import { fixturePrintersWithVirtual, fixtureProfiles } from '@/test/fixtures';
 
 import { installIpcStub, optionsFromUrl, type E2eHarness } from './ipc-stub';
-import { E2E_STUB_SRC, maeclyE2eStub } from './vite-plugin';
+import { E2E_STUB_SRC, pluryE2eStub } from './vite-plugin';
 
 let h: E2eHarness;
 
@@ -24,7 +24,7 @@ afterEach(() => {
   const w = window as unknown as Record<string, unknown>;
   delete w.__TAURI_INTERNALS__;
   delete w.__TAURI_EVENT_PLUGIN_INTERNALS__;
-  delete w.__MAECLY_E2E__;
+  delete w.__PLURY_E2E__;
 });
 
 function ok<T>(
@@ -38,7 +38,7 @@ function ok<T>(
 describe('installIpcStub', () => {
   it('makes the app believe it runs inside Tauri', () => {
     expect(isTauri()).toBe(true);
-    expect(window.__MAECLY_E2E__).toBe(h);
+    expect(window.__PLURY_E2E__).toBe(h);
   });
 
   it('answers commands through the generated bindings with fixture data', async () => {
@@ -268,32 +268,32 @@ describe('optionsFromUrl', () => {
   });
 });
 
-describe('maeclyE2eStub (vite plugin)', () => {
+describe('pluryE2eStub (vite plugin)', () => {
   const inject = (env: Record<string, string | undefined>) => {
-    const plugin = maeclyE2eStub(env);
+    const plugin = pluryE2eStub(env);
     const hook = plugin.transformIndexHtml as () => unknown;
     return { plugin, tags: hook() };
   };
 
   it('never applies to production builds', () => {
-    expect(inject({ MAECLY_E2E_STUB: '1' }).plugin.apply).toBe('serve');
+    expect(inject({ PLURY_E2E_STUB: '1' }).plugin.apply).toBe('serve');
   });
 
   it('is switched on by the e2e mode (pnpm dev:e2e) as well', () => {
-    const plugin = maeclyE2eStub({});
+    const plugin = pluryE2eStub({});
     (plugin.configResolved as (c: { mode: string }) => void)({ mode: 'e2e' });
     expect((plugin.transformIndexHtml as () => unknown[])()).toHaveLength(1);
-    const dev = maeclyE2eStub({});
+    const dev = pluryE2eStub({});
     (dev.configResolved as (c: { mode: string }) => void)({
       mode: 'development',
     });
     expect((dev.transformIndexHtml as () => unknown[])()).toEqual([]);
   });
 
-  it('injects the stub ahead of the app only when MAECLY_E2E_STUB=1', () => {
+  it('injects the stub ahead of the app only when PLURY_E2E_STUB=1', () => {
     expect(inject({}).tags).toEqual([]);
-    expect(inject({ MAECLY_E2E_STUB: '0' }).tags).toEqual([]);
-    expect(inject({ MAECLY_E2E_STUB: '1' }).tags).toEqual([
+    expect(inject({ PLURY_E2E_STUB: '0' }).tags).toEqual([]);
+    expect(inject({ PLURY_E2E_STUB: '1' }).tags).toEqual([
       {
         tag: 'script',
         attrs: { type: 'module', src: E2E_STUB_SRC },

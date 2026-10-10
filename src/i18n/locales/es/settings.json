@@ -31,7 +31,7 @@
     },
     "nativeNotifications": {
       "label": "Notificaciones del sistema",
-      "hint": "Muestra una notificación del sistema cuando un lote termina, falla o necesita tu atención mientras MaeclyPrint está en segundo plano."
+      "hint": "Muestra una notificación del sistema cuando un lote termina, falla o necesita tu atención mientras Pluryprint está en segundo plano."
     }
   },
   "printing": {
@@ -41,7 +41,7 @@
     },
     "profilesError": "No se ha podido cargar la lista de perfiles.",
     "shellNote": "La entrada del menú contextual del Explorador está hecha, pero ningún instalador la registra todavía, así que no aparece en Windows.",
-    "shellNoteMac": "La impresión con el botón derecho funciona desde Finder › Servicios › Imprimir con MaeclyPrint. Esos títulos de menú siguen el idioma del sistema."
+    "shellNoteMac": "La impresión con el botón derecho funciona desde Finder › Servicios › Imprimir con Pluryprint. Esos títulos de menú siguen el idioma del sistema."
   },
   "engine": {
     "concurrency": {
@@ -80,7 +80,7 @@
       "label": "Comprobar al iniciar",
       "hint": "Pregunta a GitHub por la última versión 30 segundos después de iniciar, como mucho una vez cada 24 horas."
     },
-    "startupNote": "La comprobación al iniciar solo lee el número de la última versión publicada; no se envía nada sobre ti ni sobre tus documentos, y MaeclyPrint nunca instala nada por su cuenta: te avisa y solo instala cuando eliges Instalar ahora en la pantalla Acerca de. Si la desactivas, al iniciar no se hace ninguna petición; podrás buscar actualizaciones cuando quieras desde la pantalla Acerca de."
+    "startupNote": "La comprobación al iniciar solo lee el número de la última versión publicada; no se envía nada sobre ti ni sobre tus documentos, y Pluryprint nunca instala nada por su cuenta: te avisa y solo instala cuando eliges Instalar ahora en la pantalla Acerca de. Si la desactivas, al iniciar no se hace ninguna petición; podrás buscar actualizaciones cuando quieras desde la pantalla Acerca de."
   },
   "privacy": {
     "crashReports": {
@@ -89,7 +89,7 @@
     },
     "usageMetrics": {
       "label": "Métricas de uso anónimas",
-      "hint": "MaeclyPrint nunca activa esto sin tu consentimiento."
+      "hint": "Pluryprint nunca activa esto sin tu consentimiento."
     },
     "note": "En esta versión no se envía ningún dato: estos interruptores solo registran tu consentimiento."
   },
@@ -101,6 +101,6 @@
   },
   "config": {
     "corruptTitle": "No se pudo leer tu archivo de ajustes",
-    "corruptBody": "Los valores de abajo son los predeterminados, no tus ajustes guardados, y los cambios no podrán guardarse hasta que arregles o elimines el archivo. Cierra MaeclyPrint y repara o borra este archivo: en el siguiente guardado se escribirá uno nuevo a partir de los valores predeterminados."
+    "corruptBody": "Los valores de abajo son los predeterminados, no tus ajustes guardados, y los cambios no podrán guardarse hasta que arregles o elimines el archivo. Cierra Pluryprint y repara o borra este archivo: en el siguiente guardado se escribirá uno nuevo a partir de los valores predeterminados."
   }
 }

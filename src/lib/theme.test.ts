@@ -4,15 +4,15 @@ import { bootAppearance } from './theme';
 
 describe('bootAppearance', () => {
   afterEach(() => {
-    window.localStorage.removeItem('maeclyprint:theme');
-    window.localStorage.removeItem('maeclyprint:density');
+    window.localStorage.removeItem('pluryprint:theme');
+    window.localStorage.removeItem('pluryprint:density');
     document.documentElement.classList.remove('mp-light', 'mp-dark');
     delete document.documentElement.dataset.density;
   });
 
   it('puts the cached theme and density on the document synchronously (no flash)', () => {
-    window.localStorage.setItem('maeclyprint:theme', 'dark');
-    window.localStorage.setItem('maeclyprint:density', 'compact');
+    window.localStorage.setItem('pluryprint:theme', 'dark');
+    window.localStorage.setItem('pluryprint:density', 'compact');
 
     bootAppearance();
 

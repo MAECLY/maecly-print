@@ -101,7 +101,7 @@
   "dialog": {
     "exportTitle": "Exportar perfil",
     "importTitle": "Importar perfiles",
-    "fileType": "Perfil de MaeclyPrint",
+    "fileType": "Perfil de Pluryprint",
     "failed": "No se ha podido abrir el cuadro de diálogo de archivos."
   }
 }

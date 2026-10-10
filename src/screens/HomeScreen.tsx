@@ -134,7 +134,7 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
 
   // The CLI exists (FR-008), so the card shows the command a user can really
   // run, built around the profile their jobs default to rather than a made-up
-  // name. "Really run" means two things the bare `maeclyprint …` line did not
+  // name. "Really run" means two things the bare `pluryprint …` line did not
   // honour: the executable is named by its full path (nothing puts it on PATH
   // yet, FR-006), and every argument is quoted for the user's shell, so a
   // profile called `Costs $HOME` reaches the CLI intact.
@@ -588,7 +588,7 @@ export function HomeScreen({ onAction }: HomeScreenProps) {
             {/* FR-001: the Finder Services entry ships on macOS; the
                 Explorer entry is built but not registered by an installer. */}
             {t(isMacPlatform() ? 'tip.bodyMac' : 'tip.body', {
-              command: 'maeclyprint print --files',
+              command: 'pluryprint print --files',
               // Same condition as the card's own note: only claim the card
               // copies the full path when it actually knows it.
               path: exe.path ? t('tip.pathCopied') : t('tip.pathManual'),

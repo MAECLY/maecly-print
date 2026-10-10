@@ -38,7 +38,7 @@ import {
 } from './index';
 
 /** Marks that the first-run OS detection already happened (FR-093, once ever). */
-const DETECTED_KEY = 'maeclyprint:locale-detected';
+const DETECTED_KEY = 'pluryprint:locale-detected';
 
 interface I18nContextValue {
   locale: Locale;

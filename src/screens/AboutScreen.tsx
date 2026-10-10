@@ -357,7 +357,7 @@ export function AboutScreen() {
 
   const components: { name: string; value: string; license: string }[] = [
     {
-      name: 'MaeclyPrint',
+      name: 'Pluryprint',
       value: info?.version ?? UNKNOWN_VERSION,
       license: APP_LICENSE,
     },
@@ -389,7 +389,7 @@ export function AboutScreen() {
                 letterSpacing: '-0.01em',
               }}
             >
-              MaeclyPrint
+              Pluryprint
             </div>
             <div
               className="mp-mono"

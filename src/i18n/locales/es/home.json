@@ -27,14 +27,14 @@
     "copied": "Comando copiado al portapapeles",
     "copyFailed": "No se pudo acceder al portapapeles: selecciona el comando y cópialo a mano.",
     "pathNote": "Usa la ruta completa de la aplicación: todavía no está en tu PATH.",
-    "noPathNote": "Todavía no está en tu PATH: sustituye maeclyprint por la ruta completa del ejecutable de la aplicación."
+    "noPathNote": "Todavía no está en tu PATH: sustituye pluryprint por la ruta completa del ejecutable de la aplicación."
   },
   "recent": {
     "label": "Actividad reciente",
     "viewAll": "Ver toda la cola",
     "empty": "Todavía no hay actividad — los trabajos terminados aparecerán aquí.",
     "loading": "Cargando la actividad reciente…",
-    "unavailable": "Los trabajos terminados viven en la aplicación de escritorio: abre MaeclyPrint para verlos aquí.",
+    "unavailable": "Los trabajos terminados viven en la aplicación de escritorio: abre Pluryprint para verlos aquí.",
     "errorTitle": "No se pudo leer la actividad reciente",
     "errorHint": "No se ha perdido nada: los trabajos siguen en la aplicación de escritorio.",
     "expand": "Mostrar los detalles de {{file}} ({{status}})",
@@ -71,8 +71,8 @@
     "label": "Consejo",
     "pathCopied": "Todavía nada lo añade al PATH, así que llámalo por su ruta completa: la tarjeta «Usar la CLI» copia un comando que ya la incluye.",
     "pathManual": "Todavía nada lo añade al PATH, así que llámalo por la ruta completa del ejecutable de la aplicación.",
-    "body": "MaeclyPrint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. {{path}} La entrada del menú contextual del Explorador ya está hecha, pero ningún instalador la registra todavía, así que aún no aparece en Windows.",
-    "bodyMac": "MaeclyPrint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. {{path}} En el Finder, selecciona archivos y elige Servicios › Imprimir con MaeclyPrint en el menú contextual."
+    "body": "Pluryprint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. {{path}} La entrada del menú contextual del Explorador ya está hecha, pero ningún instalador la registra todavía, así que aún no aparece en Windows.",
+    "bodyMac": "Pluryprint también imprime desde un script, sin ventana: {{command}} … usa el propio ejecutable de la aplicación como herramienta de línea de comandos. {{path}} En el Finder, selecciona archivos y elige Servicios › Imprimir con Pluryprint en el menú contextual."
   },
   "nav": {
     "home": "Inicio",
@@ -91,7 +91,7 @@
   },
   "onboarding": {
     "welcome": {
-      "title": "Bienvenido a MaeclyPrint",
+      "title": "Bienvenido a Pluryprint",
       "body": "Impresión por lotes de código abierto para Windows y Mac. Sin límite de 15 archivos, sin Adobe y sin licencia de 149 $."
     },
     "printers": {
@@ -110,7 +110,7 @@
     "ready": {
       "title": "Listo para imprimir",
       "body": "Arrastra los archivos que quieras a la ventana o pulsa {{shortcut}}, elige un perfil y verás cómo se encolan. La entrada del menú contextual del Explorador llegará cuando un instalador la registre.",
-      "bodyMac": "Arrastra los archivos que quieras a la ventana o pulsa {{shortcut}}, elige un perfil y verás cómo se encolan. En el Finder, haz clic derecho sobre los archivos y elige Servicios › Imprimir con MaeclyPrint."
+      "bodyMac": "Arrastra los archivos que quieras a la ventana o pulsa {{shortcut}}, elige un perfil y verás cómo se encolan. En el Finder, haz clic derecho sobre los archivos y elige Servicios › Imprimir con Pluryprint."
     },
     "skip": "Omitir",
     "back": "Atrás",

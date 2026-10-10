@@ -1,5 +1,5 @@
 /**
- * WebdriverIO configuration for MaeclyPrint end-to-end tests.
+ * WebdriverIO configuration for Pluryprint end-to-end tests.
  *
  * These drive the *real built binary* through `tauri-driver` (the WebDriver
  * bridge Tauri ships), not the Vite dev server. `tauri-driver` is a cargo
@@ -31,7 +31,7 @@ const exe = isWindows ? '.exe' : '';
 // in target/debug; override with TAURI_APP_PATH to point at a release build.
 const application =
   process.env.TAURI_APP_PATH ??
-  path.resolve(here, '..', 'src-tauri', 'target', 'debug', `maeclyprint${exe}`);
+  path.resolve(here, '..', 'src-tauri', 'target', 'debug', `pluryprint${exe}`);
 
 /** Prefer `tauri-driver` on PATH, else the default cargo bin location. */
 function tauriDriverBin(): string {

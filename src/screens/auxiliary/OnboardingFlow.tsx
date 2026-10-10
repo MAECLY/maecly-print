@@ -42,7 +42,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const cur = STEPS[step]!;
   const params = {
     name: findProfileIn(profiles, null).name,
-    command: 'maeclyprint print --files "*.pdf"',
+    command: 'pluryprint print --files "*.pdf"',
     shortcut: shortcutLabel('newJob'),
   };
   // FR-001: the right-click entry and "Save as PDF" are platform-specific, so

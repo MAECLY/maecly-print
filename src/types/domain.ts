@@ -41,7 +41,7 @@ export type UiPrinterType =
 /** Status the Printers screen renders (distinct from the IPC `PrinterStatus`). */
 export type UiPrinterStatus = 'ready' | 'offline' | 'error' | 'busy';
 
-/** MaeclyPrint-managed state for a printer (independent of the OS spooler). */
+/** Pluryprint-managed state for a printer (independent of the OS spooler). */
 export type UiPrinterState = 'default' | 'active' | 'disabled';
 
 export interface UiTray {

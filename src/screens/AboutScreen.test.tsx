@@ -707,7 +707,7 @@ describe('AboutScreen', () => {
     expect(
       await screen.findByText(`${UNKNOWN_VERSION} · standalone web preview`),
     ).toBeInTheDocument();
-    // The MaeclyPrint row of the components card falls back to the same
+    // The Pluryprint row of the components card falls back to the same
     // placeholder rather than repeating a stale number.
     expect(screen.queryByText(/\d+\.\d+\.\d+-dev/)).toBeNull();
   });

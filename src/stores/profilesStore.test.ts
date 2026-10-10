@@ -158,7 +158,7 @@ describe('profilesStore', () => {
       useProfilesStore.getState().profiles.some((p) => p.name === 'E2E Hold'),
     ).toBe(false);
 
-    // `maeclyprint-cli profiles create` wrote profiles.toml behind our back.
+    // `pluryprint-cli profiles create` wrote profiles.toml behind our back.
     const calls = mockProfiles({
       list: [...fixtureProfiles, mkProfile({ id: 'cli-1', name: 'E2E Hold' })],
     });
@@ -477,13 +477,13 @@ describe('profilesStore', () => {
 
     const ok = await useProfilesStore
       .getState()
-      .exportProfile(CUSTOM_ID, '/tmp/out.maecly-profile.toml');
+      .exportProfile(CUSTOM_ID, '/tmp/out.pluryprint-profile.toml');
 
     expect(ok).toBe(true);
     const call = calls.find((c) => c.cmd === 'export_profile');
     expect(call?.args).toEqual({
       id: CUSTOM_ID,
-      path: '/tmp/out.maecly-profile.toml',
+      path: '/tmp/out.pluryprint-profile.toml',
     });
   });
 
@@ -540,14 +540,14 @@ describe('profilesStore', () => {
       throw {
         code: 'InvalidRequest',
         reason: 'import_malformed',
-        message: 'this is not a MaeclyPrint profile file: TOML parse error',
+        message: 'this is not a Pluryprint profile file: TOML parse error',
       };
     });
     await useProfilesStore.getState().init();
     const spy = vi.spyOn(toast, 'error').mockReturnValue('id');
 
     expect(await useProfilesStore.getState().importProfiles('/x')).toBeNull();
-    expect(spy).toHaveBeenCalledWith('This is not a MaeclyPrint profile file.');
+    expect(spy).toHaveBeenCalledWith('This is not a Pluryprint profile file.');
     spy.mockRestore();
   });
 

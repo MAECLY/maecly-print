@@ -24,8 +24,8 @@ export type ThemeMode = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 export type Density = 'comfortable' | 'compact';
 
-const THEME_KEY = 'maeclyprint:theme';
-const DENSITY_KEY = 'maeclyprint:density';
+const THEME_KEY = 'pluryprint:theme';
+const DENSITY_KEY = 'pluryprint:density';
 
 function getSystemTheme(): ResolvedTheme {
   if (typeof window === 'undefined' || !window.matchMedia) return 'light';

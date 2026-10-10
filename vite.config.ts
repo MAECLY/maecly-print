@@ -3,14 +3,14 @@ import react from '@vitejs/plugin-react';
 import { configDefaults } from 'vitest/config';
 import path from 'node:path';
 
-import { maeclyE2eStub } from './e2e/browser/vite-plugin';
+import { pluryE2eStub } from './e2e/browser/vite-plugin';
 
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig(async () => ({
-  // maeclyE2eStub is dev-server only and inert unless MAECLY_E2E_STUB=1
+  // pluryE2eStub is dev-server only and inert unless PLURY_E2E_STUB=1
   // (`pnpm dev:e2e`): it injects the browser E2E fake Tauri host.
-  plugins: [react(), maeclyE2eStub(process.env)],
+  plugins: [react(), pluryE2eStub(process.env)],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),

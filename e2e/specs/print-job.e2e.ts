@@ -84,7 +84,7 @@ async function invokeIpc(
 
 describe('Print Job', () => {
   before(() => {
-    fixtures = mkdtempSync(join(tmpdir(), 'maeclyprint-e2e-'));
+    fixtures = mkdtempSync(join(tmpdir(), 'pluryprint-e2e-'));
     writeFileSync(join(fixtures, 'report.pdf'), PDF, 'utf8');
     writeFileSync(join(fixtures, 'notes.txt'), 'not printable', 'utf8');
   });
@@ -150,7 +150,7 @@ describe('Print Job', () => {
 
     // A folder that holds a subfolder: the question is mandatory, the backend
     // never guesses the depth.
-    const root = mkdtempSync(join(tmpdir(), 'maeclyprint-e2e-tree-'));
+    const root = mkdtempSync(join(tmpdir(), 'pluryprint-e2e-tree-'));
     writeFileSync(join(root, 'top.pdf'), PDF, 'utf8');
     const nested = mkdtempSync(join(root, 'deep-'));
     writeFileSync(join(nested, 'inner.pdf'), PDF, 'utf8');

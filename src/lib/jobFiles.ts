@@ -378,7 +378,7 @@ function dismissLater(id: string | number): void {
  * Resolve a context-menu selection that prints (or queues) right away into the
  * files it stands for — **without** touching the interactive job.
  *
- * "Print with MaeclyPrint" never shows a dialog, so nobody is there to answer
+ * "Print with Pluryprint" never shows a dialog, so nobody is there to answer
  * the FR-004 question: every folder is walked top-level, as
  * `context-menu-actions.md` specifies for that entry (recursion is what
  * "Configure print job…" is for). Refusals and walk warnings are toasted as

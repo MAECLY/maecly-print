@@ -31,7 +31,7 @@
     },
     "nativeNotifications": {
       "label": "Native notifications",
-      "hint": "Show a system notification when a batch finishes, fails or needs your attention while MaeclyPrint is in the background."
+      "hint": "Show a system notification when a batch finishes, fails or needs your attention while Pluryprint is in the background."
     }
   },
   "printing": {
@@ -41,7 +41,7 @@
     },
     "profilesError": "Couldn't load the profile list.",
     "shellNote": "The Explorer right-click entry is built, but no installer registers it yet, so it does not appear on Windows.",
-    "shellNoteMac": "Right-click printing works from Finder › Services › Print with MaeclyPrint. Those menu titles follow the system language."
+    "shellNoteMac": "Right-click printing works from Finder › Services › Print with Pluryprint. Those menu titles follow the system language."
   },
   "engine": {
     "concurrency": {
@@ -80,7 +80,7 @@
       "label": "Check on startup",
       "hint": "Asks GitHub for the latest release 30 seconds after launch, at most once every 24 hours."
     },
-    "startupNote": "The launch-time check only reads the number of the latest published release; nothing about you or your documents is sent, and MaeclyPrint never installs anything on its own — it tells you, and installs only when you choose Install now on the About screen. Turn it off and no request is made at launch; you can still check whenever you like from the About screen."
+    "startupNote": "The launch-time check only reads the number of the latest published release; nothing about you or your documents is sent, and Pluryprint never installs anything on its own — it tells you, and installs only when you choose Install now on the About screen. Turn it off and no request is made at launch; you can still check whenever you like from the About screen."
   },
   "privacy": {
     "crashReports": {
@@ -89,7 +89,7 @@
     },
     "usageMetrics": {
       "label": "Anonymous usage metrics",
-      "hint": "MaeclyPrint never enables this without consent."
+      "hint": "Pluryprint never enables this without consent."
     },
     "note": "No data is sent in this version — these switches record consent only."
   },
@@ -101,6 +101,6 @@
   },
   "config": {
     "corruptTitle": "Your settings file could not be read",
-    "corruptBody": "The values below are the defaults, not your saved settings, and changes cannot be saved until the file is fixed or removed. Close MaeclyPrint, then repair or delete this file — a new one is written from the defaults on the next save."
+    "corruptBody": "The values below are the defaults, not your saved settings, and changes cannot be saved until the file is fixed or removed. Close Pluryprint, then repair or delete this file — a new one is written from the defaults on the next save."
   }
 }

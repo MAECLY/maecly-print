@@ -124,7 +124,7 @@ async discoverPrinters() : Promise<Result<DiscoveredPrinter[], IpcError>> {
 }
 },
 /**
- * Read the persisted MaeclyPrint printer preferences.
+ * Read the persisted Pluryprint printer preferences.
  */
 async getPrinterPrefs() : Promise<Result<PrinterPrefs, IpcError>> {
     try {
@@ -184,7 +184,7 @@ async openPrinterSettings() : Promise<Result<null, IpcError>> {
  * `name` is the human label; `uri` selects the transport (driverless IPP/IPPS
  * or a raw socket/LPD on Unix; IPP/IPPS on Windows). On failure the spooler's
  * own diagnostic (e.g. lpadmin's "Unable to connect to …") is surfaced so the
- * UI can show it verbatim. Never mutates MaeclyPrint preferences — only the OS.
+ * UI can show it verbatim. Never mutates Pluryprint preferences — only the OS.
  */
 async addPrinter(name: string, uri: string) : Promise<Result<null, IpcError>> {
     try {
@@ -362,7 +362,7 @@ async expandFolders(paths: string[], scan: FolderScan) : Promise<Result<FolderEx
 }
 },
 /**
- * The exact command MaeclyPrint would run for `req` (honesty policy: no hidden
+ * The exact command Pluryprint would run for `req` (honesty policy: no hidden
  * flags), for **every** file in the batch.
  * 
  * The dispatcher settles three things per file, so the preview does too:
@@ -1689,7 +1689,7 @@ export type PrinterPolicy = {
  */
 default_printer?: string | null }
 /**
- * MaeclyPrint-level printer preferences (never mutate the OS spooler).
+ * Pluryprint-level printer preferences (never mutate the OS spooler).
  */
 export type PrinterPrefs = { 
 /**
@@ -1697,7 +1697,7 @@ export type PrinterPrefs = {
  */
 default_printer?: string | null; 
 /**
- * Printer ids disabled *in MaeclyPrint* — still installed in the OS.
+ * Printer ids disabled *in Pluryprint* — still installed in the OS.
  */
 disabled?: string[]; 
 /**

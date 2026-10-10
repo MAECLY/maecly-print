@@ -235,7 +235,7 @@ describe('PrintersScreen', () => {
     expect(await screen.findByText(/^Restore$/)).toBeInTheDocument();
     expect(
       await screen.findByText(
-        /Removed EPSON L15160 Series from MaeclyPrint \(still installed in macOS\)/,
+        /Removed EPSON L15160 Series from Pluryprint \(still installed in macOS\)/,
       ),
     ).toBeInTheDocument();
   });
@@ -330,9 +330,9 @@ describe('PrintersScreen', () => {
     fireEvent.click(await screen.findByText(/^Remove$/));
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent(
-      'Remove Brother HL-L2350DW from MaeclyPrint?',
+      'Remove Brother HL-L2350DW from Pluryprint?',
     );
-    expect(dialog).toHaveTextContent(/MaeclyPrint's default printer/);
+    expect(dialog).toHaveTextContent(/Pluryprint's default printer/);
     expect(dialog).toHaveTextContent(/Files of type \.pdf are routed to it/);
     // Nothing is written until the user confirms.
     expect(calls.some((c) => c.cmd === 'set_printer_prefs')).toBe(false);

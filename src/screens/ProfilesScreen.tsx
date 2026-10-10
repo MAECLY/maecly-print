@@ -42,7 +42,7 @@ function draftFrom(base: UiProfile, name: string): UiProfile {
 
 /**
  * A filesystem-safe suggestion for the export dialog, following the naming the
- * v1 spec fixes: `<name>.maecly-profile.toml`. Anything a path separator or a
+ * v1 spec fixes: `<name>.pluryprint-profile.toml`. Anything a path separator or a
  * Windows-reserved character could trip over collapses to a hyphen.
  */
 export function exportFileName(name: string): string {
@@ -56,7 +56,7 @@ export function exportFileName(name: string): string {
     .replace(/^[.\-\s]+/, '')
     .slice(0, 60)
     .trim();
-  return `${safe === '' ? 'profile' : safe}.maecly-profile.toml`;
+  return `${safe === '' ? 'profile' : safe}.pluryprint-profile.toml`;
 }
 
 export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
@@ -91,7 +91,7 @@ export function ProfilesScreen({ selectedId, onSelect }: ProfilesScreenProps) {
   // outside Tauri or on failure — the dropdown still offers "default"). The
   // profile stores the printer's *id* (the queue name the spooler needs); the
   // name only labels it — on CUPS the two differ, and a job sent to the label
-  // targets a queue that does not exist. Printers disabled in MaeclyPrint are
+  // targets a queue that does not exist. Printers disabled in Pluryprint are
   // left out, exactly as on the Print Job screen.
   const [printers, setPrinters] = useState<PrinterChoice[]>([]);
   useEffect(() => {

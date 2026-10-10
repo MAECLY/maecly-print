@@ -47,7 +47,7 @@
     "loadingTitle": "Cargando la cola…",
     "loadingBody": "Leyendo los trabajos de impresión actuales.",
     "unavailableTitle": "Cola no disponible",
-    "unavailableBody": "La cola de impresión la gestiona la aplicación de escritorio: abre MaeclyPrint para ver y controlar los trabajos.",
+    "unavailableBody": "La cola de impresión la gestiona la aplicación de escritorio: abre Pluryprint para ver y controlar los trabajos.",
     "errorTitle": "Cola no disponible",
     "errorBody": "No se pudo leer la cola.",
     "errorHint": "No se ha perdido nada: los trabajos siguen en la aplicación de escritorio. Reintenta para volver a leerla."
@@ -131,10 +131,10 @@
       "cancelled": "Se canceló el trabajo.",
       "print_timeout": "La impresora no terminó en {{secs}} s. El trabajo sigue en la cola de impresión del sistema: revisa la impresora antes de reintentarlo.",
       "printer_unavailable": "La impresora «{{printer}}» no está instalada. Elige otra impresora.",
-      "printer_disabled": "La impresora «{{printer}}» ya no se gestiona en MaeclyPrint. Restáurala en la pantalla Impresoras o elige otra impresora.",
+      "printer_disabled": "La impresora «{{printer}}» ya no se gestiona en Pluryprint. Restáurala en la pantalla Impresoras o elige otra impresora.",
       "os_cancelled": "El trabajo se canceló en la cola de impresión del sistema.",
       "print_aborted": "La impresora interrumpió el trabajo. Revisa la impresora y vuelve a intentarlo.",
-      "interrupted_by_shutdown": "MaeclyPrint se cerró mientras este trabajo estaba en curso."
+      "interrupted_by_shutdown": "Pluryprint se cerró mientras este trabajo estaba en curso."
     },
     "reasons": {
       "conversion_timeout": {

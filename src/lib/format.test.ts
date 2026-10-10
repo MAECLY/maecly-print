@@ -59,8 +59,8 @@ describe('quoteShellArg', () => {
     for (const s of ['@args', 'a,b', '%x%', '1+1']) {
       expect(quoteShellArg(s, 'powershell')).toBe(`'${s}'`);
     }
-    expect(quoteShellArg('C:\\Tools\\maeclyprint.exe', 'powershell')).toBe(
-      'C:\\Tools\\maeclyprint.exe',
+    expect(quoteShellArg('C:\\Tools\\pluryprint.exe', 'powershell')).toBe(
+      'C:\\Tools\\pluryprint.exe',
     );
   });
 
@@ -80,12 +80,12 @@ describe('cliPrintCommand', () => {
   it('FR-006/FR-008: names the real executable, because it is not on PATH', () => {
     expect(
       cliPrintCommand({
-        executable: '/Applications/MaeclyPrint.app/Contents/MacOS/maeclyprint',
+        executable: '/Applications/Pluryprint.app/Contents/MacOS/pluryprint',
         os: 'macos',
         profile: 'Quick',
       }),
     ).toBe(
-      "/Applications/MaeclyPrint.app/Contents/MacOS/maeclyprint print --files '*.pdf' --profile Quick",
+      "/Applications/Pluryprint.app/Contents/MacOS/pluryprint print --files '*.pdf' --profile Quick",
     );
   });
 
@@ -93,19 +93,19 @@ describe('cliPrintCommand', () => {
     expect(
       cliPrintCommand({
         executable:
-          'C:\\Users\\Ana\\AppData\\Local\\Programs\\Maecly Print\\maeclyprint.exe',
+          'C:\\Users\\Ana\\AppData\\Local\\Programs\\Pluryprint App\\pluryprint.exe',
         os: 'windows',
         profile: `Ana's "draft"`,
       }),
     ).toBe(
-      `& 'C:\\Users\\Ana\\AppData\\Local\\Programs\\Maecly Print\\maeclyprint.exe' print --files '*.pdf' --profile 'Ana''s "draft"'`,
+      `& 'C:\\Users\\Ana\\AppData\\Local\\Programs\\Pluryprint App\\pluryprint.exe' print --files '*.pdf' --profile 'Ana''s "draft"'`,
     );
   });
 
   it('falls back to the bare command name when the executable is unknown', () => {
     expect(
       cliPrintCommand({ executable: null, os: undefined, profile: 'Quick' }),
-    ).toBe("maeclyprint print --files '*.pdf' --profile Quick");
+    ).toBe("pluryprint print --files '*.pdf' --profile Quick");
   });
 });
 

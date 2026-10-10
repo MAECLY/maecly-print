@@ -32,7 +32,7 @@
       "remindLater": "Remind me later",
       "skipVersion": "Skip this version",
       "install": "Install now",
-      "verifiedNote": "The download is checked against MaeclyPrint's release signature before anything is installed, and no administrator rights are needed."
+      "verifiedNote": "The download is checked against Pluryprint's release signature before anything is installed, and no administrator rights are needed."
     },
     "deferred": "Reminder postponed. Check again whenever you like.",
     "retry": "Retry",
@@ -42,10 +42,10 @@
       "installing": "Downloading and verifying {{version}}…",
       "progress": "{{percent}} %",
       "majorTitle": "Install a major update?",
-      "majorMessage": "{{version}} is a major update from {{current}} and may change how MaeclyPrint works. If you rely on a particular workflow, read the release notes first.",
+      "majorMessage": "{{version}} is a major update from {{current}} and may change how Pluryprint works. If you rely on a particular workflow, read the release notes first.",
       "majorConfirm": "Install {{version}}",
       "restartTitle": "{{version}} is installed",
-      "restartDetail": "Restart MaeclyPrint to start using it.",
+      "restartDetail": "Restart Pluryprint to start using it.",
       "restart": "Restart now",
       "nothing": "There is no installable update for this platform yet. Download it from the release page instead.",
       "signatureInvalid": "The downloaded update failed its signature check and was not installed. Nothing on this computer was changed. Try again later, or download the release from the release page.",
@@ -69,7 +69,7 @@
     "reportIssue": "Report an issue"
   },
   "footer": {
-    "license": "MaeclyPrint is free software licensed under {{license}}. No telemetry, no cloud, no account.",
+    "license": "Pluryprint is free software licensed under {{license}}. No telemetry, no cloud, no account.",
     "source": "Source at"
   }
 }

@@ -126,7 +126,7 @@ function settingsMeta(): SettingsMeta {
   return {
     config_unreadable: false,
     config_path:
-      '/Users/e2e/Library/Application Support/com.Maecly.MaeclyPrint/config.toml',
+      '/Users/e2e/Library/Application Support/com.Maecly.Pluryprint/config.toml',
     limits: {
       max_concurrent_conversions: { min: 1, max: 8, default: 2, zero: 'clamp' },
       conversion_timeout_seconds: {
@@ -179,7 +179,8 @@ export class FakeBackend {
       ? clone(fixtureQueueSnapshot)
       : { schema_version: 1, queue_paused: false, jobs: [] };
     this.openPaths = opts.openPaths ?? DEFAULT_OPEN_PATHS;
-    this.savePath = opts.savePath ?? '/Users/e2e/Desktop/profile.maeclyprofile';
+    this.savePath =
+      opts.savePath ?? '/Users/e2e/Desktop/profile.pluryprintprofile';
     const tickMs = opts.tickMs ?? 700;
     if (tickMs > 0) this.timer = setInterval(() => this.tick(), tickMs);
   }
@@ -743,8 +744,8 @@ export class FakeBackend {
   }
 
   private importProfiles(path: string): Profile[] {
-    if (!/\.(maeclyprofile|toml)$/i.test(path)) {
-      throw err('InvalidRequest', 'this is not a MaeclyPrint profile file');
+    if (!/\.(pluryprintprofile|toml)$/i.test(path)) {
+      throw err('InvalidRequest', 'this is not a Pluryprint profile file');
     }
     const base = basename(path).replace(/\.[^.]+$/, '');
     let name = `Imported ${base}`;

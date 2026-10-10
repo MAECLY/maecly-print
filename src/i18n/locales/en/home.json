@@ -27,14 +27,14 @@
     "copied": "Command copied to the clipboard",
     "copyFailed": "Could not reach the clipboard — select the command and copy it manually.",
     "pathNote": "Uses the app's full path — it is not on your PATH yet.",
-    "noPathNote": "Not on your PATH yet: replace maeclyprint with the full path of the app's executable."
+    "noPathNote": "Not on your PATH yet: replace pluryprint with the full path of the app's executable."
   },
   "recent": {
     "label": "Recent activity",
     "viewAll": "View all queue",
     "empty": "No recent activity yet — finished jobs will appear here.",
     "loading": "Loading recent activity…",
-    "unavailable": "Finished jobs live in the desktop app — run MaeclyPrint to see them here.",
+    "unavailable": "Finished jobs live in the desktop app — run Pluryprint to see them here.",
     "errorTitle": "Recent activity could not be read",
     "errorHint": "Nothing was lost — the jobs are still in the desktop app.",
     "expand": "Show the details of {{file}} ({{status}})",
@@ -71,8 +71,8 @@
     "label": "Tip",
     "pathCopied": "Nothing adds it to your PATH yet, so call it by its full path — the Run from CLI card copies a command that already does.",
     "pathManual": "Nothing adds it to your PATH yet, so call it by the full path of the app's executable.",
-    "body": "MaeclyPrint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. {{path}} The Explorer right-click entry is built but not yet registered by an installer, so it does not appear on Windows yet.",
-    "bodyMac": "MaeclyPrint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. {{path}} In Finder, select files and choose Services › Print with MaeclyPrint from the right-click menu."
+    "body": "Pluryprint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. {{path}} The Explorer right-click entry is built but not yet registered by an installer, so it does not appear on Windows yet.",
+    "bodyMac": "Pluryprint also prints from a script, with no window: {{command}} … runs the app's own executable as a command-line tool. {{path}} In Finder, select files and choose Services › Print with Pluryprint from the right-click menu."
   },
   "nav": {
     "home": "Home",
@@ -91,7 +91,7 @@
   },
   "onboarding": {
     "welcome": {
-      "title": "Welcome to MaeclyPrint",
+      "title": "Welcome to Pluryprint",
       "body": "Open source batch printing for Windows and Mac. No 15-file limit, no Adobe required, no $149 license fee."
     },
     "printers": {
@@ -110,7 +110,7 @@
     "ready": {
       "title": "Ready to print",
       "body": "Drag any number of files onto the window or press {{shortcut}}, pick a profile, and watch them queue up. The Explorer right-click entry arrives once an installer registers it.",
-      "bodyMac": "Drag any number of files onto the window or press {{shortcut}}, pick a profile, and watch them queue up. In Finder, right-click files and choose Services › Print with MaeclyPrint."
+      "bodyMac": "Drag any number of files onto the window or press {{shortcut}}, pick a profile, and watch them queue up. In Finder, right-click files and choose Services › Print with Pluryprint."
     },
     "skip": "Skip",
     "back": "Back",

@@ -3,7 +3,7 @@ import { resolvePrinterId } from './printerIdentity';
 
 const printers = [
   { id: 'HP_LaserJet_Pro_M404', name: 'HP LaserJet Pro M404' },
-  { id: 'Maecly_Hold', name: 'MaeclyPrint hold test queue' },
+  { id: 'Maecly_Hold', name: 'Pluryprint hold test queue' },
   { id: 'A', name: 'Shared' },
   { id: 'B', name: 'Shared' },
 ];

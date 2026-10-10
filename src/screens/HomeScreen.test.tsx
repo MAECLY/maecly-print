@@ -193,7 +193,7 @@ describe('HomeScreen', () => {
     });
     renderHome();
     const card = screen.getByRole('button', { name: /run from cli/i });
-    expect(card).toHaveTextContent('maeclyprint print --files');
+    expect(card).toHaveTextContent('pluryprint print --files');
     // Built around the profile the app really defaults to.
     expect(card).toHaveTextContent('--profile Quick');
     // Outside the desktop host the path is unknown, so the card says so.
@@ -202,7 +202,7 @@ describe('HomeScreen', () => {
     fireEvent.click(card);
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     expect(writeText.mock.calls[0]![0]).toBe(
-      "maeclyprint print --files '*.pdf' --profile Quick",
+      "pluryprint print --files '*.pdf' --profile Quick",
     );
     expect(toasts.success).toHaveBeenCalled();
   });
@@ -214,7 +214,7 @@ describe('HomeScreen', () => {
           ...fixtureAppInfo,
           os: 'macos',
           executable:
-            '/Applications/Maecly Print.app/Contents/MacOS/maeclyprint',
+            '/Applications/Pluryprint App.app/Contents/MacOS/pluryprint',
         };
       }
       return null;
@@ -229,7 +229,7 @@ describe('HomeScreen', () => {
       const card = screen.getByRole('button', { name: /run from cli/i });
       await vi.waitFor(() =>
         expect(card).toHaveTextContent(
-          "'/Applications/Maecly Print.app/Contents/MacOS/maeclyprint' print --files '*.pdf' --profile 'Costs $HOME'",
+          "'/Applications/Pluryprint App.app/Contents/MacOS/pluryprint' print --files '*.pdf' --profile 'Costs $HOME'",
         ),
       );
       expect(card).toHaveTextContent(/full path/i);
@@ -382,9 +382,7 @@ describe('HomeScreen', () => {
     expect(
       screen.queryByText(/no recent activity yet/i),
     ).not.toBeInTheDocument();
-    expect(
-      screen.getByText(/run MaeclyPrint to see them/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/run Pluryprint to see them/i)).toBeInTheDocument();
   });
 
   it('distinguishes "still loading" from "nothing here"', () => {
@@ -428,14 +426,14 @@ describe('HomeScreen', () => {
     const text = document.body.textContent ?? '';
     expect(text).not.toMatch(/adds itself to the right-click menu/i);
     // The CLI, which does exist, is what the tip points at.
-    expect(text).toMatch(/maeclyprint print --files/);
+    expect(text).toMatch(/pluryprint print --files/);
   });
 
   it('FR-006: without the executable path, the tip does not promise the card has it', () => {
     renderHome();
     const text = document.body.textContent ?? '';
     // The card falls back to the bare name and says so…
-    expect(text).toMatch(/replace maeclyprint with the full path/i);
+    expect(text).toMatch(/replace pluryprint with the full path/i);
     // …so the tip must not claim the card copies the full path.
     expect(text).not.toMatch(/card copies a command that already does/);
     expect(text).toMatch(/full path of the app's executable/);
@@ -454,7 +452,7 @@ describe('HomeScreen', () => {
     try {
       renderHome();
       expect(document.body.textContent ?? '').toMatch(
-        /Services › Print with MaeclyPrint/,
+        /Services › Print with Pluryprint/,
       );
     } finally {
       platform.mockRestore();

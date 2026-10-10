@@ -2,7 +2,7 @@
 
 Two harnesses live here:
 
-- **WebdriverIO specs** (`specs/`) that drive the **real built MaeclyPrint
+- **WebdriverIO specs** (`specs/`) that drive the **real built Pluryprint
   binary** through [`tauri-driver`](https://v2.tauri.app/develop/tests/webdriver/),
   the WebDriver bridge Tauri ships. Windows and Linux only.
 - **A browser harness** (`browser/`) that serves the real frontend from the
@@ -32,7 +32,7 @@ e2e/
 │   └── about.e2e.ts        # semver, links (FR-110), log directory (FR-113), versions, live update check
 └── browser/
     ├── vite-plugin.ts      # injects ipc-stub.ts into index.html, dev server only, only in e2e mode
-    ├── ipc-stub.ts         # installs window.__TAURI_INTERNALS__ and window.__MAECLY_E2E__
+    ├── ipc-stub.ts         # installs window.__TAURI_INTERNALS__ and window.__PLURY_E2E__
     ├── fake-backend.ts     # in-memory backend seeded from src/test/fixtures.ts
     └── ipc-stub.test.ts    # the harness's own contract tests (run by `pnpm test`)
 ```
@@ -80,10 +80,10 @@ $env:NATIVE_DRIVER = "C:\path\to\msedgedriver.exe"
 pnpm test:e2e
 ```
 
-| Var              | Purpose                                                                        |
-| ---------------- | ------------------------------------------------------------------------------ |
-| `TAURI_APP_PATH` | Override the binary path (default `src-tauri/target/debug/maeclyprint[.exe]`). |
-| `NATIVE_DRIVER`  | Path to `msedgedriver.exe` (Windows) passed to `tauri-driver`.                 |
+| Var              | Purpose                                                                       |
+| ---------------- | ----------------------------------------------------------------------------- |
+| `TAURI_APP_PATH` | Override the binary path (default `src-tauri/target/debug/pluryprint[.exe]`). |
+| `NATIVE_DRIVER`  | Path to `msedgedriver.exe` (Windows) passed to `tauri-driver`.                |
 
 Things to know before running it on your own machine:
 
@@ -111,22 +111,22 @@ they build it with `pnpm tauri build --debug --config src-tauri/tauri.ci.conf.js
 folder for the backend's startup records.
 
 - **Windows — blocking.** Waits up to 60 s for `app_started` and then
-  `main_window_resolved` in `maeclyprint-*.jsonl`. It catches missing runtime
+  `main_window_resolved` in `pluryprint-*.jsonl`. It catches missing runtime
   dependencies and startup panics that a compile-only build would miss.
 - **macOS — advisory** (`continue-on-error`). Waits for `app_started` in
-  `~/Library/Logs/MaeclyPrint/`. WKWebView has no WebDriver and a headless
+  `~/Library/Logs/Pluryprint/`. WKWebView has no WebDriver and a headless
   runner has no guaranteed window server, so this is best effort.
 
 ## Browser harness (macOS and anywhere else)
 
 ```sh
-pnpm dev:e2e     # = vite --mode e2e  (MAECLY_E2E_STUB=1 pnpm dev is equivalent)
+pnpm dev:e2e     # = vite --mode e2e  (PLURY_E2E_STUB=1 pnpm dev is equivalent)
 # then open http://localhost:1421/?e2e-onboarded=1 in any browser
 ```
 
-`vite.config.ts` registers the `maeclyE2eStub` plugin, which is
+`vite.config.ts` registers the `pluryE2eStub` plugin, which is
 `apply: 'serve'` and inert unless the server runs in `e2e` mode or with
-`MAECLY_E2E_STUB=1`, so `pnpm dev`, `pnpm tauri dev` and every production build
+`PLURY_E2E_STUB=1`, so `pnpm dev`, `pnpm tauri dev` and every production build
 are untouched. In e2e mode it prepends `browser/ipc-stub.ts` to `index.html`,
 which installs `window.__TAURI_INTERNALS__` before the app boots. The app then
 believes it runs inside Tauri: every command, event, file dialog and the
@@ -151,15 +151,15 @@ A command it does not model rejects with `Internal: not stubbed …`.
 Drive it from the page (DevTools, Playwright, the console):
 
 ```js
-__MAECLY_E2E__.backend.openPaths = ['/Users/e2e/a.pdf']; // next file picker result
-__MAECLY_E2E__.dropFiles(['/Users/e2e/b.pdf']); // a native drop
-__MAECLY_E2E__.forwardSelection({
+__PLURY_E2E__.backend.openPaths = ['/Users/e2e/a.pdf']; // next file picker result
+__PLURY_E2E__.dropFiles(['/Users/e2e/b.pdf']); // a native drop
+__PLURY_E2E__.forwardSelection({
   paths: ['/x.pdf'],
   action: 'print-default',
   profile_id: null,
 });
-__MAECLY_E2E__.backend.tick(); // advance the queue by hand
-__MAECLY_E2E__.calls(); // every command the app invoked
+__PLURY_E2E__.backend.tick(); // advance the queue by hand
+__PLURY_E2E__.calls(); // every command the app invoked
 ```
 
 | URL flag           | Effect                                                |
