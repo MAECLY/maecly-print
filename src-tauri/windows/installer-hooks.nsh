@@ -108,6 +108,16 @@
   ${EndIf}
 !macroend
 
+; SumatraPDF, bundled under resources\sumatrapdf, runs portable: it writes
+; SumatraPDF-settings.txt next to its exe the first time it prints. No
+; uninstaller lists that file, so it kept resources\ (and with it the install
+; folder) on disk. Remove it and the folders it was holding, if now empty.
+!macro PLURY_REMOVE_SUMATRA_SETTINGS DIR
+  Delete "${DIR}\resources\sumatrapdf\SumatraPDF-settings.txt"
+  RMDir "${DIR}\resources\sumatrapdf"
+  RMDir "${DIR}\resources"
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
   Push $R0
   Push $R1
@@ -165,6 +175,10 @@
         plury_unexe_late:
           Delete /REBOOTOK "$R1\uninstall.exe"
         plury_unexe_done:
+        ; SumatraPDF runs portable and writes its settings next to itself.
+        ; The old uninstaller does not know that file, so without this its
+        ; folders, and the install folder, would stay behind.
+        !insertmacro PLURY_REMOVE_SUMATRA_SETTINGS "$R1"
         RMDir /REBOOTOK "$R1"
       ${Else}
         DetailPrint "${PLURY_LEGACY_PRODUCT} was not removed; it stays in Apps & features"
@@ -262,5 +276,6 @@
   ; Still loaded by Explorer: removed at the next restart instead.
   Delete /REBOOTOK "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}"
   Delete /REBOOTOK "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old*"
+  !insertmacro PLURY_REMOVE_SUMATRA_SETTINGS "$INSTDIR"
   RMDir /REBOOTOK "$INSTDIR"
 !macroend

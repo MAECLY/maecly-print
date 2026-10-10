@@ -146,6 +146,42 @@ fn nsis_hook_retries_deleting_the_in_place_uninstaller() {
     assert!(done < rmdir, "the folder goes once the uninstaller is gone");
 }
 
+/// SumatraPDF writes its settings next to itself, so the old install folder
+/// keeps `resources\sumatrapdf\SumatraPDF-settings.txt` after its uninstaller
+/// ran, and with it the folder. The takeover removes it before the folder.
+#[test]
+fn nsis_hook_removes_sumatra_settings_from_the_old_install_folder() {
+    let nsh = read("windows/installer-hooks.nsh");
+    let code = nsis_code(&nsh);
+    let take = code
+        .iter()
+        .position(|l| *l == r#"!insertmacro PLURY_REMOVE_SUMATRA_SETTINGS "$R1""#)
+        .expect("the takeover removes the SumatraPDF settings");
+    let rmdir = code
+        .iter()
+        .position(|l| *l == r#"RMDir /REBOOTOK "$R1""#)
+        .expect("the old folder is removed");
+    assert!(take < rmdir);
+    let body = nsh
+        .split("!macro PLURY_REMOVE_SUMATRA_SETTINGS DIR")
+        .nth(1)
+        .and_then(|rest| rest.split("!macroend").next())
+        .expect("macro body");
+    let body = nsis_code(body);
+    assert_eq!(
+        body,
+        [
+            r#"Delete "${DIR}\resources\sumatrapdf\SumatraPDF-settings.txt""#,
+            r#"RMDir "${DIR}\resources\sumatrapdf""#,
+            r#"RMDir "${DIR}\resources""#,
+        ],
+        "only that file, and only empty folders"
+    );
+    // The folder the bundle puts SumatraPDF in is the one the macro cleans.
+    let resources = &conf()["bundle"]["resources"];
+    assert_eq!(resources["resources/sumatrapdf/*"], "resources/sumatrapdf/");
+}
+
 /// A per-machine MSI install from before c1466b4 is found by name and offered
 /// for removal (msiexec asks for elevation itself).
 #[test]
