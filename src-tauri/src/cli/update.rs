@@ -150,19 +150,37 @@ impl Handoff {
 
 /// Refuse `update install` while the app is open, on Windows: the passive
 /// per-user installer closes a running Pluryprint without asking, which
-/// would cut off whatever it is printing. Pure; `app_running` comes from the
-/// instance lock ([`crate::cli::instance`]).
-pub fn refuse_install_while_app_runs(windows: bool, app_running: bool) -> Result<(), CliError> {
-    if windows && app_running {
-        return Err(IpcError::InvalidState(
+/// would cut off whatever it is printing. Pure; `lock` is what the instance
+/// lock says ([`crate::cli::instance::state`]).
+///
+/// A lock that cannot be checked is refused too, as `queue cancel` does: on
+/// a folder without file locking the app runs unlocked, and "could not tell"
+/// must not turn into "the app is closed" right before the installer closes
+/// it.
+pub fn refuse_install_while_app_runs(
+    windows: bool,
+    lock: &crate::cli::instance::LockState,
+) -> Result<(), CliError> {
+    use crate::cli::instance::LockState;
+    if !windows {
+        return Ok(());
+    }
+    match lock {
+        LockState::Free => Ok(()),
+        LockState::Held => Err(IpcError::InvalidState(
             "Pluryprint is open, and installing an update would close it in the middle of \
              whatever it is printing — nothing was installed. Update from the app (About → \
              Install update), or close it and run this again"
                 .to_string(),
         )
-        .into());
+        .into()),
+        LockState::Unknown(why) => Err(IpcError::InvalidState(format!(
+            "could not check whether Pluryprint is open ({why}), and installing an update \
+             would close it in the middle of whatever it is printing — nothing was installed. \
+             Update from the app (About → Install update), or close it and run this again"
+        ))
+        .into()),
     }
-    Ok(())
 }
 
 fn print_result(emitter: Emitter, result: &crate::update::install::UpdateInstallResult) {
@@ -184,7 +202,7 @@ fn install(paths: &Paths, emitter: Emitter, yes: bool) -> Result<(), CliError> {
 
     refuse_install_while_app_runs(
         cfg!(windows),
-        crate::cli::instance::is_held(&crate::cli::instance::lock_path_for(&paths.queue)),
+        &crate::cli::instance::state(&crate::cli::instance::lock_path_for(&paths.queue)),
     )?;
 
     let app = crate::headless_updater_app().map_err(|e| {
@@ -344,12 +362,28 @@ mod tests {
     /// cutting off a print (an `InvalidState` error, exit 1).
     #[test]
     fn fr_009_install_refuses_while_the_app_runs_on_windows() {
-        let err = refuse_install_while_app_runs(true, true).unwrap_err();
+        use crate::cli::instance::LockState;
+        let err = refuse_install_while_app_runs(true, &LockState::Held).unwrap_err();
         assert_eq!(err.exit, ExitCode::Generic);
         assert!(err.error.to_string().contains("nothing was installed"));
-        assert!(refuse_install_while_app_runs(true, false).is_ok());
+        assert!(refuse_install_while_app_runs(true, &LockState::Free).is_ok());
         // macOS/Linux replace the bundle without closing the app.
-        assert!(refuse_install_while_app_runs(false, true).is_ok());
+        assert!(refuse_install_while_app_runs(false, &LockState::Held).is_ok());
+    }
+
+    /// FR-009 / NFR-010: a lock that cannot be checked (a profile folder
+    /// without file locking) is not evidence the app is closed, so the passive
+    /// installer is not started over a print that may be running.
+    #[test]
+    fn fr_009_install_refuses_when_the_app_lock_cannot_be_checked() {
+        use crate::cli::instance::LockState;
+        let unknown = LockState::Unknown("locking not supported".into());
+        let err = refuse_install_while_app_runs(true, &unknown).unwrap_err();
+        assert!(matches!(err.error, IpcError::InvalidState(_)));
+        let text = err.error.to_string();
+        assert!(text.contains("could not check"), "{text}");
+        assert!(text.contains("nothing was installed"), "{text}");
+        assert!(refuse_install_while_app_runs(false, &unknown).is_ok());
     }
 
     /// FR-010: the result is reported exactly once, whether from the
