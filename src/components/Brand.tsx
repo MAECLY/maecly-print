@@ -1,7 +1,9 @@
 /**
  * Brand identity components.
- * Ported 1:1 from `claude design/maeclyprint/project/brand.jsx:104-160`.
+ * The mark follows the app icon drawn by `scripts/icons/generate.mjs`.
  */
+
+import { useId } from 'react';
 
 interface MPGlyphProps {
   size?: number;
@@ -9,54 +11,97 @@ interface MPGlyphProps {
   bg?: string;
 }
 
+/**
+ * The "Abanico" mark: a printer releasing three sheets in a fan. Same geometry
+ * as the app icon (`scripts/icons/generate.mjs`, the small variant), so the
+ * mark in the window and the one in the Dock cannot drift apart.
+ */
+function FanMark({
+  ink,
+  paper,
+  accent,
+  accentBright,
+  detail,
+}: {
+  ink: string;
+  paper: string;
+  accent: string;
+  accentBright: string;
+  detail: boolean;
+}) {
+  const w = detail ? 24 : 26;
+  const h = detail ? 32 : 30;
+  const sheet = (angle: number, lines: string) => (
+    <g transform={`translate(50 54) rotate(${angle})`}>
+      <rect
+        x={-w / 2}
+        y={-h}
+        width={w}
+        height={h}
+        rx="2.4"
+        fill={paper}
+        stroke={ink}
+        strokeWidth={detail ? 2 : 4}
+      />
+      {detail &&
+        [w - 8, w - 8, w - 14].map((lw, i) => (
+          <rect
+            key={i}
+            x={-w / 2 + 4}
+            y={-h + 6 + i * 6}
+            width={lw}
+            height="2.6"
+            rx="1.3"
+            fill={lines}
+          />
+        ))}
+    </g>
+  );
+  const spread = detail ? 34 : 36;
+  return (
+    <>
+      {sheet(-spread, accent)}
+      {sheet(spread, accent)}
+      {sheet(0, accentBright)}
+      {detail && (
+        <path
+          d="M17 24 l-5 -4 M22 15 l-3 -6 M83 24 l5 -4 M78 15 l3 -6 M50 9 v-4"
+          stroke={accent}
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          fill="none"
+        />
+      )}
+      <rect
+        x="26"
+        y="47"
+        width="48"
+        height="12"
+        rx="4"
+        fill={ink}
+        opacity="0.8"
+      />
+      <rect x="18" y="54" width="64" height="28" rx="7" fill={ink} />
+      <circle cx="70" cy="68.5" r={detail ? 3 : 5} fill={accentBright} />
+    </>
+  );
+}
+
 function MPGlyph({ size = 24, color, bg }: MPGlyphProps) {
-  const c = color || 'currentColor';
-  const b = bg || 'var(--mp-bg)';
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 24 24"
+      viewBox="8 2 84 84"
       fill="none"
       aria-hidden="true"
     >
-      <rect
-        x="2.5"
-        y="3.5"
-        width="13"
-        height="17"
-        rx="1.5"
-        fill={b}
-        stroke={c}
-        strokeWidth="1.5"
-      />
-      <rect
-        x="8.5"
-        y="3.5"
-        width="13"
-        height="17"
-        rx="1.5"
-        fill={b}
-        stroke={c}
-        strokeWidth="1.5"
-      />
-      <path
-        d="M11 8 L15 13 L19 8"
-        stroke="var(--mp-accent)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-      <line
-        x1="11"
-        y1="16"
-        x2="19"
-        y2="16"
-        stroke={c}
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        opacity="0.5"
+      <FanMark
+        ink={color || 'currentColor'}
+        paper={bg || 'var(--mp-bg)'}
+        accent="var(--mp-accent)"
+        accentBright="var(--mp-accent)"
+        detail={size >= 40}
       />
     </svg>
   );
@@ -98,75 +143,33 @@ interface MPAppIconProps {
 }
 
 export function MPAppIcon({ size = 64, rounded = true }: MPAppIconProps) {
+  const tileId = useId();
   return (
-    <div
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 100 100"
+      aria-hidden="true"
       style={{
-        width: size,
-        height: size,
-        borderRadius: rounded ? size * 0.22 : 0,
-        background: 'linear-gradient(155deg, #FAF9F6 0%, #ECE7DC 100%)',
-        boxShadow: `inset 0 0 0 1px rgba(0,0,0,0.08), 0 ${size * 0.04}px ${size * 0.12}px rgba(0,0,0,0.18)`,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        position: 'relative',
-        overflow: 'hidden',
+        display: 'block',
+        borderRadius: rounded ? size * 0.225 : 0,
+        boxShadow: `0 ${size * 0.04}px ${size * 0.12}px rgba(0,0,0,0.18)`,
       }}
     >
-      <svg
-        width={size * 0.62}
-        height={size * 0.62}
-        viewBox="0 0 24 24"
-        fill="none"
-      >
-        <rect
-          x="2.5"
-          y="3.5"
-          width="13"
-          height="17"
-          rx="1.5"
-          fill="#FFFFFF"
-          stroke="#1A1814"
-          strokeWidth="1.4"
-        />
-        <rect
-          x="8.5"
-          y="3.5"
-          width="13"
-          height="17"
-          rx="1.5"
-          fill="#FFFFFF"
-          stroke="#1A1814"
-          strokeWidth="1.4"
-        />
-        <path
-          d="M11 8 L15 13 L19 8"
-          stroke="#C2410C"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-        />
-        <line
-          x1="11"
-          y1="16"
-          x2="19"
-          y2="16"
-          stroke="#1A1814"
-          strokeWidth="1.2"
-          strokeLinecap="round"
-          opacity="0.5"
-        />
-      </svg>
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          pointerEvents: 'none',
-          background:
-            'radial-gradient(120% 80% at 30% 0%, rgba(255,255,255,0.7), transparent 60%)',
-        }}
+      <defs>
+        <linearGradient id={tileId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#FFF7ED" />
+          <stop offset="1" stopColor="#FED7AA" />
+        </linearGradient>
+      </defs>
+      <rect width="100" height="100" fill={`url(#${tileId})`} />
+      <FanMark
+        ink="#1C1917"
+        paper="#FFFFFF"
+        accent="#C2410C"
+        accentBright="#F97316"
+        detail={size >= 48}
       />
-    </div>
+    </svg>
   );
 }
