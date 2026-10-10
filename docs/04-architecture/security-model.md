@@ -242,10 +242,10 @@ Rotation and retention are implemented by `logging::RollingJsonl`, not by `traci
 
 Logs are **never** uploaded. There is no "send logs to maintainers" upload path in this version; `report_issue` opens a prefilled GitHub issue in the browser with an environment block, and the user pastes whatever they choose.
 
-Default log level is `info` (`EnvFilter` default `info,maeclyprint=debug`, overridable with `RUST_LOG`). At `info`:
+Default log level is `info` for every crate (`logging::DEFAULT_FILTER`, overridable with `RUST_LOG`). It used to be `info,maeclyprint=debug`, but an `EnvFilter` target is a string prefix, so that directive also matched `maeclyprint_lib`, where every event lives, and DEBUG (with full paths) was on by default. At `info`:
 
 - Job IDs, profile IDs, printer names, exit codes, durations.
-- File extensions (e.g., "converted .docx → PDF in 1.4 s") but **not** filenames.
+- File extensions, and a job's **file name without its folder** (`report.docx`): FR-035 requires every job record to identify its file, and the file name is that identifier. Absolute paths and folders are **never** logged at `info`: the shell extension's `shellext.jsonl` records only the handoff file's name, and `log.file` / `log.module_path` (build-machine source paths that `tracing-log` attaches to records bridged from the `log` crate, such as the updater's) are stripped from every record before it is written (`logging::scrub_bridged_log_fields`).
 
 At `debug`:
 

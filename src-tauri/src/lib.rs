@@ -227,7 +227,7 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
             // Resolve the window so failures here surface as setup errors,
             // not silent missing-window bugs.
             if let Some(_main) = app.get_webview_window("main") {
-                tracing::debug!(event = "main_window_resolved");
+                tracing::info!(event = "main_window_resolved");
             } else {
                 tracing::warn!(event = "main_window_missing");
             }

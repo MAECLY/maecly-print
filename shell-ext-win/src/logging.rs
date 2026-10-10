@@ -43,14 +43,19 @@ fn stamp() -> String {
     crate::handoff::format_rfc3339(time::OffsetDateTime::now_utc())
 }
 
-/// A menu entry was clicked and a handoff file was produced.
+/// A menu entry was clicked and a handoff file was produced. Only the handoff
+/// file's name is logged: its folder is under the user's profile, and paths
+/// stay out of the default logs (NFR-082).
 pub fn invoked(action: &str, count: usize, handoff: &std::path::Path) {
     let line = serde_json::json!({
         "ts": stamp(),
         "event": "shellext_invoked",
         "action": action,
         "files": count,
-        "handoff": handoff.display().to_string(),
+        "handoff": handoff
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
     });
     write_line(&line.to_string());
 }

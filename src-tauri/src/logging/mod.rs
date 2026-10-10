@@ -82,6 +82,53 @@ impl Default for Policy {
     }
 }
 
+/// The level filter when `RUST_LOG` is not set: `info` for everything.
+///
+/// It used to be `info,maeclyprint=debug`. An `EnvFilter` target is a string
+/// prefix, so `maeclyprint` also matched the library crate `maeclyprint_lib`,
+/// where every event lives: DEBUG was on by default and full paths (the
+/// shell-menu cache, handoff files) reached the default log, which
+/// `security-model.md` §6.2 and NFR-082 rule out.
+pub const DEFAULT_FILTER: &str = "info";
+
+/// Remove the `log.*` fields `tracing-log` attaches to records bridged from
+/// the `log` crate (dependencies such as the updater plugin log that way):
+/// `log.file` and `log.module_path` are source paths **on the build machine**
+/// (`C:\Users\<builder>\.cargo\registry\…`), and `log.target`/`log.line`
+/// repeat what the record already says. `tracing-subscriber`'s JSON formatter
+/// drops them for debug-formatted values only, not for strings. Pure.
+///
+/// `line` is one JSONL record (with or without its newline). A line that is
+/// not a JSON object with such fields is returned unchanged.
+pub fn scrub_bridged_log_fields(line: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    use std::borrow::Cow;
+    const MARKER: &[u8] = b"\"log.";
+    if !line.windows(MARKER.len()).any(|w| w == MARKER) {
+        return Cow::Borrowed(line);
+    }
+    let body = line.strip_suffix(b"\n").unwrap_or(line);
+    let Ok(serde_json::Value::Object(mut record)) = serde_json::from_slice(body) else {
+        return Cow::Borrowed(line);
+    };
+    let scrub = |map: &mut serde_json::Map<String, serde_json::Value>| {
+        let before = map.len();
+        map.retain(|k, _| !k.starts_with("log."));
+        map.len() != before
+    };
+    let mut changed = scrub(&mut record);
+    if let Some(serde_json::Value::Object(fields)) = record.get_mut("fields") {
+        changed |= scrub(fields);
+    }
+    if !changed {
+        return Cow::Borrowed(line);
+    }
+    let mut out = serde_json::to_vec(&record).unwrap_or_else(|_| body.to_vec());
+    if line.ends_with(b"\n") {
+        out.push(b'\n');
+    }
+    Cow::Owned(out)
+}
+
 /// Logging for the GUI: the JSONL file plus a compact human stream on stdout
 /// (what `pnpm tauri dev` shows).
 pub fn init() -> io::Result<()> {
@@ -115,8 +162,8 @@ fn init_with(stdout: bool) -> io::Result<()> {
     // doesn't shut down mid-write.
     let _ = GUARD.set(Mutex::new(Some(guard)));
 
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,maeclyprint=debug"));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_FILTER));
 
     // `Option<Layer>` is itself a layer, so the stdout stream is simply absent
     // for a CLI run instead of being redirected somewhere.
@@ -395,11 +442,15 @@ impl RollingJsonl {
 }
 
 impl Write for RollingJsonl {
+    /// One call carries one JSONL record (the JSON layer formats a whole event
+    /// and writes it at once). It is written whole, after
+    /// [`scrub_bridged_log_fields`], and reported as fully consumed.
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let open = self.ensure_open(buf.len() as u64)?;
-        let n = open.file.write(buf)?;
-        open.written += n as u64;
-        Ok(n)
+        let record = scrub_bridged_log_fields(buf);
+        let open = self.ensure_open(record.len() as u64)?;
+        open.file.write_all(&record)?;
+        open.written += record.len() as u64;
+        Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -419,6 +470,45 @@ mod tests {
         let p: Vec<i32> = s.split('-').map(|x| x.parse().unwrap()).collect();
         Date::from_calendar_date(p[0], time::Month::try_from(p[1] as u8).unwrap(), p[2] as u8)
             .unwrap()
+    }
+
+    /// NFR-082: the default filter must not switch DEBUG on for the library
+    /// crate (`maeclyprint_lib`), where every event lives.
+    #[test]
+    fn nfr_082_the_default_level_is_info_for_the_library_too() {
+        use tracing_subscriber::layer::SubscriberExt;
+        let filter = EnvFilter::new(DEFAULT_FILTER);
+        let subscriber = tracing_subscriber::registry().with(filter);
+        tracing::subscriber::with_default(subscriber, || {
+            assert!(
+                !tracing::enabled!(target: "maeclyprint_lib::shell_menu", tracing::Level::DEBUG)
+            );
+            assert!(tracing::enabled!(target: "maeclyprint_lib::queue", tracing::Level::INFO));
+        });
+    }
+
+    /// NFR-082: a record bridged from the `log` crate loses the build
+    /// machine's source paths; everything else is kept byte-for-byte.
+    #[test]
+    fn nfr_082_bridged_log_records_lose_build_machine_paths() {
+        let line = br#"{"timestamp":"t","level":"ERROR","fields":{"message":"update failed","log.target":"tauri_plugin_updater","log.module_path":"tauri_plugin_updater::updater","log.file":"C:\\Users\\builder\\.cargo\\registry\\updater.rs","log.line":42},"target":"tauri_plugin_updater"}
+"#;
+        let out = scrub_bridged_log_fields(line);
+        let text = std::str::from_utf8(&out).unwrap();
+        assert!(!text.contains("log."), "{text}");
+        assert!(!text.contains("builder"), "{text}");
+        assert!(text.ends_with('\n'));
+        let v: serde_json::Value = serde_json::from_str(text.trim_end()).unwrap();
+        assert_eq!(v["fields"]["message"], "update failed");
+        assert_eq!(v["target"], "tauri_plugin_updater");
+
+        let plain = b"{\"fields\":{\"event\":\"app_started\"}}\n";
+        assert!(matches!(
+            scrub_bridged_log_fields(plain),
+            std::borrow::Cow::Borrowed(_)
+        ));
+        let not_json = b"not json \"log.file\"\n";
+        assert_eq!(&*scrub_bridged_log_fields(not_json), not_json);
     }
 
     fn touch(dir: &Path, name: &str) -> PathBuf {
