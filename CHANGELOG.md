@@ -74,6 +74,10 @@ Every screen was audited against its spec and completed end to end; the items be
 - **The headless Edge/Chrome fallback for HTML, Markdown and text is removed** (`[engine] html_renderer = "browser"`, `PLURYPRINT_HTML_RENDERER`). Pages always print with the system web view, whose network layer is the security boundary. A `config.toml` that still asks for the browser keeps working; the app removes the key and says so once.
 - A page with an empty or unknown declared charset (`<meta charset="">`, `MacRoman`) prints, decoded as UTF-8 or Windows-1252, instead of failing with `page_not_checkable`.
 
+### Fixed — round 7
+
+- **Security:** an SVG whose clip paths or masks use the default `userSpaceOnUse` units and are nested inside each other (3.6 KB) no longer turns into a 78 MB PDF: every reference is charged, so it fails at once as `svg_too_large`.
+
 ### Fixed — round 6
 
 - **Security:** on macOS a printed page could load a file from its folder's parent (`../x.png` or an absolute `file:` URL): the content rule list now admits only the document's own folder, `data:` and `blob:`, and a navigation delegate cancels navigations the worker did not start.

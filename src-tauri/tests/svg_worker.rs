@@ -167,3 +167,58 @@ fn nfr_security_svg_worker_timeout_is_terminal() {
         "{err:?}"
     );
 }
+
+/// The round-7 finding's drawing, as it was reported: six levels of ten
+/// rectangles, each clipped by the previous default-unit (`userSpaceOnUse`)
+/// clip path. usvg shares those, svg2pdf wrote them out per use: 3.6 KB
+/// became a 78 MB PDF with about a million clip paths, after 16 s.
+fn clip_bomb_round7(levels: usize) -> String {
+    let mut defs =
+        String::from(r#"<clipPath id="m0"><rect width="10" height="10" fill="white"/></clipPath>"#);
+    for level in 1..=levels {
+        defs.push_str(&format!("<clipPath id=\"m{level}\">"));
+        for x in 0..10 {
+            defs.push_str(&format!(
+                "<rect x=\"{x}\" width=\"5\" height=\"5\" fill=\"white\" clip-path=\"url(#m{})\"/>",
+                level - 1
+            ));
+        }
+        defs.push_str("</clipPath>");
+    }
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\"><defs>{defs}</defs>\
+         <rect width=\"50\" height=\"50\" clip-path=\"url(#m{levels})\"/></svg>"
+    )
+}
+
+/// Round 7: the worker refuses the default-unit clip-path bomb up front as
+/// `svg_too_large`, in seconds, and writes no PDF.
+#[test]
+fn nfr_security_svg_worker_refuses_the_user_space_clip_bomb() {
+    let dir = tempfile::tempdir().unwrap();
+    let svg = clip_bomb_round7(6);
+    assert!(svg.len() < 4600, "{}", svg.len());
+    let input = dir.path().join("clip6.svg");
+    std::fs::write(&input, &svg).unwrap();
+    let output = dir.path().join("clip6.pdf");
+    let cancel = AtomicBool::new(false);
+    let started = std::time::Instant::now();
+    let err = convert_with_worker(
+        app(),
+        &input,
+        &output,
+        &cancel,
+        Some(Duration::from_secs(120)),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, EngineError::ConversionFailed(f) if f.reason == Some("svg_too_large")),
+        "{err:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(!output.exists());
+}

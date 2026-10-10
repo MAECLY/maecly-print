@@ -1172,8 +1172,9 @@ mod tests {
     /// Round-6 finding (security note 4): masks and clip paths are followed.
     /// The 3.7 KB six-level mask bomb (a million masks in usvg, 156 s) and
     /// the same with `objectBoundingBox` clip paths are refused at once as
-    /// `svg_too_large`, end to end; shared (`userSpaceOnUse`) ones are
-    /// counted once, as usvg converts them once.
+    /// `svg_too_large`, end to end. Round 7: so is the same with the default
+    /// (`userSpaceOnUse`) clip paths or masks, which usvg shares but svg2pdf
+    /// writes out once per use (a 3.6 KB drawing made a 78 MB PDF).
     #[test]
     fn nfr_security_svg_mask_and_clip_bombs_are_refused() {
         let bomb = mask_bomb(6, "mask", "mask");
@@ -1207,9 +1208,15 @@ mod tests {
         assert!(!sheet.contains("mask=\""));
         assert!(is_too_large(expansion_of(&sheet)));
 
-        // A shared clip path (the default units) used everywhere is cheap.
+        // Round 7: shared units do not make a bomb cheap.
         let shared = mask_bomb(6, "clipPath", "clip-path");
-        assert!(expansion_of(&shared).is_ok());
+        assert!(is_too_large(expansion_of(&shared)));
+        let shared = mask_bomb(6, "mask maskUnits=\"userSpaceOnUse\"", "mask")
+            .replace("</mask maskUnits=\"userSpaceOnUse\">", "</mask>");
+        assert!(is_too_large(expansion_of(&shared)));
+        // One shallower level of the same nesting (ten thousand clip paths)
+        // still passes: references are charged, not refused.
+        assert!(expansion_of(&mask_bomb(4, "clipPath", "clip-path")).is_ok());
 
         let dir = tempfile::tempdir().unwrap();
         let path = write(dir.path(), "maskbomb.svg", bomb.as_bytes());

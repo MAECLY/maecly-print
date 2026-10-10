@@ -8,11 +8,13 @@
 //! - every vertex of a shape with a marker gets its own copy of the marker
 //!   (markers that hold marked shapes multiply again);
 //! - a pattern is cloned for every shape it paints;
-//! - a `<mask>`, `<clipPath>` or `<filter>` whose units are
-//!   `objectBoundingBox` is converted again for **every** element that
-//!   references it (usvg only caches the `userSpaceOnUse` ones), so masks
-//!   whose content is masked by the previous mask grow tenfold per level: a
-//!   3.7 KB drawing builds a million masks;
+//! - a `<mask>`, `<clipPath>` or `<filter>` is paid for again for **every**
+//!   element that references it: usvg converts the `objectBoundingBox` ones
+//!   per use, and even the `userSpaceOnUse` ones it shares are written out by
+//!   svg2pdf once per use, so masks or clip paths whose content is masked by
+//!   the previous one grow tenfold per level: a 3.7 KB drawing builds a
+//!   million masks, and one with default-unit clip paths writes a 78 MB PDF
+//!   (round 7);
 //! - a `<feImage>` that names an element renders a copy of it.
 //!
 //! [`check_expansion`] walks that expansion and charges **every step it
@@ -26,9 +28,10 @@
 //! It over-estimates on purpose: a style-sheet rule is applied to every
 //! element its last simple selector could match (`g .a` to every `.a`,
 //! anything it cannot read to every element), every vertex is assumed to
-//! carry a marker, patterns are never shared, and a mask, clip path or filter
-//! is only treated as shared when its units are exactly `userSpaceOnUse` as
-//! usvg reads them.
+//! carry a marker, patterns are never shared, and every mask, clip path or
+//! filter is charged in full for every reference, whatever its units. Its
+//! subtree is walked once; later references charge what that walk cost
+//! without walking it again, so the walk itself stays cheap.
 //!
 //! This is defence in depth: the boundary is the worker's memory cap and the
 //! conversion timeout ([`super::convert_with_worker`]). It exists so that an
@@ -65,7 +68,7 @@ pub(crate) fn check_expansion(doc: &Document, budget: u64) -> Result<u64, Engine
         weight: 0,
         budget,
         images: 0,
-        shared: HashSet::new(),
+        effect_cost: HashMap::new(),
     };
     for node in doc.descendants() {
         walk.add(1)?;
@@ -192,9 +195,10 @@ struct Expansion<'a, 'input> {
     weight: u64,
     budget: u64,
     images: u64,
-    /// The `userSpaceOnUse` masks, clip paths and filters already counted:
-    /// usvg converts those once and shares them.
-    shared: HashSet<NodeId>,
+    /// What walking each mask, clip path or filter once cost, so a later
+    /// reference charges the same again without re-walking it (round 7:
+    /// every reference is paid for, shared units or not).
+    effect_cost: HashMap<NodeId, u64>,
 }
 
 impl<'a, 'input> Expansion<'a, 'input> {
@@ -358,10 +362,13 @@ impl<'a, 'input> Expansion<'a, 'input> {
             if !matches!(kind, "mask" | "clipPath" | "filter") || chain.contains(&target.id()) {
                 continue;
             }
-            if is_shared(target) && !self.shared.insert(target.id()) {
+            if let Some(&cost) = self.effect_cost.get(&target.id()) {
+                self.add(cost)?;
                 continue;
             }
+            let before = self.weight;
             self.visit(target, &fresh, chain)?;
+            self.effect_cost.insert(target.id(), self.weight - before);
         }
         if matches!(name, "use" | "feImage") {
             if let Some(target) = self.href(node) {
@@ -427,30 +434,6 @@ fn node_weight(node: Node) -> u64 {
     1 + node.attributes().len() as u64 + bytes / BYTES_PER_UNIT
 }
 
-/// Whether usvg converts the mask, clip path or filter `node` once and shares
-/// it: only when all of its units are `userSpaceOnUse`. A units attribute
-/// spelled any other way (in any namespace) counts as not shared, so a value
-/// usvg might read differently can only over-count. Pure.
-fn is_shared(node: Node) -> bool {
-    // (attribute, whether its default is `userSpaceOnUse`)
-    let units: &[(&str, bool)] = match node.tag_name().name() {
-        "mask" => &[("maskUnits", false), ("maskContentUnits", true)],
-        "clipPath" => &[("clipPathUnits", true)],
-        "filter" => &[("filterUnits", false), ("primitiveUnits", true)],
-        _ => return false,
-    };
-    units.iter().all(|&(name, default_shared)| {
-        let mut values = node
-            .attributes()
-            .filter(|a| a.name() == name)
-            .map(|a| a.value());
-        match values.next() {
-            None => default_shared,
-            Some(first) => first == "userSpaceOnUse" && values.all(|v| v == "userSpaceOnUse"),
-        }
-    })
-}
-
 /// An upper bound of the vertices of a shape that can carry markers: every
 /// run of digits and every command letter of its `d` or `points` could start
 /// one. Pure.
@@ -488,23 +471,5 @@ mod tests {
         assert_eq!(selects("[fill]"), Selects::Every);
         assert_eq!(selects(""), Selects::Every);
         assert_eq!(strip_comments("a/* x */b/* open"), "ab");
-    }
-
-    #[test]
-    fn shared_only_when_units_are_exactly_user_space() {
-        let doc = Document::parse(
-            r#"<svg><mask id="a"/><mask id="b" maskUnits="userSpaceOnUse"/>
-               <clipPath id="c"/><clipPath id="d" clipPathUnits="objectBoundingBox"/>
-               <clipPath id="e" clipPathUnits=" userSpaceOnUse"/>
-               <filter id="f"/><filter id="g" filterUnits="userSpaceOnUse"/></svg>"#,
-        )
-        .unwrap();
-        let shared: Vec<_> = doc
-            .descendants()
-            .filter(|n| n.is_element() && n.attribute("id").is_some())
-            .filter(|n| is_shared(*n))
-            .map(|n| n.attribute("id").unwrap())
-            .collect();
-        assert_eq!(shared, ["b", "c", "g"]);
     }
 }
