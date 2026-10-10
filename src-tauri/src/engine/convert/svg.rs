@@ -34,7 +34,11 @@
 //! ([`MAX_NODES`]), after [`entity_expansion`] has checked that the
 //! document's internal entities cannot blow it up past the same byte cap (a
 //! "billion laughs" made of few, large entities, which the parser's own
-//! reference-count guard lets through).
+//! reference-count guard lets through). Then, on that same parsed document,
+//! [`check_expansion`] bounds what usvg would build from it: `<use>` copies,
+//! markers on every vertex, patterns cloned per shape, `<image>` copies and
+//! nesting depth, so no limit is checked on one view of the drawing and
+//! rendered from another.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -308,10 +312,257 @@ fn parse_tree(data: &[u8], opt: &usvg::Options) -> Result<usvg::Tree, EngineErro
             usvg::roxmltree::Error::NodesLimitReached => too_large("the SVG has too many elements"),
             e => invalid(format!("not a valid SVG: {e}")),
         })?;
+    check_expansion(&doc)?;
     usvg::Tree::from_xmltree(&doc, opt).map_err(|e| match e {
-        usvg::Error::ElementsLimitReached => too_large("the SVG has too many elements"),
+        usvg::Error::ElementsLimitReached
+        | usvg::Error::ParsingFailed(usvg::roxmltree::Error::NodesLimitReached) => {
+            too_large("the SVG has too many elements")
+        }
         e => invalid(format!("not a valid SVG: {e}")),
     })
+}
+
+/// Most work the drawing may expand to ([`check_expansion`]): every node it
+/// becomes once `<use>`, markers and patterns are instantiated, each counted
+/// with its attributes.
+const MAX_EXPANDED_WEIGHT: u64 = 4_000_000;
+
+/// Most `<image>` elements the drawing may expand to: each one is read and
+/// decoded again for every copy.
+const MAX_EXPANDED_IMAGES: u64 = 1_000;
+
+/// Deepest nesting, `<use>` and marker/pattern instances included. usvg
+/// refuses past 1024 levels itself; checking first keeps this walk bounded.
+const MAX_EXPANDED_DEPTH: usize = 1024;
+
+/// Security note 4 (parser differential): the caps must hold on what usvg
+/// renders, not on a text scan. The source-size, entity and node caps bound
+/// the parsed document, but usvg then multiplies it: every `<use>` copies its
+/// target (nested `<use>` grows exponentially until usvg's 1 000 000-element
+/// cap, each copy with all its attributes), every vertex of a shape with a
+/// marker gets its own copy of the marker (markers that hold marked shapes
+/// multiply again), and a pattern is cloned for every shape it paints.
+///
+/// This walks that expansion on **the same parsed document** usvg is handed
+/// (`doc`), with the same `id` lookup (first one wins) and the same
+/// recursion rule (an instance never contains itself), counting nodes and
+/// attributes, `<image>` copies and depth, and stops with `svg_too_large` as
+/// soon as one passes [`MAX_EXPANDED_WEIGHT`], [`MAX_EXPANDED_IMAGES`] or
+/// [`MAX_EXPANDED_DEPTH`]: its own cost is bounded by the same caps. It
+/// over-estimates on purpose: fill, stroke and markers set by a `<style>`
+/// sheet are assumed to reach every shape, and every vertex is assumed to
+/// carry a marker.
+fn check_expansion(doc: &usvg::roxmltree::Document) -> Result<(), EngineError> {
+    let mut ids = std::collections::HashMap::new();
+    for node in doc.descendants() {
+        if let Some(id) = node.attribute("id") {
+            ids.entry(id).or_insert(node);
+        }
+    }
+    let mut css_refs = Vec::new();
+    for node in doc.descendants().filter(|n| n.has_tag_name("style")) {
+        for text in node.children().filter_map(|c| c.text()) {
+            css_refs.extend(url_refs(text).filter_map(|id| ids.get(id).copied()));
+        }
+    }
+    let mut walk = Expansion {
+        ids,
+        css_refs,
+        weight: 0,
+        images: 0,
+    };
+    walk.visit(
+        doc.root(),
+        &Inherited::default(),
+        &mut std::collections::HashSet::new(),
+    )
+}
+
+/// The `#id` targets of every `url(#id)` in `text`.
+fn url_refs(text: &str) -> impl Iterator<Item = &str> {
+    text.split("url(").skip(1).filter_map(|rest| {
+        let inner = rest.split(')').next()?.trim().trim_matches(['"', '\'']);
+        inner.trim().strip_prefix('#').map(str::trim)
+    })
+}
+
+/// The paint servers and markers a node inherits.
+#[derive(Clone, Default)]
+struct Inherited<'a, 'input> {
+    fill: Option<usvg::roxmltree::Node<'a, 'input>>,
+    stroke: Option<usvg::roxmltree::Node<'a, 'input>>,
+    markers: [Option<usvg::roxmltree::Node<'a, 'input>>; 3],
+}
+
+/// The state of [`check_expansion`]'s walk.
+struct Expansion<'a, 'input> {
+    ids: std::collections::HashMap<&'a str, usvg::roxmltree::Node<'a, 'input>>,
+    css_refs: Vec<usvg::roxmltree::Node<'a, 'input>>,
+    weight: u64,
+    images: u64,
+}
+
+impl<'a, 'input> Expansion<'a, 'input> {
+    fn add(&mut self, weight: u64) -> Result<(), EngineError> {
+        self.weight = self.weight.saturating_add(weight);
+        if self.weight > MAX_EXPANDED_WEIGHT {
+            return Err(too_large("the SVG expands to too many elements"));
+        }
+        Ok(())
+    }
+
+    /// The node an `href` / `xlink:href` (`#id`) names, as usvg finds it.
+    fn href(
+        &self,
+        node: usvg::roxmltree::Node<'a, 'input>,
+    ) -> Option<usvg::roxmltree::Node<'a, 'input>> {
+        let value = node
+            .attribute(("http://www.w3.org/1999/xlink", "href"))
+            .or_else(|| node.attribute("href"))?;
+        self.ids
+            .get(value.trim().strip_prefix('#')?.trim())
+            .copied()
+    }
+
+    /// The node a paint or marker property value (`url(#id) ...`) names.
+    fn url(&self, value: &str) -> Option<usvg::roxmltree::Node<'a, 'input>> {
+        url_refs(value)
+            .next()
+            .and_then(|id| self.ids.get(id).copied())
+    }
+
+    /// `ctx` with `node`'s own fill, stroke and marker properties applied
+    /// (attributes and its `style` attribute).
+    fn inherit(
+        &self,
+        node: usvg::roxmltree::Node<'a, 'input>,
+        ctx: &Inherited<'a, 'input>,
+    ) -> Inherited<'a, 'input> {
+        let mut ctx = ctx.clone();
+        let mut apply = |name: &str, value: &str| match name.trim() {
+            "fill" => ctx.fill = self.url(value),
+            "stroke" => ctx.stroke = self.url(value),
+            "marker-start" => ctx.markers[0] = self.url(value),
+            "marker-mid" => ctx.markers[1] = self.url(value),
+            "marker-end" => ctx.markers[2] = self.url(value),
+            "marker" => ctx.markers = [self.url(value); 3],
+            _ => {}
+        };
+        for attr in node.attributes() {
+            apply(attr.name(), attr.value());
+        }
+        if let Some(style) = node.attribute("style") {
+            for decl in style.split(';') {
+                if let Some((name, value)) = decl.split_once(':') {
+                    apply(name, value);
+                }
+            }
+        }
+        ctx
+    }
+
+    fn visit(
+        &mut self,
+        node: usvg::roxmltree::Node<'a, 'input>,
+        ctx: &Inherited<'a, 'input>,
+        chain: &mut std::collections::HashSet<usvg::roxmltree::NodeId>,
+    ) -> Result<(), EngineError> {
+        if !node.is_element() && !node.is_root() {
+            return self.add(1);
+        }
+        if chain.len() >= MAX_EXPANDED_DEPTH {
+            return Err(too_large("the SVG nests too deeply"));
+        }
+        self.add(1 + node.attributes().len() as u64)?;
+        let ctx = self.inherit(node, ctx);
+        let name = node.tag_name().name();
+        chain.insert(node.id());
+        let fresh = Inherited::default();
+        let not_in_chain =
+            |n: &usvg::roxmltree::Node,
+             chain: &std::collections::HashSet<usvg::roxmltree::NodeId>| {
+                !chain.contains(&n.id())
+            };
+        if name == "use" {
+            if let Some(target) = self.href(node).filter(|t| not_in_chain(t, chain)) {
+                self.visit(target, &ctx, chain)?;
+            }
+        }
+        if name == "image" {
+            self.images += 1;
+            if self.images > MAX_EXPANDED_IMAGES {
+                return Err(too_large("the SVG expands to too many images"));
+            }
+        }
+        if matches!(
+            name,
+            "path" | "rect" | "circle" | "ellipse" | "line" | "polyline" | "polygon" | "text"
+        ) {
+            let css = self.css_refs.clone();
+            let paints: Vec<_> = [ctx.fill, ctx.stroke]
+                .into_iter()
+                .flatten()
+                .chain(css.iter().copied())
+                .filter(|n| n.has_tag_name("pattern"))
+                .collect();
+            for pattern in paints {
+                let mut content = Some(pattern);
+                // A pattern with no content of its own uses the one it links.
+                while let Some(p) = content.filter(|p| not_in_chain(p, chain)) {
+                    self.visit(p, &fresh, chain)?;
+                    content = self
+                        .href(p)
+                        .filter(|t| t.has_tag_name("pattern") && t != &p);
+                    if p.children().any(|c| c.is_element()) {
+                        break;
+                    }
+                }
+            }
+            if matches!(name, "path" | "line" | "polyline" | "polygon") {
+                let markers: Vec<_> = ctx
+                    .markers
+                    .into_iter()
+                    .flatten()
+                    .chain(css.iter().copied())
+                    .filter(|n| n.has_tag_name("marker") && not_in_chain(n, chain))
+                    .collect();
+                if !markers.is_empty() {
+                    let vertices = vertex_bound(node);
+                    for marker in markers {
+                        let before = self.weight;
+                        self.visit(marker, &fresh, chain)?;
+                        let once = self.weight - before;
+                        self.add(once.saturating_mul(vertices.saturating_sub(1)))?;
+                    }
+                }
+            }
+        }
+        for child in node.children() {
+            self.visit(child, &ctx, chain)?;
+        }
+        chain.remove(&node.id());
+        Ok(())
+    }
+}
+
+/// An upper bound of the vertices of a shape that can carry markers: every
+/// run of digits and every command letter of its `d` or `points` could start
+/// one. Pure.
+fn vertex_bound(node: usvg::roxmltree::Node) -> u64 {
+    let data = node
+        .attribute("d")
+        .or_else(|| node.attribute("points"))
+        .unwrap_or("");
+    let mut count = 2u64;
+    let mut in_digits = false;
+    for c in data.bytes() {
+        let digit = c.is_ascii_digit();
+        if (digit && !in_digits) || (c.is_ascii_alphabetic() && c != b'e' && c != b'E') {
+            count += 1;
+        }
+        in_digits = digit;
+    }
+    count
 }
 
 /// An upper bound of how many bytes `text` becomes once its general entities
@@ -688,6 +939,99 @@ mod tests {
         doc.push_str(&"<g/>".repeat(MAX_NODES as usize + 10));
         doc.push_str("</svg>");
         let path = write(dir.path(), "many.svg", doc.as_bytes());
+        let err = convert_file(&path).unwrap_err();
+        assert!(
+            matches!(&err, EngineError::ConversionFailed(f) if f.reason == Some("svg_too_large")),
+            "{err:?}"
+        );
+    }
+
+    fn expansion_of(svg: &str) -> Result<(), EngineError> {
+        let doc = usvg::roxmltree::Document::parse_with_options(
+            svg,
+            usvg::roxmltree::ParsingOptions {
+                allow_dtd: true,
+                nodes_limit: MAX_NODES,
+            },
+        )
+        .unwrap();
+        check_expansion(&doc)
+    }
+
+    fn is_too_large(r: Result<(), EngineError>) -> bool {
+        matches!(&r, Err(EngineError::ConversionFailed(f)) if f.reason == Some("svg_too_large"))
+    }
+
+    /// Security note 4: the caps hold on what usvg expands the parsed
+    /// document to, not only on the document: a `<use>` pyramid, markers on
+    /// every vertex (nested), patterns cloned per shape, and image copies
+    /// are each refused small, before usvg builds them.
+    #[test]
+    fn nfr_security_svg_expansion_is_capped_on_the_parsed_tree() {
+        const NS: &str =
+            r#"xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink""#;
+        // `<use>` pyramid: 10 levels of 10 copies, under 2 KB of source.
+        let mut defs = String::from(r#"<rect id="l0" width="1" height="1"/>"#);
+        for level in 1..=10 {
+            defs.push_str(&format!("<g id=\"l{level}\">"));
+            for _ in 0..10 {
+                defs.push_str(&format!("<use href=\"#l{}\"/>", level - 1));
+            }
+            defs.push_str("</g>");
+        }
+        let pyramid = format!("<svg {NS} width=\"9\" height=\"9\"><defs>{defs}</defs><use xlink:href=\"#l10\"/></svg>");
+        assert!(pyramid.len() < 2048);
+        assert!(is_too_large(expansion_of(&pyramid)));
+
+        // Markers that hold marked paths, on long paths.
+        let points = "1 1 ".repeat(200);
+        let mut markers = String::from(r#"<marker id="m0"><rect width="1" height="1"/></marker>"#);
+        for level in 1..=4 {
+            markers.push_str(&format!(
+                "<marker id=\"m{level}\"><polyline points=\"{points}\" marker-mid=\"url(#m{})\"/></marker>",
+                level - 1
+            ));
+        }
+        let marked = format!(
+            "<svg {NS} width=\"9\" height=\"9\"><defs>{markers}</defs><polyline points=\"{points}\" style=\"marker-mid: url(#m4)\"/></svg>"
+        );
+        assert!(is_too_large(expansion_of(&marked)));
+
+        // A large pattern painting many shapes (set by a style sheet).
+        let content = "<rect width=\"1\" height=\"1\" x=\"0\"/>".repeat(2000);
+        let shapes = "<rect width=\"1\" height=\"1\"/>".repeat(2000);
+        let painted = format!(
+            "<svg {NS} width=\"9\" height=\"9\"><style>rect {{ fill: url(#p) }}</style><pattern id=\"p\" width=\"1\" height=\"1\">{content}</pattern>{shapes}</svg>"
+        );
+        assert!(is_too_large(expansion_of(&painted)));
+
+        // One image, copied by `<use>` past the image cap.
+        let mut copies = String::new();
+        for _ in 0..(MAX_EXPANDED_IMAGES + 1) {
+            copies.push_str("<use href=\"#i\"/>");
+        }
+        let images = format!(
+            "<svg {NS} width=\"9\" height=\"9\"><defs><image id=\"i\" href=\"a.png\" width=\"1\" height=\"1\"/></defs>{copies}</svg>"
+        );
+        assert!(is_too_large(expansion_of(&images)));
+
+        // Ordinary drawings pass: a few uses, a marker on a line, a pattern.
+        let fine = format!(
+            "<svg {NS} width=\"9\" height=\"9\"><defs><marker id=\"a\"><path d=\"M0 0L1 1\"/></marker>\
+             <pattern id=\"p\" width=\"2\" height=\"2\"><rect width=\"1\" height=\"1\"/></pattern>\
+             <circle id=\"c\" r=\"1\"/></defs><use href=\"#c\"/><use href=\"#c\" x=\"3\"/>\
+             <line x1=\"0\" y1=\"0\" x2=\"5\" y2=\"5\" marker-end=\"url(#a)\" stroke=\"black\"/>\
+             <rect width=\"5\" height=\"5\" fill=\"url(#p)\"/></svg>"
+        );
+        assert!(expansion_of(&fine).is_ok());
+        assert!(expansion_of(std::str::from_utf8(RECT).unwrap()).is_ok());
+        // A self-referencing `<use>` is skipped, as usvg skips it.
+        let looped = format!("<svg {NS}><g id=\"g\"><use href=\"#g\"/></g></svg>");
+        assert!(expansion_of(&looped).is_ok());
+
+        // End to end: the pyramid is refused as too large.
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(dir.path(), "pyramid.svg", pyramid.as_bytes());
         let err = convert_file(&path).unwrap_err();
         assert!(
             matches!(&err, EngineError::ConversionFailed(f) if f.reason == Some("svg_too_large")),
