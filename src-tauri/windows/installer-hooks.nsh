@@ -96,6 +96,9 @@
 !define PLURY_LEGACY_PRODUCTKEY "Software\${PLURY_LEGACY_PUBLISHER}\${PLURY_LEGACY_PRODUCT}"
 !define PLURY_UNINSTROOT "Software\Microsoft\Windows\CurrentVersion\Uninstall"
 
+; Every message below, in English and Spanish (FR-093).
+!include "${__FILEDIR__}\installer-strings.nsh"
+
 ; Drop one pair of surrounding double quotes from VAR, if it has them.
 !macro PLURY_UNQUOTE VAR
   StrCpy $9 ${VAR} 1
@@ -137,7 +140,7 @@
     Rename "${DIR}\${PLURYPRINT_SHELLEXT_DLL}" "$INSTDIR\${PLURYPRINT_SHELLEXT_DLL}.old$R5"
     IfErrors 0 plury_park_done
   plury_park_late:
-    DetailPrint "Could not move ${DIR}\${PLURYPRINT_SHELLEXT_DLL} aside; it stays until Explorer lets go of it"
+    DetailPrint "$(PLURY_PARK_LATE) ${DIR}\${PLURYPRINT_SHELLEXT_DLL}"
   plury_park_done:
 !macroend
 
@@ -170,16 +173,16 @@
   StrCpy $R3 1
   ${If} $R0 != ""
     ${If} $R1 == ""
-      DetailPrint "Cannot tell where ${PLURY_LEGACY_PRODUCT} is installed; leaving it in place"
+      DetailPrint "$(PLURY_LEGACY_UNKNOWN_DIR)"
       StrCpy $R3 0
     ${ElseIf} ${FileExists} "$R1\uninstall.exe"
-      DetailPrint "Removing the previous ${PLURY_LEGACY_PRODUCT} install in $R1"
+      DetailPrint "$(PLURY_LEGACY_REMOVING)"
       ClearErrors
       ExecWait '"$R1\uninstall.exe" /S _?=$R1' $R2
       ${If} ${Errors}
-        StrCpy $R2 "not started"
+        StrCpy $R2 "$(PLURY_NOT_STARTED)"
       ${EndIf}
-      DetailPrint "${PLURY_LEGACY_PRODUCT} uninstaller exited with $R2"
+      DetailPrint "$(PLURY_LEGACY_EXITED)"
       ${If} $R2 == 0
       ${AndIfNot} ${FileExists} "$R1\${PLURY_LEGACY_EXE}"
         ; Run in place, the uninstaller cannot delete itself or its folder.
@@ -205,12 +208,12 @@
         !insertmacro PLURY_PARK_LEGACY_DLL "$R1"
         RMDir /REBOOTOK "$R1"
       ${Else}
-        DetailPrint "${PLURY_LEGACY_PRODUCT} was not removed; it stays in Apps & features"
+        DetailPrint "$(PLURY_LEGACY_KEPT)"
         StrCpy $R3 0
       ${EndIf}
     ${Else}
       ; Registered, but its uninstaller is gone: only the registration is left.
-      DetailPrint "${PLURY_LEGACY_PRODUCT} uninstaller not found in $R1; removing its stale registration"
+      DetailPrint "$(PLURY_LEGACY_STALE)"
     ${EndIf}
   ${EndIf}
 
@@ -242,22 +245,22 @@
     ReadRegStr $R0 HKLM "${PLURY_UNINSTROOT}\$R5" "UninstallString"
     ${StrLoc} $R2 $R0 "msiexec" ">"
     ${If} $R2 == ""
-      DetailPrint "A per-machine ${PLURY_LEGACY_PRODUCT} install ($R5) was found but is not an MSI; remove it from Apps & features"
+      DetailPrint "$(PLURY_MSI_NOT_MSI)"
       Goto plury_hklm_done
     ${EndIf}
-    DetailPrint "Found a per-machine ${PLURY_LEGACY_PRODUCT} install ($R5)"
-    MessageBox MB_YESNO|MB_ICONQUESTION "${PLURY_LEGACY_PRODUCT} is also installed for all users of this computer. Remove it now? Windows will ask for administrator approval.$\n$\nYour settings, profiles and queue are kept either way." /SD IDNO IDYES plury_hklm_remove
-    DetailPrint "Left the per-machine ${PLURY_LEGACY_PRODUCT} install in place; remove it from Apps & features"
+    DetailPrint "$(PLURY_MSI_FOUND)"
+    MessageBox MB_YESNO|MB_ICONQUESTION "$(PLURY_MSI_ASK)" /SD IDNO IDYES plury_hklm_remove
+    DetailPrint "$(PLURY_MSI_LEFT)"
     Goto plury_hklm_done
   plury_hklm_remove:
     ClearErrors
     ; msiexec runs unelevated and asks for consent itself.
     ExecWait 'msiexec.exe /x $R5 /passive /norestart' $R2
     ${If} ${Errors}
-      StrCpy $R2 "not started"
+      StrCpy $R2 "$(PLURY_NOT_STARTED)"
     ${EndIf}
     ; 0: removed. 3010: removed, restart pending. 1602: the user declined.
-    DetailPrint "${PLURY_LEGACY_PRODUCT} (per machine) uninstall exited with $R2"
+    DetailPrint "$(PLURY_MSI_EXITED)"
   plury_hklm_done:
 
   Pop $9
