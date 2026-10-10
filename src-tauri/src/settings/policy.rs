@@ -18,8 +18,10 @@
 //! `C:\ProgramData\MaeclyPrint\policy.json`,
 //! `/Library/Application Support/MaeclyPrint/policy.json`,
 //! `/etc/maeclyprint/policy.json`) is still honoured, with the same trust rules,
-//! when nothing is found at the new location, and a warning asks the admin to
-//! move it. The app runs as the user, so it cannot move a machine policy
+//! when nothing is found at any new location, and a warning asks the admin
+//! to move it. Every new location, registry or file, beats every legacy one:
+//! an admin who moved to the new file but left the old Group Policy in place
+//! gets the new policy. The app runs as the user, so it cannot move a machine policy
 //! itself. See ADR-0009.
 //!
 //! `C:\ProgramData` lets any standard user create folders (and own them), so a
@@ -58,63 +60,132 @@ pub struct PrinterPolicy {
 }
 
 impl PrinterPolicy {
-    /// Load the effective policy: the Windows registry policy first, then the
-    /// policy files in order. Untrusted, missing or unreadable files are
-    /// skipped; a malformed trusted file is logged and treated as no-policy.
+    /// Load the effective policy from the first [`sources`] entry that has
+    /// one. Untrusted, missing or unreadable files are skipped; a malformed
+    /// trusted file is logged and treated as no-policy.
     pub fn load() -> Self {
-        if let Some(policy) = registry_policy() {
-            return policy;
+        resolve(&sources(), read_source)
+    }
+}
+
+/// One place a policy can come from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Source {
+    /// `HKLM\SOFTWARE\Policies\Maecly\<app>` → `DefaultPrinter` (Windows).
+    Registry { legacy: bool },
+    /// A `policy.json`.
+    File(PathBuf),
+}
+
+impl Source {
+    fn is_legacy(&self) -> bool {
+        match self {
+            Source::Registry { legacy } => *legacy,
+            Source::File(path) => is_legacy(path),
         }
-        for path in policy_paths() {
-            let raw = match read_trusted(&path) {
+    }
+}
+
+/// What one source holds.
+#[derive(Debug)]
+enum Found {
+    /// No policy here (absent, unreadable, untrusted): try the next source.
+    Nothing,
+    Policy(PrinterPolicy),
+    /// A trusted file that does not parse: no policy, and the search stops.
+    Malformed,
+}
+
+/// Every place a policy can come from, most authoritative first. Every
+/// current location — the registry, then the file — comes before every
+/// legacy one, so an admin who moved to the new location but left the old
+/// deployment in place gets the new policy.
+fn sources() -> Vec<Source> {
+    let mut out = Vec::new();
+    if cfg!(windows) {
+        out.push(Source::Registry { legacy: false });
+    }
+    if let Some(system) = system_policy_path(APP_DIR) {
+        out.push(Source::File(system));
+    }
+    if cfg!(windows) {
+        out.push(Source::Registry { legacy: true });
+    }
+    if let Some(legacy) = system_policy_path(LEGACY_APP_DIR) {
+        out.push(Source::File(legacy));
+    }
+    // Developer/testing fallback: never in a release build.
+    #[cfg(debug_assertions)]
+    out.push(Source::File(dev_policy_path()));
+    out
+}
+
+/// The per-user developer fallback (debug builds only).
+#[cfg(debug_assertions)]
+fn dev_policy_path() -> PathBuf {
+    crate::util::paths::config_dir().join("policy.json")
+}
+
+/// Whether `source` is the debug-only per-user fallback.
+#[cfg(test)]
+fn is_dev_fallback(source: &Source) -> bool {
+    *source == Source::File(crate::util::paths::config_dir().join("policy.json"))
+}
+
+/// The policy from the first source that has one. Pure over `read`, for tests.
+fn resolve(sources: &[Source], mut read: impl FnMut(&Source) -> Found) -> PrinterPolicy {
+    for source in sources {
+        match read(source) {
+            Found::Nothing => continue,
+            Found::Policy(policy) => return policy,
+            Found::Malformed => return PrinterPolicy::default(),
+        }
+    }
+    PrinterPolicy::default()
+}
+
+/// Read one source, logging what an admin should hear about.
+fn read_source(source: &Source) -> Found {
+    let found = match source {
+        Source::Registry { legacy } => match registry_policy(*legacy) {
+            Some(policy) => Found::Policy(policy),
+            None => return Found::Nothing,
+        },
+        Source::File(path) => {
+            let raw = match read_trusted(path) {
                 // Missing or unreadable — try the next candidate.
-                PolicyFile::Missing => continue,
+                PolicyFile::Missing => return Found::Nothing,
                 PolicyFile::Untrusted => {
                     tracing::warn!(
                         event = "policy_untrusted",
                         path = %path.display(),
                         "ignoring policy.json that a non-administrator could have written"
                     );
-                    continue;
+                    return Found::Nothing;
                 }
                 PolicyFile::Trusted(raw) => raw,
             };
-            if is_legacy(&path) {
-                tracing::warn!(
-                    event = "policy_legacy_location",
-                    path = %path.display(),
-                    "using a policy deployed for MaeclyPrint; move it to the Pluryprint location"
-                );
-            }
-            return match parse_policy(&raw) {
-                Some(policy) => policy,
+            match parse_policy(&raw) {
+                Some(policy) => Found::Policy(policy),
                 None => {
                     tracing::warn!(
                         event = "policy_parse_failed",
                         path = %path.display(),
                         "ignoring malformed policy.json"
                     );
-                    Self::default()
+                    return Found::Malformed;
                 }
-            };
+            }
         }
-        Self::default()
+    };
+    if source.is_legacy() {
+        tracing::warn!(
+            event = "policy_legacy_location",
+            source = ?source,
+            "using a policy deployed for MaeclyPrint; move it to the Pluryprint location"
+        );
     }
-}
-
-/// Candidate policy files, most authoritative first.
-fn policy_paths() -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if let Some(system) = system_policy_path(APP_DIR) {
-        out.push(system);
-    }
-    if let Some(legacy) = system_policy_path(LEGACY_APP_DIR) {
-        out.push(legacy);
-    }
-    // Developer/testing fallback: never in a release build.
-    #[cfg(debug_assertions)]
-    out.push(crate::util::paths::config_dir().join("policy.json"));
-    out
+    found
 }
 
 /// Folder name of the machine policy under the current product name.
@@ -176,33 +247,22 @@ fn policy_from_registry_value(value: Option<String>) -> Option<PrinterPolicy> {
     })
 }
 
-/// `HKLM\SOFTWARE\Policies\Maecly\Pluryprint` → `DefaultPrinter`, then the
+/// `HKLM\SOFTWARE\Policies\Maecly\Pluryprint` → `DefaultPrinter`, or the
 /// same value under the legacy `...\Maecly\MaeclyPrint` key. Only
 /// administrators (and Group Policy) can write under `HKLM\SOFTWARE\Policies`.
-fn registry_policy() -> Option<PrinterPolicy> {
+fn registry_policy(legacy: bool) -> Option<PrinterPolicy> {
     #[cfg(windows)]
     {
-        if let Some(policy) = policy_from_registry_value(win::read_policy_string(
-            win::PolicyKey::Current,
-            "DefaultPrinter",
-        )) {
-            return Some(policy);
-        }
-        let legacy = policy_from_registry_value(win::read_policy_string(
-            win::PolicyKey::Legacy,
-            "DefaultPrinter",
-        ));
-        if legacy.is_some() {
-            tracing::warn!(
-                event = "policy_legacy_location",
-                key = "HKLM\\SOFTWARE\\Policies\\Maecly\\MaeclyPrint",
-                "using a policy deployed for MaeclyPrint; move it to the Pluryprint key"
-            );
-        }
-        legacy
+        let key = if legacy {
+            win::PolicyKey::Legacy
+        } else {
+            win::PolicyKey::Current
+        };
+        policy_from_registry_value(win::read_policy_string(key, "DefaultPrinter"))
     }
     #[cfg(not(windows))]
     {
+        let _ = legacy;
         policy_from_registry_value(None)
     }
 }
@@ -437,12 +497,17 @@ mod tests {
     /// after the Pluryprint location.
     #[test]
     fn legacy_policy_location_is_consulted_after_the_current_one() {
-        let paths = policy_paths();
+        let order = sources();
         let current = system_policy_path(APP_DIR);
         let legacy = system_policy_path(LEGACY_APP_DIR);
         if let (Some(current), Some(legacy)) = (current, legacy) {
-            let at = |p: &PathBuf| paths.iter().position(|q| q == p).unwrap();
-            assert!(at(&current) < at(&legacy), "{paths:?}");
+            let at = |p: &PathBuf| {
+                order
+                    .iter()
+                    .position(|s| *s == Source::File(p.clone()))
+                    .unwrap()
+            };
+            assert!(at(&current) < at(&legacy), "{order:?}");
             assert!(!is_legacy(&current), "{current:?}");
             assert!(is_legacy(&legacy), "{legacy:?}");
             assert!(
@@ -453,6 +518,83 @@ mod tests {
                 "{legacy:?}"
             );
         }
+    }
+
+    /// Every new location, registry or file, comes before every legacy one:
+    /// an admin who moved to the new file but left the old GPO in place gets
+    /// the new printer.
+    #[test]
+    fn new_locations_beat_legacy_ones_of_either_kind() {
+        let order = sources();
+        let first_legacy = order
+            .iter()
+            .position(Source::is_legacy)
+            .unwrap_or(order.len());
+        assert!(
+            order[..first_legacy].iter().all(|s| !s.is_legacy()),
+            "{order:?}"
+        );
+        assert!(
+            order[first_legacy..]
+                .iter()
+                .all(|s| s.is_legacy() || is_dev_fallback(s)),
+            "{order:?}"
+        );
+    }
+
+    fn policy(printer: &str) -> Found {
+        Found::Policy(PrinterPolicy {
+            default_printer: Some(printer.into()),
+        })
+    }
+
+    /// The pure resolution: first source with something wins.
+    #[test]
+    fn resolve_takes_the_first_source_that_has_a_policy() {
+        let new_file = Source::File(PathBuf::from("/new/policy.json"));
+        let old_file = Source::File(PathBuf::from("/MaeclyPrint/policy.json"));
+        let order = vec![
+            Source::Registry { legacy: false },
+            new_file.clone(),
+            Source::Registry { legacy: true },
+            old_file.clone(),
+        ];
+
+        // New file vs. legacy GPO: the new file wins.
+        let got = resolve(&order, |s| match s {
+            Source::Registry { legacy: true } => policy("OldGpo"),
+            s if *s == new_file => policy("NewFile"),
+            _ => Found::Nothing,
+        });
+        assert_eq!(got.default_printer.as_deref(), Some("NewFile"));
+
+        // New GPO vs. new file: the registry wins, as before.
+        let got = resolve(&order, |s| match s {
+            Source::Registry { legacy: false } => policy("NewGpo"),
+            s if *s == new_file => policy("NewFile"),
+            _ => Found::Nothing,
+        });
+        assert_eq!(got.default_printer.as_deref(), Some("NewGpo"));
+
+        // Only legacy sources: still honoured, registry first.
+        let got = resolve(&order, |s| match s {
+            Source::Registry { legacy: true } => policy("OldGpo"),
+            s if *s == old_file => policy("OldFile"),
+            _ => Found::Nothing,
+        });
+        assert_eq!(got.default_printer.as_deref(), Some("OldGpo"));
+
+        // A malformed trusted file is no policy, and stops the search.
+        let got = resolve(&order, |s| match s {
+            Source::Registry { legacy: false } => Found::Nothing,
+            s if *s == new_file => Found::Malformed,
+            _ => policy("Later"),
+        });
+        assert!(got.default_printer.is_none());
+
+        assert!(resolve(&order, |_| Found::Nothing)
+            .default_printer
+            .is_none());
     }
 
     #[test]
@@ -539,6 +681,9 @@ mod tests {
     #[test]
     fn per_user_fallback_is_debug_only() {
         let user = crate::util::paths::config_dir().join("policy.json");
-        assert_eq!(policy_paths().contains(&user), cfg!(debug_assertions));
+        assert_eq!(
+            sources().contains(&Source::File(user)),
+            cfg!(debug_assertions)
+        );
     }
 }
