@@ -10,6 +10,8 @@
 //! decides from argv whether this process is a GUI launch at all, so a
 //! `maeclyprint print …` never reaches [`run_with`] and never creates a webview.
 
+#![deny(missing_docs)]
+
 pub mod cli;
 pub mod engine;
 pub mod ipc;
