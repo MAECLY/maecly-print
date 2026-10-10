@@ -274,10 +274,13 @@ function EngineField({
   const [error, setError] = useState(false);
   const errorId = useId();
 
-  useEffect(() => {
+  // Re-synced while rendering, so the stale text never paints.
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (syncedValue !== value) {
+    setSyncedValue(value);
     setText(value === undefined ? '' : String(value));
     setError(false);
-  }, [value]);
+  }
 
   const commit = () => {
     const s = text.trim();

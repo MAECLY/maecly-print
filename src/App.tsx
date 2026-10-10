@@ -303,12 +303,15 @@ function App() {
   // when the store is authoritative ('ready'); while it is loading/error/
   // unavailable the list can be transiently empty or stale, and clearing an
   // explicit choice then would wipe the user's selection for no reason.
-  useEffect(() => {
-    if (profilesStatus !== 'ready') return;
-    if (profileChoice && !profiles.some((p) => p.id === profileChoice)) {
-      setProfileChoice(null);
-    }
-  }, [profiles, profileChoice, profilesStatus]);
+  // Adjusted while rendering rather than in an effect, so no frame shows the
+  // job pointing at a profile that no longer exists.
+  if (
+    profilesStatus === 'ready' &&
+    profileChoice &&
+    !profiles.some((p) => p.id === profileChoice)
+  ) {
+    setProfileChoice(null);
+  }
 
   // App-level drag & drop (FR-007): the Home screen advertises "drag them
   // here", so drops must work from any screen, not only while the Print Job
