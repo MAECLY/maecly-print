@@ -391,7 +391,7 @@ figcaption { font-size: .84375rem; color: var(--text-mute); margin-top: 14px; }
 .vs-us-name { display: inline-flex; align-items: center; gap: 8px; font-size: 1.0625rem; color: var(--accent); }
 .vs-us-name .mark { width: 24px; height: 24px; }
 .vs-num { position: relative; display: inline-block; font: 560 1.5rem/1.1 var(--font-display); font-variant-numeric: lining-nums; }
-.vs-ring { position: absolute; left: -22%; top: -24%; width: 144%; height: 148%; overflow: visible; }
+.vs-ring { position: absolute; left: -22%; top: -24%; width: 144%; max-width: none; height: 148%; overflow: visible; }
 .vs-ring path { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-dasharray: 1 2; stroke-dashoffset: 0; vector-effect: non-scaling-stroke; }
 .vs-dash { color: var(--text-mute); }
 .vs-notes { display: grid; gap: 14px 40px; margin-top: 28px; color: var(--text-soft); }
