@@ -34,7 +34,8 @@
     "held_one": "{{count}} job added to the queue, paused — start it from the Queue screen",
     "held_other": "{{count}} jobs added to the queue, paused — start them from the Queue screen",
     "nothingPrintable": "Nothing in that selection can be printed.",
-    "unknownProfile": "No profile is called “{{name}}” — the default profile was used instead."
+    "unknownProfile": "No profile is called “{{name}}”. Choose a profile before printing.",
+    "unknownProfileNotPrinted": "No profile is called “{{name}}”, so nothing was printed. The files are on the Print Job screen: choose a profile there."
   },
   "selection": {
     "truncated": "Only the first {{sent}} of the {{total}} selected items reached MaeclyPrint. Select the rest separately to print them."

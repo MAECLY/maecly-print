@@ -321,6 +321,9 @@ describe('App', () => {
     function mockSelections() {
       const calls: Call[] = [];
       let parked: unknown[] = [];
+      // What `list_profiles` reads from disk; `writeProfiles` stands in for
+      // another process (the CLI) rewriting profiles.toml.
+      let onDisk: unknown[] = fixtureProfiles;
       mockIPC((cmd, args) => {
         calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
         switch (cmd) {
@@ -339,7 +342,7 @@ describe('App', () => {
           case 'print_files':
             return { batch_id: 'b1', job_ids: ['j1'] };
           case 'list_profiles':
-            return fixtureProfiles;
+            return onDisk;
           case 'get_app_settings':
             return fixtureAppSettings;
           case 'queue_status':
@@ -354,6 +357,9 @@ describe('App', () => {
           // Appends, like the backend store: a second launch never erases a
           // selection that is still waiting to be drained.
           parked = [...parked, ...selections];
+        },
+        writeProfiles: (list: unknown[]) => {
+          onDisk = list;
         },
       };
     }
@@ -501,16 +507,67 @@ describe('App', () => {
       expect(req.profile_name).toBe('Contracts duplex');
     });
 
-    it('FR-001: an unknown profile is reported, then the default is used', async () => {
+    it('FR-001: a print-now selection naming an unknown profile prints nothing', async () => {
       const { calls, park } = mockSelections();
       park([selection('print-default', 'Nope')]);
       render(<App />);
       expect(
+        await screen.findByText(
+          /No profile is called “Nope”, so nothing was printed/,
+        ),
+      ).toBeInTheDocument();
+      // The files land on the Print Job screen for the user to finish…
+      expect((await reportRows()).length).toBeGreaterThan(0);
+      // …and the default profile is never used behind their back.
+      expect(calls.some((c) => c.cmd === 'print_files')).toBe(false);
+    });
+
+    it('FR-001: a queue selection naming an unknown profile queues nothing', async () => {
+      const { calls, park } = mockSelections();
+      park([selection('queue', 'Nope')]);
+      render(<App />);
+      expect(
         await screen.findByText(/No profile is called “Nope”/),
       ).toBeInTheDocument();
+      expect((await reportRows()).length).toBeGreaterThan(0);
+      expect(calls.some((c) => c.cmd === 'print_files')).toBe(false);
+    });
+
+    it('FR-001: a profile created by the CLI after launch is honoured, not swapped for the default', async () => {
+      const { calls, park, writeProfiles } = mockSelections();
+      render(<App />);
+      // The window has loaded its profile list…
+      await waitFor(() =>
+        expect(useProfilesStore.getState().status).toBe('ready'),
+      );
+      await waitFor(() =>
+        expect(eventMock.registry.selectionForwarded.size).toBe(1),
+      );
+      // …then `maeclyprint-cli profiles create` adds one, and the refreshed
+      // shell menu offers it straight away.
+      writeProfiles([
+        ...fixtureProfiles,
+        {
+          ...fixtureProfiles[3]!,
+          id: 'cli-created',
+          name: 'E2E Hold',
+          copies: 2,
+          duplex: 'long-edge',
+          default: false,
+        },
+      ]);
+      park([selection('print-default', 'E2E Hold')]);
+      ringDoorbell();
+
       await waitFor(() =>
         expect(calls.some((c) => c.cmd === 'print_files')).toBe(true),
       );
+      const req = calls.find((c) => c.cmd === 'print_files')!.args.req as {
+        profile_name: string;
+        settings: { copies: number };
+      };
+      expect(req.profile_name).toBe('E2E Hold');
+      expect(req.settings.copies).toBe(2);
     });
 
     it('NFR-014: selections that arrive back to back are all printed, in order', async () => {

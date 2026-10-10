@@ -81,6 +81,27 @@ async function settledProfiles(): Promise<UiProfile[]> {
   return store.getState().profiles;
 }
 
+/**
+ * The profile list as it is on disk *now*, for acting on a profile reference
+ * this window did not pick itself (a context-menu selection, FR-001).
+ *
+ * `profiles.toml` is also written by the CLI (`profiles create`, which also
+ * rewrites the shell menu so the new profile is offered at once), by a second
+ * window and by hand, and the store has no watcher. Resolving against the
+ * cached list used to miss such a profile and print with the default instead.
+ * When the reload itself fails the settled list is the best there is; an
+ * unresolvable reference is still refused by the caller, never guessed.
+ */
+async function freshProfiles(): Promise<UiProfile[]> {
+  const settled = await settledProfiles();
+  try {
+    return await useProfilesStore.getState().reload();
+  } catch (e) {
+    logError('app.reload-profiles', e);
+    return settled;
+  }
+}
+
 function readOnboardingDone() {
   try {
     return window.localStorage.getItem(ONBOARD_KEY) === '1';
@@ -425,9 +446,14 @@ function App() {
    *
    * The last two never pass through the interactive job: folders are walked
    * top-level without a question (nobody is looking at a dialog), and the
-   * batch is exactly the selection. A profile the integration named — by id
-   * or by name, as `--profile <NAME-OR-ID>` allows — that matches nothing is
-   * said out loud before the default is used.
+   * batch is exactly the selection.
+   *
+   * A profile the integration named — by id or by name, as
+   * `--profile <NAME-OR-ID>` allows — is resolved against the list re-read
+   * from disk, since it may have been created after this window loaded its
+   * list. One that still matches nothing is never swapped for the default:
+   * nothing is printed or queued, the user is told so, and the files are
+   * opened on the Print Job screen to pick a profile there.
    */
   const applySelection = async (selection: Selection) => {
     if (selection.paths.length === 0) return;
@@ -444,15 +470,23 @@ function App() {
       );
     }
     // A selection can arrive before the profile list has loaded (it is
-    // drained right at launch); resolving against the static built-ins would
-    // call a real custom profile "unknown".
-    const profiles = await settledProfiles();
+    // drained right at launch), or name a profile created after it loaded
+    // (the CLI); either way the cached list is not the authority.
+    const profiles = await freshProfiles();
     const named = findProfileByRef(profiles, selection.profile_id);
-    if (selection.profile_id && !named) {
-      toast.warning(t('print.unknownProfile', { name: selection.profile_id }));
-    }
+    const unknown = Boolean(selection.profile_id) && !named;
 
-    if (selection.action === 'configure') {
+    if (selection.action === 'configure' || unknown) {
+      if (unknown) {
+        toast.error(
+          t(
+            selection.action === 'configure'
+              ? 'print.unknownProfile'
+              : 'print.unknownProfileNotPrinted',
+            { name: selection.profile_id },
+          ),
+        );
+      }
       setActive('job');
       if (named) chooseProfile(named.id);
       await addPathsToJob(selection.paths, setFiles, currentPaths);

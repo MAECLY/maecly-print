@@ -34,7 +34,8 @@
     "held_one": "{{count}} trabajo añadido a la cola, en pausa: inícialo desde la pantalla Cola",
     "held_other": "{{count}} trabajos añadidos a la cola, en pausa: inícialos desde la pantalla Cola",
     "nothingPrintable": "No hay nada imprimible en esa selección.",
-    "unknownProfile": "No hay ningún perfil llamado «{{name}}»: se ha usado el perfil por defecto."
+    "unknownProfile": "No hay ningún perfil llamado «{{name}}». Elige un perfil antes de imprimir.",
+    "unknownProfileNotPrinted": "No hay ningún perfil llamado «{{name}}», así que no se ha impreso nada. Los archivos están en la pantalla Trabajo de impresión: elige allí un perfil."
   },
   "selection": {
     "truncated": "Solo han llegado a MaeclyPrint los primeros {{sent}} de los {{total}} elementos seleccionados. Selecciona el resto por separado para imprimirlos."
