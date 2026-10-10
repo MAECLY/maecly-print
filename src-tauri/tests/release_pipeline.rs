@@ -2,10 +2,14 @@
 //! NFR-070), checked from the files themselves so a reviewer does not have to
 //! run a release to see it broken:
 //!
-//! - `.github/workflows/release.yml` builds the four targets into a draft,
-//!   refuses to run without the updater signing secret, names every asset for
-//!   the computer it is for, verifies signatures, writes SHA256SUMS and
-//!   attaches the Corresponding Source;
+//! - `.github/workflows/release.yml` builds the four targets with no write
+//!   token and no secret, signs the update artifacts in a job that builds
+//!   nothing, and only then uploads a draft: it refuses to run without the
+//!   updater signing secret, names every asset for the computer it is for,
+//!   verifies signatures, writes SHA256SUMS and attaches the Corresponding
+//!   Source;
+//! - every workflow pins its actions to a commit, keeps no git credentials
+//!   and asks for the least permission it needs;
 //! - `.github/workflows/release-channels.yml` moves the beta manifest forward
 //!   only;
 //! - `scripts/release/release_tools.py` implements those rules (exercised
@@ -26,6 +30,25 @@ fn read(rel: &str) -> String {
 
 fn release_yml() -> String {
     read(".github/workflows/release.yml")
+}
+
+/// Every workflow file, as (file name, text).
+fn workflows() -> Vec<(String, String)> {
+    let dir = repo().join(".github/workflows");
+    let mut out: Vec<(String, String)> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|x| x == "yml" || x == "yaml"))
+        .map(|p| {
+            (
+                p.file_name().unwrap().to_string_lossy().into_owned(),
+                std::fs::read_to_string(&p).unwrap(),
+            )
+        })
+        .collect();
+    out.sort();
+    assert!(out.len() >= 4, "{out:?}");
+    out
 }
 
 /// Whether `line` opens a job: a key at two spaces of indentation.
@@ -55,6 +78,39 @@ fn job(workflow: &str, name: &str) -> String {
     out.join("\n")
 }
 
+/// The names of every job of `workflow`.
+fn job_names(workflow: &str) -> Vec<String> {
+    workflow
+        .split_once("\njobs:\n")
+        .unwrap_or_else(|| panic!("no jobs"))
+        .1
+        .lines()
+        .filter(|l| is_job_key(l))
+        .map(|l| l.trim().trim_end_matches(':').to_string())
+        .collect()
+}
+
+/// The steps of a job's text, each from its `- ` line to the next one's.
+fn steps(job: &str) -> Vec<String> {
+    let mut out: Vec<Vec<&str>> = Vec::new();
+    let mut in_steps = false;
+    for line in job.lines() {
+        if line == "    steps:" {
+            in_steps = true;
+            continue;
+        }
+        if !in_steps {
+            continue;
+        }
+        if line.starts_with("      - ") {
+            out.push(vec![line]);
+        } else if let Some(step) = out.last_mut() {
+            step.push(line);
+        }
+    }
+    out.into_iter().map(|s| s.join("\n")).collect()
+}
+
 /// NFR-022: a tag build stops before building anything when the updater
 /// signing key is not configured, and every build waits for that check.
 #[test]
@@ -76,30 +132,176 @@ fn nfr_022_release_requires_signature_secret() {
         build.contains("needs.guard.result != 'failure'"),
         "a failed guard must stop the builds: {build}"
     );
-    // The key reaches tauri-action, which signs the update artifacts.
-    assert!(build.contains("TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"));
-    assert!(build.contains(
+    // The key reaches the sign job, which signs the update artifacts.
+    let sign = job(&wf, "sign");
+    assert!(sign.contains("needs: [build]"), "{sign}");
+    assert!(sign.contains("needs.build.result == 'success'"), "{sign}");
+    assert!(sign.contains("TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"));
+    assert!(sign.contains(
         "TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
     ));
+    assert!(
+        sign.contains("pnpm --silent tauri signer sign \"$f\""),
+        "{sign}"
+    );
     // The signatures are verified against the key the app carries, and a
     // tampered artifact must fail.
-    let finalise = job(&wf, "finalise");
+    let publish = job(&wf, "publish");
+    assert!(publish.contains("needs: [build, sign]"), "{publish}");
+    assert!(publish.contains("minisign -V -p updater.pub"), "{publish}");
     assert!(
-        finalise.contains("minisign -V -p updater.pub"),
-        "{finalise}"
+        publish.contains("['plugins']['updater']['pubkey']"),
+        "{publish}"
     );
     assert!(
-        finalise.contains("['plugins']['updater']['pubkey']"),
-        "{finalise}"
-    );
-    assert!(
-        finalise.contains("a tampered artifact verified"),
-        "{finalise}"
+        publish.contains("a tampered artifact verified"),
+        "{publish}"
     );
     // Each platform is paired with its file through the asset listing, and
     // the workings stay out of assets/, which SHA256SUMS covers.
-    assert!(finalise.contains("release_tools.py extract-signatures"));
-    assert!(finalise.contains("--out sigcheck"));
+    assert!(publish.contains("release_tools.py extract-signatures"));
+    assert!(publish.contains("--out sigcheck"));
+}
+
+/// NFR-022: the release key is in the environment of exactly one step, in a
+/// job that compiles nothing. The builds run every crate's build script and
+/// every proc macro, so they get no secret and sign with a throwaway key,
+/// and none of their signatures is published.
+#[test]
+fn nfr_022_release_signing_key_reaches_one_step_that_builds_nothing() {
+    let wf = release_yml();
+    for name in job_names(&wf) {
+        let text = job(&wf, &name);
+        let with_key: Vec<String> = steps(&text)
+            .into_iter()
+            .filter(|s| s.contains("secrets.TAURI_SIGNING_PRIVATE_KEY"))
+            .collect();
+        match name.as_str() {
+            // Only tests that it is set; nothing is built or signed there.
+            "guard" => {
+                assert_eq!(with_key.len(), 1, "{text}");
+                assert!(with_key[0].contains("Signing key must be configured"));
+            }
+            "sign" => {
+                assert_eq!(
+                    with_key.len(),
+                    1,
+                    "the key is in more than one step: {text}"
+                );
+                assert!(with_key[0].contains("name: Sign with the release key"));
+                assert!(
+                    !text.contains("tauri build") && !text.contains("cargo "),
+                    "the sign job must not build: {text}"
+                );
+                // No step-level env leaks to the job.
+                assert!(!text.contains("\n    env:"), "{text}");
+            }
+            _ => assert!(with_key.is_empty(), "job {name} sees the release key"),
+        }
+    }
+    let build = job(&wf, "build");
+    assert!(
+        !build.contains("secrets."),
+        "the builds read no secret: {build}"
+    );
+    // The build's key is generated on the spot and deleted.
+    assert!(build.contains("pnpm tauri signer generate --ci --force -p \"$pass\" -w \"$key\""));
+    assert!(build.contains("rm -f \"$key\" \"$key.pub\""));
+    // ...and its signatures never reach the release: the staging step copies
+    // the files without them (release_tools.py stage-bundle), and the sign
+    // job writes the only .sig files the draft gets.
+    assert!(build.contains("release_tools.py stage-bundle"));
+    assert!(build.contains("name: unsigned-${{ matrix.label }}"));
+}
+
+/// NFR-022: only the job that uploads the draft can write to the
+/// repository, and it runs no third-party build code. The builds get a
+/// read-only token, and no git credentials stay on any runner.
+#[test]
+fn nfr_022_release_jobs_have_least_privilege() {
+    let wf = release_yml();
+    assert!(
+        wf.contains("\npermissions: {}\n"),
+        "release.yml must grant nothing by default"
+    );
+    for name in job_names(&wf) {
+        let text = job(&wf, &name);
+        let write = text.contains("contents: write");
+        assert_eq!(
+            write,
+            name == "publish",
+            "job {name}: contents: write is for the publish job only"
+        );
+        assert!(
+            text.contains("    permissions:\n"),
+            "job {name} must state its permissions"
+        );
+        if name != "publish" {
+            assert!(text.contains("      contents: read"), "{name}");
+        }
+    }
+    let publish = job(&wf, "publish");
+    for forbidden in ["pnpm install", "cargo ", "tauri build", "npm "] {
+        assert!(
+            !publish.contains(forbidden),
+            "the publish job holds a write token and must not run {forbidden}"
+        );
+    }
+    // No dependency or build cache can reach a release build.
+    assert!(!wf.contains("actions/cache@"), "release.yml uses a cache");
+    assert!(!wf.contains("cache: pnpm"), "release.yml uses a cache");
+    // No package install script runs in a release.
+    for line in wf.lines().filter(|l| l.contains("pnpm install")) {
+        assert!(
+            line.contains("pnpm install --frozen-lockfile --ignore-scripts"),
+            "{line}"
+        );
+    }
+}
+
+/// Every action of every workflow is pinned to a full commit SHA with the
+/// version it was in a comment, every checkout drops its credentials, and
+/// every workflow states its permissions at the top. A moved tag, or a
+/// compromised action, cannot then run code next to a token or a secret.
+#[test]
+fn nfr_022_every_workflow_action_is_pinned_and_checkouts_keep_no_credentials() {
+    for (file, text) in workflows() {
+        assert!(
+            text.contains("\npermissions:"),
+            "{file} does not state its permissions"
+        );
+        let lines: Vec<&str> = text.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            let Some((_, used)) = line.split_once("uses: ") else {
+                continue;
+            };
+            if used.starts_with("./") {
+                continue;
+            }
+            let (action, rest) = used
+                .split_once('@')
+                .unwrap_or_else(|| panic!("{file}:{}: {line}", i + 1));
+            let (sha, comment) = rest.split_once(" # ").unwrap_or((rest, ""));
+            assert!(
+                sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()),
+                "{file}:{}: {action} is not pinned to a commit: {line}",
+                i + 1
+            );
+            assert!(
+                !comment.trim().is_empty(),
+                "{file}:{}: say which version {sha} is",
+                i + 1
+            );
+            if action == "actions/checkout" {
+                let next: String = lines[i + 1..(i + 4).min(lines.len())].join("\n");
+                assert!(
+                    next.contains("persist-credentials: false"),
+                    "{file}:{}: checkout keeps the token in .git/config",
+                    i + 1
+                );
+            }
+        }
+    }
 }
 
 /// The version a release is tagged with is the version every source carries:
@@ -135,78 +337,74 @@ fn release_version_sources_agree() {
     }
 }
 
+/// The four labels, in matrix order, and the latest.json key each serves.
+const LABELS: [(&str, &str); 4] = [
+    ("apple_silicon", "darwin-aarch64"),
+    ("apple_intel", "darwin-x86_64"),
+    ("windows_x64", "windows-x86_64"),
+    ("windows_arm64", "windows-aarch64"),
+];
+
 /// NFR-070 and decision D2: four builds, each named for the computer it is
-/// for (Versorium's `assetPattern`), Windows as NSIS only.
+/// for (Versorium's layout), Windows as NSIS only.
 #[test]
 fn nfr_070_release_builds_every_platform_with_its_own_asset_names() {
     let build = job(&release_yml(), "build");
-    for (args, pattern) in [
-        (
-            "--target aarch64-apple-darwin --bundles app,dmg",
-            "[name]_[version]_apple_silicon[ext]",
-        ),
-        (
-            "--target x86_64-apple-darwin --bundles app,dmg",
-            "[name]_[version]_apple_intel[ext]",
-        ),
-        (
-            "--target x86_64-pc-windows-msvc --bundles nsis",
-            "[name]_[version]_windows_x64[ext]",
-        ),
-        (
-            "--target aarch64-pc-windows-msvc --bundles nsis",
-            "[name]_[version]_windows_arm64[ext]",
-        ),
-    ] {
+    for (args, (label, _)) in [
+        "--target aarch64-apple-darwin --bundles app,dmg",
+        "--target x86_64-apple-darwin --bundles app,dmg",
+        "--target x86_64-pc-windows-msvc --bundles nsis",
+        "--target aarch64-pc-windows-msvc --bundles nsis",
+    ]
+    .into_iter()
+    .zip(LABELS)
+    {
         assert!(build.contains(&format!("args: '{args}'")), "missing {args}");
+        let at = build.find(&format!("args: '{args}'")).unwrap();
         assert!(
-            build.contains(&format!("assetPattern: '{pattern}'")),
-            "missing {pattern}"
+            build[at..].contains(&format!("label: {label}")),
+            "missing label {label}"
         );
     }
-    assert!(build.contains("releaseAssetNamePattern: ${{ matrix.assetPattern }}"));
-    assert!(build.contains("updaterJsonPreferNsis: true"));
-
-    // tauri-action is pinned to a commit, not a moving tag.
-    assert!(build.contains(
-        "uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0"
-    ));
+    assert!(build.contains("pnpm tauri build $ARGS --ci"));
+    assert!(build.contains("--label \"$LABEL\""));
+    // The labels and the manifest keys are the release tools' own table.
+    let tools = read("scripts/release/release_tools.py");
+    for (label, key) in LABELS {
+        assert!(
+            tools.contains(&format!("\"{label}\": (\"{key}\"")),
+            "release_tools.py does not map {label} to {key}"
+        );
+    }
     // A draft, never published by the workflow.
-    assert!(build.contains("releaseDraft: true"));
+    let publish = job(&release_yml(), "publish");
+    assert!(publish.contains("gh release create \"$GITHUB_REF_NAME\" --repo \"$REPO\" --draft"));
+    assert!(publish.contains("is already published"));
     assert!(!release_yml().contains("--draft=false"));
 }
 
-/// Every name a build uploads is distinct across the release: the same
-/// extension in two builds must not render to one file name, or one build
-/// silently replaces the other's file (tauri-action deletes a same-named
-/// asset before uploading).
+/// Every name a build stages is distinct across the release: the same
+/// extension in two builds must not render to one file name, or one build's
+/// upload silently replaces the other's (`gh release upload --clobber`).
 #[test]
 fn release_asset_names_never_collide() {
-    let build = job(&release_yml(), "build");
-    let patterns: Vec<&str> = build
-        .lines()
-        .filter_map(|l| l.trim().strip_prefix("assetPattern: '"))
-        .map(|l| l.trim_end_matches('\''))
-        .collect();
-    assert_eq!(patterns.len(), 4, "{patterns:?}");
     let exts = [".dmg", ".app.tar.gz", ".app.tar.gz.sig", ".exe", ".exe.sig"];
     let mut seen = std::collections::HashSet::new();
-    for p in &patterns {
+    for (label, _) in LABELS {
         for ext in exts {
-            let name = p
-                .replace("[name]", "Pluryprint")
-                .replace("[version]", "1.2.3")
-                .replace("[ext]", ext);
+            let name = format!("Pluryprint_1.2.3_{label}{ext}");
             assert!(seen.insert(name.clone()), "two builds would upload {name}");
         }
     }
+    // Each build uploads under its own artifact name too.
+    assert!(job(&release_yml(), "build").contains("name: unsigned-${{ matrix.label }}"));
 }
 
 /// Decision D2: no certificates, so the release notes say how to get past
 /// Gatekeeper and SmartScreen, in English and Spanish.
 #[test]
 fn d2_release_notes_explain_gatekeeper_and_smartscreen_in_en_and_es() {
-    let wf = release_yml();
+    let notes = read(".github/release-notes.md");
     for needle in [
         "xattr -rd com.apple.quarantine /Applications/Pluryprint.app",
         "**More info**, then **Run anyway**",
@@ -218,16 +416,19 @@ fn d2_release_notes_explain_gatekeeper_and_smartscreen_in_en_and_es() {
         "windows_x64",
         "windows_arm64",
     ] {
-        assert!(wf.contains(needle), "release notes lack {needle:?}");
+        assert!(notes.contains(needle), "release notes lack {needle:?}");
     }
+    let publish = job(&release_yml(), "publish");
+    assert!(publish.contains(".github/release-notes.md > release-notes.md"));
+    assert!(publish.contains("--notes-file release-notes.md"));
 }
 
 /// FR-085: the manifest is complete for the four platforms the app updates
 /// on before anyone can publish, with URLs the app can download, and
 /// checksums of every file.
 #[test]
-fn fr_085_finalise_requires_every_platform_and_writes_sha256sums() {
-    let finalise = job(&release_yml(), "finalise");
+fn fr_085_publish_requires_every_platform_and_writes_sha256sums() {
+    let publish = job(&release_yml(), "publish");
     for key in [
         "darwin-aarch64",
         "darwin-x86_64",
@@ -235,13 +436,14 @@ fn fr_085_finalise_requires_every_platform_and_writes_sha256sums() {
         "windows-aarch64",
     ] {
         assert!(
-            finalise.contains(&format!("--require {key}")),
-            "finalise does not require {key}"
+            publish.contains(&format!("--require {key}")),
+            "publish does not require {key}"
         );
     }
-    assert!(finalise.contains("needs.build.result == 'success'"));
-    assert!(finalise.contains("sha256sum -- * > ../SHA256SUMS"));
-    assert!(finalise.contains("gh release upload \"$GITHUB_REF_NAME\" SHA256SUMS latest.json"));
+    assert!(publish.contains("needs.sign.result == 'success'"));
+    assert!(publish.contains("release_tools.py make-manifest"));
+    assert!(publish.contains("sha256sum -- * > ../SHA256SUMS"));
+    assert!(publish.contains("gh release upload \"$GITHUB_REF_NAME\" SHA256SUMS latest.json"));
 }
 
 /// FR-085/086: publishing a release moves the beta manifest, forward only.
@@ -261,17 +463,48 @@ fn fr_086_beta_pointer_moves_forward_only() {
 /// Pluryprint and of the SumatraPDF build its installers contain.
 #[test]
 fn nfr_027_releases_attach_the_corresponding_source() {
-    let finalise = job(&release_yml(), "finalise");
-    assert!(finalise.contains("git archive --format=tar.gz"));
-    assert!(finalise.contains("pluryprint-$version-source.tar.gz"));
-    assert!(finalise.contains("SumatraPDF-$sumatra_version-source.tar.gz"));
+    let publish = job(&release_yml(), "publish");
+    assert!(publish.contains("git archive --format=tar.gz"));
+    assert!(publish.contains("pluryprint-$version-source.tar.gz"));
+    assert!(publish.contains("SumatraPDF-$sumatra_version-source.tar.gz"));
     // The commit comes from the fetch script, so the two cannot drift.
-    assert!(finalise.contains("SOURCE_COMMIT"));
-    assert!(finalise.contains("scripts/fetch-sumatrapdf.sh"));
+    assert!(publish.contains("SOURCE_COMMIT"));
+    assert!(publish.contains("scripts/fetch-sumatrapdf.sh"));
     // And the Windows builds really fetch SumatraPDF and the DLLs.
     let build = job(&release_yml(), "build");
-    assert!(build.contains("./scripts/fetch-sumatrapdf.ps1 -Arch ${{ matrix.arch }}"));
+    assert!(build.contains("./scripts/fetch-sumatrapdf.ps1 -Arch $env:ARCH"));
     assert!(build.contains("./scripts/build-shell-ext.ps1 -Arch all"));
+}
+
+/// NFR-070: the x64 and ARM64 installers each carry both Explorer DLLs, in
+/// the release and in CI's installer lane alike, so an x64 installer run
+/// emulated on Windows on ARM still registers a DLL Explorer can load.
+#[test]
+fn nfr_070_windows_release_matrix_matches_ci_installers() {
+    let release = job(&release_yml(), "build");
+    let ci = read(".github/workflows/ci.yml");
+    let installers = job(&ci, "installers");
+    for text in [&release, &installers] {
+        assert!(
+            text.contains("./scripts/build-shell-ext.ps1 -Arch all"),
+            "{text}"
+        );
+        assert!(text.contains("x86_64-pc-windows-msvc"), "{text}");
+        assert!(text.contains("aarch64-pc-windows-msvc"), "{text}");
+    }
+    // The release's Windows toolchain has both targets, for the DLLs.
+    assert!(release.contains("'x86_64-pc-windows-msvc aarch64-pc-windows-msvc'"));
+    // Both installers are checked for both DLLs.
+    for dll in [
+        "shellext/x64/shell_ext_win.dll",
+        "shellext/arm64/shell_ext_win.dll",
+    ] {
+        assert!(release.contains(dll), "release does not check {dll}");
+        assert!(
+            installers.contains(dll),
+            "ci installers does not check {dll}"
+        );
+    }
 }
 
 /// NFR-006: the installer size is measured on every Windows build.
@@ -335,49 +568,126 @@ fn fr_086_semver_precedence_of_the_release_tools() {
     assert_eq!(bad.status.code(), Some(2));
 }
 
-/// FR-085: the finalise rewrite points every platform at an asset of this
-/// release in the API form, refuses a manifest that lost a platform, and
-/// carries the release body as the update notes.
+/// NFR-070: staging copies one build's files under the release names and
+/// leaves the throwaway signatures behind; a build that made two files of one
+/// kind, or no update artifact, is refused.
 #[test]
-fn fr_085_finalise_manifest_rewrites_urls_and_refuses_a_lost_platform() {
+fn nfr_070_stage_bundle_names_the_files_and_drops_throwaway_signatures() {
     if python().is_none() {
         eprintln!("no python on this machine; release_tools.py not exercised");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("bundle");
+    let put = |rel: &str| {
+        let p = bundle.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, rel).unwrap();
+    };
+    put("dmg/Pluryprint_0.2.0_aarch64.dmg");
+    put("macos/Pluryprint.app.tar.gz");
+    put("macos/Pluryprint.app.tar.gz.sig");
+    std::fs::create_dir_all(bundle.join("macos/Pluryprint.app/Contents")).unwrap();
+    let out = dir.path().join("dist");
+    let s = |p: &std::path::Path| p.to_string_lossy().into_owned();
+    let stage = |label: &str, out: &std::path::Path| {
+        tools(&[
+            "stage-bundle",
+            "--bundle-dir",
+            &s(&bundle),
+            "--label",
+            label,
+            "--version",
+            "0.2.0",
+            "--out",
+            &s(out),
+        ])
+        .unwrap()
+    };
+    let ok = stage("apple_silicon", &out);
+    assert!(ok.status.success(), "{ok:?}");
+    let mut names: Vec<String> = std::fs::read_dir(&out)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "Pluryprint_0.2.0_apple_silicon.app.tar.gz",
+            "Pluryprint_0.2.0_apple_silicon.dmg"
+        ]
+    );
+    assert_eq!(
+        std::fs::read_to_string(out.join("Pluryprint_0.2.0_apple_silicon.app.tar.gz")).unwrap(),
+        "macos/Pluryprint.app.tar.gz"
+    );
+
+    // The macOS bundle has no NSIS installer: no update artifact for Windows.
+    let wrong = stage("windows_x64", &dir.path().join("w"));
+    assert_eq!(wrong.status.code(), Some(1), "{wrong:?}");
+    // An unknown label.
+    assert_eq!(stage("linux", &dir.path().join("l")).status.code(), Some(1));
+    // Two installers in one build would get one name.
+    put("nsis/Pluryprint_0.2.0_x64-setup.exe");
+    put("nsis/Pluryprint_0.1.0_x64-setup.exe");
+    let twice = stage("windows_x64", &dir.path().join("t"));
+    assert_eq!(twice.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&twice.stderr).contains("-setup.exe"));
+}
+
+/// FR-085/NFR-022: latest.json is written from the signed files and their
+/// uploaded assets: every platform points at an asset of this release in the
+/// API form and carries the sign job's signature; a platform without a
+/// signature or an upload, or one missing, is refused; the release body
+/// becomes the update notes. check-manifest and extract-signatures read it.
+#[test]
+fn fr_085_make_manifest_uses_signed_uploads_and_refuses_a_lost_platform() {
+    if python().is_none() {
+        eprintln!("no python on this machine; release_tools.py not exercised");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path().join("assets");
+    std::fs::create_dir_all(&d).unwrap();
     let write = |name: &str, text: &str| {
         let p = dir.path().join(name);
         std::fs::write(&p, text).unwrap();
         p.to_string_lossy().into_owned()
     };
-    let manifest = write(
-        "latest.json",
-        r#"{"version":"0.2.0","notes":"x","pub_date":"2026-10-10T00:00:00Z","platforms":{
-            "darwin-aarch64":{"signature":"c2lnMQ==","url":"https://github.com/MAECLY/maecly-print/releases/download/v0.2.0/Pluryprint_0.2.0_apple_silicon.app.tar.gz"},
-            "darwin-x86_64":{"signature":"c2lnMg==","url":"https://api.github.com/repos/MAECLY/maecly-print/releases/assets/12"},
-            "windows-x86_64":{"signature":"c2lnMw==","url":"https://github.com/MAECLY/maecly-print/releases/download/v0.2.0/Pluryprint_0.2.0_windows_x64.exe"}
-        }}"#,
+    let asset = |name: &str, text: &str| std::fs::write(d.join(name), text).unwrap();
+    asset("Pluryprint_0.2.0_apple_silicon.app.tar.gz", "a");
+    asset(
+        "Pluryprint_0.2.0_apple_silicon.app.tar.gz.sig",
+        "c2lnMQ==\n",
     );
+    asset("Pluryprint_0.2.0_apple_silicon.dmg", "d");
+    asset("Pluryprint_0.2.0_windows_x64.exe", "w");
+    asset("Pluryprint_0.2.0_windows_x64.exe.sig", "c2lnMw==");
     let assets = write(
         "assets.json",
         r#"[{"name":"Pluryprint_0.2.0_apple_silicon.app.tar.gz","id":11},
-            {"name":"Pluryprint_0.2.0_apple_intel.app.tar.gz","id":12},
+            {"name":"Pluryprint_0.2.0_apple_silicon.dmg","id":12},
             {"name":"Pluryprint_0.2.0_windows_x64.exe","id":13}]"#,
     );
     let body = write("body.md", "  What changed  \n");
-    let out = dir.path().join("out.json");
+    let out = dir.path().join("latest.json");
     let out_s = out.to_string_lossy().into_owned();
-
+    let d_s = d.to_string_lossy().into_owned();
     let base = [
-        "finalise-manifest",
-        "--manifest",
-        &manifest,
+        "make-manifest",
+        "--dir",
+        &d_s,
+        "--version",
+        "v0.2.0",
         "--assets",
         &assets,
         "--repo",
         "MAECLY/maecly-print",
         "--body-file",
         &body,
+        "--pub-date",
+        "2026-10-10T00:00:00Z",
         "--out",
         &out_s,
     ];
@@ -393,32 +703,36 @@ fn fr_085_finalise_manifest_rewrites_urls_and_refuses_a_lost_platform() {
     let v: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
     let api = "https://api.github.com/repos/MAECLY/maecly-print/releases/assets/";
-    assert_eq!(v["platforms"]["darwin-aarch64"]["url"], format!("{api}11"));
-    assert_eq!(v["platforms"]["darwin-x86_64"]["url"], format!("{api}12"));
-    assert_eq!(v["platforms"]["windows-x86_64"]["url"], format!("{api}13"));
+    assert_eq!(v["version"], "0.2.0");
     assert_eq!(v["notes"], "What changed");
+    assert_eq!(v["pub_date"], "2026-10-10T00:00:00Z");
+    assert_eq!(v["platforms"]["darwin-aarch64"]["url"], format!("{api}11"));
+    assert_eq!(v["platforms"]["darwin-aarch64"]["signature"], "c2lnMQ==");
+    assert_eq!(v["platforms"]["windows-x86_64"]["url"], format!("{api}13"));
+    assert_eq!(
+        v["platforms"].as_object().unwrap().len(),
+        2,
+        "the dmg is not an update artifact: {v}"
+    );
 
-    // windows-aarch64 is missing: the build for it failed or raced.
+    // windows-aarch64 is missing: the build for it failed.
     let lost = tools(&[&base[..], &["--require", "windows-aarch64"]].concat()).unwrap();
     assert_eq!(lost.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&lost.stderr).contains("windows-aarch64"));
 
-    // A URL naming a file this release does not have.
-    let foreign = write(
-        "foreign.json",
-        r#"{"version":"0.2.0","platforms":{"darwin-aarch64":{"signature":"s","url":"https://example.com/evil.tar.gz"}}}"#,
-    );
-    let bad = tools(&[
-        "finalise-manifest",
-        "--manifest",
-        &foreign,
-        "--assets",
-        &assets,
-        "--repo",
-        "MAECLY/maecly-print",
-    ])
-    .unwrap();
-    assert_eq!(bad.status.code(), Some(1));
+    // A file the sign job did not sign.
+    asset("Pluryprint_0.2.0_apple_intel.app.tar.gz", "i");
+    let unsigned = tools(&base).unwrap();
+    assert_eq!(unsigned.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&unsigned.stderr).contains("apple_intel.app.tar.gz.sig"));
+
+    // Signed, but never uploaded to this release.
+    asset("Pluryprint_0.2.0_apple_intel.app.tar.gz.sig", "c2lnMg==");
+    let not_uploaded = tools(&base).unwrap();
+    assert_eq!(not_uploaded.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&not_uploaded.stderr).contains("not an asset of this release"));
+    std::fs::remove_file(d.join("Pluryprint_0.2.0_apple_intel.app.tar.gz")).unwrap();
+    std::fs::remove_file(d.join("Pluryprint_0.2.0_apple_intel.app.tar.gz.sig")).unwrap();
 
     // check-manifest: the version must be the tag's.
     let wrong = tools(&["check-manifest", "--manifest", &out_s, "--version", "0.3.0"]).unwrap();
