@@ -21,7 +21,8 @@
 # The portable archives hold the executable only. The GPLv3 text (COPYING),
 # the BSD notice (COPYING.BSD) and AUTHORS come from the SumatraPDF source
 # repository at the commit the release tag points to, each with its own pinned
-# SHA-256. A missing or altered licence file fails the script.
+# SHA-256. A missing or altered licence file fails the script. A
+# SOURCE-OFFER.txt (GPL-3.0 section 6) is written next to the executable.
 #
 # Usage:
 #   scripts/fetch-sumatrapdf.sh [--arch x64|arm64] [--force]
@@ -32,11 +33,14 @@ set -euo pipefail
 # --- Pinned upstream release -------------------------------------------------
 # Bump these together, never one alone, and keep fetch-sumatrapdf.ps1 in step
 # (src-tauri/tests/fetch_scripts.rs compares the two).
-VERSION="3.5.2"
-SHA256_X64="66ccb395c9184dce6822dfbb9970c877383b3ead6d9417b5106a844aac512989"
-SHA256_ARM64="d6fa6678f3dd3017515faa74735ecbf860cb6825bd61f109f9157f0b171e882f"
-SOURCE_COMMIT="646d1feddcc80b3b51072c5b27a1446487904175"
+VERSION="3.6.1"
+SHA256_X64="98b33a518d42986856d225064b0cd2d3643ecf78cbf84ab873d26cc51877a544"
+SHA256_ARM64="f21091ca6741e4049b0ca375121708a7959803d39336f0468084808943667ffe"
+SOURCE_COMMIT="16c59fde8b824ab54c56f23aef910a6fdd874ad0"
 SOURCE_REPO="https://github.com/sumatrapdfreader/sumatrapdf"
+# Where Pluryprint publishes its releases (and the source archive above).
+OFFER_RELEASES="https://github.com/MAECLY/maecly-print/releases"
+OFFER_ISSUES="https://github.com/MAECLY/maecly-print/issues"
 # name in the repository : name in the bundle : SHA-256
 LICENSES=(
   "COPYING:LICENSE.txt:3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
@@ -68,9 +72,10 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dest_dir="${repo_root}/src-tauri/resources/sumatrapdf"
 dest_exe="${dest_dir}/SumatraPDF.exe"
 stamp="${dest_dir}/SOURCE.txt"
+offer="${dest_dir}/SOURCE-OFFER.txt"
 stamp_line="SumatraPDF ${VERSION} ${arch} ${sha256}"
 
-if [[ -f "$dest_exe" && -f "$stamp" && $force -eq 0 ]]; then
+if [[ -f "$dest_exe" && -f "$stamp" && -f "$offer" && $force -eq 0 ]]; then
   if [[ "$(head -n 1 "$stamp" | tr -d '\r')" == "$stamp_line" ]]; then
     echo "SumatraPDF ${VERSION} (${arch}) already present at ${dest_exe} (use --force to refresh)."
     exit 0
@@ -134,5 +139,30 @@ cp "${work}/licenses/"* "$dest_dir/"
   printf '%s\r\n' "commit ${SOURCE_COMMIT} (tag ${VERSION}rel):"
   printf '%s\r\n' "${SOURCE_REPO}/tree/${SOURCE_COMMIT}"
 } >"$stamp"
+
+# GPL-3.0 section 6: the Corresponding Source of the object code we convey.
+# release.yml attaches the same tree to every release as
+# SumatraPDF-<version>-source.tar.gz.
+{
+  printf '%s\r\n' "Written offer for the Corresponding Source of SumatraPDF"
+  printf '%s\r\n' "(GNU General Public License version 3, section 6)" ""
+  printf '%s\r\n' "This copy of Pluryprint includes SumatraPDF.exe, the unmodified ${arch} build"
+  printf '%s\r\n' "of SumatraPDF ${VERSION}. SumatraPDF is free software under the GNU General"
+  printf '%s\r\n' "Public License version 3 (LICENSE.txt); parts of it are under the BSD"
+  printf '%s\r\n' "licence in COPYING.BSD.txt, and MuPDF, compiled into it, is under the GNU"
+  printf '%s\r\n' "Affero General Public License version 3. Pluryprint runs it as a separate"
+  printf '%s\r\n' "program and does not modify it." ""
+  printf '%s\r\n' "Its Corresponding Source is the SumatraPDF source tree at commit"
+  printf '%s\r\n' "${SOURCE_COMMIT} (tag ${VERSION}rel):"
+  printf '%s\r\n' "  ${SOURCE_REPO}/tree/${SOURCE_COMMIT}"
+  printf '%s\r\n' "An archive of that exact tree is attached to every Pluryprint release that"
+  printf '%s\r\n' "ships this build, next to the installers, as SumatraPDF-${VERSION}-source.tar.gz:"
+  printf '%s\r\n' "  ${OFFER_RELEASES}" ""
+  printf '%s\r\n' "For at least three years after the last Pluryprint release that ships this"
+  printf '%s\r\n' "build, the Pluryprint maintainers will give anyone who asks a copy of that"
+  printf '%s\r\n' "Corresponding Source, at no charge beyond the cost of physically performing"
+  printf '%s\r\n' "the transfer. Ask through the issue tracker:"
+  printf '%s\r\n' "  ${OFFER_ISSUES}"
+} >"$offer"
 
 echo "SumatraPDF ${VERSION} (${arch}) installed at ${dest_exe}, with its licence."

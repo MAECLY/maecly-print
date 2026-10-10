@@ -27,7 +27,9 @@
     AUTHORS list are therefore fetched from the SumatraPDF source repository at
     the commit the release tag points to, each with its own pinned SHA-256, and
     copied next to the executable. A missing or altered licence file fails the
-    script: shipping the binary without its licence is not an option.
+    script: shipping the binary without its licence is not an option. A
+    SOURCE-OFFER.txt (GPL-3.0 section 6) is written next to them, naming the
+    source commit and the source archive attached to every release.
 
     The architecture matters: an ARM64 installer must carry the ARM64 build
     (an x64 SumatraPDF only runs there under emulation). -Arch picks it; by
@@ -81,15 +83,21 @@ $ProgressPreference = 'SilentlyContinue'
 # Bump all of these together, never one alone, and keep
 # scripts/fetch-sumatrapdf.sh in step (src-tauri/tests/fetch_scripts.rs
 # compares the two).
-$VERSION = '3.5.2'
-# Archive SHA-256s, computed independently on macOS and on Windows 11 ARM64.
+$VERSION = '3.6.1'
+# Archive SHA-256s. Computed on 2026-10-10 on macOS and, separately, on the
+# Windows 11 ARM64 test VM, and identical to the hashes the Scoop "extras"
+# bucket publishes for the same archives (bucket/sumatrapdf.json), which were
+# computed by a third party on its own network.
 $ARCHIVES = @{
-    'x64'   = @{ Suffix = '64';    Sha256 = '66ccb395c9184dce6822dfbb9970c877383b3ead6d9417b5106a844aac512989' }
-    'arm64' = @{ Suffix = 'arm64'; Sha256 = 'd6fa6678f3dd3017515faa74735ecbf860cb6825bd61f109f9157f0b171e882f' }
+    'x64'   = @{ Suffix = '64';    Sha256 = '98b33a518d42986856d225064b0cd2d3643ecf78cbf84ab873d26cc51877a544' }
+    'arm64' = @{ Suffix = 'arm64'; Sha256 = 'f21091ca6741e4049b0ca375121708a7959803d39336f0468084808943667ffe' }
 }
-# The commit the upstream tag 3.5.2rel points to: the corresponding source.
-$SOURCE_COMMIT = '646d1feddcc80b3b51072c5b27a1446487904175'
+# The commit the upstream tag 3.6.1rel points to: the corresponding source.
+$SOURCE_COMMIT = '16c59fde8b824ab54c56f23aef910a6fdd874ad0'
 $SOURCE_REPO = 'https://github.com/sumatrapdfreader/sumatrapdf'
+# Where Pluryprint publishes its releases (and the source archive above).
+$OFFER_RELEASES = 'https://github.com/MAECLY/maecly-print/releases'
+$OFFER_ISSUES = 'https://github.com/MAECLY/maecly-print/issues'
 # Licence files from that commit: name in the repository -> name in the bundle.
 $LICENSES = @(
     @{ From = 'COPYING';     To = 'LICENSE.txt';     Sha256 = '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986' },
@@ -111,9 +119,10 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $destDir = Join-Path $repoRoot 'src-tauri/resources/sumatrapdf'
 $destExe = Join-Path $destDir 'SumatraPDF.exe'
 $stamp = Join-Path $destDir 'SOURCE.txt'
+$offer = Join-Path $destDir 'SOURCE-OFFER.txt'
 $stampLine = "SumatraPDF $VERSION $Arch $Sha256"
 
-if ((Test-Path $destExe) -and (Test-Path $stamp) -and (-not $Force)) {
+if ((Test-Path $destExe) -and (Test-Path $stamp) -and (Test-Path $offer) -and (-not $Force)) {
     if ((Get-Content -Path $stamp -TotalCount 1) -eq $stampLine) {
         Write-Host "SumatraPDF $VERSION ($Arch) already present at $destExe (use -Force to refresh)."
         exit 0
@@ -142,7 +151,7 @@ try {
     Expand-Archive -Path $archive -DestinationPath (Join-Path $work 'unpacked') -Force
 
     # The portable archive holds a single, version-stamped executable
-    # (SumatraPDF-3.5.2-64.exe). It is installed under the stable name the
+    # (SumatraPDF-3.6.1-64.exe). It is installed under the stable name the
     # resolver looks for (engine::deps::spec -> "SumatraPDF.exe"), so a
     # version bump never changes the lookup.
     $exe = Get-ChildItem -Path (Join-Path $work 'unpacked') -Filter '*.exe' -Recurse |
@@ -176,6 +185,35 @@ try {
         "$SOURCE_REPO/tree/$SOURCE_COMMIT"
     )
     Set-Content -Path $stamp -Value $source -Encoding ASCII
+
+    # GPL-3.0 section 6: the Corresponding Source of the object code we
+    # convey. release.yml attaches the same tree to every release as
+    # SumatraPDF-<version>-source.tar.gz.
+    $offerText = @(
+        'Written offer for the Corresponding Source of SumatraPDF',
+        '(GNU General Public License version 3, section 6)',
+        '',
+        "This copy of Pluryprint includes SumatraPDF.exe, the unmodified $Arch build",
+        "of SumatraPDF $VERSION. SumatraPDF is free software under the GNU General",
+        'Public License version 3 (LICENSE.txt); parts of it are under the BSD',
+        'licence in COPYING.BSD.txt, and MuPDF, compiled into it, is under the GNU',
+        'Affero General Public License version 3. Pluryprint runs it as a separate',
+        'program and does not modify it.',
+        '',
+        'Its Corresponding Source is the SumatraPDF source tree at commit',
+        "$SOURCE_COMMIT (tag ${VERSION}rel):",
+        "  $SOURCE_REPO/tree/$SOURCE_COMMIT",
+        'An archive of that exact tree is attached to every Pluryprint release that',
+        "ships this build, next to the installers, as SumatraPDF-$VERSION-source.tar.gz:",
+        "  $OFFER_RELEASES",
+        '',
+        'For at least three years after the last Pluryprint release that ships this',
+        'build, the Pluryprint maintainers will give anyone who asks a copy of that',
+        'Corresponding Source, at no charge beyond the cost of physically performing',
+        'the transfer. Ask through the issue tracker:',
+        "  $OFFER_ISSUES"
+    )
+    Set-Content -Path $offer -Value $offerText -Encoding ASCII
 
     Write-Host "SumatraPDF $VERSION ($Arch) installed at $destExe, with its licence."
 } finally {

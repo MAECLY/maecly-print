@@ -113,3 +113,47 @@ fn fr_058_the_licence_is_fetched_and_verified_not_hoped_for() {
         );
     }
 }
+
+/// Decision D17: SumatraPDF 3.6.1, for both Windows architectures.
+#[test]
+fn d17_both_fetch_scripts_pin_sumatrapdf_3_6_1() {
+    for name in ["fetch-sumatrapdf.ps1", "fetch-sumatrapdf.sh"] {
+        let text = script(name);
+        assert!(
+            text.contains("VERSION = '3.6.1'") || text.contains("VERSION=\"3.6.1\""),
+            "{name} must pin SumatraPDF 3.6.1"
+        );
+        // The commit the upstream tag 3.6.1rel points to.
+        assert!(
+            text.contains("16c59fde8b824ab54c56f23aef910a6fdd874ad0"),
+            "{name} must pin the 3.6.1rel source commit"
+        );
+    }
+}
+
+/// GPL-3.0 section 6: whoever conveys the object code must make the
+/// Corresponding Source available. Both scripts write a SOURCE-OFFER.txt next
+/// to the executable that says where the source is, for how long, and that it
+/// is also attached to every Pluryprint release.
+#[test]
+fn nfr_027_a_source_offer_travels_with_the_sumatrapdf_binary() {
+    for name in ["fetch-sumatrapdf.ps1", "fetch-sumatrapdf.sh"] {
+        let text = script(name);
+        assert!(
+            text.contains("SOURCE-OFFER.txt"),
+            "{name} writes no SOURCE-OFFER.txt"
+        );
+        for needle in [
+            "Corresponding Source",
+            "section 6",
+            "three years",
+            "releases",
+            "sumatrapdfreader/sumatrapdf",
+        ] {
+            assert!(
+                text.contains(needle),
+                "{name}: the offer must mention {needle:?}"
+            );
+        }
+    }
+}
