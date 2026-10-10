@@ -63,7 +63,12 @@ That is the Windows 10 verb shape from `shell-ext-win/README.md`: the menu entry
   "targets": ["nsis", "app", "dmg", "deb", "rpm", "appimage"],
   "resources": ["resources/sumatrapdf/*"],
   "publisher": "Maecly",
-  "windows": { "nsis": { "installMode": "currentUser" } },
+  "windows": {
+    "nsis": {
+      "installMode": "currentUser",
+      "installerHooks": "windows/installer-hooks.nsh"
+    }
+  },
   "createUpdaterArtifacts": true
 }
 ```
@@ -72,6 +77,7 @@ That is the Windows 10 verb shape from `shell-ext-win/README.md`: the menu entry
 - `targets` is an explicit list without `msi`. The bundler builds only the entries that apply to the host, so a Windows build produces the per-user NSIS `setup.exe` and nothing else. It used to be `"all"`, which also built a per-machine WiX MSI (Program Files, elevation) next to it. Installing that MSI and later updating through the NSIS-based `latest.json` left two installs and two Start-menu entries, which contradicts [ADR-0008](../adr/0008-installer-nsis-per-user.md). `fr_083_no_per_machine_msi_is_bundled` guards the list.
 - The crate has two binaries, `pluryprint` (the app) and `pluryprint-cli` (`src/bin/pluryprint-cli.rs`, the console-subsystem CLI front end scripts wait on). Tauri's bundler packages every binary of the crate, so the NSIS installer is expected to place `pluryprint-cli.exe` next to `pluryprint.exe`; **verify this on the first Windows build.** Neither is added to `PATH` yet.
 - `plugins.updater` and `createUpdaterArtifacts` are set: the NSIS setup is signed for the updater, and `tauri-plugin-updater` installs an update by running that same setup in `passive` mode (see [auto-update-flow.md](./auto-update-flow.md)).
+- `installerHooks` points at `src-tauri/windows/installer-hooks.nsh`, the one hooks file: besides registering the context menu (above), its `NSIS_HOOK_PREINSTALL` takes over an install made under the former name, MaeclyPrint: it runs that uninstaller silently (user data is kept) and deletes what registration remains (the `Uninstall\MaeclyPrint` and `HKCU\Software\Maecly\MaeclyPrint` keys, the `*\shell\MaeclyPrint` and `Directory\shell\MaeclyPrint` verbs, the shortcuts). The app moves the user data itself on first launch. See [ADR-0009](../adr/0009-rename-to-pluryprint.md). **Verify the hook on the Windows VM** with a MaeclyPrint build installed.
 - Nothing is code-signed. See [ci-cd.md](./ci-cd.md) § *What does not exist yet*.
 
 Everything from here down is **the ADR-0006 design, unimplemented**. Treat every file path in it as a path to be created.

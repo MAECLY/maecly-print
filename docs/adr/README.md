@@ -14,6 +14,7 @@
 | 0006 | [Installer: Inno Setup (+ Sparse MSIX for shell ext)](./0006-installer-inno-setup.md) | Superseded by ADR-0008 | 2026-05-03 |
 | 0007 | [Windows-first, macOS-second roadmap](./0007-windows-first-mac-second.md)       | Accepted | 2026-05-03 |
 | 0008 | [Installer: per-user NSIS with signed updater artifacts](./0008-installer-nsis-per-user.md) | Accepted | 2026-10-09 |
+| 0009 | [Rename the product from MaeclyPrint to Pluryprint](./0009-rename-to-pluryprint.md) | Accepted | 2026-10-09 |
 
 ## Format
 

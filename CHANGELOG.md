@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to MaeclyPrint will be documented in this file.
+All notable changes to Pluryprint (called MaeclyPrint until October 2026) will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -51,6 +51,7 @@ Every screen was audited against its spec and completed end to end; the items be
 
 ### Changed
 
+- **Renamed to Pluryprint.** The product, binaries (`pluryprint`, `pluryprint-cli`), bundle identifier (`com.maecly.pluryprint`), data folders, log files, Finder service and Explorer verb ("Print with Pluryprint") and environment variables (`PLURYPRINT_*`) all carry the new name. An existing MaeclyPrint install upgrades in place: its settings, profiles, queue and logs move to the new folders on first launch (never overwriting), admin policies and `MAECLYPRINT_*` variables are still honoured as a fallback, and the Windows installer removes the old registration. See [ADR-0009](docs/adr/0009-rename-to-pluryprint.md). The repository URL is unchanged.
 - Appearance (theme + density) now persists to `config.toml` as the source of truth, with a localStorage instant-boot cache; on divergence the backend value wins.
 - The default print profile is now **Quick** (`builtin-quick`) rather than the earlier `Quick BW Duplex`; the default is stored as a profile id in `config.toml`'s `[engine].default_profile`.
 

@@ -1,6 +1,6 @@
 # Trademark Policy
 
-> **TL;DR.** "Pluryprint" and the Pluryprint logo are unregistered trademarks of the Pluryprint Project. Refer to us, link to us, write about us — that's all welcome and protected as fair use. Do not use the name or logo to imply our endorsement of your product or service. Forks must use a different name.
+> **TL;DR.** "Pluryprint", its wordmark and the Abanico mark (the Pluryprint logo) are unregistered trademarks that belong to the founder (maecly); see also the repository's [`TRADEMARKS.md`](../../TRADEMARKS.md). Refer to us, link to us, write about us — that's all welcome and protected as fair use. Do not use the name or logo to imply our endorsement of your product or service. Forks must use a different name.
 
 This policy explains how the Pluryprint name, logo, and visual identity may and may not be used. It is independent of the [GPLv3 license](./license.md) on the source code: copyright and trademark are different rights.
 
@@ -18,8 +18,8 @@ This policy exists to prevent those harms while keeping the door wide open for l
 
 | Asset | Status |
 |---|---|
-| The word **"Pluryprint"** | Unregistered trademark, asserted by the Pluryprint Project |
-| The Pluryprint logo (icon and wordmark) | Unregistered trademark, copyright held by the project |
+| The word **"Pluryprint"** | Unregistered trademark of the founder (maecly) |
+| The Pluryprint logo (the Abanico mark and the wordmark) | Unregistered trademark of the founder (maecly) |
 | The colors and typography defined in our brand guide | Visual identity, not a registered mark, but covered by trade dress conventions |
 | Domain names: `maecly.com`, `updates.maecly.com` | Owned by the project |
 
@@ -52,7 +52,7 @@ These uses require written permission (open an issue tagged `trademark` or email
 
 These uses are **not permitted** under any circumstances:
 
-- **Naming a fork "Pluryprint"** or anything confusingly similar (e.g. "Pluryprint Lite", "Pluryprint X", "Maecly-Print"). Forks must rebrand.
+- **Naming a fork "Pluryprint"** or anything confusingly similar (e.g. "Pluryprint Lite", "Pluryprint X", "Plury-Print", "PluriPrint"). Forks must rebrand.
 - **Using the name or logo to imply official endorsement** of a third-party product or service we have not endorsed.
 - **Using the logo on commercial packaging** of a product that includes Pluryprint, in a way that suggests we co-released the product.
 - **Using the name to mislead users** about the source or sponsorship of a download (e.g. a domain `pluryprint-download.com` distributing modified or malicious binaries).

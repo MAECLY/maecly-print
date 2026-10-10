@@ -89,6 +89,8 @@ These are the real file names and locations, as resolved by `src-tauri/src/util/
 | Logs | `%LOCALAPPDATA%\Maecly\Pluryprint\data\logs\pluryprint-<date>.jsonl` | `~/Library/Logs/Pluryprint/pluryprint-<date>.jsonl` | JSON-lines tracing output. **May include file paths** of jobs you printed. Rolls on a new UTC day or at 10 MB, whichever comes first; a sweep at startup and on every roll deletes anything older than 14 days and then keeps only the 7 newest files. |
 | Enterprise policy (read-only) | `%ProgramData%\Pluryprint\policy.json` | `/Library/Application Support/Pluryprint/policy.json` | Provisioned by an administrator; the app only ever reads it. |
 
+If you used the app under its former name, MaeclyPrint, the same files lived in folders named `MaeclyPrint` (for example `~/Library/Application Support/com.Maecly.MaeclyPrint/`). The first launch of Pluryprint moves them to the locations above, on your machine, without sending anything anywhere, and never overwrites a file that is already there.
+
 This data stays on your device. We never transmit it. You can inspect or delete any of it manually at any time. Uninstalling the app prompts you to delete this data; the default is to preserve it (in case you reinstall).
 
 ## File contents
