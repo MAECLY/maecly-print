@@ -6,7 +6,7 @@ authors = ["Maecly maintainers"]
 license = "AGPL-3.0-only"
 repository = "https://github.com/MAECLY/maecly-print"
 edition = "2021"
-rust-version = "1.89"
+rust-version = "1.90"
 # Two binaries: the app (`pluryprint`, GUI subsystem on Windows) and the
 # console-subsystem CLI front end (`pluryprint-cli`, src/bin). `cargo run`
 # and `tauri dev` mean the app.
@@ -17,11 +17,13 @@ name = "pluryprint_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.0", features = [] }
+tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 # --- Tauri 2 ---
-tauri = { version = "2.1", features = [] }
+# 2.12 at least: the render worker shares wry's WebView2 bindings
+# (webview2-com 0.39, below), which tauri 2.12 / wry 0.57 brought in.
+tauri = { version = "2.12", features = [] }
 
 # --- Serialization ---
 serde = { version = "1", features = ["derive"] }
@@ -140,12 +142,13 @@ tauri-plugin-single-instance = "2"
 # FR-072: native OS notifications (Windows toast, macOS Notification Center)
 # for finished, failed and stuck batches while the window is in the
 # background. Driven Rust-side only (`ipc::notify`); no JS capability needed.
-# 2.4 is the newest line that does not require a newer `tauri` than 2.11.
-tauri-plugin-notification = "~2.4"
+# Held to the line built for the `tauri` minor we use (2.5 needs tauri 2.12),
+# so a plugin bump never drags tauri along on its own.
+tauri-plugin-notification = "~2.5"
 # FR-082/083/087: download, verify (minisign, against the public key in
-# tauri.conf.json) and install signed updates. 2.12 is the newest line that
-# does not require a newer `tauri` than 2.11. See ADR-0008.
-tauri-plugin-updater = "~2.12"
+# tauri.conf.json) and install signed updates. 2.13 is the line built for
+# tauri 2.12; held to it for the same reason as above. See ADR-0008.
+tauri-plugin-updater = "~2.13"
 
 # --- Dev/test only ---
 # `test-util` unlocks tokio's virtual clock (`start_paused` / `time::advance`)
@@ -288,18 +291,20 @@ windows = { version = "0.58", features = [
 ] }
 # FR-055: HTML -> PDF through the system WebView2 (`ICoreWebView2_7::PrintToPdf`)
 # in the hidden render worker. Pinned to the line wry already uses, so the
-# COM bindings are shared rather than duplicated. MIT.
-webview2-com = "0.38"
+# COM bindings are shared rather than duplicated: the controller Tauri hands
+# us in `with_webview` is wry's type, and another line does not compile.
+# Moves together with tauri (tauri 2.12 / wry 0.57 -> webview2-com 0.39). MIT.
+webview2-com = "0.39"
 # The COM base types (HSTRING, BOOL, Interface::cast) of the line webview2-com
-# 0.38 is generated against; our own `windows` 0.58 types are not
+# 0.39 is generated against; our own `windows` 0.58 types are not
 # interchangeable with them. Already in the tree through wry. MIT OR Apache-2.0.
-windows-core = "0.61"
+windows-core = "0.62"
 # FR-055: the render worker answers the web view's requests itself, streaming
 # the staged page and the document's files (`SHCreateStreamOnFileEx`), so both
-# share one origin. The `windows` line webview2-com 0.38 and wry are built on
+# share one origin. The `windows` line webview2-com 0.39 and wry are built on
 # (its `IStream` is the one `CreateWebResourceResponse` takes), with the
 # features wry already enables: nothing new is compiled. MIT OR Apache-2.0.
-windows-webview = { package = "windows", version = "0.61", default-features = false, features = [
+windows-webview = { package = "windows", version = "0.62", default-features = false, features = [
   "Win32_System_Com",
   "Win32_UI_Shell",
 ] }
