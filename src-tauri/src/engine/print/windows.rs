@@ -368,6 +368,40 @@ pub fn job_state(printer: &str, os_job_id: &str) -> Result<OsJobState, super::Tr
     })
 }
 
+/// Whether the spooler job `job` is the one MaeclyPrint spooled: submitted by
+/// `user` (when both sides know a user) and carrying one of `documents`
+/// ([`document_names`]). Pure.
+///
+/// A job id read back from `queue.json` after the app closed can be stale: the
+/// job may have printed long ago and its id been reused by somebody else's
+/// print, so a cancel by id alone could delete a colleague's job.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn is_our_job(job: &QueuedJob, documents: &[String], user: &str) -> bool {
+    (user.is_empty() || job.user.is_empty() || job.user.eq_ignore_ascii_case(user))
+        && documents.iter().any(|d| document_names(&job.document, d))
+}
+
+/// Delete the spooler job `os_job_id` from `printer`, but only when it is
+/// still ours ([`is_our_job`]). A job no longer on the queue is not an error:
+/// it already printed or was removed.
+#[cfg(windows)]
+pub fn cancel_if_ours(printer: &str, os_job_id: &str, documents: &[String]) -> anyhow::Result<()> {
+    let id: u32 = os_job_id
+        .parse()
+        .map_err(|_| anyhow::anyhow!("'{os_job_id}' is not a spooler job id"))?;
+    let jobs = ffi::jobs(printer).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let Some(job) = jobs.iter().find(|j| j.id == id) else {
+        return Ok(());
+    };
+    let user = std::env::var("USERNAME").unwrap_or_default();
+    if !is_our_job(job, documents, &user) {
+        anyhow::bail!(
+            "job {id} on {printer} is no longer the one MaeclyPrint sent, so it was left alone"
+        );
+    }
+    ffi::delete(printer, id)
+}
+
 /// Delete the spooler job `os_job_id` from `printer`.
 #[cfg(windows)]
 pub fn cancel(printer: &str, os_job_id: &str) -> anyhow::Result<()> {
@@ -380,6 +414,39 @@ pub fn cancel(printer: &str, os_job_id: &str) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FR-032: a cancel from the CLI after the app closed only removes the
+    /// spooler job when it is still the one we sent.
+    #[test]
+    fn fr_032_only_our_own_document_is_cancelled_by_id() {
+        let job = |document: &str, user: &str| QueuedJob {
+            id: 10,
+            document: document.to_string(),
+            user: user.to_string(),
+        };
+        let ours = vec!["report.pdf".to_string(), "0192-abc.pdf".to_string()];
+        assert!(is_our_job(
+            &job(
+                r"C:\Users\a\AppData\Local\Temp\maeclyprint-spool-x\report.pdf",
+                "a"
+            ),
+            &ours,
+            "A"
+        ));
+        assert!(is_our_job(&job(r"C:\cache\0192-abc.pdf", ""), &ours, "a"));
+        // A reused id now carrying somebody else's print.
+        assert!(!is_our_job(
+            &job(r"C:\Users\b\budget.xlsx", "a"),
+            &ours,
+            "a"
+        ));
+        assert!(!is_our_job(
+            &job(r"C:\x\report.pdf", "colleague"),
+            &ours,
+            "a"
+        ));
+        assert!(!is_our_job(&job("report.pdf", "a"), &[], "a"));
+    }
 
     #[test]
     fn status_bits_map_with_the_documented_precedence() {

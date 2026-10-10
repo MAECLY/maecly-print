@@ -64,10 +64,11 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
             // reading now owns the file, and our snapshot is already stale.
             refuse_while_app_runs(&paths.queue)?;
             save(&paths.queue, &snapshot)?;
-            cancel_os_jobs(os_job);
-            emitter.emit(&serde_json::json!({ "cancelled": [id.clone()] }), || {
-                format!("Cancelled job {id}")
-            });
+            let spooler_errors = cancel_os_jobs(os_job);
+            emitter.emit(
+                &serde_json::json!({ "cancelled": [id.clone()], "spooler_errors": spooler_errors }),
+                || with_spooler_errors(format!("Cancelled job {id}"), &spooler_errors),
+            );
             Ok(())
         }
         QueueCmd::CancelAll => {
@@ -87,34 +88,89 @@ pub fn run(paths: &Paths, emitter: Emitter, cmd: QueueCmd) -> Result<(), CliErro
             }
             refuse_while_app_runs(&paths.queue)?;
             save(&paths.queue, &snapshot)?;
-            cancel_os_jobs(os_jobs);
+            let spooler_errors = cancel_os_jobs(os_jobs);
             let count = cancelled.len();
-            emitter.emit(&serde_json::json!({ "cancelled": cancelled }), || {
-                format!("Cancelled {count} job(s)")
-            });
+            emitter.emit(
+                &serde_json::json!({ "cancelled": cancelled, "spooler_errors": spooler_errors }),
+                || with_spooler_errors(format!("Cancelled {count} job(s)"), &spooler_errors),
+            );
             Ok(())
         }
     }
 }
 
-/// The `(printer, OS job id)` a job left in the system print queue, if any. A
-/// job the app had already spooled when it closed stays `Printing` with its OS
-/// job id ([`persist::recover`]), so cancelling it here has to reach the
-/// spooler too, or the paper keeps coming out of a job reported cancelled.
-fn os_job_of(job: &crate::queue::job::Job) -> Option<(String, String)> {
-    persist::is_handed_off(job)
-        .then(|| job.printer_resolved.clone().zip(job.os_job_id.clone()))
-        .flatten()
+/// A job's entry in the system print queue: where it went, the spooler's id
+/// and the document names it may carry there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OsJob {
+    job_id: String,
+    printer: String,
+    os_job_id: String,
+    documents: Vec<String>,
 }
 
-/// Best-effort cancellation at the spooler. A job that already left the OS
-/// queue cannot be cancelled there, which is not a failure of this command.
-fn cancel_os_jobs(jobs: impl IntoIterator<Item = (String, String)>) {
-    for (printer, oid) in jobs {
-        if let Err(e) = crate::engine::print::cancel_os_job(&printer, &oid) {
-            tracing::warn!(event = "os_job_cancel_failed", os_job_id = %oid, error = %e);
+/// The system print queue entry a job left behind, if any. Any job with a
+/// spooler id and a printer counts, not only one still `Printing`: a job the
+/// app recovered as paused after a restart, or one whose wait timed out, is
+/// still sitting in the spooler, and cancelling it here has to reach the
+/// spooler too, or the paper keeps coming out of a job reported cancelled.
+fn os_job_of(job: &crate::queue::job::Job) -> Option<OsJob> {
+    let (printer, os_job_id) = job.printer_resolved.clone().zip(job.os_job_id.clone())?;
+    let base = |p: &str| {
+        Path::new(p)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+    };
+    let mut documents = vec![crate::engine::print::sumatra::spool_file_name(
+        &job.file_name,
+    )];
+    documents.extend(job.cache_pdf.as_deref().and_then(base));
+    documents.extend(base(&job.input_path));
+    Some(OsJob {
+        job_id: job.id.clone(),
+        printer,
+        os_job_id,
+        documents,
+    })
+}
+
+/// Cancellation at the spooler, reported rather than swallowed. A job that
+/// already left the OS queue is not a failure; one that could not be removed
+/// is listed, so the caller knows paper may still come out.
+fn cancel_os_jobs(jobs: impl IntoIterator<Item = OsJob>) -> Vec<serde_json::Value> {
+    let mut errors = Vec::new();
+    for job in jobs {
+        if let Err(e) = crate::engine::print::cancel_os_job_if_ours(
+            &job.printer,
+            &job.os_job_id,
+            &job.documents,
+        ) {
+            tracing::warn!(event = "os_job_cancel_failed", os_job_id = %job.os_job_id, error = %e);
+            errors.push(serde_json::json!({
+                "id": job.job_id,
+                "os_job_id": job.os_job_id,
+                "printer": job.printer,
+                "message": e.to_string(),
+            }));
         }
     }
+    errors
+}
+
+/// `summary`, followed by one warning line per spooler job that could not be
+/// removed.
+fn with_spooler_errors(summary: String, errors: &[serde_json::Value]) -> String {
+    let mut text = summary;
+    for e in errors {
+        text.push_str(&format!(
+            "\nwarning: job {} is still in the print queue of {} (spooler job {}): {}",
+            e["id"].as_str().unwrap_or_default(),
+            e["printer"].as_str().unwrap_or_default(),
+            e["os_job_id"].as_str().unwrap_or_default(),
+            e["message"].as_str().unwrap_or_default(),
+        ));
+    }
+    text
 }
 
 /// Re-print the queue whenever the file changes. Runs until the user
@@ -315,11 +371,44 @@ mod tests {
         let mut snapshot = snapshot_with(&[JobState::Printing, JobState::Printing]);
         snapshot.jobs[0].os_job_id = Some("Office-42".to_string());
         snapshot.jobs[0].printer_resolved = Some("Office".to_string());
+        let os = os_job_of(&snapshot.jobs[0]).expect("spooled");
         assert_eq!(
-            os_job_of(&snapshot.jobs[0]),
-            Some(("Office".to_string(), "Office-42".to_string()))
+            (os.printer.as_str(), os.os_job_id.as_str()),
+            ("Office", "Office-42")
         );
         assert_eq!(os_job_of(&snapshot.jobs[1]), None, "never spooled");
+    }
+
+    /// FR-032: a job recovered as paused after the app closed still sits in
+    /// the spooler; the offline cancel must reach it, by the names it was
+    /// spooled under.
+    #[test]
+    fn fr_032_a_paused_job_left_in_the_spooler_is_cancelled_there_too() {
+        let mut snapshot = snapshot_with(&[JobState::Paused]);
+        let job = &mut snapshot.jobs[0];
+        job.os_job_id = Some("10".to_string());
+        job.printer_resolved = Some("Maecly_Hold_Win".to_string());
+        job.cache_pdf = Some("/cache/conversions/0192-abc.pdf".to_string());
+        let os = os_job_of(job).expect("a paused job with a spooler id");
+        assert_eq!(os.os_job_id, "10");
+        assert_eq!(
+            os.documents,
+            ["f0.pdf", "0192-abc.pdf", "f0.pdf"].map(String::from)
+        );
+    }
+
+    #[test]
+    fn fr_032_spooler_failures_are_reported_not_swallowed() {
+        let errors = vec![serde_json::json!({
+            "id": "job-0", "os_job_id": "10", "printer": "P", "message": "access denied"
+        })];
+        let text = with_spooler_errors("Cancelled 1 job(s)".to_string(), &errors);
+        assert!(
+            text.starts_with("Cancelled 1 job(s)\nwarning: job job-0"),
+            "{text}"
+        );
+        assert!(text.contains("access denied"));
+        assert_eq!(with_spooler_errors("x".into(), &[]), "x");
     }
 
     #[test]

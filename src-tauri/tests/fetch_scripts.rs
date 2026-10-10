@@ -91,10 +91,7 @@ fn fr_058_both_fetch_scripts_pin_the_same_release_for_x64_and_arm64() {
     assert_eq!(ps1_pins.len(), 5, "{ps1_pins:?}");
     assert_eq!(ps1_pins, sh_pins);
 
-    assert_eq!(
-        commit(&ps1, "$SOURCE_COMMIT"),
-        commit(&sh, "SOURCE_COMMIT")
-    );
+    assert_eq!(commit(&ps1, "$SOURCE_COMMIT"), commit(&sh, "SOURCE_COMMIT"));
 
     // Both architectures are wired to their own archive.
     assert!(ps1.contains("'arm64' = @{ Suffix = 'arm64'"));
@@ -109,7 +106,9 @@ fn fr_058_the_licence_is_fetched_and_verified_not_hoped_for() {
             assert!(text.contains(file), "{name} must ship {file}");
         }
         assert!(
-            !text.to_lowercase().contains("add sumatrapdf license.txt to the bundle by hand"),
+            !text
+                .to_lowercase()
+                .contains("add sumatrapdf license.txt to the bundle by hand"),
             "{name}: a missing licence must fail the script, not warn"
         );
     }

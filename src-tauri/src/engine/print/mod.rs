@@ -247,6 +247,32 @@ pub fn cancel_os_job(printer: &str, os_job_id: &str) -> anyhow::Result<()> {
     }
 }
 
+/// [`cancel_os_job`] for a job id read back from disk rather than tracked in
+/// this process: on Windows the spooler reuses ids, so the job is only
+/// deleted while it still carries one of `documents` (the names MaeclyPrint
+/// spooled it under) and belongs to this user. CUPS ids are never reused, so
+/// there it is a plain cancel.
+pub fn cancel_os_job_if_ours(
+    printer: &str,
+    os_job_id: &str,
+    documents: &[String],
+) -> anyhow::Result<()> {
+    #[cfg(windows)]
+    {
+        self::windows::cancel_if_ours(printer, os_job_id, documents)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = documents;
+        // A job that already left the queue is not something to report as a
+        // failed cancel (`cancel` exits non-zero for a completed job).
+        if matches!(job_state(printer, os_job_id), Ok(state) if state.is_final()) {
+            return Ok(());
+        }
+        cancel_os_job(printer, os_job_id)
+    }
+}
+
 /// Spool `pdf` to `printer` with `settings`, tagging the job with `title`.
 ///
 /// Dispatches to CUPS on Unix and SumatraPDF on Windows. On any other platform

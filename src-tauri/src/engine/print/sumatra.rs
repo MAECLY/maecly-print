@@ -356,41 +356,29 @@ pub fn locate() -> Result<PathBuf, EngineError> {
 ///
 /// SumatraPDF has no job-title flag and names the spooler document after the
 /// file it prints, so the PDF is handed to it under this name
-/// ([`stage_for_spool`]): the Windows print queue then shows `report.docx.pdf`
-/// instead of a cache UUID. Characters Windows forbids in a file name become
-/// `_`, the name is capped at 120 characters, and a `.pdf` extension is added
-/// unless the title already has one (SumatraPDF picks its engine by
-/// extension).
+/// ([`stage_for_spool`]): the Windows print queue then shows `report.pdf` for
+/// `report.docx` instead of a cache UUID. It is the CUPS backend's name
+/// ([`super::cups::document_file_name`], so both platforms title a job the
+/// same way) with the characters Windows forbids in a file name replaced by
+/// `_` and no trailing dot or space before the extension.
 pub fn spool_file_name(title: &str) -> String {
-    let mut name: String = title
+    let name = super::cups::document_file_name(title);
+    let stem = name.strip_suffix(".pdf").unwrap_or(&name);
+    let clean: String = stem
         .chars()
         .map(|c| {
-            if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
+            if matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*') {
                 '_'
             } else {
                 c
             }
         })
         .collect();
-    name = name.trim().trim_end_matches(['.', ' ']).to_string();
-    if name.is_empty() {
-        name = "document".to_string();
-    }
-    let is_pdf = name.to_ascii_lowercase().ends_with(".pdf");
-    let budget = if is_pdf { 120 } else { 116 };
-    if name.chars().count() > budget {
-        let keep = if is_pdf { budget - 4 } else { budget };
-        let stem: String = name.chars().take(keep).collect();
-        name = if is_pdf {
-            format!("{}.pdf", stem.trim_end())
-        } else {
-            stem
-        };
-    }
-    if is_pdf {
-        name
+    let clean = clean.trim_end_matches(['.', ' ']);
+    if clean.is_empty() {
+        "document.pdf".to_string()
     } else {
-        format!("{name}.pdf")
+        format!("{clean}.pdf")
     }
 }
 
@@ -566,32 +554,32 @@ mod tests {
         v.iter().map(String::as_str).collect()
     }
 
-    /// The Windows queue shows the original file's name, never the cache
-    /// path or a UUID, and the name is always a legal Windows file name.
+    /// The Windows queue shows the user's file name, as CUPS does, never the
+    /// cache path or a UUID, and the name is always a legal Windows file name.
     #[test]
-    fn nfr_082_the_spooled_document_is_named_after_the_original_file() {
+    fn fr_035_the_spooled_document_is_named_after_the_users_file() {
         assert_eq!(spool_file_name("report.pdf"), "report.pdf");
-        assert_eq!(spool_file_name("Report.PDF"), "Report.PDF");
-        assert_eq!(spool_file_name("letter.docx"), "letter.docx.pdf");
-        assert_eq!(spool_file_name("a:b*c?.png"), "a_b_c_.png.pdf");
+        assert_eq!(spool_file_name("letter.docx"), "letter.pdf");
+        assert_eq!(spool_file_name("Factura 03.xlsx"), "Factura 03.pdf");
+        assert_eq!(spool_file_name("a:b*c?.png"), "a_b_c_.pdf");
         assert_eq!(spool_file_name("  "), "document.pdf");
-        assert_eq!(spool_file_name("dots..."), "dots.pdf");
-        let long = "x".repeat(300) + ".pdf";
+        assert_eq!(spool_file_name("dots...txt"), "dots.pdf");
+        let long = "x".repeat(300) + ".docx";
         let name = spool_file_name(&long);
-        assert!(name.chars().count() <= 120 && name.ends_with(".pdf"), "{name}");
-        let long = "y".repeat(300) + ".docx";
-        let name = spool_file_name(&long);
-        assert!(name.chars().count() <= 120 && name.ends_with(".pdf"), "{name}");
+        assert!(name.len() <= 210 && name.ends_with(".pdf"), "{name}");
     }
 
     #[test]
-    fn nfr_082_staging_links_the_pdf_under_its_title_and_cleans_up() {
+    fn fr_035_staging_links_the_pdf_under_its_title_and_cleans_up() {
         let dir = tempfile::tempdir().unwrap();
         let pdf = dir.path().join("0192-uuid.pdf");
         std::fs::write(&pdf, b"%PDF-1.4\n%%EOF\n").unwrap();
         let (guard, staged) = stage_for_spool(&pdf, "Quarterly report.docx").unwrap();
-        assert_eq!(staged.file_name().unwrap(), "Quarterly report.docx.pdf");
-        assert_eq!(std::fs::read(&staged).unwrap(), std::fs::read(&pdf).unwrap());
+        assert_eq!(staged.file_name().unwrap(), "Quarterly report.pdf");
+        assert_eq!(
+            std::fs::read(&staged).unwrap(),
+            std::fs::read(&pdf).unwrap()
+        );
         let folder = guard.path().to_path_buf();
         drop(guard);
         assert!(!folder.exists());
