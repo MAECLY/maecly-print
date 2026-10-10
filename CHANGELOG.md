@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Dependencies: Tauri 2.12 (`tauri` 2.12, `@tauri-apps/api` and `@tauri-apps/cli` 2.12) with its dialog, opener, single-instance, notification and updater plugins. The HTML render worker on Windows moves with it to `webview2-com` 0.39 and `windows` 0.62, the WebView2 bindings Tauri itself uses. Tauri 2.12 drops Windows 7, which Pluryprint never supported.
+- Development: building from source now needs Rust 1.90 or newer, the minimum Tauri 2.12 sets.
+
+### Security
+
+- Updates are now bound to their version. Every update artifact is signed for the release it belongs to (`tauri signer sign --app-version`), and the app refuses an update whose signature names another version, or none, than the update manifest announces (`requireSignedVersion`). A tampered manifest can no longer offer an older, genuinely signed release under a newer version number. The release workflow checks every signature before the draft is finished.
+
 ## [0.0.1] - 2026-10-10
 
 First public preview of Pluryprint: batch printing of PDFs, images, Office/OpenDocument, HTML, Markdown, text, SVG and HEIC files from the app, the CLI and the Windows Explorer / macOS Finder menus, on Windows 10/11 (x64, ARM64) and macOS (Apple silicon, Intel). Installers are not signed with an Apple or Microsoft certificate; update artifacts are signed and verified by the app.
