@@ -190,7 +190,9 @@ fn print_settings_quality_draft_high_applied_windows() {
                     !matches!(outcome, QualityOutcome::Applied),
                     "{queue}: nothing was swapped, so the job cannot carry it by our doing"
                 ),
-                QualitySupport::Unknown => {}
+                // `quality_support` asks the driver only; a pending restore
+                // is the preview's business (`sumatra::quality_support_for`).
+                QualitySupport::Unknown | QualitySupport::PendingRestore => {}
             }
         }
         // Normal is never forced: the default is not even rewritten.

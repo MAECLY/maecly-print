@@ -34,6 +34,12 @@
 //! the restore. A process killed in between leaves it behind, and the next
 //! swap on that printer — or the next start of the app or the CLI
 //! ([`recover_stale_journals`]) — restores from it under the same rules.
+//! If that restore fails too (the driver rejects the old DEVMODE, the spooler
+//! hiccups), the journal stays and the printer is **not** swapped again
+//! ([`SwapError::Unrecovered`]): a new journal would record the still-swapped
+//! default as the "original" and lose the user's real one. Jobs print without
+//! the quality change, and say so ([`pending_restore`]), until a restore
+//! succeeds or the user sets another default themselves.
 //!
 //! The lock is an OS file lock on `devmode-swap-<hash>.lock` rather than a
 //! named mutex: it serializes the app, the CLI and the shell-extension
@@ -120,6 +126,10 @@ pub enum QualitySupport {
     /// The driver could not be asked (off Windows, or the query failed): the
     /// swap is tried and the job checked afterwards.
     Unknown,
+    /// An earlier quality change on this printer could not be undone yet
+    /// ([`pending_restore`]): no new one is made until it is, so the quality
+    /// is not applied.
+    PendingRestore,
 }
 
 /// What a spooled job really carried, read back from its own DEVMODE.
@@ -580,6 +590,11 @@ pub enum SwapError {
     /// The journal or the lock could not be written; nothing was changed.
     #[error("the swap journal could not be written: {0}")]
     Journal(String),
+    /// An earlier swap on this printer (a process that crashed) could not be
+    /// undone yet. Its journal holds the user's real default and is kept for
+    /// the next attempt; nothing was changed.
+    #[error("an earlier quality change on this printer could not be undone yet: {0}")]
+    Unrecovered(String),
     /// The spooler refused (nothing was changed, or it was undone).
     #[error("{0}")]
     Spooler(String),
@@ -615,6 +630,14 @@ impl<S: UserDefaults> Swap<S> {
         let journal_path = journal_path(dir, printer);
         if let Err(e) = recover_journal(&store, &journal_path) {
             tracing::warn!(event = "devmode_swap_recover_failed", printer = %printer, error = %e);
+            // The journal is still there (its restore failed, it was not set
+            // aside as unreadable): it is the only record of the user's real
+            // default, and the default on the printer may still be a swapped
+            // one. A new journal would replace it with that swapped value, so
+            // this job prints without the quality change instead.
+            if journal_path.exists() {
+                return Err(SwapError::Unrecovered(e));
+            }
         }
         let devmode = build()
             .map_err(SwapError::Spooler)?
@@ -730,6 +753,20 @@ pub fn recover_stale_journals_in<S: UserDefaults>(
         }
     }
     out
+}
+
+/// Whether `printer` has a swap journal in `dir` that no live process is
+/// working on: a crashed swap whose restore has not succeeded yet. Until it
+/// does, [`Swap::begin`] refuses to swap that printer
+/// ([`SwapError::Unrecovered`]), and the honesty preview says the quality is
+/// not applied ([`QualitySupport::PendingRestore`]). Read-only: it restores
+/// nothing.
+pub fn pending_restore(dir: &Path, printer: &str) -> bool {
+    if !journal_path(dir, printer).exists() {
+        return false;
+    }
+    // A live swap holds the lock, and its journal is its own work.
+    matches!(lock_printer(dir, printer, Duration::ZERO), Ok(Some(_)))
 }
 
 /// Where the journals and locks live: `<data>\devmode-swap`.
@@ -1221,6 +1258,7 @@ mod ffi {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex;
 
     /// A driver normalizing the DEVMODE it is given.
@@ -1233,6 +1271,9 @@ mod tests {
         writes: Mutex<Vec<(String, Option<Vec<u8>>)>>,
         /// Applied to every write.
         normalize: Option<Normalize>,
+        /// Every write is refused while set (a driver that rejects the old
+        /// DEVMODE, a spooler hiccup).
+        refuse_writes: AtomicBool,
     }
 
     impl UserDefaults for Fake {
@@ -1240,6 +1281,9 @@ mod tests {
             Ok(self.defaults.lock().unwrap().get(printer).cloned())
         }
         fn set(&self, printer: &str, devmode: Option<&[u8]>) -> Result<(), String> {
+            if self.refuse_writes.load(Ordering::SeqCst) {
+                return Err("SetPrinter(9) failed: the driver rejected the DEVMODE".into());
+            }
             let stored = devmode.map(|d| self.normalize.map_or_else(|| d.to_vec(), |n| n(d)));
             self.writes
                 .lock()
@@ -1455,6 +1499,73 @@ mod tests {
         assert_eq!(seen.lock().unwrap().as_deref(), Some(&original[..]));
         drop(swap);
         assert_eq!(store.get(P).unwrap().as_deref(), Some(&original[..]));
+    }
+
+    /// D16 / NFR-012: a crashed swap whose restore fails again must not be
+    /// overwritten by the next swap. The next job prints without the quality
+    /// change, and the journal keeps the user's real default for a later
+    /// recovery.
+    #[test]
+    fn print_settings_quality_unrecovered_journal_is_never_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Fake::default();
+        let original = devmode(Some(-3), b"user");
+        let left = devmode(Some(-4), b"high");
+        store.set(P, Some(&left)).unwrap();
+        let journal = Journal {
+            version: 1,
+            printer: P.into(),
+            original: Some(hex(&original)),
+            intended: hex(&left),
+            written: Some(hex(&left)),
+            pid: 1,
+            started: String::new(),
+        };
+        let path = journal_path(dir.path(), P);
+        write_journal(&path, &journal).unwrap();
+        assert!(pending_restore(dir.path(), P));
+
+        // The restore is refused: no swap, nothing built, journal intact.
+        store.refuse_writes.store(true, Ordering::SeqCst);
+        let built = AtomicBool::new(false);
+        let r = Swap::begin(
+            &store,
+            dir.path(),
+            P,
+            Target::Draft,
+            Duration::from_secs(5),
+            || {
+                built.store(true, Ordering::SeqCst);
+                Ok(Some(devmode(Some(-1), b"d")))
+            },
+        );
+        assert!(matches!(r, Err(SwapError::Unrecovered(_))), "{:?}", r.err());
+        assert!(!built.load(Ordering::SeqCst));
+        assert_eq!(read_journal(&path).unwrap(), Some(journal.clone()));
+        assert_eq!(store.get(P).unwrap().as_deref(), Some(&left[..]));
+        assert!(pending_restore(dir.path(), P));
+
+        // Once the spooler accepts it again, the real original comes back.
+        store.refuse_writes.store(false, Ordering::SeqCst);
+        let swap = begin(&store, dir.path(), &devmode(Some(-1), b"d")).unwrap();
+        drop(swap);
+        assert_eq!(store.get(P).unwrap().as_deref(), Some(&original[..]));
+        assert!(!path.exists());
+        assert!(!pending_restore(dir.path(), P));
+    }
+
+    /// A journal another live process holds the lock for is its swap in
+    /// progress, not a pending restore.
+    #[test]
+    fn print_settings_quality_live_swap_is_not_a_pending_restore() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Fake::default();
+        store.set(P, Some(&devmode(Some(-3), b"u"))).unwrap();
+        let swap = begin(&store, dir.path(), &devmode(Some(-1), b"d")).unwrap();
+        assert!(journal_path(dir.path(), P).exists());
+        assert!(!pending_restore(dir.path(), P));
+        drop(swap);
+        assert!(!pending_restore(dir.path(), P));
     }
 
     #[test]

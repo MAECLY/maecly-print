@@ -254,6 +254,9 @@ pub fn quality_note(settings: &JobSettings, support: QualitySupport) -> Option<S
         QualitySupport::NotOffered => format!(
             "# note: the driver for this printer offers no \"{word}\" quality, so it is NOT applied — the printer's own default quality is used."
         ),
+        QualitySupport::PendingRestore => format!(
+            "# note: an earlier quality change on this printer could not be undone yet, so \"{word}\" is NOT applied — the printer's current default is used until Pluryprint puts your own back (see the log)."
+        ),
     })
 }
 
@@ -302,6 +305,11 @@ pub fn quality_support_for(printer: &str, settings: &JobSettings) -> QualitySupp
     };
     #[cfg(windows)]
     {
+        // Not cached: a restore that finally succeeds must show at once.
+        let dir = super::devmode_swap::journal_dir();
+        if super::devmode_swap::pending_restore(&dir, printer) {
+            return QualitySupport::PendingRestore;
+        }
         cached_quality_support(printer, target)
     }
     #[cfg(not(windows))]
@@ -883,9 +891,12 @@ mod tests {
             QualitySupport::Offered,
             QualitySupport::NotOffered,
             QualitySupport::Unknown,
+            QualitySupport::PendingRestore,
         ] {
             assert!(quality_note(&with(Quality::Normal), support).is_none());
         }
+        let pending = quality_note(&with(Quality::Draft), QualitySupport::PendingRestore).unwrap();
+        assert!(pending.contains("NOT applied") && pending.contains("\"draft\""));
         let offered = quality_note(&with(Quality::Draft), QualitySupport::Offered).unwrap();
         assert!(offered.starts_with("# ") && offered.contains("\"draft\" is applied"));
         assert!(!offered.contains("NOT applied"));
