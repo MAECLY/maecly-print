@@ -207,6 +207,8 @@ mod tests {
                 launch_minimized: false,
                 density: Density::Comfortable,
                 native_notifications: true,
+                locale_detected: false,
+                onboarding_complete: false,
             },
             EngineCfg {
                 max_concurrent_conversions: max_concurrent,

@@ -75,6 +75,8 @@ const LOG_PREFIX: &str = "pluryprint-";
 const LEGACY_ENV_PREFIX: &str = "MAECLYPRINT_";
 /// Prefix of the environment variables after the rename.
 const ENV_PREFIX: &str = "PLURYPRINT_";
+/// The settings file, in the config folder.
+const CONFIG_FILE: &str = "config.toml";
 /// The migration's own lock, in the new data folder.
 const MIGRATION_LOCK_FILE: &str = "migration.lock";
 /// The "migration finished" marker, in the new data folder.
@@ -104,6 +106,8 @@ pub struct Layout {
     pub migration_lock: PathBuf,
     /// Written once a migration has run to the end; later runs do nothing.
     pub marker: PathBuf,
+    /// The new `config.toml`, where an upgrade records its first run as done.
+    pub new_config: PathBuf,
     /// The new log folder, where old log file names are renamed.
     pub new_log_dir: PathBuf,
 }
@@ -113,6 +117,7 @@ impl Layout {
         pairs: Vec<DirPair>,
         old_data: &Path,
         new_data: &Path,
+        new_config_dir: &Path,
         new_log_dir: PathBuf,
     ) -> Self {
         let mut unique: Vec<DirPair> = Vec::new();
@@ -127,6 +132,7 @@ impl Layout {
             new_lock: new_data.join(instance::LOCK_FILE),
             migration_lock: new_data.join(MIGRATION_LOCK_FILE),
             marker: new_data.join(MARKER_FILE),
+            new_config: new_config_dir.join(CONFIG_FILE),
             new_log_dir,
         }
     }
@@ -156,6 +162,7 @@ impl Layout {
             ],
             &old_data,
             &new_data,
+            &roaming(APP).join("config"),
             new_data.join("logs"),
         )
     }
@@ -190,6 +197,7 @@ impl Layout {
                 },
             ],
             &old_data,
+            &new_data,
             &new_data,
             logs(APP),
         )
@@ -227,6 +235,7 @@ impl Layout {
             pairs,
             old.data_local_dir(),
             new.data_local_dir(),
+            new.config_dir(),
             crate::util::paths::log_dir(),
         ))
     }
@@ -381,6 +390,9 @@ fn migrate_with(layout: &Layout, ops: &Ops) -> Migration {
         }
     }
     rename_legacy_logs(&layout.new_log_dir, &mut report);
+    if !report.moved.is_empty() {
+        record_upgrade(&layout.new_config, &mut report);
+    }
 
     // A failure is retried next launch; anything else is final, including
     // the files kept in the old folder, which are reported this once.
@@ -392,6 +404,31 @@ fn migrate_with(layout: &Layout, ops: &Ops) -> Migration {
     Migration {
         report,
         guard: Some(guard),
+    }
+}
+
+/// What the old app's webview remembered is not visible to the new one (its
+/// bundle identifier changed), so record it where the new app reads it: an
+/// upgrader has seen the tour, and the locale of a migrated config.toml is
+/// the user's (or the old detection's) answer, which detection must keep.
+fn record_upgrade(config_path: &Path, report: &mut Report) {
+    let config_moved = report.moved.iter().any(|(_, to)| to == config_path);
+    // A config that does not parse is left alone: every writer refuses it.
+    let mut config = match crate::settings::Config::load_strict(config_path) {
+        Ok(config) => config,
+        Err(_) => return,
+    };
+    if config.app.onboarding_complete && (config.app.locale_detected || !config_moved) {
+        return;
+    }
+    config.app.onboarding_complete = true;
+    if config_moved {
+        config.app.locale_detected = true;
+    }
+    if let Err(e) = config.save_to(config_path) {
+        report
+            .failed
+            .push((config_path.to_path_buf(), e.to_string()));
     }
 }
 
@@ -1319,6 +1356,49 @@ mod tests {
         let report = migrate(&layout);
         assert!(report.failed.is_empty(), "{report:?}");
         assert!(layout.marker.exists());
+    }
+
+    /// The webview's storage does not survive the new bundle identifier, so
+    /// an upgrade records in config.toml what it used to remember: the tour
+    /// was seen, and the language in the migrated config is settled — never
+    /// to be overwritten by OS detection.
+    #[test]
+    fn an_upgrade_records_the_first_run_as_done() {
+        let home = tempfile::tempdir().unwrap();
+        let h = home.path();
+        let old = h.join("Library/Application Support/com.Maecly.MaeclyPrint");
+        let new = h.join("Library/Application Support/com.Maecly.Pluryprint");
+        write(
+            &old.join("config.toml"),
+            "[app]\nlocale = \"en-US\"\ntheme = \"dark\"\nlaunch_minimized = false\n\n[printers]\ndefault_printer = \"HP\"\n",
+        );
+
+        let report = migrate(&Layout::macos(h));
+        assert!(report.failed.is_empty(), "{report:?}");
+        let c = crate::settings::Config::load_from(&new.join("config.toml"));
+        assert!(c.app.locale_detected, "the chosen English stays");
+        assert!(c.app.onboarding_complete);
+        assert_eq!(c.app.locale, "en-US");
+        assert_eq!(c.app.theme, crate::settings::Theme::Dark);
+        assert_eq!(c.printers.default_printer.as_deref(), Some("HP"));
+    }
+
+    /// An upgrade without a config.toml (no setting was ever changed) still
+    /// skips the tour, but leaves the language to detection.
+    #[test]
+    fn an_upgrade_without_a_config_only_skips_the_tour() {
+        let home = tempfile::tempdir().unwrap();
+        let h = home.path();
+        write(
+            &h.join("Library/Application Support/com.Maecly.MaeclyPrint/queue.json"),
+            "[]",
+        );
+        migrate(&Layout::macos(h));
+        let c = crate::settings::Config::load_from(
+            &h.join("Library/Application Support/com.Maecly.Pluryprint/config.toml"),
+        );
+        assert!(c.app.onboarding_complete);
+        assert!(!c.app.locale_detected);
     }
 
     /// Nothing installed: nothing to do, and no old folder gets created.

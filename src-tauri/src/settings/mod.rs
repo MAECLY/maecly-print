@@ -450,6 +450,17 @@ pub struct AppCfg {
     /// existed keeps notifications on.
     #[serde(default = "default_native_notifications")]
     pub native_notifications: bool,
+    /// FR-093: the first-run OS-language detection is settled — it ran, the
+    /// user picked a language, or the locale came over in an upgrade from the
+    /// former product (ADR-0009) — so detection must never change `locale`
+    /// again. Kept here rather than in the webview's storage, which a new
+    /// bundle identifier starts empty.
+    #[serde(default)]
+    pub locale_detected: bool,
+    /// The first-run tour was completed or skipped (or this is an upgrade from
+    /// the former product). Kept here for the same reason as `locale_detected`.
+    #[serde(default)]
+    pub onboarding_complete: bool,
 }
 
 fn default_native_notifications() -> bool {
@@ -464,6 +475,8 @@ impl Default for AppCfg {
             launch_minimized: false,
             density: Density::default(),
             native_notifications: default_native_notifications(),
+            locale_detected: false,
+            onboarding_complete: false,
         }
     }
 }
@@ -560,11 +573,15 @@ impl Default for Config {
 
 impl Config {
     /// Whether this config holds nothing a user chose: the defaults, plus
-    /// what a first run writes for itself (the locale detected from the OS).
-    /// The data migration (`util::legacy`) lets old data replace such a file.
+    /// what a first run writes for itself (the locale detected from the OS
+    /// and the first-run flags). The data migration (`util::legacy`) lets old
+    /// data replace such a file.
     pub fn is_first_run_default(&self) -> bool {
         let mut normalized = self.clone();
-        normalized.app.locale = AppCfg::default().locale;
+        let defaults = AppCfg::default();
+        normalized.app.locale = defaults.locale;
+        normalized.app.locale_detected = defaults.locale_detected;
+        normalized.app.onboarding_complete = defaults.onboarding_complete;
         normalized == Config::default()
     }
 
@@ -801,6 +818,42 @@ mod tests {
         // Compile-time check: save() returns std::io::Result<()>.
         fn _t(_: fn(&Config) -> std::io::Result<()>) {}
         _t(Config::save);
+    }
+
+    /// The first-run bookkeeping the webview used to keep in its own storage
+    /// (which a new bundle identifier wipes) lives in config.toml; a file
+    /// written before it existed loads with both unset.
+    #[test]
+    fn first_run_flags_default_to_unset_and_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "[app]\nlocale = \"es-ES\"\ntheme = \"dark\"\nlaunch_minimized = false\n",
+        )
+        .unwrap();
+        let mut c = Config::load_from(&path);
+        assert!(!c.app.locale_detected);
+        assert!(!c.app.onboarding_complete);
+
+        c.app.locale_detected = true;
+        c.app.onboarding_complete = true;
+        c.save_to(&path).unwrap();
+        let back = Config::load_from(&path);
+        assert!(back.app.locale_detected && back.app.onboarding_complete);
+    }
+
+    /// What a first run writes for itself is not a user's setting.
+    #[test]
+    fn first_run_default_ignores_the_first_run_bookkeeping() {
+        let mut c = Config::default();
+        assert!(c.is_first_run_default());
+        c.app.locale = "es-ES".into();
+        c.app.locale_detected = true;
+        c.app.onboarding_complete = true;
+        assert!(c.is_first_run_default());
+        c.app.theme = Theme::Dark;
+        assert!(!c.is_first_run_default());
     }
 
     #[test]
