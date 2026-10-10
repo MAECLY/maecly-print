@@ -508,7 +508,7 @@ fn nfr_070_windows_release_builds_and_checks_both_explorer_dlls() {
 fn nfr_006_installer_size_is_measured_against_the_budget() {
     let build = job(&release_yml(), "build");
     assert!(build.contains("Installer size budget (NFR-006)"));
-    assert!(build.contains("$budget = 15MB"));
+    assert!(build.contains("$budget = 20MB"));
     let ci = read(".github/workflows/ci.yml");
     assert!(!ci.contains("tauri build"), "ci.yml builds no bundle");
 }

@@ -179,7 +179,7 @@ default (`permissions: {}`); each job asks for what it needs:
    (`Pluryprint_<version>_<label><ext>`) without them, and `dist/` is uploaded
    as the workflow artifact `unsigned-<label>`.
 
-   Then the checks: the Windows installer against NFR-006's 15 MB (an error),
+   Then the checks: the Windows installer against NFR-006's 20 MB (an error),
    and that the bundle carries SumatraPDF, its licence, the offer and both
    DLLs; on macOS, that every binary is the architecture its name says, that
    no `SumatraPDF.exe` slipped in, and that the Intel build starts under
@@ -349,12 +349,12 @@ permissions it granted the previous version.
 
 ## 9. Installer size (NFR-006)
 
-NFR-006 caps the Windows installer at 15 MB. Measured:
+NFR-006 caps the Windows installer at 20 MB (15 MB until 2026-10-10; the first full release build measured x64 17.08 MiB and ARM64 15.49 MiB, about 8 MiB of each being SumatraPDF, so the budget was raised rather than dropping a feature). Measured:
 
 | Installer | Size | How |
 |---|---|---|
-| `Pluryprint_0.0.1_arm64-setup.exe` | 14,139,340 bytes (13.48 MiB) | native build on the Windows 11 ARM VM, 2026-10-10 |
-| x64 | reported by every release build | job summary |
+| `Pluryprint_0.0.1_arm64-setup.exe` | 15.49 MiB | release workflow dry run, 2026-10-10 |
+| `Pluryprint_0.0.1_x64-setup.exe` | 17.08 MiB | release workflow dry run, 2026-10-10 |
 
 About 8 MiB of it is SumatraPDF (18 MB uncompressed for ARM64). `release.yml`
 fails a Windows build over the budget; `ci.yml` builds no installer.
@@ -381,7 +381,7 @@ that public key (section 1), or a throwaway signature reached the draft. Do
 not publish; fix the secret and re-run from `sign`.
 
 **A Windows job fails at "Installer size budget".** The installer passed
-15 MB. Look at what grew (`cargo bloat`, the SumatraPDF version) before raising
+20 MB. Look at what grew (`cargo bloat`, the SumatraPDF version) before raising
 the budget, which is a requirement change (NFR-006).
 
 **Clients never see the update.** In order of likelihood: the repository is

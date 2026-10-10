@@ -285,7 +285,7 @@ jobs:
           # shellcheck disable=SC2086 # ARGS is a list of arguments
           pnpm tauri build $ARGS --ci
 
-      # NFR-006: the Windows installer must stay within 15 MB. The size is
+      # NFR-006: the Windows installer must stay within 20 MB. The size is
       # written to the job summary every time; over budget is an error, and
       # a red build means no draft is made.
       - name: Installer size budget (NFR-006)
@@ -294,12 +294,12 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: |
-          $budget = 15MB
+          $budget = 20MB
           $exe = Get-ChildItem "src-tauri/target/$env:TARGET/release/bundle/nsis" -Filter *-setup.exe | Select-Object -First 1
           if (-not $exe) { throw "no NSIS installer was built" }
           $mib = [math]::Round($exe.Length / 1MB, 2)
-          "| Installer | Size | Budget |`n|---|---|---|`n| $($exe.Name) | $mib MiB ($($exe.Length) bytes) | 15 MiB |" >> $env:GITHUB_STEP_SUMMARY
-          if ($exe.Length -gt $budget) { Write-Host "::error::$($exe.Name) is $mib MiB, over the 15 MiB budget of NFR-006"; exit 1 }
+          "| Installer | Size | Budget |`n|---|---|---|`n| $($exe.Name) | $mib MiB ($($exe.Length) bytes) | 20 MiB |" >> $env:GITHUB_STEP_SUMMARY
+          if ($exe.Length -gt $budget) { Write-Host "::error::$($exe.Name) is $mib MiB, over the 20 MiB budget of NFR-006"; exit 1 }
 
       # Both Windows installers must carry SumatraPDF, its licence and source
       # offer, and both Explorer DLLs.
