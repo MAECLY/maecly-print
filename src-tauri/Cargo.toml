@@ -62,7 +62,7 @@ wait-timeout = "0.2"
 semver = "1"
 # Minimal blocking HTTP client for the GitHub releases API (no async runtime
 # pulled into the update path); JSON feature for the release payload.
-ureq = { version = "2.12", features = ["json"] }
+ureq = { version = "3.4", features = ["json"] }
 # Percent-encode the prefilled "report issue" GitHub URL query.
 percent-encoding = "2.3"
 # WHATWG URL parsing for the open_external allow-list, so the host we check is
