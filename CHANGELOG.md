@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependencies: React 19.3 and sonner 2 in the UI; tauri plugins, serde_json, tokio, `directories` 6 and `toml` 1 in the Rust host. The config, cache and log folders and the `config.toml` / `profiles.toml` formats written by 0.0.1 are unchanged, and tests now pin both.
 - Development: building from source now needs Node.js 22.22.2 or newer (CI uses Node.js 24 LTS). The test and lint toolchain moved to Vite 7, Vitest 5, jsdom 30 and ESLint 10 with the React Compiler hook rules.
 - CI: GitHub Actions moved to their Node.js 24 releases, and Dependabot now sends one minor-and-patch pull request per ecosystem each week, with majors on their own.
+- CI: every pull request now runs `cargo audit` on both Rust lockfiles and `pnpm audit` on the production dependencies, and fails on a known vulnerability. The few accepted advisories are listed with their reasons in `src-tauri/.cargo/audit.toml` and `docs/07-build-and-release/ci-cd.md`.
+
+### Security
+
+- A PDF with deeply nested objects could crash Pluryprint (stack overflow in `lopdf`, RUSTSEC-2026-0187) while it was checked for encryption or its pages were counted. PDFs are now read with `lopdf` 0.44, which limits nesting, and such a file is printed or refused instead.
+- The updater's TLS stack moved to rustls 0.23.45 (RUSTSEC-2026-0285), and quick-xml (through plist), anyhow and event-listener to their patched releases.
+- Development tooling: WebdriverIO 9.32 and pnpm overrides bring 73 dev-only npm advisories to patched releases.
 
 ## [0.0.1] - 2026-10-10
 
