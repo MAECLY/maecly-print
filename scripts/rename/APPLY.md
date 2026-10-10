@@ -1,6 +1,7 @@
 # Replaying the MaeclyPrint → Pluryprint rename
 
-`feat/rename-pluryprint` was cut from `71fbb3f`. When the base moves (for
+`feat/rename-pluryprint` was cut from `71fbb3f`; `feat/rename-pluryprint-v2`
+replays it onto `ee83c1b` (see "Replayed onto `ee83c1b`" below). When the base moves (for
 example onto `feat/page-completeness-campaign`), do not rebase the mechanical
 commits: they touch hundreds of lines that the new base also changed. Replay
 the rename instead. It has two parts:
@@ -88,10 +89,10 @@ mechanical rewrite.
 | `047d883` | feat(ui): draw the Pluryprint wordmark…                         | `Brand.tsx` `MPWordmark`: `Plury<span accent>print</span>`; About header byline; `about.json` `byline` EN "by Maecly" / ES "por Maecly"; About test                                                                                                                                                                                                                                                                                                                                         |
 | `b68f52b` | feat(ui): move maeclyprint:\* localStorage keys…                | new `src/lib/legacyStorage.ts` + test; call in `src/main.tsx` before `bootAppearance()`                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `9b44e04` | test(ui): give the app-info fixture the real macOS folder names | `src/test/fixtures.ts`: `com.Maecly.Pluryprint`, `~/Library/Logs/Pluryprint`                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `c09628f` | feat(build): take over a MaeclyPrint install…                   | new `installers/windows/nsis/hooks.nsh`; `installerHooks` in `tauri.conf.json`; new `src-tauri/tests/bundle_identity.rs`                                                                                                                                                                                                                                                                                                                                                                    |
+| `c09628f` | feat(build): take over a MaeclyPrint install…                   | new `src-tauri/windows/installer-hooks.nsh`; `installerHooks` in `tauri.conf.json`; new `src-tauri/tests/bundle_identity.rs`                                                                                                                                                                                                                                                                                                                                                                |
 | `0fbd90c` | docs: record the rename…                                        | new `docs/adr/0009-rename-to-pluryprint.md`, ADR index row, `TRADEMARKS.md`, CHANGELOG entry (header line + first bullet under Unreleased → Changed), migration paragraphs in `data-model.md` §1, `privacy.md` and `installer-windows.md`, ownership lines and the fork-name example in `docs/09-legal/trademark.md`                                                                                                                                                                        |
 | `ad7ce98` | test(core): expect notes.txt first…                             | `logging/mod.rs` test `fr_113_sweep_drops_files_older_than_retain_days`: `pluryprint-*` sorts after `notes.txt`                                                                                                                                                                                                                                                                                                                                                                             |
-| `620d9eb` | fix(build): wait for the MaeclyPrint uninstaller…               | `installers/windows/nsis/hooks.nsh` rewritten (unquoted folder from `HKCU\Software\Maecly\MaeclyPrint`, `_?=` on every run, cleanup gated on success, per-machine MSI offer); four new tests in `tests/bundle_identity.rs` (one compiles the hook with `makensis -WX` when installed); `installerHooks` bullet in `installer-windows.md`                                                                                                                                                    |
+| `620d9eb` | fix(build): wait for the MaeclyPrint uninstaller…               | `src-tauri/windows/installer-hooks.nsh` rewritten (unquoted folder from `HKCU\Software\Maecly\MaeclyPrint`, `_?=` on every run, cleanup gated on success, per-machine MSI offer); four new tests in `tests/bundle_identity.rs` (one compiles the hook with `makensis -WX` when installed); `installerHooks` bullet in `installer-windows.md`                                                                                                                                                |
 | `070c876` | fix(core): never leave a truncated file behind…                 | `util/legacy.rs`: `Ops`, `merge_with`, `move_entry_with` (copy to a hidden temporary, rename into place), `copy_recursive` takes `ops`; three tests                                                                                                                                                                                                                                                                                                                                         |
 | `e67f48e` | feat(core): wait a bounded time for a lock…                     | `cli/instance.rs`: new `claim_within`                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `c65bc8d` | fix(core): migrate MaeclyPrint data under locks…                | `util/legacy.rs`: `Layout` gains `new_lock`, `migration_lock`, `marker`; `Report::backed_up`; `Migration` + `migrate_with` (migration lock, Pluryprint lock probe, old lock held for the move, marker); `is_first_run_default`, `replace_first_run_default`; `migrate_current` returns `Migration`; `settings/mod.rs`: `Config::is_first_run_default`; `lib.rs::run_with` keeps the guard until after the instance-lock claim in `setup`; `cli/mod.rs::execute` drops it after `log_report` |
@@ -158,9 +159,41 @@ The leftover grep must show only the intentional keeps:
 
 - the repo URL / slug `MAECLY/maecly-print`, `<org>/maecly-print`, `cd maecly-print`, and the `("MAECLY", "maecly-print")` slug tests in `update/mod.rs`;
 - `CHANGELOG.md` history, `docs/adr/0001`–`0008`, and the `claude design/maeclyprint/` paths cited in `Icon.tsx`, `format.ts`, `tokens.css`, `tailwind.config.ts`;
-- the migration and fallback code and its docs: `src-tauri/src/util/legacy.rs`, `settings/policy.rs`, `update/install.rs` (doc comment), `lib.rs` and `cli/mod.rs` (comments), `profiles/mod.rs` (legacy import test), `shell-ext-win/build.rs`, `src/lib/legacyStorage.ts` (+ test), `src/main.tsx` and `src/i18n/I18nProvider.tsx` (comments), `installers/windows/nsis/hooks.nsh`, `src-tauri/tests/bundle_identity.rs`, `tests/cli_console_binary.rs` (comment), ADR-0009 and its index row, `TRADEMARKS.md`, the migration paragraphs in `data-model.md`, `privacy.md` and `installer-windows.md`;
+- the migration and fallback code and its docs: `src-tauri/src/util/legacy.rs`, `settings/policy.rs`, `update/install.rs` (doc comment), `lib.rs` and `cli/mod.rs` (comments), `profiles/mod.rs` (legacy import test), `shell-ext-win/build.rs`, `src/lib/legacyStorage.ts` (+ test), `src/main.tsx` and `src/i18n/I18nProvider.tsx` (comments), `src-tauri/windows/installer-hooks.nsh`, `src-tauri/tests/bundle_identity.rs`, `src-tauri/tests/installer_hooks.rs` (comment), `tests/cli_console_binary.rs` (comment), ADR-0009 and its index row, `TRADEMARKS.md`, the migration paragraphs in `data-model.md`, `privacy.md` and `installer-windows.md`;
 - the old sparse-package identity that registration must remove first: `shell-ext-win/README.md`, the comment in `shell-ext-win/res/shellext.manifest`, `docs/04-architecture/shell-extensions.md`;
 - this folder.
 
-A mention anywhere else is something the new base added after `71fbb3f`: run
+A mention anywhere else is something the new base added after `ee83c1b`: run
 step 1 on that file, or edit it by hand if it is one of the keeps above.
+
+## Replayed onto `ee83c1b`
+
+The base `feat/page-completeness-campaign` had gained the Windows context-menu
+installer (`src-tauri/windows/installer-hooks.nsh`, wired as `installerHooks`),
+`scripts/build-shell-ext.ps1`, `scripts/check-failed-logons.ps1`,
+`util/chromium.rs` and `#![deny(missing_docs)]`. Replaying on it:
+
+- Step 1 renamed those files too. `rename.pl` gained rule 16 for the
+  `Local State.maecly-tmp` temporary in `util/chromium.rs`. The WebView2
+  profile seeded at start (`%LOCALAPPDATA%\<identifier>\EBWebView`) follows
+  the identifier from `tauri.conf.json`, so it needed no edit.
+- There is **one** hooks file. The takeover's `NSIS_HOOK_PREINSTALL` (with its
+  defines and `PLURY_UNQUOTE`) sits in `src-tauri/windows/installer-hooks.nsh`
+  between the `; ---- Taking over a MaeclyPrint install` markers, before the
+  context-menu `NSIS_HOOK_POSTINSTALL`; `installers/windows/nsis/hooks.nsh` is
+  gone and `installerHooks` stays `windows/installer-hooks.nsh`.
+  `bundle_identity.rs` reads that file, and `nsis_hook_compiles` copies it to a
+  temporary folder beside a placeholder `shell_ext_win.dll` (the file stops
+  with `!error` without one) and compiles all four hooks with `makensis -WX`.
+- `installer_hooks.rs` checks HKCU-only on `WriteReg*` lines: the takeover
+  reads HKLM (the per-machine MSI) and deletes a legacy `ContextMenuHandlers`
+  key, neither of which registers anything.
+- Conflicts kept both sides: `Config::is_first_run_default` next to the
+  documented `Config::config_path`; the per-architecture SumatraPDF pins and
+  licence files from the base with the GPL-3.0/MuPDF wording, `LICENSES/` and
+  the `bundle.resources` map from the relicense (`third-party-licenses.md`,
+  `THIRD-PARTY-NOTICES.md`, the SumatraPDF README, `security-model.md`).
+- Three commits follow the cherry-picks: docs on `DirPair` and `Migration`
+  fields (`missing_docs`), the `installer_hooks.rs` change above, and the
+  regenerated `src/ipc/bindings.ts`. Commits between `c810f06`'s replay and the
+  bindings commit carry the base's `bindings.ts`.
