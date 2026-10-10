@@ -80,7 +80,8 @@
         "bad_status": "github.com returned an unexpected status ({{status}}).",
         "bad_response": "GitHub sent an unexpected response. Try again later.",
         "repo_missing": "This build's releases could not be reached on github.com: the repository is private or no longer exists.",
-        "not_configured": "This build has no update repository configured."
+        "not_configured": "This build has no update repository configured.",
+        "channel_unavailable": "No update has been published on this channel yet, or its releases are not public."
       },
       "Internal": {
         "open_logs_failed": "Could not open the logs folder.",

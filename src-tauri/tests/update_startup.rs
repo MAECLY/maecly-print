@@ -214,7 +214,10 @@ fn a_failed_check_stays_silent_and_retries_next_launch() {
     // Offline / rate-limited: nobody asked for this check, so there is no
     // honest place to show the error.
     let out = run_startup_check_with(true, &path, at("2026-07-20T12:00:00Z"), CURRENT, || {
-        Err("could not reach github.com — check your connection".to_string())
+        Err(pluryprint_lib::update::failure(
+            "offline",
+            "could not reach github.com — check your connection",
+        ))
     });
     assert!(out.is_none());
     assert!(

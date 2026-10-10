@@ -80,7 +80,8 @@
         "bad_status": "github.com devolvió un estado inesperado ({{status}}).",
         "bad_response": "GitHub envió una respuesta inesperada. Inténtalo más tarde.",
         "repo_missing": "No se pudo acceder a las versiones publicadas en github.com: el repositorio es privado o ya no existe.",
-        "not_configured": "Esta versión no tiene configurado ningún repositorio de actualizaciones."
+        "not_configured": "Esta versión no tiene configurado ningún repositorio de actualizaciones.",
+        "channel_unavailable": "Todavía no se ha publicado ninguna actualización en este canal, o sus versiones no son públicas."
       },
       "Internal": {
         "open_logs_failed": "No se pudo abrir la carpeta de registros.",

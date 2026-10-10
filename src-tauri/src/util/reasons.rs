@@ -48,6 +48,7 @@ pub const IPC_REASONS: &[ReasonSpec<IpcErrorCode>] = &[
     (IpcErrorCode::UpdateCheckFailed, "bad_response", &[]),
     (IpcErrorCode::UpdateCheckFailed, "repo_missing", &[]),
     (IpcErrorCode::UpdateCheckFailed, "not_configured", &[]),
+    (IpcErrorCode::UpdateCheckFailed, "channel_unavailable", &[]),
     // --- Update install ---
     (
         IpcErrorCode::UpdateSignatureInvalid,

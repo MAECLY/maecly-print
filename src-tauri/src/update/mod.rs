@@ -161,6 +161,14 @@ pub fn evaluate(current: &str, release: Option<ReleaseInfo>, checked_at: String)
     }
 }
 
+/// The `reason` of a check whose channel has no manifest at all (HTTP 404):
+/// nothing is published on that channel yet, the channel's pointer release is
+/// missing, or the repository is still private. It is not "up to date" (that
+/// would hide a broken or unreachable feed) and not an alarm either: About
+/// shows it as a neutral notice, and the launch-time check logs it and stays
+/// silent.
+pub const CHANNEL_UNAVAILABLE: &str = "channel_unavailable";
+
 /// An [`IpcErrorCode::UpdateCheckFailed`] with a stable `reason` the UI
 /// translates (FR-092); the English text stays the log/CLI detail.
 pub fn failure(reason: &'static str, message: impl Into<String>) -> LocalizedError {
@@ -214,8 +222,10 @@ pub fn parse_manifest(json: &str, page: &str) -> Option<ReleaseInfo> {
 /// - `200` with a version → `Ok(Some(_))`. A `200` that does **not** parse is
 ///   an error, not `Ok(None)`: "you're up to date" off an unreadable payload
 ///   would be a lie.
-/// - `404` → `Ok(None)`: nothing is published on this channel yet. While the
-///   repository is private every anonymous request lands here too.
+/// - `404` → [`CHANNEL_UNAVAILABLE`]: the channel has no manifest. Nothing is
+///   published on it yet, its `channel-beta` pointer is missing, or the
+///   repository is private (every anonymous request lands here then). Not
+///   `Ok(None)`: "you're up to date" would hide a feed that does not exist.
 /// - `403` / `429` → rate-limit error.
 /// - anything else → an "unexpected status" error naming the code.
 pub fn interpret_manifest_response(
@@ -230,7 +240,10 @@ pub fn interpret_manifest_response(
                 "the update server's manifest has no version",
             )
         }),
-        404 => Ok(None),
+        404 => Err(failure(
+            CHANNEL_UNAVAILABLE,
+            "no update has been published on this channel (its manifest answered 404)",
+        )),
         403 | 429 => Err(failure(
             "rate_limited",
             "the update server is limiting requests — try again later",
@@ -524,8 +537,12 @@ fn same_version(a: &str, b: &str) -> bool {
 /// Returns `Some(check)` only when there is something the user should be told
 /// about: the preference is on, the 24h window has elapsed, a newer release
 /// exists, and it is not the one they skipped. Every other outcome — throttled,
-/// disabled, offline, rate-limited, up to date — is `None`, because a silent
-/// background check has no UI to fail into.
+/// disabled, offline, rate-limited, up to date, channel unavailable — is
+/// `None`, because a silent background check has no UI to fail into.
+///
+/// A channel with no manifest ([`CHANNEL_UNAVAILABLE`]) is logged and counts
+/// as a completed check, so it arms the 24h throttle like "up to date" does;
+/// About's manual check is where the user sees it.
 ///
 /// `fetch` is only called once the decision to check has been made, which is
 /// what lets a test assert that a throttled or disabled launch performs no
@@ -546,7 +563,7 @@ pub fn run_startup_check_with<F>(
     fetch: F,
 ) -> Option<UpdateCheck>
 where
-    F: FnOnce() -> Result<Option<ReleaseInfo>, String>,
+    F: FnOnce() -> Result<Option<ReleaseInfo>, LocalizedError>,
 {
     let state = UpdateState::load_from(state_path);
 
@@ -556,10 +573,20 @@ where
 
     let release = match fetch() {
         Ok(release) => release,
+        Err(e) if e.reason == CHANNEL_UNAVAILABLE => {
+            // The check ran and found no feed: nothing to offer, and asking
+            // again at every launch would not change that.
+            tracing::info!(event = "update_channel_unavailable", detail = %e.message);
+            None
+        }
         Err(e) => {
             // Nobody asked for this check, so there is nowhere honest to show
             // an error: log it and try again after the next interval.
-            tracing::warn!(event = "update_startup_check_failed", error = %e);
+            tracing::warn!(
+                event = "update_startup_check_failed",
+                reason = e.reason,
+                error = %e.message
+            );
             return None;
         }
     };
@@ -601,7 +628,7 @@ pub fn run_startup_check() -> Option<UpdateCheck> {
         &state_path(),
         OffsetDateTime::now_utc(),
         env!("CARGO_PKG_VERSION"),
-        || fetch_configured_latest(channel).map_err(|e| e.message),
+        || fetch_configured_latest(channel),
     )
 }
 
@@ -626,8 +653,14 @@ mod tests {
         assert_eq!(r.html_url, url);
         assert!(is_newer("0.0.1", &r.tag_name));
 
-        // Nothing published on this channel (or the repository is private).
-        assert_eq!(interpret_manifest_response(404, "", url).unwrap(), None);
+        // Nothing published on this channel (or the repository is private):
+        // a distinct outcome, never "up to date".
+        assert_eq!(
+            interpret_manifest_response(404, "", url)
+                .unwrap_err()
+                .reason,
+            CHANNEL_UNAVAILABLE
+        );
         let bad = interpret_manifest_response(200, r#"{"notes":"x"}"#, url).unwrap_err();
         assert_eq!(bad.reason, "bad_response");
         assert_eq!(
@@ -657,6 +690,48 @@ mod tests {
         assert_eq!(bad.reason, "bad_status");
         assert_eq!(bad.params.get("status").map(String::as_str), Some("502"));
         assert_eq!(bad.code, IpcErrorCode::UpdateCheckFailed);
+    }
+
+    /// FR-085: a channel whose manifest is missing (404: nothing published
+    /// yet, the beta pointer release absent, or a private repository) is its
+    /// own outcome with a registered reason, not "you're up to date".
+    #[test]
+    fn fr_085_a_missing_channel_manifest_is_channel_unavailable_not_up_to_date() {
+        let url =
+            "https://github.com/MAECLY/maecly-print/releases/download/channel-beta/latest.json";
+        let err = interpret_manifest_response(404, "Not Found", url).unwrap_err();
+        assert_eq!(err.code, IpcErrorCode::UpdateCheckFailed);
+        assert_eq!(err.reason, CHANNEL_UNAVAILABLE);
+        assert!(err.message.contains("404"), "{}", err.message);
+        assert!(crate::util::reasons::IPC_REASONS
+            .iter()
+            .any(|(code, reason, _)| *code == IpcErrorCode::UpdateCheckFailed
+                && *reason == CHANNEL_UNAVAILABLE));
+    }
+
+    /// FR-080/FR-085: at launch a channel with no manifest stays silent (no
+    /// notice, no error) but counts as a completed check, so it is not asked
+    /// again on every start; any other failure still retries next launch.
+    #[test]
+    fn fr_080_startup_check_on_an_unavailable_channel_is_silent_and_throttled() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("update-state.json");
+        let out = run_startup_check_with(true, &path, at("2026-07-20T12:00:00Z"), "1.0.0", || {
+            interpret_manifest_response(404, "", "https://x/latest.json")
+        });
+        assert!(out.is_none());
+        assert_eq!(
+            UpdateState::load_from(&path).last_check_at.as_deref(),
+            Some("2026-07-20T12:00:00Z")
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("update-state.json");
+        let out = run_startup_check_with(true, &path, at("2026-07-20T12:00:00Z"), "1.0.0", || {
+            interpret_manifest_response(502, "", "https://x/latest.json")
+        });
+        assert!(out.is_none());
+        assert!(UpdateState::load_from(&path).last_check_at.is_none());
     }
 
     /// FR-080: the notice uses the release manifest, never the GitHub REST
@@ -1044,7 +1119,7 @@ mod tests {
     /// Reads the real published manifests. Ignored by default (network);
     /// run explicitly with `cargo test -- --ignored live_manifest_check`.
     /// While the repository is private both answer 404, which reads as
-    /// "nothing published" (`Ok(None)`), never as an error.
+    /// [`CHANNEL_UNAVAILABLE`], never as "up to date" or a transport error.
     #[test]
     #[ignore = "network: reads the published update manifests"]
     fn live_manifest_check() {
@@ -1052,7 +1127,13 @@ mod tests {
         for channel in [UpdateChannel::Stable, UpdateChannel::Beta] {
             let url = install::resolve_endpoint(None, channel).unwrap();
             let result = fetch_manifest(&url, false);
-            assert!(result.is_ok(), "{channel:?}: {result:?}");
+            assert!(
+                result.is_ok()
+                    || result
+                        .as_ref()
+                        .is_err_and(|e| e.reason == CHANNEL_UNAVAILABLE),
+                "{channel:?}: {result:?}"
+            );
         }
     }
 
