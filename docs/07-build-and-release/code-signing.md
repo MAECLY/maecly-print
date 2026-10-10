@@ -9,7 +9,7 @@
 | What | How it is done today |
 |---|---|
 | Windows installers | **Not Authenticode-signed.** SmartScreen shows "Windows protected your PC"; the release notes (English and Spanish) say to choose **More info → Run anyway**. The installer is per user and asks for no administrator rights. |
-| macOS bundles | **Signed ad hoc** (`bundle.macOS.signingIdentity: "-"` in `tauri.conf.json`), which Apple silicon needs to run the app at all. Not notarized: ad hoc signatures cannot be. The release notes give the `xattr -rd com.apple.quarantine` step that Gatekeeper requires. |
+| macOS bundles | **Signed ad hoc** (`bundle.macOS.signingIdentity: "-"` in `tauri.conf.json`), which Apple silicon needs to run the app at all. Not notarized: ad hoc signatures cannot be. The release notes give the `xattr -dr com.apple.quarantine` step that Gatekeeper requires. |
 | Updates | Every updater artifact is signed with Pluryprint's own **minisign** key (`TAURI_SIGNING_PRIVATE_KEY`, a GitHub secret); the app verifies it against the public key compiled in (`plugins.updater.pubkey`) and refuses anything else. `release.yml` verifies every signature, and that a tampered copy fails, before the draft is finished. |
 | Integrity of downloads | `SHA256SUMS` is attached to every release. |
 

@@ -294,7 +294,7 @@ support answers).
 > Pluryprint to Applications, clear the quarantine flag once, in Terminal:
 >
 > ```
-> xattr -rd com.apple.quarantine /Applications/Pluryprint.app
+> xattr -dr com.apple.quarantine /Applications/Pluryprint.app
 > ```
 >
 > Do it only with a copy you downloaded from this release page: that flag is

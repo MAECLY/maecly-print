@@ -424,7 +424,11 @@ fn release_asset_names_never_collide() {
 fn d2_release_notes_explain_gatekeeper_and_smartscreen_in_en_and_es() {
     let notes = read(".github/release-notes.md");
     for needle in [
-        "xattr -rd com.apple.quarantine /Applications/Pluryprint.app",
+        "xattr -dr com.apple.quarantine /Applications/Pluryprint.app",
+        "**Open Anyway**",
+        "**Abrir igualmente**",
+        "SHA256SUMS --ignore-missing",
+        "Smart App Control",
         "**More info**, then **Run anyway**",
         "**Más información** y después **Ejecutar de todas formas**",
         "## English",
