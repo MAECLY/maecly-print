@@ -68,7 +68,8 @@ pub struct QueuedJob {
     /// The spooler's job id.
     pub id: u32,
     /// `pDocument`: SumatraPDF names the job after the full path of the file it
-    /// printed (`C:\cache\…\report.pdf`).
+    /// printed (`C:\cache\…\report.pdf`), which [`retitle_job`] then cuts down
+    /// to the file name.
     pub document: String,
     /// `pUserName`: who submitted it. On a `\\server\queue` connection the
     /// list holds every user's jobs.
@@ -434,6 +435,51 @@ mod ffi {
         Ok(Some((info.Status, queued(info))))
     }
 
+    /// Rename job `job_id`'s document (`pDocument`) to `name`, keeping every
+    /// other field: `GetJob` level 1, then `SetJob` level 1 with the queue
+    /// position left alone (`JOB_POSITION_UNSPECIFIED`).
+    pub fn set_document(printer: &str, job_id: u32, name: &str) -> Result<(), TrackError> {
+        let p = Printer::open(printer)?;
+        let mut needed = 0u32;
+        // SAFETY: sizing call with no buffer; out pointer is valid.
+        let _ = unsafe { GetJobW(p.0, job_id, 1, None, &mut needed) };
+        if needed == 0 {
+            return Err(TrackError::Transient(format!(
+                "GetJob({job_id}) failed: {:?}",
+                unsafe { GetLastError() }
+            )));
+        }
+        let mut storage = vec![0u64; (needed as usize).div_ceil(8)];
+        // SAFETY: as in `jobs`.
+        let buf = unsafe {
+            std::slice::from_raw_parts_mut(storage.as_mut_ptr().cast::<u8>(), storage.len() * 8)
+        };
+        if !unsafe { GetJobW(p.0, job_id, 1, Some(buf), &mut needed) }.as_bool() {
+            return Err(TrackError::Transient(format!(
+                "GetJob({job_id}) failed: {:?}",
+                unsafe { GetLastError() }
+            )));
+        }
+        // SAFETY: the spooler wrote one JOB_INFO_1W at the buffer's start; its
+        // string pointers point into `storage`, which outlives the SetJob call.
+        let info = unsafe { &mut *storage.as_mut_ptr().cast::<JOB_INFO_1W>() };
+        let mut wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+        info.pDocument = windows::core::PWSTR(wide.as_mut_ptr());
+        // JOB_POSITION_UNSPECIFIED: do not move the job in the queue.
+        info.Position = 0;
+        // SAFETY: valid handle; `info` is a complete JOB_INFO_1W whose strings
+        // (`wide` and the buffer) live across the call.
+        let ok = unsafe { SetJobW(p.0, job_id, 1, Some(std::ptr::from_ref(info).cast()), 0) };
+        if ok.as_bool() {
+            Ok(())
+        } else {
+            Err(TrackError::Transient(format!(
+                "SetJob({job_id}, level 1) failed: {:?}",
+                unsafe { GetLastError() }
+            )))
+        }
+    }
+
     /// Delete a job from the queue (`JOB_CONTROL_DELETE`).
     pub fn delete(printer: &str, job_id: u32) -> anyhow::Result<()> {
         let p = Printer::open(printer).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -503,6 +549,35 @@ pub fn new_job_of(printer: &str, before: &[u32], pdf: &str) -> Option<JobRef> {
     pick_new_job(before, &after, pdf, &user)
         .and_then(|id| after.iter().find(|j| j.id == id))
         .map(JobRef::of)
+}
+
+/// The name the Windows queue should show for a job whose `pDocument` is
+/// `document`, or `None` when it already shows it. SumatraPDF names the job
+/// after the full path it printed (`C:\Users\…\Temp\pluryprint-spool-x\
+/// report.pdf`); only the file name is meaningful to the user, and it is still
+/// what [`document_names`] matches, so the tracking and the offline cancel
+/// keep recognizing the job. Pure.
+pub fn queue_title(document: &str) -> Option<String> {
+    let name = document.rsplit(['\\', '/']).next().unwrap_or(document);
+    (!name.is_empty() && name != document).then(|| name.to_string())
+}
+
+/// Show only the file name, not the temporary folder, as the document of our
+/// job `job` on `printer` ([`queue_title`]). Best effort: the job may already
+/// have printed and left, and a job that now carries another print (a reused
+/// id) is left alone.
+#[cfg(windows)]
+pub fn retitle_job(printer: &str, job: &JobRef) {
+    let current = match ffi::status(printer, job.id) {
+        Ok(Some((_, q))) if !job.verifiable() || job.is(&q) => q,
+        _ => return,
+    };
+    let Some(title) = queue_title(&current.document) else {
+        return;
+    };
+    if let Err(e) = ffi::set_document(printer, job.id, &title) {
+        tracing::debug!(event = "os_job_retitle_failed", printer = %printer, job = job.id, error = %e);
+    }
 }
 
 /// What the job now carrying `job.id` says about `job`. Pure.
@@ -656,6 +731,24 @@ mod tests {
             "a"
         ));
         assert!(!is_our_job(&job("report.pdf", "a"), &[], "a"));
+    }
+
+    /// The Windows queue shows the user's file name, never the temporary
+    /// folder SumatraPDF printed it from, and the retitled job is still
+    /// recognized as ours.
+    #[test]
+    fn fr_031_the_queue_shows_the_file_name_not_the_temp_path() {
+        let staged = r"C:\Users\a\AppData\Local\Temp\pluryprint-spool-Xy1\report.pdf";
+        let title = queue_title(staged).unwrap();
+        assert_eq!(title, "report.pdf");
+        assert_eq!(queue_title("report.pdf"), None, "already retitled");
+        assert_eq!(queue_title(r"C:\x\"), None);
+        assert_eq!(queue_title("/tmp/x/a b.pdf").as_deref(), Some("a b.pdf"));
+        // Tracking, the reused-id check and the offline cancel still match.
+        assert!(document_names(&title, staged));
+        let renamed = job(7, &title, "a");
+        assert_eq!(pick_new_job(&[], &[renamed.clone()], staged, "a"), Some(7));
+        assert!(is_our_job(&renamed, &["report.pdf".to_string()], "a"));
     }
 
     #[test]

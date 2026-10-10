@@ -578,7 +578,9 @@ fn read_log(log: &Path) -> (String, String) {
 /// another).
 ///
 /// SumatraPDF has no job-title flag, so the job is titled by printing the PDF
-/// under `title`'s name ([`stage_for_spool`]). Its diagnostic output (it logs
+/// under `title`'s name ([`stage_for_spool`]); it names the job after that
+/// file's full path, so once the job is in the queue its document is cut down
+/// to the file name ([`super::windows::retitle_job`]). Its diagnostic output (it logs
 /// its whole start-up to an inherited stdout) goes to a file next to that
 /// copy, never to our own stdout, where it would corrupt `print --json`; the
 /// tail of it is quoted when it fails.
@@ -744,6 +746,11 @@ pub fn spool_with(
     // Releases the printer's lock: the next job's swap need not wait for
     // this SumatraPDF to finish rendering.
     drop(quality_swap);
+    // The queue shows the file's name, not the temporary folder SumatraPDF
+    // printed it from; done as soon as the job is known, before it prints.
+    if let Some(job) = &seen_job {
+        super::windows::retitle_job(printer, job);
+    }
 
     let remaining = timeout.map(|t| t.saturating_sub(started.elapsed()));
     let status = super::wait_with_timeout(&mut child, remaining).map_err(|e| match e {
@@ -762,11 +769,15 @@ pub fn spool_with(
         .into());
     }
 
+    let retitled = seen_job.is_some();
     let os_job_id = seen_job.or_else(|| {
         before
             .as_deref()
             .and_then(|before| super::windows::find_spooled_job(printer, before, &document))
     });
+    if let (Some(job), false) = (&os_job_id, retitled) {
+        super::windows::retitle_job(printer, job);
+    }
 
     if let (Some(target), true) = (target, swapped) {
         let outcome = match &os_job_id {
