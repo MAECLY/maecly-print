@@ -103,6 +103,49 @@ fn nsis_hook_keeps_the_registration_when_the_old_uninstaller_fails() {
     assert!(code.contains(&"StrCpy $R3 0"), "a failure clears the gate");
 }
 
+/// The old uninstaller runs in place, so it is left behind, and Windows keeps
+/// its image locked for a moment after `ExecWait` returns: a single `Delete`
+/// failed on Windows 11 and left `%LOCALAPPDATA%\MaeclyPrint\uninstall.exe`
+/// on disk. The hook retries, then falls back to deleting it at restart.
+#[test]
+fn nsis_hook_retries_deleting_the_in_place_uninstaller() {
+    let nsh = read("windows/installer-hooks.nsh");
+    let code = nsis_code(&nsh);
+    let pos = |needle: &str| {
+        code.iter()
+            .position(|l| *l == needle)
+            .unwrap_or_else(|| panic!("missing `{needle}`"))
+    };
+    let exec = code
+        .iter()
+        .position(|l| l.starts_with("ExecWait") && l.contains("_?=$R1"))
+        .expect("the old uninstaller runs in place");
+    let retry = pos("plury_unexe_retry:");
+    let delete = pos(r#"Delete "$R1\uninstall.exe""#);
+    let check = pos("IfErrors 0 plury_unexe_done");
+    let back = pos("Goto plury_unexe_retry");
+    let fallback = pos(r#"Delete /REBOOTOK "$R1\uninstall.exe""#);
+    let done = pos("plury_unexe_done:");
+    assert!(exec < retry && retry < delete && delete < check && check < back);
+    assert!(
+        code[retry..delete].contains(&"ClearErrors"),
+        "each try starts with a clear error flag"
+    );
+    assert!(
+        code[check..back].iter().any(|l| l.starts_with("Sleep ")),
+        "the retry waits between tries"
+    );
+    assert!(
+        code[check..back]
+            .iter()
+            .any(|l| l.starts_with("IntCmp $R4 ") && l.contains("plury_unexe_late")),
+        "the retry is bounded"
+    );
+    assert!(back < fallback && fallback < done);
+    let rmdir = pos(r#"RMDir /REBOOTOK "$R1""#);
+    assert!(done < rmdir, "the folder goes once the uninstaller is gone");
+}
+
 /// A per-machine MSI install from before c1466b4 is found by name and offered
 /// for removal (msiexec asks for elevation itself).
 #[test]

@@ -150,8 +150,22 @@
       ${If} $R2 == 0
       ${AndIfNot} ${FileExists} "$R1\${PLURY_LEGACY_EXE}"
         ; Run in place, the uninstaller cannot delete itself or its folder.
-        Delete "$R1\uninstall.exe"
-        RMDir "$R1"
+        ; Windows also keeps its image locked for a moment after ExecWait
+        ; returns, so the first Delete fails: retry for up to 5 s, then
+        ; leave it to the next restart.
+        StrCpy $R4 0
+        plury_unexe_retry:
+          ClearErrors
+          Delete "$R1\uninstall.exe"
+          IfErrors 0 plury_unexe_done
+          IntOp $R4 $R4 + 1
+          IntCmp $R4 50 plury_unexe_late 0 plury_unexe_late
+          Sleep 100
+          Goto plury_unexe_retry
+        plury_unexe_late:
+          Delete /REBOOTOK "$R1\uninstall.exe"
+        plury_unexe_done:
+        RMDir /REBOOTOK "$R1"
       ${Else}
         DetailPrint "${PLURY_LEGACY_PRODUCT} was not removed; it stays in Apps & features"
         StrCpy $R3 0
