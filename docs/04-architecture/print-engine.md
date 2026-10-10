@@ -1,16 +1,16 @@
 # Print Engine
 
-> **TL;DR** — Pluryprint uses a **hybrid pipeline**: each input file is converted to PDF by the most appropriate converter for its format, then printed by a single back-end (SumatraPDF on Windows, CUPS `lp` on macOS/Linux). This "convert-everything-to-PDF, then print PDF" strategy is dramatically simpler than per-format printing while still producing native-quality output. **Images are converted in-process by the Rust `image` crate, not by ImageMagick.** HEIC goes through the OS decoder. Office, OpenDocument, TXT and RTF go through LibreOffice headless, HTML through a headless Edge/Chrome/Chromium, and Markdown through Pandoc followed by that browser.
+> **TL;DR** — Pluryprint uses a **hybrid pipeline**: each input file is converted to PDF by the most appropriate converter for its format, then printed by a single back-end (SumatraPDF on Windows, CUPS `lp` on macOS/Linux). This "convert-everything-to-PDF, then print PDF" strategy is dramatically simpler than per-format printing while still producing native-quality output. **Images and SVG are converted in-process (the `image` crate; `usvg` + `svg2pdf` in a worker), not by ImageMagick.** HEIC goes through the OS decoder. Office and OpenDocument go through LibreOffice headless (RTF too on Windows). HTML, Markdown and plain text are paginated by the operating system's own web view (WebView2 / WKWebView) in a hidden worker process; Markdown and text become HTML in-process first, and RTF does so through `textutil` on macOS. Encrypted PDFs are decrypted in-process with the user's password. GIF is refused.
 
 ## Implementation status
 
-This document describes the hybrid design. EPUB and SVG are still targets only. Everything else in the matrix is wired:
+This document describes the hybrid design. EPUB is still a target only. Everything else in the matrix is wired:
 
-- **Supported inputs:** `pdf` (passthrough); the raster images `jpg`, `jpeg`, `png`, `tif`, `tiff`, `bmp`, `webp`; `heic`/`heif`; Office `docx`, `doc`, `xlsx`, `xls`, `pptx`, `ppt`; OpenDocument `odt`, `ods`, `odp`; `rtf`, `txt`; `html`, `htm`; `md`, `markdown` (`src-tauri/src/engine/mod.rs::SUPPORTED_EXTS`). The per-format matrix and each converter's exact command line are in [supported-formats.md](../03-requirements/supported-formats.md). **ImageMagick is not a target at all**: the image path is in-process and stays that way.
-- **Conversion:** PDFs are validated by their `%PDF-` header, an `%%EOF` marker near the end and (up to 100 MB) a non-zero page count, then printed in place (no cache file). Images are decoded with the pure-Rust `image` crate and wrapped into a one-page PDF built by hand with `lopdf`, **not** `printpdf`, whose image feature is disabled. HEIC is decoded by `sips` (macOS) or WIC (Windows) into the same one-page PDF. Documents are converted by external programs through `engine::convert::process::run_bounded`. It uses an argument vector (no shell) and a private scratch folder removed on every exit path, and it is bounded by the conversion timeout and the cancel flag, either of which kills the whole child process tree. Documented limitations of the image path: EXIF orientation is not applied, multi-frame TIFFs use the first frame only, and CMYK JPEGs and other sub-formats the codec cannot handle surface as a clear `ConversionFailed`.
+- **Supported inputs:** `pdf` (passthrough, encrypted ones after the password); the raster images `jpg`, `jpeg`, `png`, `tif`, `tiff`, `bmp`, `webp`; `heic`/`heif`; `svg`/`svgz`; Office `docx`, `doc`, `xlsx`, `xls`, `pptx`, `ppt`; OpenDocument `odt`, `ods`, `odp`; `rtf`, `txt`; `html`, `htm`; `md`, `markdown` (`src-tauri/src/engine/mod.rs::SUPPORTED_EXTS`). `gif` is refused by name (decision D9). The per-format matrix and each converter's exact command line are in [supported-formats.md](../03-requirements/supported-formats.md). **ImageMagick is not a target at all**: the image path is in-process and stays that way.
+- **Conversion:** PDFs are validated by their `%PDF-` header, an `%%EOF` marker near the end and (up to 100 MB) a non-zero page count, then printed in place (no cache file). Images are decoded with the pure-Rust `image` crate and wrapped into a one-page PDF built by hand with `lopdf`, **not** `printpdf`, whose image feature is disabled. HEIC is decoded by `sips` (macOS) or WIC (Windows) into the same one-page PDF. SVG is drawn as a vector page by `usvg` + `svg2pdf` in `pluryprint --worker svg`. HTML, Markdown and text are printed by the system web view in `pluryprint --worker render-pdf`. LibreOffice, `textutil` and both workers run through `engine::convert::process` (`run_bounded` / `run_until`). It uses an argument vector (no shell) and a private scratch folder removed on every exit path, and it is bounded by the conversion timeout and the cancel flag, either of which kills the whole child process tree. Documented limitations of the image path: EXIF orientation is not applied, multi-frame TIFFs use the first frame only, and CMYK JPEGs and other sub-formats the codec cannot handle surface as a clear `ConversionFailed`.
 - **Printing (M1):** CUPS `lp` on macOS/Linux; **SumatraPDF** on Windows. It is now **bundled**: `scripts/fetch-sumatrapdf.{ps1,sh}` fetches the pinned 3.6.1 release (x64 or ARM64) into `src-tauri/resources/sumatrapdf/`, which `tauri.conf.json` ships as a bundle resource, and `engine::deps::bundled_dirs` looks there first. The search order is bundled → configured → `PATH` → well-known install dirs (`%LOCALAPPDATA%`, `%ProgramFiles%`, `%ProgramFiles(x86)%` under `SumatraPDF\`), and where a binary was found is reported to the UI as `found_in`. A genuinely missing binary is still a `DependencyMissing` that pauses the job, with FR-058 remediation text. Real flags are in §3.1 / §3.6.
-- **Dependency probing (FR-058):** `engine::deps` probes SumatraPDF, LibreOffice, Chromium/Edge and Pandoc on every `app_info` call (a handful of `is_file` checks). For each dependency it reports whether it is *applicable on this OS at all* and which extensions it blocks while missing. The applicability flag matters: SumatraPDF is irrelevant on macOS, and reporting it as "missing" there would be the loudest possible false alarm. The converters use the same resolver, and a missing one returns `DependencyMissing` with the same remediation text, which pauses the job.
-- **Capability gate:** only **duplex** is hard-checked — a duplex request against a non-duplex driver is an error (the failure would otherwise be invisible at the tray); colour on a mono printer is allowed (it prints grey, which is visible). See `engine::print::check_supported`.
+- **Dependency probing (FR-058):** `engine::deps` probes SumatraPDF, LibreOffice and, on Windows, the HEIF and HEVC Store codecs on every `app_info` call (a handful of `is_file` checks and two codec queries); Edge/Chrome are probed only for the hidden browser fallback and block nothing, and Pandoc is no longer used. A missing dependency can be installed from the Print Job screen after the user's consent (`install_dependency`, decision D13). For each dependency it reports whether it is *applicable on this OS at all* and which extensions it blocks while missing. The applicability flag matters: SumatraPDF is irrelevant on macOS, and reporting it as "missing" there would be the loudest possible false alarm. The converters use the same resolver, and a missing one returns `DependencyMissing` with the same remediation text, which pauses the job.
+- **Capability gate:** **duplex** and **paper** are hard-checked — a duplex request against a driver that reports no duplex, or a paper the printer's list does not have, pauses the job as `unsupported_setting` (the failure would otherwise be invisible at the tray); an unknown capability (a probe that failed) is not "no". Colour on a mono printer is allowed (it prints grey, which is visible). See `engine::print::check_supported` and [print-settings.md](../03-requirements/print-settings.md#driver-dependencies).
 - **Orchestration lives in the queue, not the engine.** Conversion/print concurrency (default ≤ 2 conversions, 1 print), retries with backoff, cancellation, and the conversion cache are owned by the dispatcher — see [queue.md](../05-features/queue.md) and [data-model § 4](./data-model.md#4-queuejson--live-print-queue). The converter/printer functions here are pure, blocking, single-file units the dispatcher drives, with a page-range parser (`engine::pagerange`) shared by validation and the backends.
 - **The headless CLI does not use the queue at all.** `pluryprint print` walks the same `engine::convert` → `engine::print::spool` path directly, into a private temp cache deleted on exit, with **no `queue.json` and no retries** — see [ipc-and-cli.md §3.3](./ipc-and-cli.md#33-flag-semantics).
 
@@ -25,7 +25,7 @@ Two extreme designs are tempting and both are wrong:
 
 The hybrid choice — **convert each format to PDF with the best-of-breed tool, then print PDF with one well-understood engine** — wins because:
 
-- **Quality.** LibreOffice's DOCX → PDF is the most accurate free converter. Chromium prints HTML the way the user sees it. Pandoc gives nicely-typeset Markdown. (Images are the exception to "best-of-breed external tool": a raster image needs no layout engine, so wrapping it in a PDF in-process is both simpler and one fewer dependency the user must install.)
+- **Quality.** LibreOffice's DOCX → PDF is the most accurate free converter. The system web view prints HTML the way the user sees it, and is already on every machine Pluryprint runs on. (Images, SVG, Markdown and text are the exception to "best-of-breed external tool": they need no external layout engine, so converting them in-process is simpler and one fewer dependency the user must install.)
 - **Simplicity.** The final printing path has one shape: `print_pdf(file, settings)`. All printer settings (duplex, color, scale, range, copies, paper size) are set once at the printer-adapter layer.
 - **Testability.** The "did it print correctly?" question reduces to "did we generate a correct PDF?" — and PDFs are inspectable.
 - **Replaceability.** Swapping LibreOffice for a different DOCX converter does not affect the printer code path at all.
@@ -39,18 +39,18 @@ The hybrid choice — **convert each format to PDF with the best-of-breed tool, 
 | `.xlsx` `.xls`   | LibreOffice         | `soffice --headless --convert-to pdf` | SumatraPDF    | CUPS `lp`            |
 | `.pptx` `.ppt`   | LibreOffice         | `soffice --headless --convert-to pdf` | SumatraPDF    | CUPS `lp`            |
 | `.odt` `.ods` `.odp` | LibreOffice     | `soffice --headless --convert-to pdf` | SumatraPDF    | CUPS `lp`            |
-| `.rtf`           | LibreOffice         | `soffice --headless --convert-to pdf` | SumatraPDF    | CUPS `lp`            |
-| `.txt`           | LibreOffice (UTF-8 import) | `soffice --headless --infilter=… --convert-to pdf` | SumatraPDF | CUPS `lp`            |
+| `.rtf`           | Windows: LibreOffice. macOS: `textutil` → system web view | `soffice --headless --convert-to pdf` / `textutil -convert html`, then the HTML row | SumatraPDF | CUPS `lp` |
+| `.txt`           | **in-process** decode → HTML → system web view | the render worker | SumatraPDF | CUPS `lp`            |
 | `.png` `.jpg` `.jpeg` `.tif` `.tiff` `.bmp` `.webp` | **in-process** (`image` + `lopdf`) | — (no subprocess) | SumatraPDF | CUPS `lp` |
 | `.heic` `.heif`  | OS decoder          | `sips -s format png` (macOS) / WIC (Windows) | SumatraPDF | CUPS `lp`      |
-| `.html` `.htm`   | Chromium headless   | `<browser> --headless --print-to-pdf=...` | SumatraPDF | CUPS `lp`            |
-| `.md` `.markdown` | Pandoc → browser   | `pandoc --to=html5 --standalone`, then the HTML row | SumatraPDF | CUPS `lp`     |
-| `.epub`          | *(target)* Pandoc → browser | — | — | — |
-| `.svg`           | *(target)* browser  | — | — | — |
+| `.svg` `.svgz`   | `usvg` + `svg2pdf`, vector | `pluryprint --worker svg` | SumatraPDF | CUPS `lp`      |
+| `.html` `.htm`   | system web view (WebView2 / WKWebView) | `pluryprint --worker render-pdf` | SumatraPDF | CUPS `lp`            |
+| `.md` `.markdown` | **in-process** `pulldown-cmark` → HTML | then the HTML row | SumatraPDF | CUPS `lp`     |
+| `.epub`          | *(target)* | — | — | — |
 
-Anything not in this table (and the two *target* rows) is **unsupported**. It is refused at drop time with a reason, never skipped silently.
+Anything not in this table (and the *target* row) is **unsupported**. It is refused at drop time with a reason, never skipped silently.
 
-`.gif` is not in the supported list: the `image` crate's `gif` codec is not enabled.
+`.gif` is refused with its own reason (`gif_unsupported` / `gif_not_supported`, decision D9): the `image` crate's `gif` codec is not enabled.
 
 Detection is by **extension**, lowercased. There is no magic-byte fallback: `infer` and `mime_guess` are not dependencies, and a file whose extension lies is rejected by the converter with a `ConversionFailed` naming the decoder's own complaint.
 
@@ -61,7 +61,7 @@ Detection is by **extension**, lowercased. There is no magic-byte fallback: `inf
 ```
 SumatraPDF.exe ^
   -print-to "HP LaserJet Pro M404dn" ^
-  -print-settings "1-5,duplex,monochrome,fit,paper=A4,2x" ^
+  -print-settings "1-5,duplex,monochrome,fit,paperkind=9,2x" ^
   -silent ^
   -exit-when-done ^
   "%LOCALAPPDATA%\Maecly\Pluryprint\cache\conversions\<job-id>.pdf"
@@ -73,11 +73,12 @@ The `-print-settings` value is a comma-separated keyword list Pluryprint emits i
 2. **duplex** — `simplex` / `duplex` (long edge) / `duplexshort`.
 3. **colour** — `color` / `monochrome`.
 4. **scaling** — `fit` / `shrink` / `noscale`.
-5. **paper** — `paper=A4` / `paper=Letter` / `paper=Legal` / `paper=A3`.
-6. **copies** — `<n>x` (e.g. `3x`), only when > 1. SumatraPDF silently skips an unknown `copies=<n>` token.
-7. **orientation** — `landscape` / `portrait`; `auto` emits nothing.
+5. **paper** — `paperkind=<DMPAPER id>` (A4 = 9, Letter = 1): the driver's id for its own paper name, else the standard id. Never `paper=<name>`, which SumatraPDF looks up among the driver's *localized* names.
+6. **tray** — `bin=<DMBIN id>` for the job's tray, else the printer's saved default tray.
+7. **copies** — `<n>x` (e.g. `3x`), only when > 1. SumatraPDF silently skips an unknown `copies=<n>` token.
+8. **orientation** — `landscape` / `portrait`; `auto` emits nothing.
 
-Defaults serialise to `simplex,color,fit,paper=A4`. Translation from the wire `JobSettings` lives in `engine/print/sumatra.rs`, and the same builder feeds the UI's honesty preview so what the user sees is exactly what runs. The child is spawned with the console window suppressed; SumatraPDF prints synchronously and reports no spooler job id. Its stdin is closed and its stdout/stderr go to a log file, never to the app's own handles: SumatraPDF logs its whole start-up to an inherited stdout, which used to land in the middle of `pluryprint-cli print --json`. The tail of that log is quoted when SumatraPDF fails. SumatraPDF has no job-title flag and names the spooler document after the file it prints, so the PDF is handed to it as a hard link (or a copy, across volumes) named after the original file (`report.pdf` for `report.docx`, the same name the CUPS backend gives a job; `sumatra::spool_file_name`) in a private `pluryprint-spool-*` temp folder that is removed once the job is spooled. The Windows print queue then shows the user's file name instead of a cache UUID or the source's full path. The folder path is still part of the document name, because SumatraPDF uses the full path.
+Quality has no token: Draft and High become the printer's per-user default DEVMODE only while SumatraPDF hands the job over (`engine::print::devmode_swap`, decision D16; see [print-settings.md](../03-requirements/print-settings.md#quality)). Defaults serialise to `simplex,color,fit,paperkind=9`. Translation from the wire `JobSettings` lives in `engine/print/sumatra.rs`, and the same builder feeds the UI's honesty preview so what the user sees is exactly what runs. The child is spawned with the console window suppressed; SumatraPDF prints synchronously and reports no spooler job id. Its stdin is closed and its stdout/stderr go to a log file, never to the app's own handles: SumatraPDF logs its whole start-up to an inherited stdout, which used to land in the middle of `pluryprint-cli print --json`. The tail of that log is quoted when SumatraPDF fails. SumatraPDF exits with the number of files that failed, so there is no meaningful exit code to map: a failure is `sumatra_exit` with the code, and a PDF its log says may not be printed becomes the terminal `printing_not_allowed`. Pluryprint refuses such a PDF itself before SumatraPDF runs, because SumatraPDF 3.5.2 was seen printing it with exit 0; the bundled version is now 3.6.1. SumatraPDF has no job-title flag and names the spooler document after the file it prints, so the PDF is handed to it as a hard link (or a copy, across volumes) named after the original file (`report.pdf` for `report.docx`, the same name the CUPS backend gives a job; `sumatra::spool_file_name`) in a private `pluryprint-spool-*` temp folder that is removed once the job is spooled. The Windows print queue then shows the user's file name instead of a cache UUID or the source's full path. The folder path is still part of the document name, because SumatraPDF uses the full path.
 
 ### 3.2 LibreOffice (cross-platform)
 
@@ -93,9 +94,10 @@ soffice ^
 (`engine::convert::office`.) Caveats:
 
 - `soffice` does not allow concurrent invocations against the same user profile, and without its own profile a headless run hands the file to an already-open LibreOffice window. Each conversion therefore gets a throwaway `-env:UserInstallation` profile inside its scratch folder. Conversions can then run in parallel, and while the user has LibreOffice open.
-- The input is copied to `input.<ext>` first, so the output name is predictable and no lock file appears next to the user's document. `.txt` adds `--infilter="Text (encoded):UTF8,LF,,,"`.
+- The input is copied to `input.<ext>` first, so the output name is predictable and no lock file appears next to the user's document. Plain text no longer comes here.
+- The profile is **hardened** before LibreOffice starts (`office::HARDENING_XCU`): links from untrusted documents are blocked, Writer and Calc never update links on load, macros and active content (OLE, DDE) are off, and LibreOffice's HTTP(S) goes to a dead proxy on loopback, so a document cannot make the conversion fetch `http://…` or `\\host\share\…` resources.
 - `soffice` exits 0 even when it could not load the document, so success means `out/input.pdf` exists and starts with `%PDF-`. Otherwise the error quotes stderr.
-- First start with a fresh profile costs a few seconds per file. The default conversion timeout is 60 s, and LibreOffice is killed (with `soffice.bin`) when it runs out. Macros are not executed. A password-protected file produces no PDF and fails with `ConversionFailed`.
+- First start with a fresh profile costs a few seconds per file. The default conversion timeout is 60 s, and LibreOffice is killed (with `soffice.bin`) when it runs out. Macros are not executed. A password-protected Office document produces no PDF and fails with `ConversionFailed` (only PDFs have a password flow).
 
 ### 3.3 Images (in-process, shipped — no external tool)
 
@@ -109,41 +111,33 @@ There is **no ImageMagick invocation**. `engine::convert::image::to_pdf` decodes
 Known limitations, documented rather than treated as bugs:
 
 - **EXIF orientation is not applied.** The `image` crate does not auto-rotate and we do not read EXIF, so a rotated photo prints in its stored orientation. (This is the one place the old ImageMagick `-auto-orient` claim promised something we do not do.)
-- **Multi-frame TIFF / animations: first frame only.**
+- **Multi-frame TIFF: first frame only.**
+- **Transparency is flattened onto white**, as on paper, so a transparent PNG or WebP logo does not print as a black box.
 - **CMYK JPEGs** and other sub-formats the codec cannot handle surface as `ConversionFailed` carrying the decoder's message.
 - **Zero-width or zero-height images** are rejected explicitly rather than producing a degenerate page.
 
-### 3.4 Chromium headless
+### 3.4 The system web view (HTML, Markdown, text; RTF on macOS)
 
 ```
-msedge.exe ^
-  --headless --disable-gpu --no-pdf-header-footer --print-to-pdf-no-header ^
-  --user-data-dir="%TEMP%\pluryprint-convert-<job>-XXXX\browser" ^
-  --no-first-run --no-default-browser-check --disable-extensions ^
-  --disable-background-networking --disable-sync --mute-audio ^
-  --proxy-server=127.0.0.1:9 "--proxy-bypass-list=<-loopback>" ^
-  "--host-resolver-rules=MAP * ~NOTFOUND" ^
-  --force-webrtc-ip-handling-policy=disable_non_proxied_udp --disable-quic ^
-  --disable-remote-fonts --disable-features=NetworkPrediction ^
-  --print-to-pdf="%TEMP%\pluryprint-convert-<job>-XXXX\out.pdf" ^
-  "file:///C:/Users/.../page.html"
+pluryprint --worker render-pdf <request>    # spawned by the engine, never by the user
 ```
 
-(`engine::convert::html`.) No `--no-sandbox`: the browser's sandbox stays on. The browser is located through `engine::deps` (bundled → configured → `PATH` → install dirs), with `msedge.exe` before `chrome.exe` on Windows and Edge, Chrome, then Chromium on macOS. A private `--user-data-dir` keeps the user's browser and profile out of it. Before each launch its `Local State` is seeded so the browser skips Chromium's Windows blank-password probe (`LogonUser` with an empty password). Unseeded, that probe records a failed logon (Security event 4625) on every run, and the Windows 11 default lockout policy (10 failures in 10 minutes) locks the account. The app seeds its own WebView2 profile (`EBWebView`) the same way at every start, since WebView2 runs the same probe about 20 s after launch (`util::chromium`; measured in a Windows 11 VM at 1 failure per run unseeded and 0 seeded). The page gets **no network** (`html::SANDBOX_ARGS`): requests go to a dead proxy on loopback, `localhost` included, host names do not resolve, and WebRTC cannot use UDP around the proxy. JavaScript stays on, because `--blink-settings=scriptEnabled=false` hangs headless `--print-to-pdf`. See [supported-formats.md](../03-requirements/supported-formats.md#html) for the reasoning and the remaining Windows UNC gap.
+(`engine::convert::html`, `crate::render`, `crate::worker::render`; decision D15.) The engine writes a **staged copy** of the page into the job's scratch folder, headed by a Content-Security-Policy that forbids scripts, plugins, frames and connections, a `<base href>` at the document's folder and the job's paper as `@page { size }`, and hands it to a hidden worker: the same executable started with `--worker render-pdf` (the console CLI hands this to the app executable next to it). The worker is bounded by the conversion timeout and the cancel flag like any converter, so a page that hangs or crashes the web view takes the worker down, never the app.
 
-The step ends when the PDF is **complete**, not when the browser exits. Chrome 156 on macOS writes the PDF in about a second and then never exits. `pdf_is_complete` waits for the `%%EOF` trailer and a size that did not change between two polls, and then the browser tree is killed.
+- **Windows:** a hidden window of a plugin-free Tauri app with a private WebView2 profile, whose `Local State` is seeded first so WebView2 skips Chromium's blank-password logon probe (`util::chromium`; unseeded, that probe records a failed Windows logon per run, and ten in ten minutes lock the account — the app seeds its own `EBWebView` profile at every start for the same reason). Scripts, dialogs and dev tools are off, and `PrintToPdf` runs on the job's paper with no header or footer. The page's folder is served from a private `https` origin, so Chromium refuses every `file:` sub-resource; a protocol-relative `//host/x` becomes `https:` and is refused by a `WebResourceRequested` filter; any navigation other than the page is cancelled. No `\\host\share` is ever opened over SMB or WebDAV.
+- **macOS:** a bare AppKit process with no Dock icon, a `WKWebView` with content JavaScript off, a non-persistent data store and a `WKContentRuleList` that blocks everything but host-less `file:` and `data:`. WebKit may read the document's folder only. `NSPrintOperation`, run modally for an off-screen window, writes the paginated PDF; a size watchdog stops a page that keeps producing pages.
+- **Markdown** becomes HTML in-process (`pulldown-cmark`: raw HTML dropped, only local images kept, GitHub-flavoured extensions on), **text** is decoded (BOM, UTF-8, else Windows-1252) into a wrapping `<pre>` page, and **RTF on macOS** goes through `/usr/bin/textutil -convert html` on a private copy. All three then take this route.
+- A worker failure is `render_failed`, with the worker's stderr as the technical detail; `PLURYPRINT_RENDER_TRACE=1` traces every stage into the job's `render.log`.
 
-If no browser is found, the job pauses with *"Microsoft Edge or Google Chrome is missing — HTML and Markdown files cannot be printed until one is installed…"* and download links.
+**Browser fallback.** `[engine] html_renderer = "browser"` in `config.toml` (or `PLURYPRINT_HTML_RENDERER=browser`) sends the staged page to headless Edge, Chrome or Chromium instead, the pre-round-3 route: a private, seeded `--user-data-dir`, `--no-pdf-header-footer`, a dead proxy and no name resolution (`html::SANDBOX_ARGS`), and the step ends once the PDF is complete because some Chrome builds never exit. The switch is hidden (the Settings screen does not show it) and kept for one version. A browser loads the page from `file:`, so it cannot keep a `file://host/…` sub-resource off a file share. If no browser is found while the fallback is selected, the job pauses with the browser's remediation.
 
-### 3.5 Pandoc
+### 3.5 SVG worker
 
 ```
-pandoc --from=markdown-raw_html-raw_attribute --to=html5 --standalone --sandbox ^
-       --lua-filter=<scratch>\local-images.lua --metadata=pagetitle:notes ^
-       --include-in-header=<scratch>\head.html --output=<scratch>\page.html "notes.md"
+pluryprint --worker svg <in.svg> <out.pdf>
 ```
 
-(`engine::convert::markdown`.) This is always Markdown → HTML → the §3.4 browser step. There is no wkhtmltopdf or TeX path, so no TeX install is needed. The injected header carries a Content-Security-Policy (no script, plugins, frames or connections), a print stylesheet and `<base href>` set to the Markdown file's folder, so relative images resolve. Raw HTML is printed as text, and the `local-images.lua` filter turns any image that is not on the local disk (remote, protocol-relative or UNC) into its alt text. Pandoc and the browser share one timeout budget, and a Pandoc failure stops the pipeline before the browser starts.
+(`engine::convert::svg`, FR-052a.) `usvg` parses and `svg2pdf` writes one vector page of the drawing's own size at 96 dpi, clamped to 200 in; the printer's scaling fits it to the paper. A parser panic on a hostile drawing aborts the worker, not the app. Failures are `svg_invalid`, `svg_too_large` or `svg_convert_failed`. An `<image>` loads only from the SVG's own folder (no UNC, `file://host/`, `../` or URL), there is no network, script or external entity, and an `.svgz` is inflated with a 64 MB cap.
 
 ### 3.6 CUPS `lp` (macOS / Linux, shipped)
 
@@ -184,7 +178,7 @@ Three things worth stating plainly:
 
 On success `lp`'s `request id is <dest>-<n>` line yields the CUPS job id used to follow the job and to `cancel` it. `<dest>` may itself contain `-`, so the number is only ever the last segment. `lp` is run in the C locale, but macOS localizes this line from the user's language list anyway (`el id de la petición es Office-42 (1 archivos)`), so the parser does not depend on the English marker: it falls back to the token naming the destination, then to any `<name>-<digits>` token.
 
-The job is then followed until it leaves the queue (`engine::print::job_state`): `ipptool -tv ipp://localhost/jobs/<n> <tmp>/pluryprint-ipp-XXXX.test` gives the IPP `job-state` (`pending`, `pending-held`, `processing`, `processing-stopped`, `canceled`, `aborted`, `completed`). The test is the stock `get-job-attributes` request, embedded in the app, written to a private temporary file and passed by absolute path: `ipptool` looks a bare test name up in the current directory first, so a planted `get-job-attributes.test` in the folder the CLI was started from would otherwise run. Where `ipptool` is missing `lpstat -W not-completed -o <dest>` still tells a waiting job from a finished one. It cannot tell *how* a job finished (CUPS' completed list holds printed, cancelled and aborted jobs alike), so a job that left the queue is `Gone` (done, logged as `left_queue`), never reported as confirmed printed. An `lpstat` that exits non-zero (cupsd restarting or unreachable) is a transient tracking failure, retried and then given up as `unconfirmed`, never read as "no longer listed". On Windows, SumatraPDF reports no id, so the spooler's job list is read before and after spooling and the new job is followed with `GetJobW`. The job is adopted only when exactly one new job was submitted by the current user and its document is the spooled file (SumatraPDF names the job after the full path of the staged, title-named copy; a whole path or file-name match, never a substring). There is no "it is the only new job" fallback, because on a shared `\\server\queue` that job can be a colleague's. If either job list cannot be read, the job is not tracked and the dispatcher treats it as finished on hand-off. In the `JOB_STATUS_*` flags, `PRINTED`/`COMPLETE` wins over `DELETING`/`DELETED`, because the spooler deletes every job it has printed. Only a job deleted before it printed counts as cancelled, and a job the spooler no longer knows has left the queue. The dispatcher owns the cadence and the budget — see [queue.md](../05-features/queue.md#dispatcher-semantics-what-the-ui-reflects).
+The job is then followed until it leaves the queue (`engine::print::job_state`): `ipptool -tv ipp://localhost/jobs/<n> <tmp>/pluryprint-ipp-XXXX.test` gives the IPP `job-state` (`pending`, `pending-held`, `processing`, `processing-stopped`, `canceled`, `aborted`, `completed`). The test is the stock `get-job-attributes` request, embedded in the app, written to a private temporary file and passed by absolute path: `ipptool` looks a bare test name up in the current directory first, so a planted `get-job-attributes.test` in the folder the CLI was started from would otherwise run. Where `ipptool` is missing `lpstat -W not-completed -o <dest>` still tells a waiting job from a finished one. It cannot tell *how* a job finished (CUPS' completed list holds printed, cancelled and aborted jobs alike), so a job that left the queue is `Gone` and ends as **unconfirmed** (`print_unconfirmed` / `left_queue`), never reported as printed. An `lpstat` that exits non-zero (cupsd restarting or unreachable) is a transient tracking failure, retried and then given up as `unconfirmed` (`tracking_failed`), never read as "no longer listed". On Windows, SumatraPDF reports no id, so the spooler's job list is read before and after spooling and the new job is followed with `GetJobW`. The recorded reference carries the spooler's own submission stamp (`12@<stamp>`): the spooler numbers jobs from low ids again after it restarts, so a job whose stamp no longer matches is reported as gone instead of followed, and a cancel deletes a job only while id and stamp still match. A bare id cannot be checked and is never acted on. The job is adopted only when exactly one new job was submitted by the current user and its document is the spooled file (SumatraPDF names the job after the full path of the staged, title-named copy; a whole path or file-name match, never a substring). There is no "it is the only new job" fallback, because on a shared `\\server\queue` that job can be a colleague's. If either job list cannot be read, the job is not tracked and ends as `unconfirmed` (`untracked`) on hand-off, never as printed. In the `JOB_STATUS_*` flags, `PRINTED`/`COMPLETE` wins over `DELETING`/`DELETED`, because the spooler deletes every job it has printed. Only a job deleted before it printed counts as cancelled, and a job the spooler no longer knows has left the queue. The dispatcher owns the cadence and the budget — see [queue.md](../05-features/queue.md#dispatcher-semantics-what-the-ui-reflects).
 
 ## 4. The full pipeline
 
@@ -251,10 +245,11 @@ The router is **not** a MIME-keyed trait-object factory. `engine::convert::conve
 - **`pdf`** → validated cheaply and printed in place: `Ok(None)`, no cache file. The checks are the `%PDF-` header, an `%%EOF` marker in the last 8 KiB (a truncated file has none) and, for files up to 100 MB that `lopdf` can parse, at least one page. A file `lopdf` cannot parse still goes to the spooler, which reads more PDF dialects.
 - **Raster images** (`jpg`, `jpeg`, `png`, `tif`, `tiff`, `bmp`, `webp`) → `image::to_pdf`, `Ok(Some(path))`.
 - **`heic`/`heif`** → `heif::convert` (OS decoder), `Ok(Some(path))`.
-- **Office / ODF / `txt` / `rtf`** → `office::convert_with` (LibreOffice).
-- **`html`/`htm`** → `html::convert_with` (browser). **`md`/`markdown`** → `markdown::convert_with` (Pandoc, then the browser).
-- **Everything else** → `EngineError::UnsupportedFormat`.
-
+- **Encrypted `pdf`** → `pdf_security::inspect` first: owner-only and printable is printed in place; one that needs a password is `PdfProtected(PasswordRequired)` (the job pauses) unless the job carries a password, in which case `decrypt_to` writes a decrypted copy to the cache; a no-print or unreadable one is refused.
+- **`svg`/`svgz`** → the SVG worker.
+- **Office / ODF** (and `rtf` on Windows) → `office::convert_with` (LibreOffice).
+- **`html`/`htm`** → the render worker (browser only under the hidden fallback). **`md`/`markdown`** → `markdown`, **`txt`** → `text`, **`rtf` on macOS** → `rtf_mac`, each then the render worker.
+- **`gif`** and everything else → `EngineError::UnsupportedFormat`.
 `convert::route(ext)` is the table. The external program is resolved before anything is written, so a missing one costs nothing but a paused job. The trait-object design above was never implemented and there is no `JobPlan` type. The router is a match on `Route`, not a plugin registry.
 
 ### 4.2 PDF caching
@@ -284,27 +279,29 @@ Rows marked **(target)** are not implemented yet; the rest are shipped behaviour
 | --- | --- | --- | --- |
 | Print dependency missing (`lp`, `SumatraPDF.exe`) | `engine::deps` probe: bundled → configured → `PATH` → install dirs | `DependencyMissing` (CLI exit **3**) | Job paused, with FR-058 remediation text; never reported on an OS where the dependency is inapplicable |
 | Conversion timeout | `conversion_timeout_seconds` elapsed | error code `"conversion_timeout"` | **Terminal — not retried** (see §5.1) |
-| Print timeout | `wait-timeout` on the print child | `PrintFailed` (CLI exit **9**) | Retryable |
+| Print timeout | `wait-timeout` on the print child, then the wait for the OS job, one `print_timeout_seconds` budget | error code `"print_timeout"` | **Terminal — not retried** (see §5.1) |
 | Image decode failure (CMYK JPEG, corrupt file, 0×0) | the `image` crate's own error | `ConversionFailed` (CLI exit **8**) | Retryable, carries the decoder's message |
 | File path no longer exists | `canonical_input` at submit | `FileNotFound` (CLI exit **6**) | Rejected before enqueue |
 | Relative path from IPC/drop | `canonical_input` | `InvalidRequest` (CLI exit **2**) | Rejected; only the CLI resolves relative paths |
 | File is a directory | `inspect_files` reports `is_dir` | — | Not an error: the caller asks the FR-004 recurse question and calls `expand_folders` |
 | Unsupported format | extension not in `SUPPORTED_EXTS` | `UnsupportedFormat` (CLI exit **7**) | Rejected before enqueue |
 | File over `max_file_size_mb` | `stat` at submit / during the folder walk | `InvalidRequest`, or `SkipReason::TooLarge` in an expansion | Rejected / skipped with a reason, never silently dropped |
-| Duplex requested, driver cannot | `engine::print::check_supported` | `UnsupportedSetting` → CLI exit **5** (a *printer* problem, not a usage one) | Job fails |
+| Duplex or paper requested, printer reports it cannot | `engine::print::check_supported` | `UnsupportedSetting` → CLI exit **5** (a *printer* problem, not a usage one) | Job **paused**; the Queue row offers **Print one-sided** or **Send to another printer** (`adjust_job`) |
 | No printer configured at all | printer resolution at dispatch | `PrintFailed` → CLI exit **5** | GUI pauses the job so the user can pick another; CLI fails immediately |
 | Named printer not installed | printer resolution at dispatch | `PrintFailed` → CLI exit **5** | Same split as above |
-| Spooler rejected the job | non-zero exit / stderr from `lp`/SumatraPDF | `PrintFailed` (CLI exit **9**) | Retryable; the spooler's own text is surfaced verbatim |
+| Spooler rejected the job | non-zero exit / stderr from `lp`/SumatraPDF | `PrintFailed` / `spooler_rejected` or `sumatra_exit` (CLI exit **9**) | Retryable; the spooler's own text is kept as the technical detail under a translated sentence |
 | App was killed mid-job | recovery at next start (`queue::persist::recover`) | error code `"interrupted_by_shutdown"` | Job is `paused` and treated as **resumable**, not failed. A job already in the OS queue (it has its OS job id) stays `printing` and is tracked to its end instead, so it is never spooled twice |
 | Unreadable `config.toml` in a CLI `print` run | `Config::load_reporting` | `Internal` / `config_corrupt` → CLI exit **3** | Nothing is printed; the GUI keeps degrading to defaults with a banner |
 | Converter outlives the conversion timeout | the converter's own bound in `process::run_until`, or the dispatcher's timer | `conversion_timeout` | Terminal, like the dispatcher's own timeout; never retried |
 | User cancellation | `cancel_job` / `cancel_all` | — | Job `cancelled` (terminal); a terminal job refuses cancellation with `InvalidState` |
-| Converter binary not found (LibreOffice, browser, Pandoc, Windows HEIF codec) | `engine::deps` resolution before the conversion starts; WIC's "no decoder" result | `DependencyMissing` (CLI exit **3**) | Job paused with the FR-058 remediation (what is blocked and where to download it) |
-| Converter exit ≠ 0, or exit 0 without a PDF (e.g. a password-protected document) | child exit status, then a `%PDF-` check of the expected output | `ConversionFailed`, quoting the converter's stderr | Retryable, like any conversion failure |
+| Converter binary not found (LibreOffice; on Windows the HEIF/HEVC codecs; the browser under the hidden fallback) | `engine::deps` resolution before the conversion starts; WIC's and Media Foundation's answers | `DependencyMissing` (CLI exit **3**) | Job paused with the FR-058 remediation (what is blocked and where to download it) |
+| Converter exit ≠ 0, or exit 0 without a PDF (e.g. a password-protected Office document) | child exit status, then a `%PDF-` check of the expected output | `ConversionFailed` with a reason (`converter_failed`, `render_failed`, `svg_*`, …), quoting the converter's stderr as the detail | Retryable, like any conversion failure |
 | Converter hangs | the conversion timeout raises the cancel flag, and `run_bounded` kills the process tree | error code `"conversion_timeout"` | Terminal (see §5.1); the scratch folder is removed |
-| Encrypted PDF *(target)* | not detected today — an encrypted PDF passes the `%PDF-` header check and fails at the printer | — | — |
+| PDF needs a password | `/Encrypt` in the trailer, then `lopdf` cannot open it with the empty password | `PdfProtected` / `password_required` (CLI exit **13**) | Job **paused**; the Queue row offers **Enter password**. A wrong one is `password_incorrect`, paused again |
+| PDF forbids printing, or uses encryption `lopdf` cannot read | its permissions / its security handler | `PdfProtected` / `printing_not_allowed`, `unsupported_encryption` (CLI exit **13**) | Terminal, not retried; never stripped (decision D12) |
+| Job left the spooler without a confirmation, or could not be followed | spooler tracking (§3.6) | `print_unconfirmed` (`left_queue`, `untracked`, `tracking_failed`, `not_verifiable`) | Terminal state `unconfirmed`; nothing is re-sent automatically |
 
-Two honest gaps worth naming: there is **no live spooler polling**, so "printer offline" / "out of paper" are not distinguished as their own states — they surface as whatever the spooler says when the job is submitted. And there is no encrypted-PDF pre-check (`qpdf` is not a dependency).
+One honest gap worth naming: a printer that is offline or out of paper is shown from the spooler's own status (a held job, a printer that needs attention), not from a device-level probe.
 
 ### 5.1 Retry policy
 
@@ -322,7 +319,7 @@ Earlier drafts said "3 attempts with 1 s/5 s backoff"; both numbers were wrong. 
 
 ## 6. Performance characteristics
 
-> **These figures are design-target estimates, not measurements.** The converters are wired, but nobody has benchmarked them yet. The image row also describes ImageMagick, which is not used at all. Treat the table as a budget to validate against, and replace it with real numbers. For reference, on an Apple-silicon Mac the real-tool tests convert a TXT, an RTF and a DOCX (LibreOffice, a fresh profile each), an HTML page (Chrome) and a Markdown file (Pandoc + Chrome) in parallel in about 5 s in total.
+> **These figures are design-target estimates, not measurements.** The converters are wired, but nobody has benchmarked them yet. The image row also describes ImageMagick, which is not used at all. Treat the table as a budget to validate against, and replace it with real numbers. For reference, on an Apple-silicon Mac the real-tool tests convert an RTF and a DOCX (LibreOffice, a fresh profile each) and an HTML page in parallel in a few seconds; the render-worker tests print HTML, Markdown, text and RTF pages through WKWebView.
 
 Intended envelope on a Windows 11 machine, Ryzen 7 5800X, NVMe SSD, files in `%TEMP%`:
 
@@ -331,13 +328,13 @@ Intended envelope on a Windows 11 machine, Ryzen 7 5800X, NVMe SSD, files in `%T
 | 50× small PDFs (passthrough)           | ~50 ms        | ~20 PDFs/sec spooled |
 | 50× 5-page DOCX (LibreOffice, parallel ×4) | ~1.8 s avg | ~2.2 docs/sec to PDF |
 | 100× JPG photos (ImageMagick parallel ×8) | ~120 ms avg | ~8 imgs/sec to PDF |
-| 20× HTML pages (Chromium parallel ×4)  | ~900 ms avg   | ~4 pages/sec to PDF |
+| 20× HTML pages (web view worker parallel ×4) | ~900 ms avg | ~4 pages/sec to PDF |
 
 These are *converter* throughputs. The printer itself is the long pole for actual ink-on-paper.
 
 ## 7. Configuration knobs
 
-The **whole** `[engine]` section is four keys, in `config.toml` (see [data-model.md §1](./data-model.md#1-file-locations) for where that file lives — it is *not* `~/.config/Pluryprint/` on Windows or macOS):
+The **whole** `[engine]` section is these keys, one of them hidden, in `config.toml` (see [data-model.md §1](./data-model.md#1-file-locations) for where that file lives — it is *not* `~/.config/Pluryprint/` on Windows or macOS):
 
 ```toml
 [engine]
@@ -346,6 +343,7 @@ conversion_timeout_seconds = 60  # 0 disables the timeout
 print_timeout_seconds = 300      # 0 disables it
 max_file_size_mb = 200           # submission ceiling, in MB
 default_profile = "…"            # profile id; omitted → builtin-quick
+# html_renderer = "browser"      # hidden (D15): only a hand edit sets it; default is the system web view
 ```
 
 Bounds, defaults and the meaning of a stored `0` for each knob come from a single source of truth, `ENGINE_LIMITS` (`settings/mod.rs`): the defaults, the sanitizer that clamps a hand-edited file, the write-path validator, **and** the `limits` the Settings screen validates against are all the same numbers. The UI therefore cannot drift from the server's bounds.
