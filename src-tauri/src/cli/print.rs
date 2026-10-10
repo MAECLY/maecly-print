@@ -571,13 +571,30 @@ fn accept_files(files: &[String], max_mb: u32) -> Result<Vec<String>, CliError> 
         let path = crate::util::paths::canonical_input(file)?;
         let meta = std::fs::metadata(&path)
             .map_err(|_| CliError::from(IpcError::FileNotFound(file.clone())))?;
+        // The same reasons the app's submit gives (FR-092), naming the file.
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| file.clone());
+        let invalid = |reason: &'static str, message: String| {
+            IpcError::localized(
+                crate::util::error::IpcErrorCode::InvalidRequest,
+                reason,
+                message,
+            )
+            .with_param("name", &name)
+        };
         if !meta.is_file() {
-            return Err(CliError::usage(format!("{file} is not a file")));
+            let error = invalid("not_a_file", format!("{file} is not a file"));
+            return Err(CliError::new(ExitCode::Usage, error));
         }
         if crate::queue::exceeds_size_limit(meta.len(), max_mb) {
-            return Err(CliError::usage(format!(
-                "{file} is larger than the {max_mb} MB limit"
-            )));
+            let error = invalid(
+                "file_too_large",
+                format!("{file} is larger than the {max_mb} MB limit"),
+            )
+            .with_param("limit", max_mb);
+            return Err(CliError::new(ExitCode::Usage, error));
         }
         let ext = crate::engine::extension_of(&path);
         if !crate::engine::is_supported(&ext) {
@@ -991,6 +1008,31 @@ mod tests {
         let err = job_error(&IpcError::UnsupportedFormat("a.docx".into()));
         assert_eq!(err.code, "UnsupportedFormat");
         assert!(err.message.contains("a.docx"));
+        assert_eq!(err.reason, None);
+    }
+
+    /// FR-092: a failed file's row in `print --json` keeps the reason and
+    /// params of its error, like the CLI's top-level JSON error does.
+    #[test]
+    fn fr_092_job_error_keeps_the_reason_and_params() {
+        let engine = crate::engine::EngineError::ConversionFailed(crate::engine::Failure::new(
+            "pdf_truncated",
+            "not a valid PDF: truncated",
+        ));
+        let err = job_error(&IpcError::from(engine));
+        assert_eq!(err.code, "ConversionFailed");
+        assert_eq!(err.reason.as_deref(), Some("pdf_truncated"));
+
+        let err = job_error(
+            &IpcError::localized(
+                crate::util::error::IpcErrorCode::UnsupportedFormat,
+                "gif_not_supported",
+                "/x/a.gif is not a printable file type",
+            )
+            .with_param("name", "a.gif"),
+        );
+        assert_eq!(err.reason.as_deref(), Some("gif_not_supported"));
+        assert_eq!(err.params.unwrap()["name"], "a.gif");
     }
 
     /// A real 1-page PDF, written by the engine's own image converter so the
