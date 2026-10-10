@@ -51,7 +51,7 @@ Why the others lost, concretely:
 3. **Extensions are switchable off by someone who is not the user.** macOS 15
    removed the Finder-extension management UI from System Settings and only
    partially restored it in 15.2, and a corporate MDM profile can block
-   ExtensionKit outright. MaeclyPrint's target users are offices — exactly the
+   ExtensionKit outright. Pluryprint's target users are offices — exactly the
    population running MDM. An NSService is part of the app, so there is nothing
    for a policy to disable.
 4. **Automator Quick Actions install into `~/Library/Services`**, i.e. outside
@@ -77,12 +77,12 @@ top-level menu entry. If that becomes a requirement, this directory is where the
 extension would live, and the work is roughly:
 
 1. An Xcode project (or a `swiftc` invocation driven from a script) producing
-   `MaeclyPrintFinder.appex`, implementing `FIFinderSync`:
+   `PluryprintFinder.appex`, implementing `FIFinderSync`:
    `menu(for:)` for the context menu, `beginObservingDirectory(at:)` /
    `requestBadgeIdentifier(for:)` for the badges.
-2. An App Group (`group.com.maecly.print`) shared by app and extension —
+2. An App Group (`group.com.maecly.pluryprint`) shared by app and extension —
    mandatory, because a sandboxed extension cannot reach
-   `~/Library/Application Support/MaeclyPrint`. The handoff directory would have
+   `~/Library/Application Support/Pluryprint`. The handoff directory would have
    to move into the group container, which changes
    [`crate::util::paths::data_dir`](../src-tauri/src/util/paths.rs) for macOS
    and therefore the handoff contract.
@@ -108,14 +108,14 @@ pnpm tauri build --bundles app
 LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
 # 1. Confirm the declaration survived the bundler.
-plutil -p src-tauri/target/release/bundle/macos/MaeclyPrint.app/Contents/Info.plist | grep -A5 NSServices
+plutil -p src-tauri/target/release/bundle/macos/Pluryprint.app/Contents/Info.plist | grep -A5 NSServices
 
 # 2. Tell Launch Services and the pasteboard server about this build.
-"$LSREG" -f src-tauri/target/release/bundle/macos/MaeclyPrint.app
+"$LSREG" -f src-tauri/target/release/bundle/macos/Pluryprint.app
 /System/Library/CoreServices/pbs -flush
 
 # 3. Confirm the system *discovered* the service (this is the real assertion).
-/System/Library/CoreServices/pbs -dump_pboard | grep -i "Print with MaeclyPrint"
+/System/Library/CoreServices/pbs -dump_pboard | grep -i "Print with Pluryprint"
 
 # 4. Restart the Finder so its menu is rebuilt.
 killall Finder

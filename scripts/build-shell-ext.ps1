@@ -10,7 +10,7 @@
     the installer when it is missing.
 
     This script builds the DLL in release mode for the installer's architecture
-    (with MAECLYPRINT_REQUIRE_RESOURCES=1, so a DLL without its embedded manifest
+    (with PLURYPRINT_REQUIRE_RESOURCES=1, so a DLL without its embedded manifest
     fails the build) and copies it there. Run it before `pnpm tauri build`, next
     to scripts/fetch-sumatrapdf.ps1.
 
@@ -44,7 +44,7 @@ $manifest = Join-Path $repoRoot 'shell-ext-win/Cargo.toml'
 $built = Join-Path $repoRoot "shell-ext-win/target/$triple/release/shell_ext_win.dll"
 $dest = Join-Path $repoRoot 'src-tauri/windows/shell_ext_win.dll'
 
-$env:MAECLYPRINT_REQUIRE_RESOURCES = '1'
+$env:PLURYPRINT_REQUIRE_RESOURCES = '1'
 Write-Host "Building shell_ext_win.dll for $triple"
 & cargo build --release --manifest-path $manifest --target $triple
 if ($LASTEXITCODE -ne 0) { throw "cargo build of shell-ext-win failed ($LASTEXITCODE)" }

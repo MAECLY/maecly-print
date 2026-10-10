@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Download the SumatraPDF binary MaeclyPrint bundles on Windows, with its
+# Download the SumatraPDF binary Pluryprint bundles on Windows, with its
 # licence.
 #
 # This is the POSIX twin of scripts/fetch-sumatrapdf.ps1: a Linux CI runner

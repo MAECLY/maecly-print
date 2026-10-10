@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Download the SumatraPDF binary MaeclyPrint bundles on Windows, with its
+    Download the SumatraPDF binary Pluryprint bundles on Windows, with its
     licence.
 
 .DESCRIPTION
@@ -40,7 +40,7 @@
     Why `resources` and not `externalBin`:
       * `externalBin` is for sidecars. It requires the file on disk to carry a
         `-$TARGET_TRIPLE` suffix and is resolved at runtime through the shell
-        plugin's `sidecar()` API, which MaeclyPrint does not use: the engine
+        plugin's `sidecar()` API, which Pluryprint does not use: the engine
         spawns the process itself with std::process::Command and a
         CREATE_NO_WINDOW flag it needs control of.
       * `resources` copies files verbatim into the bundle's resource directory,
@@ -130,7 +130,7 @@ function Get-Verified([string] $Url, [string] $OutFile, [string] $Expected) {
     Write-Host "Checksum OK ($actual)."
 }
 
-$work = Join-Path ([System.IO.Path]::GetTempPath()) ("maeclyprint-sumatra-" + [guid]::NewGuid())
+$work = Join-Path ([System.IO.Path]::GetTempPath()) ("pluryprint-sumatra-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $work -Force | Out-Null
 
 try {

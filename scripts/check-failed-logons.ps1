@@ -7,11 +7,11 @@
     Chromium's password manager probes for a blank OS password with an empty
     LogonUser call. Each probe is a failed logon (Security event 4625), and the
     Windows 11 default lockout policy (10 failures in 10 minutes) then locks
-    the account. MaeclyPrint seeds the converter's and the WebView2's
+    the account. Pluryprint seeds the converter's and the WebView2's
     "Local State" so the probe is skipped (src-tauri/src/util/chromium.rs).
 
     This script counts 4625 events for the current user before and after
-    -Runs HTML prints through maeclyprint-cli (into a paused queue, so nothing
+    -Runs HTML prints through pluryprint-cli (into a paused queue, so nothing
     comes out) and, with -App, after starting and closing the GUI. It exits 1
     when any failure was recorded. Reading the Security log needs an elevated
     (or UAC-disabled administrator) session.
@@ -20,7 +20,7 @@
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\check-failed-logons.ps1 `
-        -Cli "$env:LOCALAPPDATA\MaeclyPrint\maeclyprint-cli.exe" -Printer Maecly_Hold_Win -Runs 3 -App
+        -Cli "$env:LOCALAPPDATA\Pluryprint\pluryprint-cli.exe" -Printer Maecly_Hold_Win -Runs 3 -App
 #>
 
 [CmdletBinding()]
@@ -40,10 +40,10 @@ function Get-FailedLogons {
         Where-Object { $_.Properties[5].Value -eq $user }).Count
 }
 
-$work = Join-Path ([System.IO.Path]::GetTempPath()) ("maeclyprint-logon-check-" + [guid]::NewGuid())
+$work = Join-Path ([System.IO.Path]::GetTempPath()) ("pluryprint-logon-check-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $work | Out-Null
 $page = Join-Path $work 'logon-check.html'
-Set-Content -Path $page -Value '<!doctype html><title>logon check</title><h1>MaeclyPrint</h1>' -Encoding ASCII
+Set-Content -Path $page -Value '<!doctype html><title>logon check</title><h1>Pluryprint</h1>' -Encoding ASCII
 
 $total = 0
 try {
@@ -58,7 +58,7 @@ try {
     $total += $delta
 
     if ($App) {
-        $exe = Join-Path (Split-Path -Parent $Cli) 'maeclyprint.exe'
+        $exe = Join-Path (Split-Path -Parent $Cli) 'pluryprint.exe'
         $before = Get-FailedLogons
         $p = Start-Process -FilePath $exe -PassThru
         # WebView2 runs its probe some 20 s after start.
@@ -74,7 +74,7 @@ try {
 }
 
 if ($total -gt 0) {
-    Write-Error "MaeclyPrint caused $total failed logon(s)"
+    Write-Error "Pluryprint caused $total failed logon(s)"
     exit 1
 }
 Write-Host 'OK: no failed logons'

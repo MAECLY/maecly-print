@@ -186,7 +186,7 @@ jobs:
         run: pnpm test
 
       # Advisory GUI smoke: build the debug app and confirm it boots (logs
-      # app_started to ~/Library/Logs/MaeclyPrint). WKWebView has no WebDriver
+      # app_started to ~/Library/Logs/Pluryprint). WKWebView has no WebDriver
       # and a headless runner has no guaranteed window server, so this is
       # best-effort — continue-on-error keeps it from gating the macOS lane.
       - name: Tauri build (debug)
@@ -199,15 +199,15 @@ jobs:
       - name: Smoke launch (macOS)
         continue-on-error: true
         run: |
-          BIN="src-tauri/target/debug/maeclyprint"
+          BIN="src-tauri/target/debug/pluryprint"
           if [ ! -x "$BIN" ]; then echo "binary not found at $BIN"; exit 1; fi
-          LOGDIR="$HOME/Library/Logs/MaeclyPrint"
+          LOGDIR="$HOME/Library/Logs/Pluryprint"
           "$BIN" &
           PID=$!
           started=0
           for _ in $(seq 1 60); do
-            # logging/mod.rs writes maeclyprint-YYYY-MM-DD.jsonl (plus .N rolls).
-            if grep -qs app_started "$LOGDIR"/maeclyprint-*.jsonl 2>/dev/null; then
+            # logging/mod.rs writes pluryprint-YYYY-MM-DD.jsonl (plus .N rolls).
+            if grep -qs app_started "$LOGDIR"/pluryprint-*.jsonl 2>/dev/null; then
               started=1; break
             fi
             sleep 1
@@ -356,10 +356,10 @@ jobs:
       - name: Smoke launch (Windows)
         shell: pwsh
         run: |
-          $exe = "src-tauri/target/debug/maeclyprint.exe"
+          $exe = "src-tauri/target/debug/pluryprint.exe"
           if (-not (Test-Path $exe)) { throw "Built binary not found at $exe" }
 
-          $logDir = Join-Path $env:LOCALAPPDATA "Maecly\MaeclyPrint\data\logs"
+          $logDir = Join-Path $env:LOCALAPPDATA "Maecly\Pluryprint\data\logs"
           $since = Get-Date
           $p = Start-Process -FilePath $exe -PassThru
           $started = $false
@@ -367,8 +367,8 @@ jobs:
           try {
             $deadline = (Get-Date).AddSeconds(60)
             while ((Get-Date) -lt $deadline) {
-              # logging/mod.rs writes maeclyprint-YYYY-MM-DD.jsonl (plus .N rolls).
-              $logs = Get-ChildItem -Path $logDir -Filter "maeclyprint-*.jsonl" -ErrorAction SilentlyContinue |
+              # logging/mod.rs writes pluryprint-YYYY-MM-DD.jsonl (plus .N rolls).
+              $logs = Get-ChildItem -Path $logDir -Filter "pluryprint-*.jsonl" -ErrorAction SilentlyContinue |
                       Where-Object { $_.LastWriteTime -ge $since }
               if ($logs) {
                 $text = ($logs | Get-Content -Raw -ErrorAction SilentlyContinue) -join "`n"
@@ -392,7 +392,7 @@ jobs:
       - name: Smoke CLI exit codes (Windows)
         shell: pwsh
         run: |
-          $cli = "src-tauri/target/debug/maeclyprint-cli.exe"
+          $cli = "src-tauri/target/debug/pluryprint-cli.exe"
           if (-not (Test-Path $cli)) { throw "Console CLI not found at $cli" }
           & $cli --version
           if ($LASTEXITCODE -ne 0) { throw "--version exited with $LASTEXITCODE" }
@@ -405,7 +405,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-smoke-log
-          path: ~/AppData/Local/Maecly/MaeclyPrint/data/logs/maeclyprint-*.jsonl
+          path: ~/AppData/Local/Maecly/Pluryprint/data/logs/pluryprint-*.jsonl
           if-no-files-found: ignore
           retention-days: 7
 
@@ -540,13 +540,13 @@ jobs:
           cargo clippy --manifest-path shell-ext-win/Cargo.toml
           --target ${{ matrix.target }} --all-targets -- -D warnings
 
-      # MAECLYPRINT_REQUIRE_RESOURCES turns a missing rc.exe (and therefore a
+      # PLURYPRINT_REQUIRE_RESOURCES turns a missing rc.exe (and therefore a
       # DLL with no embedded <msix> manifest) into a build failure. A DLL
       # without that manifest builds fine, registers fine, and is never loaded
       # by Explorer — the single most expensive way for this to go wrong.
       - name: Build DLL
         env:
-          MAECLYPRINT_REQUIRE_RESOURCES: '1'
+          PLURYPRINT_REQUIRE_RESOURCES: '1'
         run: >-
           cargo build --release --manifest-path shell-ext-win/Cargo.toml
           --target ${{ matrix.target }}
