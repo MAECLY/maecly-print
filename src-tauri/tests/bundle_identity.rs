@@ -274,6 +274,12 @@ fn nsis_hook_compiles() {
     let dir = tempfile::tempdir().unwrap();
     let hooks = dir.path().join("installer-hooks.nsh");
     std::fs::write(&hooks, read("windows/installer-hooks.nsh")).unwrap();
+    // The hooks include their EN/ES messages from next to themselves.
+    std::fs::write(
+        dir.path().join("installer-strings.nsh"),
+        read("windows/installer-strings.nsh"),
+    )
+    .unwrap();
     std::fs::write(dir.path().join("shell_ext_win.dll"), b"placeholder").unwrap();
     let script = dir.path().join("stub.nsi");
     std::fs::write(
