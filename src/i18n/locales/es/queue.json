@@ -193,7 +193,7 @@
         "heif_decode_failed": "No se pudo descodificar la foto HEIC/HEIF; puede estar dañada.",
         "heif_size_unsupported": "No se admiten imágenes HEIC/HEIF de {{width}}×{{height}}.",
         "svg_invalid": "Este archivo SVG está dañado o no es una imagen SVG válida.",
-        "svg_too_large": "Esta imagen SVG supera el límite de {{limit}} MB una vez descomprimida.",
+        "svg_too_large": "Esta imagen SVG es demasiado grande o compleja para convertirla (límite: {{limit}} MB).",
         "svg_convert_failed": "No se pudo convertir la imagen SVG a PDF.",
         "render_failed": "No se pudo maquetar la página para imprimirla.",
         "render_worker_missing": "No se encontró la aplicación Pluryprint, que maqueta las páginas para imprimirlas, junto a la herramienta de línea de comandos. Reinstala Pluryprint.",

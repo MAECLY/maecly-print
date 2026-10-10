@@ -193,7 +193,7 @@
         "heif_decode_failed": "The HEIC/HEIF photo could not be decoded; it may be damaged.",
         "heif_size_unsupported": "HEIC/HEIF images of {{width}}×{{height}} are not supported.",
         "svg_invalid": "This SVG file is damaged or is not a valid SVG image.",
-        "svg_too_large": "This SVG image is larger than the {{limit}} MB limit once uncompressed.",
+        "svg_too_large": "This SVG image is too large or too complex to convert (limit: {{limit}} MB).",
         "svg_convert_failed": "The SVG image could not be converted to PDF.",
         "render_failed": "The page could not be laid out for printing.",
         "render_worker_missing": "The Pluryprint app, which lays out pages for printing, was not found next to the command-line tool. Reinstall Pluryprint.",
