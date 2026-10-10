@@ -245,6 +245,34 @@ pub struct EngineCfg {
     /// serialize a bare `Option::None` value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_profile: Option<String>,
+    /// **Hidden** (D15): what renders HTML, Markdown and text to PDF. Only a
+    /// hand edit of `config.toml` (`[engine] html_renderer = "browser"`)
+    /// changes it; it is not on the wire (`specta(skip)`), the Settings
+    /// screen does not show it, and a settings save keeps the stored value.
+    /// Written to the file only when it is not the default.
+    #[serde(default, skip_serializing_if = "HtmlRenderer::is_system")]
+    #[specta(skip)]
+    pub html_renderer: HtmlRenderer,
+}
+
+/// Which program renders HTML, Markdown and text to PDF (FR-055/056/057, D15).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HtmlRenderer {
+    /// The operating system's own web view (WebView2 / WKWebView) in the
+    /// hidden render worker: no Edge, Chrome or Pandoc needed.
+    #[default]
+    System,
+    /// The pre-round-3 path: a headless Edge/Chrome/Chromium. Kept for one
+    /// version as a fallback, then removed.
+    Browser,
+}
+
+impl HtmlRenderer {
+    /// Whether this is the default, [`HtmlRenderer::System`].
+    pub fn is_system(&self) -> bool {
+        *self == Self::System
+    }
 }
 
 impl Default for EngineCfg {
@@ -255,6 +283,7 @@ impl Default for EngineCfg {
             max_file_size_mb: ENGINE_LIMITS.max_file_size_mb.default,
             print_timeout_seconds: ENGINE_LIMITS.print_timeout_seconds.default,
             default_profile: None,
+            html_renderer: HtmlRenderer::System,
         }
     }
 }
@@ -294,6 +323,7 @@ impl EngineCfg {
                 .print_timeout_seconds
                 .sanitize(self.print_timeout_seconds),
             default_profile: self.default_profile.clone(),
+            html_renderer: self.html_renderer,
         }
     }
 }
@@ -946,7 +976,7 @@ mod tests {
             conversion_timeout_seconds: to,
             max_file_size_mb: mb,
             print_timeout_seconds: 300,
-            default_profile: None,
+            ..Default::default()
         };
 
         // Concurrency clamps into 1..=8.

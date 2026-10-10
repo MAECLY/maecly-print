@@ -122,9 +122,12 @@ pub fn set_app_settings_at(
         Config::load_strict(config_path).map_err(|_| crate::settings::config_corrupt_error())?;
 
     let default_profile = cfg.engine.default_profile.take();
+    // Hidden, file-only knob (D15): the wire never carries it.
+    let html_renderer = cfg.engine.html_renderer;
     cfg.app = settings.app;
     cfg.engine = settings.engine;
     cfg.engine.default_profile = default_profile;
+    cfg.engine.html_renderer = html_renderer;
     cfg.updater = settings.updater;
     cfg.telemetry = settings.telemetry;
     // `settings.meta` is deliberately dropped: it is server-computed, and the
@@ -237,7 +240,7 @@ mod tests {
                 conversion_timeout_seconds: timeout,
                 max_file_size_mb: max_mb,
                 print_timeout_seconds: 300,
-                default_profile: None,
+                ..Default::default()
             },
         )
     }
@@ -490,6 +493,40 @@ mod tests {
         assert_eq!(third.app.theme, Theme::Light);
         assert_eq!(third.app.locale, "es-ES", "unrelated fields are untouched");
         assert_eq!(third.updater.channel, UpdateChannel::Beta);
+    }
+
+    /// D15: the hidden renderer switch lives only in the file. A settings
+    /// save from the window (which never carries it) keeps it, and the
+    /// default is never written.
+    #[test]
+    fn fr_055_hidden_html_renderer_survives_a_settings_save() {
+        use crate::settings::{Config, HtmlRenderer};
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        let profiles_path = dir.path().join("profiles.toml");
+
+        let saved = get_app_settings_at(&config_path).unwrap();
+        set_app_settings_at(&config_path, &profiles_path, saved).unwrap();
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(!text.contains("html_renderer"), "{text}");
+
+        std::fs::write(
+            &config_path,
+            text.replace("[engine]\n", "[engine]\nhtml_renderer = \"browser\"\n"),
+        )
+        .unwrap();
+        assert_eq!(
+            Config::load_from(&config_path).engine.html_renderer,
+            HtmlRenderer::Browser
+        );
+        let mut from_window = get_app_settings_at(&config_path).unwrap();
+        from_window.engine.html_renderer = HtmlRenderer::System; // not on the wire
+        from_window.app.theme = Theme::Dark;
+        set_app_settings_at(&config_path, &profiles_path, from_window).unwrap();
+        assert_eq!(
+            Config::load_from(&config_path).engine.html_renderer,
+            HtmlRenderer::Browser
+        );
     }
 
     #[test]
