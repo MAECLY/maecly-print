@@ -73,7 +73,8 @@ That is the Windows 10 verb shape from `shell-ext-win/README.md`: the menu entry
     "nsis": {
       "installMode": "currentUser",
       "installerHooks": "windows/installer-hooks.nsh",
-      "languages": ["English", "Spanish"]
+      "languages": ["English", "Spanish"],
+      "displayLanguageSelector": false
     }
   },
   "createUpdaterArtifacts": true
@@ -86,7 +87,7 @@ That is the Windows 10 verb shape from `shell-ext-win/README.md`: the menu entry
 - `targets` is an explicit list without `msi`. The bundler builds only the entries that apply to the host, so a Windows build produces the per-user NSIS `setup.exe` and nothing else. It used to be `"all"`, which also built a per-machine WiX MSI (Program Files, elevation) next to it. Installing that MSI and later updating through the NSIS-based `latest.json` left two installs and two Start-menu entries, which contradicts [ADR-0008](../adr/0008-installer-nsis-per-user.md). `fr_083_no_per_machine_msi_is_bundled` guards the list.
 - The crate has two binaries, `pluryprint` (the app) and `pluryprint-cli` (`src/bin/pluryprint-cli.rs`, the console-subsystem CLI front end scripts wait on). The installer places `pluryprint-cli.exe` next to `pluryprint.exe` (verified on the ARM64 install above). Neither is added to `PATH`; Home's **Run from CLI** card copies the full path.
 - **Shortcuts.** Tauri's template creates a Start-menu shortcut on every install, and a desktop shortcut from the checkbox on the last page (always for a silent or passive run).
-- **Languages.** Tauri translates its own pages for `languages` (English, Spanish), and every message the hooks add (`DetailPrint`, `MessageBox`) is a `$(PLURY_*)` language string declared in both languages in `windows/installer-strings.nsh` (`tests/installer_i18n.rs`). The uninstaller of a bilingual installer first asks for the language.
+- **Languages.** Tauri translates its own pages for `languages` (English, Spanish), and every message the hooks add (`DetailPrint`, `MessageBox`) is a `$(PLURY_*)` language string declared in both languages in `windows/installer-strings.nsh` (`tests/installer_i18n.rs`). The setup takes the Windows display language without asking (`displayLanguageSelector: false`), and the post-install hook records it where the uninstaller reads it (`HKCU\Software\Maecly\Pluryprint`, `Installer Language`), so the uninstaller opens in the same language instead of first asking for one (`fr_093_uninstaller_reuses_the_installer_language`).
 - **Uninstall.** Besides Tauri's own cleanup, the hooks remove the Explorer keys and DLL and, only when **Delete the application data** is ticked (never on an update or a silent run), `%APPDATA%\Maecly\Pluryprint` and `%LOCALAPPDATA%\Maecly\Pluryprint`, the `Maecly` folders when nothing else is left in them, and the stale MaeclyPrint web view profile `%LOCALAPPDATA%\com.maecly.print`.
 - `plugins.updater` and `createUpdaterArtifacts` are set: the NSIS setup is signed for the updater, and `tauri-plugin-updater` installs an update by running that same setup in `passive` mode (see [auto-update-flow.md](./auto-update-flow.md)).
 - `installerHooks` points at `src-tauri/windows/installer-hooks.nsh`, the one hooks file: besides registering the context menu (above), its `NSIS_HOOK_PREINSTALL` takes over an install made under the former name, MaeclyPrint (see [ADR-0009](../adr/0009-rename-to-pluryprint.md)). The app moves the user data itself on first launch.

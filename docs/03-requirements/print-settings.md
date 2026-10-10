@@ -136,7 +136,7 @@ CUPS implements n-up natively (`number-up`); nothing emits that flag today. On W
 3. As soon as SumatraPDF's job shows up in the spooler, the original default is restored byte for byte, including "this user had no per-user default". The restore only writes while the default is still the one the swap set; a change made by the user or another program in the meantime wins.
 4. The job's own DEVMODE (`JOB_INFO_2`) is read back and the outcome is logged as applied, not applied or unverified.
 
-A process killed during the swap leaves the journal behind; the next swap on that printer, or the next start of the app or the CLI, restores from it under the same rules. The honesty preview says beforehand which of these will happen for the printer's driver. Checked against the real spooler on paused Windows 11 queues (`scripts/vm/print-quality-e2e.ps1`, the `print_quality_windows` tests).
+A process killed during the swap leaves the journal behind; the next swap on that printer, or the next start of the app or the CLI, restores from it under the same rules. If that restore fails as well, the journal is kept and the printer is not swapped again until it succeeds: a new journal would record the still-swapped default as the original and lose the user's own. Those jobs print at the printer's current default, and the preview says so. The preview's notes are written in the app's language (`printJob:preview.notes`). The honesty preview says beforehand which of these will happen for the printer's driver. Checked against the real spooler on paused Windows 11 queues (`scripts/vm/print-quality-e2e.ps1`, the `print_quality_windows` tests).
 
 | Value | DPI hint |
 |---|---|

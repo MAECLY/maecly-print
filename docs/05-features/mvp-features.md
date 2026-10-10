@@ -143,7 +143,7 @@ macOS ships an ad-hoc-signed `.dmg` per architecture. See [installer-windows.md]
 
 ### 11. Localization
 
-Planned as **English only**, but **Spanish landed early**. The i18n layer shipped with the screen-completeness work rather than waiting for v0.4: every user-facing string is externalized under `src/i18n/locales/{en,es}/<namespace>.json`, the first run picks the OS language (`navigator.language`, narrowed to a supported locale) and persists it, and Settings has a language selector. Backend errors arrive as a stable reason with parameters and are translated by the UI; the installer and the printed test page are bilingual too.
+Planned as **English only**, but **Spanish landed early**. The i18n layer shipped with the screen-completeness work rather than waiting for v0.4: every user-facing string is externalized under `src/i18n/locales/{en,es}/<namespace>.json`, the first run picks the OS language (`navigator.language`, narrowed to a supported locale; on Windows the app and the CLI take the Windows display language before any window opens, so the Explorer menu and the built-in profile names follow it too) and persists it, and Settings has a language selector. Backend errors arrive as a stable reason with parameters and are translated by the UI; the installer and the printed test page are bilingual too.
 
 This is scope pulled forward, not scope added — the v0.4 line in [v1-features.md](./v1-features.md) is marked delivered accordingly.
 
