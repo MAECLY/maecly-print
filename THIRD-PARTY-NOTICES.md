@@ -13047,7 +13047,7 @@ the following restrictions:
 | `react`                     | 19.3.0  | MIT               |
 | `react-dom`                 | 19.3.0  | MIT               |
 | `scheduler`                 | 0.28.0  | MIT               |
-| `sonner`                    | 1.7.4   | MIT               |
+| `sonner`                    | 2.0.8   | MIT               |
 | `tailwindcss`               | 3.4.19  | MIT               |
 | `zustand`                   | 5.0.14  | MIT               |
 
@@ -13371,7 +13371,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### `sonner` 1.7.4
+### `sonner` 2.0.8
 
 MIT. https://sonner.emilkowal.ski/
 
