@@ -2,9 +2,9 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { browser, $, expect } from '@wdio/globals';
+import { $, expect } from '@wdio/globals';
 
-import { dismissOnboarding, navigateTo } from './helpers.js';
+import { byText, dismissOnboarding, invokeIpc, navigateTo } from './helpers.js';
 
 /**
  * Print Job flow: assemble a batch, tune a setting, submit, and see the job
@@ -58,35 +58,14 @@ async function drop(paths: string[]): Promise<void> {
   });
 }
 
-/** Call a Tauri command from the page, through the host's own IPC bridge. */
-async function invokeIpc(
-  cmd: string,
-  args: Record<string, unknown> = {},
-): Promise<unknown> {
-  return browser.execute(
-    async (c: string, a: Record<string, unknown>) => {
-      const internals = (
-        window as unknown as {
-          __TAURI_INTERNALS__: {
-            invoke: (
-              cmd: string,
-              args: Record<string, unknown>,
-            ) => Promise<unknown>;
-          };
-        }
-      ).__TAURI_INTERNALS__;
-      return internals.invoke(c, a);
-    },
-    cmd,
-    args,
-  );
-}
-
 describe('Print Job', () => {
   before(() => {
     fixtures = mkdtempSync(join(tmpdir(), 'pluryprint-e2e-'));
     writeFileSync(join(fixtures, 'report.pdf'), PDF, 'utf8');
-    writeFileSync(join(fixtures, 'notes.txt'), 'not printable', 'utf8');
+    // Two refusals with their own reasons: an extension nothing converts,
+    // and GIF, which is refused on purpose (decision D9).
+    writeFileSync(join(fixtures, 'notes.xyz'), 'not printable', 'utf8');
+    writeFileSync(join(fixtures, 'still.gif'), 'GIF89a', 'utf8');
   });
 
   // The submit below goes to the host's real default printer. On a developer
@@ -113,36 +92,37 @@ describe('Print Job', () => {
 
     await drop([join(fixtures, 'report.pdf')]);
 
-    const row = await $('*=report.pdf');
+    const row = await byText('report.pdf');
     await row.waitForExist({ timeout: 10_000 });
 
     // Change one setting so the submitted request is not just the profile
     // baseline, then wait for the honesty preview (debounced 300 ms) to catch
     // up — what the user sees must be what the backend runs.
     await (await $('button*=B&W')).click();
-    await (await $('*=Resolved command')).waitForExist({ timeout: 10_000 });
+    await (await byText('Resolved command')).waitForExist({ timeout: 10_000 });
 
     await (await $('button*=Print 1')).click();
 
     // A successful submit navigates to the Queue on its own; navigating again
     // is harmless and makes the spec independent of that behaviour.
     await navigateTo('Queue');
-    await (await $('*=report.pdf')).waitForExist({ timeout: 15_000 });
+    await (await byText('report.pdf')).waitForExist({ timeout: 15_000 });
   });
 
   it('FR-005: refuses an unsupported file with a visible reason', async () => {
     await navigateTo('Print Job');
 
-    await drop([join(fixtures, 'notes.txt')]);
+    await drop([join(fixtures, 'notes.xyz'), join(fixtures, 'still.gif')]);
 
-    // The rejection is grouped into one toast naming the file and the reason —
-    // never a silent skip (FR-059).
+    // The rejection is grouped into one toast naming each file and its reason
+    // — never a silent skip (FR-059).
     await (
-      await $('*=Unsupported file type')
+      await byText('Unsupported file type')
     ).waitForExist({
       timeout: 10_000,
     });
-    await expect($('*=notes.txt')).toBeExisting();
+    await expect(byText('notes.xyz')).toBeExisting();
+    await expect(byText('still.gif')).toBeExisting();
   });
 
   it('FR-004: asks whether to recurse before walking a dropped folder', async () => {
@@ -165,7 +145,7 @@ describe('Print Job', () => {
 
     // Top level only: the file beside the subfolder is in, the one inside it
     // is not.
-    await (await $('*=top.pdf')).waitForExist({ timeout: 10_000 });
-    await expect($('*=inner.pdf')).not.toBeExisting();
+    await (await byText('top.pdf')).waitForExist({ timeout: 10_000 });
+    await expect(byText('inner.pdf')).not.toBeExisting();
   });
 });

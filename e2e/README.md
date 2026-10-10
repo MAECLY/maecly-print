@@ -85,6 +85,14 @@ pnpm test:e2e
 | `TAURI_APP_PATH` | Override the binary path (default `src-tauri/target/debug/pluryprint[.exe]`). |
 | `NATIVE_DRIVER`  | Path to `msedgedriver.exe` (Windows) passed to `tauri-driver`.                |
 
+Selectors match visible text with the helpers in `specs/helpers.ts`: `byText` (an
+XPath on the element's own text — WebdriverIO's bare `*=text` is _partial link
+text_ and only matches `<a>`), `visibleText` (lower-cased, since `getText()`
+returns CSS-uppercased headings as rendered) and `replaceInputText` (select
+all and type, because `setValue` bypasses React). The suite does not need an
+interactive desktop: it passes in the Windows test VM from a session-0
+scheduled task.
+
 Things to know before running it on your own machine:
 
 - **It writes your real config.** The specs drive the real binary, so they

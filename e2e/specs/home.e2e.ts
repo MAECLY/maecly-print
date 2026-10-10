@@ -1,6 +1,29 @@
+import { readFileSync } from 'node:fs';
+
 import { browser, $, $$, expect } from '@wdio/globals';
 
-import { dismissOnboarding, navigateTo } from './helpers.js';
+import {
+  byText,
+  dismissOnboarding,
+  navigateTo,
+  visibleText,
+} from './helpers.js';
+
+/**
+ * The English Home catalog the app renders (the wdio `before` hook forces
+ * English). Asserting against it rather than against copied sentences keeps
+ * this spec about the *wiring* — the strings themselves, and that the format
+ * list matches the engine, are unit-tested (`HomeScreen.test.tsx`).
+ */
+const HOME = JSON.parse(
+  readFileSync(
+    new URL('../../src/i18n/locales/en/home.json', import.meta.url),
+    'utf8',
+  ),
+) as {
+  dropzone: { title: string; formatList: string };
+  shortcuts: Record<string, string>;
+};
 
 /**
  * Home screen, end to end in the real app.
@@ -21,13 +44,13 @@ describe('Home', () => {
   });
 
   it('advertises only the formats the engine accepts', async () => {
-    const body = await (await $('body')).getText();
-    expect(body).toContain('PDF');
-    expect(body).toContain('WEBP');
-    // Formats the router rejects must never be promised on the first screen.
-    for (const absent of ['Office', 'ODF', 'HTML', 'Markdown']) {
-      expect(body).not.toContain(absent);
-    }
+    // The drop zone renders the catalog's format list — which a unit test
+    // holds equal to the engine's SUPPORTED_EXTS — and nothing else.
+    const zone = await (await byText(HOME.dropzone.title)).parentElement();
+    const text = await zone.getText();
+    expect(text).toContain(HOME.dropzone.formatList);
+    // GIF is refused on purpose (decision D9): never promised.
+    expect(text.toLowerCase()).not.toContain('gif');
   });
 
   it('does not claim the shell right-click integration already exists', async () => {
@@ -68,16 +91,18 @@ describe('Home', () => {
   });
 
   it('NFR-034: documents every shortcut it implements', async () => {
-    const body = await (await $('body')).getText();
-    expect(body).toContain('Keyboard shortcuts');
-    for (const action of [
-      'Start a new print job',
-      'Print the current job',
-      'Switch to the next profile',
-      'Open the queue',
-      'Cancel the job being printed',
+    // Rendered text: the heading is CSS-uppercased, so compare lower-cased.
+    const body = await visibleText();
+    expect(body).toContain(HOME.shortcuts.label.toLowerCase());
+    for (const key of [
+      'newJob',
+      'printFolder',
+      'print',
+      'switchProfile',
+      'openQueue',
+      'cancel',
     ]) {
-      expect(body).toContain(action);
+      expect(body).toContain(String(HOME.shortcuts[key]).toLowerCase());
     }
   });
 

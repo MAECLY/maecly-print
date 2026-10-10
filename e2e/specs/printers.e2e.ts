@@ -37,8 +37,9 @@ describe('Printers', () => {
     // empty state here means enumeration silently returned nothing.
     expect(body).not.toContain('No printers installed');
     expect(body).not.toContain('Printers unavailable');
-    // Capabilities come from DeviceCapabilities, not from a fixture.
-    expect(body).toContain('Capabilities');
+    // Capabilities come from DeviceCapabilities, not from a fixture. The
+    // section label is CSS-uppercased in the rendered text.
+    expect(body.toLowerCase()).toContain('capabilities');
   });
 
   it('offers the add-printer methods as tabs and honours the Windows transport limit', async () => {

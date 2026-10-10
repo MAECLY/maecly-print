@@ -21,11 +21,83 @@ export async function dismissOnboarding(): Promise<void> {
   }
 }
 
-/** Click a left-nav item by its visible label (e.g. "Printers", "About"). */
-export async function navigateTo(label: string): Promise<void> {
-  const item = await $(`button*=${label}`);
+/**
+ * Click a left-nav item by its visible label (e.g. "Printers", "About").
+ * Give the Spanish label too when the UI may be in Spanish at that point
+ * (the sidebar is translated, FR-094).
+ */
+export async function navigateTo(
+  label: string,
+  spanish?: string,
+): Promise<void> {
+  let item = await $(`button*=${label}`);
+  if (spanish && !(await item.isExisting())) {
+    item = await $(`button*=${spanish}`);
+  }
   await item.waitForClickable({ timeout: 10_000 });
   await item.click();
+}
+
+/**
+ * The element whose own text contains `text` — any tag.
+ *
+ * WebdriverIO's bare `*=text` is a *partial link text* selector: it only
+ * matches `<a>` elements, so `$('*=report.pdf')` never finds a row, a toast or
+ * a list item. This matches on the DOM text (not the rendered, CSS-uppercased
+ * one), which is what a spec means.
+ */
+export function byText(text: string) {
+  if (text.includes('"')) throw new Error(`byText: no double quotes: ${text}`);
+  return $(`//*[text()[contains(., "${text}")]]`);
+}
+
+/**
+ * The page's visible text, lower-cased. `getText()` returns the *rendered*
+ * text, so a heading styled `text-transform: uppercase` reads "KEYBOARD
+ * SHORTCUTS"; compare against lower-cased expectations with this.
+ */
+export async function visibleText(): Promise<string> {
+  return (await (await $('body')).getText()).toLowerCase();
+}
+
+/**
+ * Replace a text input's value the way a user does: select all, then type.
+ * `setValue` clears with a DOM write React never sees, so a controlled input
+ * re-renders its old value and the typing is appended to it.
+ */
+export async function replaceInputText(
+  input: ReturnType<typeof $>,
+  text: string,
+): Promise<void> {
+  await input.click();
+  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+  await browser.keys([modifier, 'a']);
+  await browser.keys(['Backspace']);
+  await input.addValue(text);
+}
+
+/** Call a Tauri command from the page, through the host's own IPC bridge. */
+export async function invokeIpc(
+  cmd: string,
+  args: Record<string, unknown> = {},
+): Promise<unknown> {
+  return browser.execute(
+    async (c: string, a: Record<string, unknown>) => {
+      const internals = (
+        window as unknown as {
+          __TAURI_INTERNALS__: {
+            invoke: (
+              cmd: string,
+              args: Record<string, unknown>,
+            ) => Promise<unknown>;
+          };
+        }
+      ).__TAURI_INTERNALS__;
+      return internals.invoke(c, a);
+    },
+    cmd,
+    args,
+  );
 }
 
 /**
@@ -65,7 +137,7 @@ export async function selectLanguage(locale: string): Promise<void> {
 export async function restoreDefaultSettings(): Promise<void> {
   try {
     await dismissOnboarding();
-    await navigateTo('Settings');
+    await navigateTo('Settings', 'Ajustes');
     // Language first: the appearance controls below are labelled in whatever
     // language is active, and "System"/"Comfortable" are the English ones.
     await selectLanguage('en-US');

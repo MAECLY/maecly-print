@@ -29,7 +29,14 @@ async function relaunchWithoutCaches(): Promise<void> {
     window.localStorage.clear();
     window.location.reload();
   });
-  await (await $('button*=Settings')).waitForExist({ timeout: 20_000 });
+  // The sidebar follows the UI language (FR-094), so after a switch to
+  // Spanish its entry reads "Ajustes".
+  await browser.waitUntil(
+    async () =>
+      (await $('button*=Settings').isExisting()) ||
+      (await $('button*=Ajustes').isExisting()),
+    { timeout: 20_000, timeoutMsg: 'expected the app shell after the reload' },
+  );
   await dismissOnboarding();
 }
 
@@ -108,9 +115,8 @@ describe('Settings', () => {
     );
 
     await relaunchWithoutCaches();
-    // The sidebar is not translated yet (it is not part of this screen), so it
-    // is still the English "Settings" that gets us back to the screen.
-    await navigateTo('Settings');
+    // The whole shell, sidebar included, comes back in Spanish.
+    await navigateTo('Settings', 'Ajustes');
 
     await browser.waitUntil(
       async () => (await (await $('body')).getText()).includes('Ajustes'),
