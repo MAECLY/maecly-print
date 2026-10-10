@@ -37,7 +37,36 @@
   "dependencies": {
     "title": "Missing dependency",
     "affected_one": "{{count}} file in this job needs it.",
-    "affected_other": "{{count}} files in this job need it."
+    "affected_other": "{{count}} files in this job need it.",
+    "installButton": "Install…"
+  },
+  "install": {
+    "title": "Install {{name}}",
+    "how": "How to install it",
+    "method": {
+      "winget": "Install with winget (Windows Package Manager)",
+      "winget-store": "Install from the Microsoft Store with winget",
+      "store": "Open it in the Microsoft Store",
+      "brew-cask": "Install with Homebrew",
+      "web": "Open the download page"
+    },
+    "unavailable": "Not available on this computer.",
+    "willRun": "Pluryprint will run exactly this command:",
+    "willOpen": "Pluryprint will open:",
+    "needsAdmin": "Windows will ask for administrator permission (UAC) during the installation.",
+    "paid": "This component may cost money in the Microsoft Store.",
+    "size": "Download size: about {{mb}} MB.",
+    "neverSilent": "Nothing is installed until you press the button below.",
+    "output": "Installer output",
+    "running": "Installing…",
+    "install": "Install",
+    "open": "Open",
+    "result": {
+      "installed": "{{name}} is installed. The files that needed it can print now.",
+      "notDetected": "The installer finished, but Pluryprint does not see {{name}} yet. Restart Pluryprint and try again.",
+      "opened": "Finish the installation in the window that opened, then add the files again.",
+      "failed": "The installation did not finish (code {{code}}). Try the download page instead."
+    }
   },
   "folders": {
     "title_one": "{{count}} folder added",

@@ -37,7 +37,36 @@
   "dependencies": {
     "title": "Falta una dependencia",
     "affected_one": "{{count}} archivo de este trabajo la necesita.",
-    "affected_other": "{{count}} archivos de este trabajo la necesitan."
+    "affected_other": "{{count}} archivos de este trabajo la necesitan.",
+    "installButton": "Instalar…"
+  },
+  "install": {
+    "title": "Instalar {{name}}",
+    "how": "Cómo instalarlo",
+    "method": {
+      "winget": "Instalar con winget (Administrador de paquetes de Windows)",
+      "winget-store": "Instalar desde Microsoft Store con winget",
+      "store": "Abrirlo en Microsoft Store",
+      "brew-cask": "Instalar con Homebrew",
+      "web": "Abrir la página de descarga"
+    },
+    "unavailable": "No está disponible en este equipo.",
+    "willRun": "Pluryprint ejecutará exactamente este comando:",
+    "willOpen": "Pluryprint abrirá:",
+    "needsAdmin": "Windows pedirá permiso de administrador (UAC) durante la instalación.",
+    "paid": "Este componente puede ser de pago en Microsoft Store.",
+    "size": "Tamaño de la descarga: unos {{mb}} MB.",
+    "neverSilent": "No se instala nada hasta que pulses el botón de abajo.",
+    "output": "Salida del instalador",
+    "running": "Instalando…",
+    "install": "Instalar",
+    "open": "Abrir",
+    "result": {
+      "installed": "{{name}} está instalado. Los archivos que lo necesitaban ya se pueden imprimir.",
+      "notDetected": "El instalador terminó, pero Pluryprint aún no detecta {{name}}. Reinicia Pluryprint y vuelve a intentarlo.",
+      "opened": "Termina la instalación en la ventana que se ha abierto y vuelve a añadir los archivos.",
+      "failed": "La instalación no terminó (código {{code}}). Prueba con la página de descarga."
+    }
   },
   "folders": {
     "title_one": "{{count}} carpeta añadida",

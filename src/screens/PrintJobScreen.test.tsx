@@ -12,6 +12,7 @@ import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 
 import type { FileInfo, FolderExpansion, PrintRequest } from '@/lib/ipc';
 import type { UiFile } from '@/types/domain';
+import type { DependencyReport } from '@/ipc/bindings';
 import {
   BUILT_IN_PROFILES,
   buildPrintRequest,
@@ -91,6 +92,8 @@ interface MockOpts {
   preview?: string;
   printError?: string;
   jobIds?: string[];
+  /** Dependency reports `app_info` answers with (FR-058). */
+  dependencies?: DependencyReport[];
 }
 
 /** A `FolderExpansion` with everything empty unless overridden. */
@@ -176,7 +179,9 @@ function mockJob(opts: MockOpts = {}): Call[] {
       // answering with the real shape keeps that path exercised rather than
       // failing on a null payload.
       case 'app_info':
-        return fixtureAppInfo;
+        return opts.dependencies
+          ? { ...fixtureAppInfo, dependencies: opts.dependencies }
+          : fixtureAppInfo;
       default:
         return null;
     }
@@ -1146,6 +1151,63 @@ describe('PrintJobScreen', () => {
   });
 
   // -- i18n (FR-092) -----------------------------------------------------
+
+  // -- FR-058: missing dependencies, guided install --------------------------
+
+  const missingOffice: DependencyReport = {
+    id: 'libre-office',
+    name: 'LibreOffice',
+    applicable: true,
+    found: false,
+    path: null,
+    found_in: null,
+    blocks: ['docx', 'rtf'],
+    remediation: 'LibreOffice is missing — …',
+    install: [
+      {
+        method: 'web',
+        command: 'https://www.libreoffice.org/download/download-libreoffice/',
+        needs_admin: false,
+        paid: false,
+        approx_mb: null,
+        available: true,
+      },
+    ],
+  };
+
+  it('FR-058: a missing dependency is explained in the app language and offers Install…, which opens the consent dialog', async () => {
+    const calls = mockJob({ dependencies: [missingOffice] });
+    render(<Harness initial={[uiFile('/docs/report.docx')]} />);
+
+    const panel = await screen.findByRole('alert', {
+      name: 'Missing dependency',
+    });
+    expect(
+      within(panel).getByText(/^LibreOffice is missing, so Office/),
+    ).toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Install…' }));
+    expect(
+      screen.getByRole('dialog', { name: 'Install LibreOffice' }),
+    ).toBeInTheDocument();
+    // Opening the dialog installs nothing.
+    expect(calls.some((c) => c.cmd === 'install_dependency')).toBe(false);
+  });
+
+  it('FR-058: chromium_pandoc_not_required — HTML and Markdown raise no dependency panel', async () => {
+    mockJob({ dependencies: [missingOffice] });
+    render(
+      <Harness
+        initial={[uiFile('/docs/page.html'), uiFile('/docs/README.md')]}
+      />,
+    );
+    // Give the app_info probe a chance to land.
+    await waitFor(() =>
+      expect(screen.getByText('Print Job')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole('alert', { name: 'Missing dependency' }),
+    ).toBeNull();
+  });
 
   it('FR-092: renders every visible string in Spanish when the locale is es-ES', () => {
     mockJob();

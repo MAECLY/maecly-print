@@ -55,6 +55,7 @@ import { resolvePrinterId } from '@/lib/printerIdentity';
 // other screens use, and this one is not on that list yet.
 import type { DependencyReport } from '@/ipc/bindings';
 import { isMacPlatform } from '@/components/AppShell/MPAppShell';
+import { DependencyInstallDialog } from '@/components/DependencyInstallDialog';
 import { Icon } from '@/components/Icon';
 import { useT } from '@/i18n/I18nProvider';
 import { useProfilesStore } from '@/stores/profilesStore';
@@ -327,6 +328,10 @@ export function PrintJobScreen({
   // leaves the list empty, which surfaces no warning — the honest fallback,
   // since we then know nothing rather than know it is missing.
   const [dependencies, setDependencies] = useState<DependencyReport[]>([]);
+  // FR-058 / D13: the dependency the user asked to install (consent dialog).
+  const [installing, setInstalling] = useState<DependencyReport | null>(null);
+  const replaceDependency = (fresh: DependencyReport) =>
+    setDependencies((all) => all.map((d) => (d.id === fresh.id ? fresh : d)));
   useEffect(() => {
     if (!isTauri()) return;
     let alive = true;
@@ -593,6 +598,13 @@ export function PrintJobScreen({
 
   return (
     <>
+      {installing && (
+        <DependencyInstallDialog
+          report={installing}
+          onClose={() => setInstalling(null)}
+          onResolved={replaceDependency}
+        />
+      )}
       <MPTopBar
         title={t('title')}
         subtitle={summary}
@@ -664,19 +676,34 @@ export function PrintJobScreen({
                 ).length;
                 return (
                   <div key={dep.id} style={{ marginTop: 8 }}>
-                    {/* The remediation text comes from the backend verbatim
-                        (English only for now): it names the program and states
-                        what it costs, and inventing a second wording here would
-                        risk promising something the engine does not do. */}
-                    <div style={{ fontSize: 12.5 }}>{dep.remediation}</div>
+                    {/* The remediation sentence in the app's language
+                        (`common:deps.<id>.remediation`, FR-092): it names the
+                        program and what it blocks. */}
+                    <div style={{ fontSize: 12.5 }}>
+                      {tCommon(`deps.${dep.id}.remediation`)}
+                    </div>
                     <div
                       style={{
-                        fontSize: 11,
-                        color: 'var(--mp-textDim)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
                         marginTop: 4,
                       }}
                     >
-                      {t('dependencies.affected', { count: affected })}
+                      <span
+                        style={{ fontSize: 11, color: 'var(--mp-textDim)' }}
+                      >
+                        {t('dependencies.affected', { count: affected })}
+                      </span>
+                      {dep.install.length > 0 && (
+                        <MPButton
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setInstalling(dep)}
+                        >
+                          {t('dependencies.installButton')}
+                        </MPButton>
+                      )}
                     </div>
                   </div>
                 );

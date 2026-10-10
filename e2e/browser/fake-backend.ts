@@ -412,6 +412,18 @@ export class FakeBackend {
           'UpdateInstallFailed',
           'installing is not available in the E2E fake backend',
         );
+      // FR-058: the consent flag is the contract; a page "opens" and the
+      // dependency stays missing (nothing is installed in a browser).
+      case 'install_dependency': {
+        if (a.consent !== true) {
+          throw err('InvalidRequest', 'installing needs the user consent');
+        }
+        const report = (this.appInfo.dependencies ?? []).find(
+          (d) => d.id === a.id,
+        );
+        if (!report) throw err('InvalidRequest', `unknown dependency ${a.id}`);
+        return { status: 'opened', exit_code: null, report: clone(report) };
+      }
 
       default:
         throw err('Internal', `not stubbed in the E2E fake backend: ${cmd}`);
