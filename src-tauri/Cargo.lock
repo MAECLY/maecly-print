@@ -3436,6 +3436,7 @@ dependencies = [
  "clap",
  "directories",
  "encoding_rs",
+ "flate2",
  "image",
  "lopdf",
  "objc2",

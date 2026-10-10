@@ -97,6 +97,10 @@ lopdf = "0.39"
 # two copies of the SVG parser. Both MIT OR Apache-2.0.
 svg2pdf = "0.13"
 usvg = "=0.45.1"
+# SVGZ is inflated by us, with a size cap, instead of by usvg (which inflates
+# without one: a gzip bomb). Already in the tree through usvg/lopdf/png.
+# MIT OR Apache-2.0.
+flate2 = "1"
 # FR-056: Markdown -> HTML without Pandoc. No default features: the CLI
 # helpers (`getopts`) are not needed. MIT.
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
