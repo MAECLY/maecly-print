@@ -305,6 +305,21 @@ export class FakeBackend {
           j.state = 'queued';
           j.error = null;
         });
+      case 'adjust_job':
+        return this.mutateJob(a.id as string, (j) => {
+          if (j.state !== 'paused')
+            throw err('InvalidState', 'only a paused job can be changed');
+          const change = a.change as {
+            printer?: string | null;
+            duplex?: Job['settings']['duplex'] | null;
+          };
+          if (change.printer != null) {
+            const printer = change.printer.trim();
+            j.settings.printer = printer === '' ? null : printer;
+            j.printer_resolved = null;
+          }
+          if (change.duplex != null) j.settings.duplex = change.duplex;
+        });
       case 'retry_job':
         return this.mutateJob(a.id as string, (j) => {
           if (j.state !== 'failed')

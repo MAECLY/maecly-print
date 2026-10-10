@@ -49,7 +49,7 @@ A job moves through the pipeline `Queued → Converting → Converted → Printi
 | `converting` | Active  | A converter is producing the cache PDF.                      |
 | `converted`  | Active  | Cache PDF ready; waiting for a free printer ("Ready to print"). |
 | `printing`   | Active  | Handed to the OS spooler.                                    |
-| `paused`     | Pending | User-paused, or interrupted by shutdown (resumable).         |
+| `paused`     | Pending | User-paused, interrupted by shutdown, or stopped on a user-fixable error (resumable). A job paused because its printer cannot do what it asks (`unsupported_setting`) or cannot be used (`printer_unavailable`, `printer_disabled`) offers *Print one-sided* (for duplex) and *Send to another printer…* in its row: the change is applied to the job (`adjust_job`) and it resumes, so nothing has to be cancelled and printed again. |
 | `done`       | Recent  | Printer reported completion (terminal).                     |
 | `unconfirmed` | Recent | Sent to the spooler, but nothing confirmed it printed (terminal); `error` says why (`print_unconfirmed`). |
 | `failed`     | Recent  | Terminal error after retries; `error` carries a code + message. |

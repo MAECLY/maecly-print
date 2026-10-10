@@ -344,6 +344,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::jobs::cancel_all,
             ipc::jobs::pause_job,
             ipc::jobs::resume_job,
+            ipc::jobs::adjust_job,
             ipc::jobs::retry_job,
             ipc::jobs::pause_queue,
             ipc::jobs::resume_queue,

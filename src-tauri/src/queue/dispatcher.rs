@@ -95,7 +95,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::engine::print::{OsJobState, PrintError, PrinterCaps, SpoolOutcome, TrackError};
 use crate::engine::{EngineError, PdfPassword};
 use crate::queue::job::{
-    now_rfc3339, Job, JobError, JobProgress, JobState, QueueSnapshot, SCHEMA_VERSION,
+    now_rfc3339, Job, JobChange, JobError, JobProgress, JobState, QueueSnapshot, SCHEMA_VERSION,
 };
 use crate::queue::QueueState;
 use crate::util::error::{IpcError, IpcErrorCode};
@@ -239,6 +239,13 @@ pub(crate) enum Cmd {
     },
     Retry {
         id: String,
+        reply: oneshot::Sender<Result<(), IpcError>>,
+    },
+    /// Change a paused job's printer or sides before resuming it
+    /// ([`Dispatcher::on_adjust`]).
+    Adjust {
+        id: String,
+        change: JobChange,
         reply: oneshot::Sender<Result<(), IpcError>>,
     },
     /// FR-059: the user typed the password of a job's encrypted PDF. With
@@ -812,6 +819,9 @@ impl Dispatcher {
             } => {
                 let _ = reply.send(self.on_supply_password(&id, password, apply_to_batch));
             }
+            Cmd::Adjust { id, change, reply } => {
+                let _ = reply.send(self.on_adjust(&id, change));
+            }
             Cmd::PauseQueue => self.set_queue_paused(true),
             Cmd::ResumeQueue => self.set_queue_paused(false),
             Cmd::SetLimits { limits } => self.set_limits(limits),
@@ -1122,6 +1132,47 @@ impl Dispatcher {
                     && !j.error.as_ref().is_some_and(|e| e.code == "pdf_protected")
             })
         });
+    }
+
+    /// Change a paused job's printer or sides (FR-040/FR-044).
+    ///
+    /// A job paused because its printer cannot do what it asks
+    /// (`unsupported_setting`), or because its printer cannot be used
+    /// (`printer_unavailable`, `printer_disabled`), used to have one way out:
+    /// cancel it and print the file again, although the pause message says to
+    /// choose one-sided or another printer. This applies that choice to the
+    /// job itself. The job stays paused — resuming it is the caller's next
+    /// step — so the change is visible before anything is sent. The printer
+    /// it resolved to last time is forgotten, since the next run resolves
+    /// afresh.
+    fn on_adjust(&mut self, id: &str, change: JobChange) -> Result<(), IpcError> {
+        let mut st = self.state.write().unwrap();
+        let job = st
+            .jobs
+            .iter_mut()
+            .find(|j| j.id == id)
+            .ok_or_else(|| IpcError::JobNotFound(id.to_string()))?;
+        if job.state != JobState::Paused {
+            return Err(IpcError::InvalidState(
+                "only a paused job can be changed".to_string(),
+            ));
+        }
+        if let Some(printer) = change.printer {
+            let printer = printer.trim().to_string();
+            job.settings.printer = (!printer.is_empty()).then_some(printer);
+            job.printer_resolved = None;
+        }
+        if let Some(duplex) = change.duplex {
+            job.settings.duplex = duplex;
+        }
+        tracing::info!(
+            event = "job_adjusted",
+            job_id = %job.id,
+            file = %job.file_name,
+            printer = %job.settings.printer.as_deref().unwrap_or("<default>"),
+            duplex = ?job.settings.duplex,
+        );
+        Ok(())
     }
 
     fn on_retry(&mut self, id: &str) -> Result<(), IpcError> {
@@ -3448,6 +3499,115 @@ mod tests {
             0,
             "never spooled"
         );
+    }
+
+    /// FR-040: a job paused because its printer cannot print two-sided can be
+    /// switched to one-sided and resumed — it no longer loops back into the
+    /// same pause, and nothing has to be cancelled and printed again.
+    #[tokio::test]
+    async fn fr_040_a_paused_duplex_job_can_switch_to_one_sided_and_print() {
+        let mut h = harness();
+        h.runner.duplex_supported.store(false, Ordering::Relaxed);
+        let mut j = make_job("a.pdf");
+        j.settings.duplex = Duplex::Long;
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        assert_eq!(h.job(&id).state, JobState::Paused);
+
+        let change = JobChange {
+            duplex: Some(Duplex::None),
+            ..JobChange::default()
+        };
+        h.request(|reply| Cmd::Adjust {
+            id: id.clone(),
+            change,
+            reply,
+        })
+        .await
+        .unwrap();
+        assert_eq!(h.job(&id).state, JobState::Paused, "changed, not sent");
+        assert_eq!(h.job(&id).settings.duplex, Duplex::None);
+
+        h.request(|reply| Cmd::Resume {
+            id: id.clone(),
+            reply,
+        })
+        .await
+        .unwrap();
+        h.run_to_idle();
+        assert_eq!(h.job(&id).state, HANDED_OFF);
+        let sent = h.runner.print_settings.lock().unwrap();
+        assert_eq!(sent.last().unwrap().duplex, Duplex::None);
+    }
+
+    /// FR-044: a job paused on a printer removed from Pluryprint can be sent
+    /// to another printer instead; the old resolution is forgotten.
+    #[tokio::test]
+    async fn fr_044_a_paused_job_can_move_to_another_printer() {
+        let mut h = harness();
+        h.runner
+            .disabled
+            .lock()
+            .unwrap()
+            .insert("Office".to_string());
+        let mut j = make_job("a.pdf");
+        j.settings.printer = Some("Office".to_string());
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        assert_eq!(h.job(&id).state, JobState::Paused);
+        assert_eq!(h.job(&id).error.unwrap().code, "printer_disabled");
+
+        let change = JobChange {
+            printer: Some("Front".to_string()),
+            ..JobChange::default()
+        };
+        h.request(|reply| Cmd::Adjust {
+            id: id.clone(),
+            change,
+            reply,
+        })
+        .await
+        .unwrap();
+        assert_eq!(h.job(&id).settings.printer.as_deref(), Some("Front"));
+        assert!(h.job(&id).printer_resolved.is_none());
+        h.request(|reply| Cmd::Resume {
+            id: id.clone(),
+            reply,
+        })
+        .await
+        .unwrap();
+        h.run_to_idle();
+        assert_eq!(h.job(&id).state, HANDED_OFF);
+        assert_eq!(h.job(&id).printer_resolved.as_deref(), Some("Front"));
+    }
+
+    /// Only a paused job is changed: one already printing or finished is not
+    /// silently rewritten.
+    #[tokio::test]
+    async fn fr_040_only_a_paused_job_can_be_changed() {
+        let mut h = harness();
+        let j = make_job("a.pdf");
+        let id = j.id.clone();
+        h.submit(vec![j]);
+        h.run_to_idle();
+        let r = h
+            .request(|reply| Cmd::Adjust {
+                id: id.clone(),
+                change: JobChange::default(),
+                reply,
+            })
+            .await;
+        assert!(matches!(r, Err(IpcError::InvalidState(_))));
+        let r = h
+            .request(|reply| Cmd::Adjust {
+                id: "nope".to_string(),
+                change: JobChange::default(),
+                reply,
+            })
+            .await;
+        assert!(matches!(r, Err(IpcError::JobNotFound(_))));
     }
 
     /// NFR-010 / FR-032: a job whose OS job was still in the printer queue

@@ -123,6 +123,12 @@
     "retry": "Retry {{file}}",
     "cancel": "Cancel {{file}}"
   },
+  "fix": {
+    "oneSided": "Print one-sided",
+    "oneSidedLabel": "Print {{file}} one-sided",
+    "sendTo": "Send to another printer…",
+    "sendToLabel": "Send {{file}} to another printer"
+  },
   "jobErrors": {
     "codes": {
       "conversion_timeout": "The conversion took longer than {{secs}} s and was stopped.",

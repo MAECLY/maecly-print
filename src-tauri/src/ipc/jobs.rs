@@ -291,6 +291,19 @@ pub async fn resume_job(state: State<'_, QueueHandle>, id: String) -> Result<(),
     state.resume(id).await
 }
 
+/// Change a paused job's printer or sides (e.g. one-sided, or another
+/// printer, for a job paused because its printer cannot do what it asks).
+/// The job stays paused; resume it to send it.
+#[tauri::command]
+#[specta::specta]
+pub async fn adjust_job(
+    state: State<'_, QueueHandle>,
+    id: String,
+    change: crate::queue::job::JobChange,
+) -> Result<(), IpcError> {
+    state.adjust(id, change).await
+}
+
 /// Retry a single failed job from the start.
 #[tauri::command]
 #[specta::specta]

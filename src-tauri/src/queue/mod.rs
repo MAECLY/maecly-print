@@ -191,6 +191,16 @@ impl QueueHandle {
         .await
     }
 
+    /// Change a paused job's printer or sides before it is resumed.
+    pub async fn adjust(
+        &self,
+        id: String,
+        change: crate::queue::job::JobChange,
+    ) -> Result<(), IpcError> {
+        self.request(|reply| dispatcher::Cmd::Adjust { id, change, reply })
+            .await
+    }
+
     /// Retry a failed job from the start (attempts reset).
     pub async fn retry(&self, id: String) -> Result<(), IpcError> {
         self.request(|reply| dispatcher::Cmd::Retry { id, reply })

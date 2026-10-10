@@ -40,7 +40,12 @@
 import { create } from 'zustand';
 import { toast } from 'sonner';
 
-import { events, type Job, type QueueSnapshot } from '@/ipc/bindings';
+import {
+  events,
+  type Job,
+  type JobChange,
+  type QueueSnapshot,
+} from '@/ipc/bindings';
 import {
   CATALOGS,
   matchLocale,
@@ -53,6 +58,7 @@ import { logError } from '@/lib/errorLog';
 import { IpcFailure } from '@/lib/ipcError';
 import {
   cancelAll as cancelAllCmd,
+  adjustJob as adjustJobCmd,
   cancelJob as cancelJobCmd,
   clearDone as clearDoneCmd,
   isTauri,
@@ -134,6 +140,12 @@ interface QueueState {
   init: () => Promise<void>;
   pauseJob: (id: string) => Promise<void>;
   resumeJob: (id: string) => Promise<void>;
+  /**
+   * Change a paused job (one-sided, another printer) and resume it — the way
+   * out of a pause for an unsupported setting or an unusable printer, without
+   * cancelling and printing the file again.
+   */
+  adjustAndResume: (id: string, change: JobChange) => Promise<void>;
   cancelJob: (id: string) => Promise<void>;
   retryJob: (id: string) => Promise<void>;
   pauseQueue: () => Promise<void>;
@@ -637,6 +649,11 @@ export const useQueueStore = create<QueueState>()((set, get) => {
 
     pauseJob: (id) => jobAction(id, pauseJobCmd),
     resumeJob: (id) => jobAction(id, resumeJobCmd),
+    adjustAndResume: (id, change) =>
+      jobAction(id, async (jid) => {
+        await adjustJobCmd(jid, change);
+        await resumeJobCmd(jid);
+      }),
     cancelJob: (id) => jobAction(id, cancelJobCmd),
     retryJob: (id) => jobAction(id, retryJobCmd),
     pauseQueue: () => guard(() => pauseQueueCmd()),

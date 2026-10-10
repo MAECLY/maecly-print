@@ -1,7 +1,16 @@
+import { useEffect, useState } from 'react';
+
 import { FileGlyph, MPIconButton, StatusDot } from '@/components/ui';
 import { useT, type TFunction } from '@/i18n/I18nProvider';
 import { useQueueStore } from '@/stores/queueStore';
-import type { UiQueueJobView } from '@/lib/ipc';
+import {
+  getPrinterPrefs,
+  isTauri,
+  listPrinters,
+  type PrinterPrefs,
+  type UiQueueJobView,
+} from '@/lib/ipc';
+import type { JobChange } from '@/ipc/bindings';
 import type { ConfirmState } from '@/components/ConfirmDialog';
 import { needsPassword } from '@/lib/pdfPassword';
 
@@ -16,6 +25,64 @@ interface QueueListViewProps {
 }
 
 const TERMINAL = new Set(['done', 'unconfirmed', 'failed', 'cancelled']);
+
+/** A printer a paused job can be sent to instead. */
+interface PrinterOption {
+  id: string;
+  name: string;
+}
+
+/**
+ * What a paused job can be changed to so it prints (FR-040/FR-044): the way
+ * out its pause message promises. A job paused because its printer cannot
+ * print two-sided can go one-sided; one paused for an unsupported setting or
+ * a printer that cannot be used can go to another printer. `null` for any
+ * other job (a user pause, a missing dependency, a password).
+ */
+function pauseFixes(
+  j: Pick<UiQueueJobView, 'status' | 'errorInfo'>,
+): { oneSided: boolean; otherPrinter: boolean } | null {
+  if (j.status !== 'paused' || !j.errorInfo) return null;
+  const { code, reason } = j.errorInfo;
+  const oneSided = code === 'unsupported_setting' && reason === 'duplex';
+  const otherPrinter =
+    code === 'unsupported_setting' ||
+    code === 'printer_unavailable' ||
+    code === 'printer_disabled';
+  return oneSided || otherPrinter ? { oneSided, otherPrinter } : null;
+}
+
+/**
+ * The printers a job can be moved to: installed and not removed from
+ * Pluryprint. Loaded only while some job needs the choice.
+ */
+function useUsablePrinters(needed: boolean): PrinterOption[] {
+  const [printers, setPrinters] = useState<PrinterOption[]>([]);
+  useEffect(() => {
+    if (!needed || !isTauri()) return;
+    let alive = true;
+    Promise.all([
+      listPrinters(),
+      getPrinterPrefs().catch((): PrinterPrefs => ({})),
+    ])
+      .then(([ps, prefs]) => {
+        if (!alive) return;
+        const disabled = new Set(prefs.disabled ?? []);
+        setPrinters(
+          ps
+            .filter((p) => !disabled.has(p.id))
+            .map((p) => ({ id: p.id, name: p.name })),
+        );
+      })
+      .catch(() => {
+        // Without a list the select stays empty; one-sided still works.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [needed]);
+  return printers;
+}
 
 /**
  * A job's progress bar, honest about what the backend actually knows.
@@ -100,6 +167,10 @@ interface RowProps {
   onRetry: () => void;
   onCancel: () => void;
   onEnterPassword: () => void;
+  /** Change the paused job, then resume it (see {@link pauseFixes}). */
+  onAdjust: (change: JobChange) => void;
+  /** Where a paused job can be sent instead. */
+  printers: PrinterOption[];
   /** A command for this job is still in flight: no second click (NFR-033). */
   busy: boolean;
 }
@@ -113,9 +184,13 @@ function Row({
   onRetry,
   onCancel,
   onEnterPassword,
+  onAdjust,
+  printers,
   busy,
 }: RowProps) {
   const terminal = TERMINAL.has(j.status);
+  const fixes = pauseFixes(j);
+  const targets = printers.filter((p) => p.id !== j.printer);
   const error = labels.error(j);
   const meta = [
     t('job.meta', { profile: j.profile, printer: labels.printer(j) }),
@@ -166,6 +241,65 @@ function Row({
         >
           {meta}
         </div>
+        {fixes && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 6,
+              marginTop: 4,
+              alignItems: 'center',
+            }}
+          >
+            {fixes.oneSided && (
+              <button
+                type="button"
+                disabled={busy}
+                aria-label={t('fix.oneSidedLabel', { file: j.file })}
+                onClick={() => onAdjust({ printer: null, duplex: 'none' })}
+                style={{
+                  fontSize: 11,
+                  padding: '2px 8px',
+                  borderRadius: 5,
+                  border: '1px solid var(--mp-border)',
+                  background: 'var(--mp-surface)',
+                  color: 'var(--mp-text)',
+                  cursor: busy ? 'default' : 'pointer',
+                }}
+              >
+                {t('fix.oneSided')}
+              </button>
+            )}
+            {fixes.otherPrinter && targets.length > 0 && (
+              <select
+                aria-label={t('fix.sendToLabel', { file: j.file })}
+                disabled={busy}
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    onAdjust({ printer: e.target.value, duplex: null });
+                  }
+                }}
+                style={{
+                  fontSize: 11,
+                  padding: '2px 6px',
+                  borderRadius: 5,
+                  border: '1px solid var(--mp-border)',
+                  background: 'var(--mp-surface)',
+                  color: 'var(--mp-text)',
+                  maxWidth: 220,
+                }}
+              >
+                <option value="">{t('fix.sendTo')}</option>
+                {targets.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <StatusDot status={j.status} />
@@ -256,8 +390,12 @@ export function QueueListView({
   const resumeJob = useQueueStore((s) => s.resumeJob);
   const retryJob = useQueueStore((s) => s.retryJob);
   const cancelJob = useQueueStore((s) => s.cancelJob);
+  const adjustAndResume = useQueueStore((s) => s.adjustAndResume);
   const pendingIds = useQueueStore((s) => s.pendingIds);
   const labels = useJobLabels(jobs);
+  const printers = useUsablePrinters(
+    jobs.some((j) => pauseFixes(j)?.otherPrinter),
+  );
 
   const groups = {
     active: jobs.filter((j) =>
@@ -335,6 +473,8 @@ export function QueueListView({
                   onRetry={() => void retryJob(j.id)}
                   onCancel={() => requestCancel(j)}
                   onEnterPassword={() => onEnterPassword(j)}
+                  onAdjust={(change) => void adjustAndResume(j.id, change)}
+                  printers={printers}
                   busy={pendingIds.includes(j.id)}
                 />
               ))}

@@ -309,6 +309,83 @@ describe('QueueScreen — row actions', () => {
     });
   });
 
+  it('FR-040: a job paused because the printer cannot duplex can go one-sided, then resumes', async () => {
+    const calls = mockQueue(
+      snapshotOf([
+        mkJob({
+          id: 'j-duplex',
+          state: 'paused',
+          file_name: 'report.pdf',
+          error: {
+            code: 'unsupported_setting',
+            reason: 'duplex',
+            params: { printer: 'Front' },
+            message: 'x',
+          },
+        }),
+      ]),
+    );
+    await useQueueStore.getState().init();
+    render(<QueueScreen view="list" setView={() => {}} />);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Print report.pdf one-sided' }),
+    );
+    await waitFor(() =>
+      expect(calls.some((c) => c.cmd === 'resume_job')).toBe(true),
+    );
+    const adjust = calls.findIndex((c) => c.cmd === 'adjust_job');
+    const resume = calls.findIndex((c) => c.cmd === 'resume_job');
+    expect(calls[adjust]?.args).toEqual({
+      id: 'j-duplex',
+      change: { printer: null, duplex: 'none' },
+    });
+    expect(adjust).toBeLessThan(resume);
+  });
+
+  it('FR-044: a job paused on a removed printer can be sent to another one', async () => {
+    const calls: Call[] = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+      if (cmd === 'queue_status')
+        return snapshotOf([
+          mkJob({
+            id: 'j-removed',
+            state: 'paused',
+            file_name: 'invoice.pdf',
+            error: {
+              code: 'printer_disabled',
+              params: { printer: 'HL_L2350' },
+              message: 'x',
+            },
+          }),
+        ]);
+      if (cmd === 'list_printers') return fixturePrinters;
+      if (cmd === 'get_printer_prefs') return { disabled: ['HL_L2350'] };
+      return null;
+    });
+    await useQueueStore.getState().init();
+    render(<QueueScreen view="list" setView={() => {}} />);
+
+    const select = await screen.findByRole('combobox', {
+      name: 'Send invoice.pdf to another printer',
+    });
+    // Only printers that can be used are offered.
+    await within(select).findByText('EPSON L15160 Series');
+    expect(within(select).queryByText('Brother HL-L2350DW')).toBeNull();
+    // Not a one-sided problem: no such button.
+    expect(screen.queryByRole('button', { name: /one-sided/ })).toBeNull();
+
+    fireEvent.change(select, { target: { value: 'EPSON_L15160' } });
+    await waitFor(() =>
+      expect(calls.some((c) => c.cmd === 'resume_job')).toBe(true),
+    );
+    expect(calls.find((c) => c.cmd === 'adjust_job')?.args).toEqual({
+      id: 'j-removed',
+      change: { printer: 'EPSON_L15160', duplex: null },
+    });
+  });
+
   it('FR-032: only the actions legal for a state are offered', async () => {
     await renderReady();
 

@@ -54,6 +54,7 @@ The table below is the **complete** registered surface — 44 commands, in `coll
 | `cancel_all`                | `cancelAll() => number`                                        | `ipc::jobs::cancel_all`                 | Cancels every non-terminal job; returns the count |
 | `pause_job`                 | `pauseJob(id) => null`                                         | `ipc::jobs::pause_job`                  | Refused (`InvalidState`) once a job is printing |
 | `resume_job`                | `resumeJob(id) => null`                                        | `ipc::jobs::resume_job`                 | Back to `converted` if the cache survives, else `queued` |
+| `adjust_job`                | `adjustJob(id, change: JobChange) => null`                     | `ipc::jobs::adjust_job`                 | Only a `paused` job; sets `printer` (empty = unpin) and/or `duplex`, keeps it paused (resume next). The Queue's *Print one-sided* / *Send to another printer…* for `unsupported_setting`, `printer_unavailable`, `printer_disabled` |
 | `retry_job`                 | `retryJob(id) => null`                                         | `ipc::jobs::retry_job`                  | Only a `failed` job; resets attempts |
 | `pause_queue`               | `pauseQueue() => null`                                         | `ipc::jobs::pause_queue`                | Stops starting new work; in-flight jobs continue |
 | `resume_queue`              | `resumeQueue() => null`                                        | `ipc::jobs::resume_queue`               | |

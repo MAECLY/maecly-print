@@ -609,6 +609,22 @@ impl Job {
     }
 }
 
+/// A change to a paused job, so it can be sent again without cancelling it
+/// and printing the file anew: what a job paused for an unsupported setting
+/// or an unusable printer needs ("Print one-sided", "Send to another
+/// printer"). Every field is optional; `None` keeps what the job has.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct JobChange {
+    /// Print to this printer (a queue id or display name) instead. An empty
+    /// string drops the pin, so the job follows the routing rules and the
+    /// default printer again.
+    #[serde(default)]
+    pub printer: Option<String>,
+    /// Print with these sides instead (`none` is one-sided).
+    #[serde(default)]
+    pub duplex: Option<Duplex>,
+}
+
 /// The result of submitting a [`PrintRequest`]: the batch id and the ids of the
 /// jobs it produced (one per input file).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]

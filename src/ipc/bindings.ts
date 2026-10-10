@@ -300,6 +300,19 @@ async resumeJob(id: string) : Promise<Result<null, IpcError>> {
 }
 },
 /**
+ * Change a paused job's printer or sides (e.g. one-sided, or another
+ * printer, for a job paused because its printer cannot do what it asks).
+ * The job stays paused; resume it to send it.
+ */
+async adjustJob(id: string, change: JobChange) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("adjust_job", { id, change }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Retry a single failed job from the start.
  */
 async retryJob(id: string) : Promise<Result<null, IpcError>> {
@@ -1376,6 +1389,23 @@ batch_id: string;
  * One job id per input file, in input order.
  */
 job_ids: string[] }
+/**
+ * A change to a paused job, so it can be sent again without cancelling it
+ * and printing the file anew: what a job paused for an unsupported setting
+ * or an unusable printer needs ("Print one-sided", "Send to another
+ * printer"). Every field is optional; `None` keeps what the job has.
+ */
+export type JobChange = { 
+/**
+ * Print to this printer (a queue id or display name) instead. An empty
+ * string drops the pin, so the job follows the routing rules and the
+ * default printer again.
+ */
+printer?: string | null; 
+/**
+ * Print with these sides instead (`none` is one-sided).
+ */
+duplex?: Duplex | null }
 /**
  * A structured job error. `code` is a stable machine-readable identifier;
  * `message` is the English detail (logs, the CLI, and the UI's fallback).

@@ -23,6 +23,7 @@ import {
   type IpcError,
   type Job,
   type JobBatch,
+  type JobChange,
   type JobError,
   type PaperSize,
   type Printer as IpcPrinter,
@@ -364,6 +365,16 @@ export async function supplyPdfPassword(
 ): Promise<void> {
   if (!isTauri()) throw noHost();
   await unwrap(commands.jobSupplyPassword(id, password, applyToBatch));
+}
+
+/**
+ * Change a paused job's printer or sides (e.g. one-sided, or another printer
+ * for a job paused because its printer cannot do what it asks). The job
+ * stays paused; resume it to send it.
+ */
+export async function adjustJob(id: string, change: JobChange): Promise<void> {
+  if (!isTauri()) throw noHost();
+  await unwrap(commands.adjustJob(id, change));
 }
 
 /** Retry a single failed job from the start. */
