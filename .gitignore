@@ -60,3 +60,6 @@ installers/macos/*.pkg
 # Fetched at packaging time by scripts/fetch-sumatrapdf.{ps1,sh}; never committed
 src-tauri/resources/sumatrapdf/*
 !src-tauri/resources/sumatrapdf/README.md
+
+# Built by scripts/build-shell-ext.ps1 for the installer; never committed
+src-tauri/windows/*.dll
