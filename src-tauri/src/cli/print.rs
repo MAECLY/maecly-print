@@ -69,9 +69,11 @@ pub struct FileOutcome {
     /// can split one batch across printers.
     pub printer: String,
     /// `done` (the spooler accepted the job), `held` (accepted, but the
-    /// printer is paused, offline or stopped on an error, so nothing prints
-    /// until it is fixed), `unconfirmed` (accepted, but the printers could not
-    /// be read, so whether it prints now is unknown), or `failed`.
+    /// printer is paused, offline or stopped on an error, or the spooler holds
+    /// the job itself — CUPS `pending-held`, a paused Windows job — so nothing
+    /// prints until someone acts), `unconfirmed` (accepted, but the printers or
+    /// the job's own state could not be read, so whether it prints now is
+    /// unknown), or `failed`.
     pub state: String,
     /// The spooler's own job id, when the backend reports one (CUPS does).
     pub os_job_id: Option<String>,
@@ -217,6 +219,12 @@ pub fn run(paths: &Paths, emitter: Emitter, args: PrintArgs) -> Result<ExitCode,
             }
         }
     }
+    // A ready queue can still hold the job itself: a CUPS queue with a default
+    // `job-hold-until` parks every job as `pending-held`, and a Windows job can
+    // be paused on its own. So each job still `done` is looked up by its id.
+    if batch.has_done() {
+        batch.mark_held_jobs(crate::engine::print::job_state);
+    }
 
     let worst = batch.worst();
     let report = PrintReport {
@@ -340,6 +348,43 @@ impl BatchOutcomes {
         for f in &mut self.files {
             if f.state == "done" && not_printing.contains(&f.printer) {
                 f.state = "held".to_string();
+            }
+        }
+    }
+
+    /// Ask the spooler about each file still `done` that has a job id, through
+    /// `read` ([`crate::engine::print::job_state`] in production), and turn it
+    /// into `held` when the spooler itself holds the job: `pending-held` on
+    /// CUPS (a queue whose default `job-hold-until` parks every job, while the
+    /// queue itself reads as ready), a job paused in the Windows queue, or one
+    /// stopped on a device problem. A state that cannot be read makes the file
+    /// `unconfirmed` rather than a guessed `done`. A file without a job id has
+    /// nothing to ask about and keeps `done`. The exit code is unchanged.
+    pub fn mark_held_jobs(
+        &mut self,
+        mut read: impl FnMut(
+            &str,
+            &str,
+        ) -> Result<
+            crate::engine::print::OsJobState,
+            crate::engine::print::TrackError,
+        >,
+    ) {
+        use crate::engine::print::OsJobState;
+        for f in &mut self.files {
+            if f.state != "done" {
+                continue;
+            }
+            let Some(id) = f.os_job_id.as_deref() else {
+                continue;
+            };
+            match read(&f.printer, id) {
+                Ok(OsJobState::Held | OsJobState::Stopped) => f.state = "held".to_string(),
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!(event = "cli_job_state_unknown", printer = %f.printer, error = %e);
+                    f.state = "unconfirmed".to_string();
+                }
             }
         }
     }
@@ -1187,6 +1232,79 @@ mod tests {
         batch.record("/d/a.pdf", "Jammed".to_string(), Ok(None));
         batch.record("/d/b.pdf", "Fine".to_string(), Ok(None));
         batch.mark_held(&stopped);
+        let states: Vec<_> = batch.into_files().into_iter().map(|f| f.state).collect();
+        assert_eq!(states, ["held", "done"]);
+    }
+
+    /// FR-008: a job the spooler itself holds — a CUPS queue whose default
+    /// `job-hold-until` parks every job (`pending-held`), a job paused in the
+    /// Windows queue, or one stopped on a device problem — is `held` even
+    /// though its queue reads as ready. A job whose state cannot be read is
+    /// `unconfirmed`, never guessed; one without a spooler id keeps `done`
+    /// (nothing to ask about); a failure stays failed and is never queried.
+    #[test]
+    fn fr_008_a_job_the_spooler_holds_is_held_not_done() {
+        use crate::engine::print::{OsJobState, TrackError};
+        let mut batch = BatchOutcomes::with_capacity(8);
+        batch.record("/d/held.pdf", "Q".to_string(), Ok(Some("Q-1".into())));
+        batch.record("/d/stopped.pdf", "Q".to_string(), Ok(Some("Q-2".into())));
+        batch.record("/d/pending.pdf", "Q".to_string(), Ok(Some("Q-3".into())));
+        batch.record("/d/gone.pdf", "Q".to_string(), Ok(Some("Q-4".into())));
+        batch.record("/d/busy.pdf", "Q".to_string(), Ok(Some("Q-5".into())));
+        batch.record("/d/notool.pdf", "Q".to_string(), Ok(Some("Q-6".into())));
+        batch.record("/d/noid.pdf", "Q".to_string(), Ok(None));
+        batch.record(
+            "/d/failed.pdf",
+            "Q".to_string(),
+            Err(CliError::from(IpcError::PrintFailed("x".into()))),
+        );
+        let worst = batch.worst();
+        let mut asked = Vec::new();
+        batch.mark_held_jobs(|printer, id| {
+            asked.push((printer.to_string(), id.to_string()));
+            match id {
+                "Q-1" => Ok(OsJobState::Held),
+                "Q-2" => Ok(OsJobState::Stopped),
+                "Q-3" => Ok(OsJobState::Pending),
+                "Q-4" => Ok(OsJobState::Gone),
+                "Q-5" => Err(TrackError::Transient("busy".into())),
+                _ => Err(TrackError::Unavailable("no ipptool".into())),
+            }
+        });
+        assert_eq!(asked.len(), 6, "only accepted files with an id: {asked:?}");
+        assert_eq!(asked[0], ("Q".to_string(), "Q-1".to_string()));
+        assert_eq!(batch.worst(), worst, "the exit code is unchanged");
+        let states: Vec<_> = batch.into_files().into_iter().map(|f| f.state).collect();
+        assert_eq!(
+            states,
+            [
+                "held",
+                "held",
+                "done",
+                "done",
+                "unconfirmed",
+                "unconfirmed",
+                "done",
+                "failed"
+            ]
+        );
+    }
+
+    /// FR-008: a file already `held` by its queue's state is not asked about
+    /// again, and the job check never undoes it.
+    #[test]
+    fn fr_008_job_check_only_asks_about_files_still_done() {
+        use crate::engine::print::OsJobState;
+        let mut batch = BatchOutcomes::with_capacity(2);
+        batch.record("/d/a.pdf", "Paused".to_string(), Ok(Some("P-1".into())));
+        batch.record("/d/b.pdf", "Fine".to_string(), Ok(Some("F-1".into())));
+        batch.mark_held(&["Paused".to_string()].into_iter().collect());
+        let mut asked = Vec::new();
+        batch.mark_held_jobs(|_, id| {
+            asked.push(id.to_string());
+            Ok(OsJobState::Pending)
+        });
+        assert_eq!(asked, ["F-1"]);
         let states: Vec<_> = batch.into_files().into_iter().map(|f| f.state).collect();
         assert_eq!(states, ["held", "done"]);
     }
