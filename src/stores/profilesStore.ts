@@ -31,7 +31,7 @@ import {
   toUiProfile,
   unwrap,
 } from '@/lib/ipc';
-import { BUILT_IN_PROFILES, findProfileIn } from '@/lib/profiles';
+import { builtInProfiles, findProfileIn } from '@/lib/profiles';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { UiProfile } from '@/types/domain';
 
@@ -137,7 +137,7 @@ export const useProfilesStore = create<ProfilesState>()((set, get) => {
       const status = get().status;
       if (status !== 'idle' && status !== 'error') return;
       if (!isTauri()) {
-        set({ status: 'unavailable', profiles: BUILT_IN_PROFILES });
+        set({ status: 'unavailable', profiles: builtInProfiles() });
         return;
       }
       set({ status: 'loading', error: undefined });

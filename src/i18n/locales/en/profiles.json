@@ -20,6 +20,11 @@
     "builtin": "built-in",
     "default": "default"
   },
+  "builtinNames": {
+    "builtin-quick": "Quick",
+    "builtin-duplex-bw": "Duplex BW",
+    "builtin-photo-color": "Photo Color"
+  },
   "detail": {
     "id": "id: {{id}}",
     "unsavedId": "(unsaved)",

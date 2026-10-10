@@ -1,7 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
+
+import { setActiveLocale } from '@/i18n';
 
 import {
   BUILT_IN_PROFILES,
+  builtInProfiles,
   buildPrintRequest,
   findPageRangeOverflow,
   findProfileByRef,
@@ -62,6 +65,41 @@ describe('findProfileIn', () => {
 
   it('falls back to the first built-in for an empty list', () => {
     expect(findProfileIn([], 'anything')).toBe(BUILT_IN_PROFILES[0]);
+  });
+
+  it('FR-093: the empty-list fallback is named in the UI language', () => {
+    setActiveLocale('es-ES');
+    try {
+      expect(findProfileIn([], 'anything').name).toBe('Rápido');
+    } finally {
+      setActiveLocale('en-US');
+    }
+  });
+});
+
+describe('builtInProfiles', () => {
+  afterEach(() => setActiveLocale('en-US'));
+
+  it('FR-093: names the static built-ins like the backend does in es-ES', () => {
+    // The same names as the Rust BUILTIN_NAMES table (profiles/mod.rs).
+    expect(builtInProfiles('es-ES').map((p) => [p.id, p.name])).toEqual([
+      ['builtin-quick', 'Rápido'],
+      ['builtin-duplex-bw', 'Doble cara B/N'],
+      ['builtin-photo-color', 'Foto color'],
+    ]);
+  });
+
+  it('keeps the English names, and every setting, in en-US', () => {
+    expect(builtInProfiles('en-US')).toEqual(BUILT_IN_PROFILES);
+    const es = builtInProfiles('es-ES');
+    expect(es.map(({ name: _n, ...rest }) => rest)).toEqual(
+      BUILT_IN_PROFILES.map(({ name: _n, ...rest }) => rest),
+    );
+  });
+
+  it('follows the active locale when none is given', () => {
+    setActiveLocale('es-ES');
+    expect(builtInProfiles()[0]!.name).toBe('Rápido');
   });
 });
 

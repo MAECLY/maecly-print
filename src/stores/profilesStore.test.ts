@@ -9,6 +9,7 @@ import {
   fixtureProfiles,
   mkProfile,
 } from '@/test/fixtures';
+import { setActiveLocale } from '@/i18n';
 import { BUILT_IN_PROFILES } from '@/lib/profiles';
 import { useProfilesStore } from '@/stores/profilesStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -194,6 +195,26 @@ describe('profilesStore', () => {
     const s = useProfilesStore.getState();
     expect(s.status).toBe('unavailable');
     expect(s.profiles).toEqual(BUILT_IN_PROFILES);
+  });
+
+  it('FR-093: the fallback outside Tauri names the built-ins in Spanish in es-ES', async () => {
+    const w = window as unknown as {
+      __TAURI_INTERNALS__?: unknown;
+      __TAURI__?: unknown;
+    };
+    delete w.__TAURI_INTERNALS__;
+    delete w.__TAURI__;
+    setActiveLocale('es-ES');
+    try {
+      await useProfilesStore.getState().init();
+      expect(useProfilesStore.getState().profiles.map((p) => p.name)).toEqual([
+        'Rápido',
+        'Doble cara B/N',
+        'Foto color',
+      ]);
+    } finally {
+      setActiveLocale('en-US');
+    }
   });
 
   it('marks status error on failure and is retryable', async () => {

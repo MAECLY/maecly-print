@@ -20,6 +20,11 @@
     "builtin": "integrado",
     "default": "predeterminado"
   },
+  "builtinNames": {
+    "builtin-quick": "Rápido",
+    "builtin-duplex-bw": "Doble cara B/N",
+    "builtin-photo-color": "Foto color"
+  },
   "detail": {
     "id": "id: {{id}}",
     "unsavedId": "(sin guardar)",

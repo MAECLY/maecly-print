@@ -25,7 +25,7 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import {
-  BUILT_IN_PROFILES,
+  builtInProfiles,
   buildPrintRequest,
   AUTO_PAPER,
   DEFAULT_PRINTER,
@@ -59,7 +59,7 @@ import { isMacPlatform } from '@/components/AppShell/MPAppShell';
 import { DependencyInstallDialog } from '@/components/DependencyInstallDialog';
 import { remediationKey } from '@/lib/deps';
 import { Icon } from '@/components/Icon';
-import { useT } from '@/i18n/I18nProvider';
+import { useLocale, useT } from '@/i18n/I18nProvider';
 import { useProfilesStore } from '@/stores/profilesStore';
 import { primePrinterNames } from '@/stores/printerNamesStore';
 import {
@@ -189,13 +189,14 @@ export function PrintJobScreen({
   // Profiles come from the shared store (built-ins + customs). Init is
   // idempotent; the static built-ins are the fallback until it resolves (and
   // the store's own fallback outside Tauri), so the dropdown is never empty.
+  const locale = useLocale();
   const storeProfiles = useProfilesStore((s) => s.profiles);
   const initProfiles = useProfilesStore((s) => s.init);
   useEffect(() => {
     void initProfiles();
   }, [initProfiles]);
   const profileList =
-    storeProfiles.length > 0 ? storeProfiles : BUILT_IN_PROFILES;
+    storeProfiles.length > 0 ? storeProfiles : builtInProfiles(locale);
 
   const profileObj = findProfileIn(profileList, profile);
   const merged = { ...profileObj, ...overrides };

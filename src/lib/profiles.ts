@@ -5,7 +5,9 @@
  * the UI has a static fallback when the backend is unreachable (the standalone
  * Vite preview) and so `findProfileIn` never comes up empty. The real source of
  * truth is `list_profiles` (see `profilesStore`); these ids/names/values match
- * the Rust `builtins()` exactly.
+ * the Rust `builtins()` exactly. The backend names the built-ins in the app's
+ * language (FR-093), so a fallback shown to the user goes through
+ * {@link builtInProfiles}, which names them from `profiles:builtinNames`.
  *
  * A profile is a starting point; the Print Job overrides panel is the real
  * settings source (FR-040/041). `buildPrintRequest` collapses a profile baseline
@@ -13,6 +15,13 @@
  * `src/ipc/bindings.ts`).
  */
 
+import {
+  CATALOGS,
+  getActiveLocale,
+  translate,
+  type Locale,
+  type TranslationKey,
+} from '@/i18n';
 import type {
   Duplex,
   JobSettings,
@@ -119,6 +128,33 @@ export const BUILT_IN_PROFILES: UiProfile[] = [
   },
 ];
 
+const localized = new Map<Locale, UiProfile[]>();
+
+/**
+ * The built-ins named in `locale` (default: the language the UI renders in),
+ * as the backend's `localize_builtins` names them. Every setting is
+ * {@link BUILT_IN_PROFILES}'s; English returns that very list. Memoized per
+ * locale, so callers can compare by identity.
+ */
+export function builtInProfiles(
+  locale: Locale = getActiveLocale(),
+): UiProfile[] {
+  if (locale === 'en-US') return BUILT_IN_PROFILES;
+  let list = localized.get(locale);
+  if (!list) {
+    list = BUILT_IN_PROFILES.map((p) => ({
+      ...p,
+      name: translate(
+        CATALOGS[locale],
+        'profiles',
+        `builtinNames.${p.id}` as TranslationKey<'profiles'>,
+      ),
+    }));
+    localized.set(locale, list);
+  }
+  return list;
+}
+
 /** Per-invocation tweaks layered on top of the selected profile's baseline. */
 export interface PrintJobOverrides {
   printer?: string;
@@ -135,7 +171,7 @@ export interface PrintJobOverrides {
 /**
  * Resolve `id` against a live profile list, with a deterministic fallback
  * chain: exact match → the list's default profile → the first profile → the
- * first built-in (so this never returns undefined even for an empty list).
+ * first built-in, named in the UI language (so this never returns undefined even for an empty list).
  */
 export function findProfileIn(
   profiles: UiProfile[],
@@ -145,7 +181,7 @@ export function findProfileIn(
   if (match) return match;
   const def = profiles.find((p) => p.default);
   if (def) return def;
-  return profiles[0] ?? BUILT_IN_PROFILES[0]!;
+  return profiles[0] ?? builtInProfiles()[0]!;
 }
 
 /**
