@@ -247,6 +247,90 @@ describe('installStore', () => {
     });
   });
 
+  /**
+   * Round-7 finding: after a reload no Queue handler is subscribed, so the
+   * jobs paused on the dependency stayed paused while the toast said the
+   * files could print now.
+   */
+  it('FR-058: an install picked up by hydrate resumes the waiting queue jobs itself, and the announcement says so', async () => {
+    const state = {
+      current: { running: running(), last: null } as DependencyInstallState,
+    };
+    const { b } = backend(state);
+    const tally = { resumed: 2, failed: 0, checked: true };
+    b.resumeWaiting = vi.fn(() => Promise.resolve(tally));
+    const announce = vi.fn();
+    await useInstallStore
+      .getState()
+      .hydrate(b, { announce, unknownEnd: (n) => `unknown ${n}` });
+    state.current = {
+      running: null,
+      last: {
+        seq: 7,
+        id: 'libre-office',
+        outcome: outcome('installed', { report: office(true) }),
+      },
+    };
+    await waitFor(() => expect(announce).toHaveBeenCalledTimes(1));
+    expect(b.resumeWaiting).toHaveBeenCalledWith('libre-office');
+    expect(announce.mock.calls[0]![0]).toMatchObject({
+      id: 'libre-office',
+      outcome: { status: 'installed' },
+      resumed: tally,
+    });
+  });
+
+  it('FR-058: nothing is resumed when the dependency is still not found', async () => {
+    const state = {
+      current: { running: running(), last: null } as DependencyInstallState,
+    };
+    const { b } = backend(state);
+    b.resumeWaiting = vi.fn();
+    const announce = vi.fn();
+    await useInstallStore
+      .getState()
+      .hydrate(b, { announce, unknownEnd: (n) => n });
+    state.current = {
+      running: null,
+      last: { seq: 7, id: 'libre-office', outcome: outcome('not-detected') },
+    };
+    await waitFor(() => expect(announce).toHaveBeenCalledTimes(1));
+    expect(b.resumeWaiting).not.toHaveBeenCalled();
+    expect(announce.mock.calls[0]![0].resumed).toBeUndefined();
+  });
+
+  it('FR-058: an end nobody could report is probed again before anything resumes', async () => {
+    const state = {
+      current: { running: running(), last: null } as DependencyInstallState,
+    };
+    const { b } = backend(state);
+    b.probe = vi.fn(() => Promise.resolve(office(true)));
+    b.resumeWaiting = vi.fn(() =>
+      Promise.resolve({ resumed: 1, failed: 0, checked: true }),
+    );
+    const announce = vi.fn();
+    await useInstallStore
+      .getState()
+      .hydrate(b, { announce, unknownEnd: (n) => `unknown ${n}` });
+    state.current = idle;
+    await waitFor(() => expect(announce).toHaveBeenCalledTimes(1));
+    expect(b.probe).toHaveBeenCalledWith('libre-office');
+    expect(announce.mock.calls[0]![0]).toMatchObject({
+      failure: 'unknown LibreOffice',
+      resumed: { resumed: 1 },
+    });
+  });
+
+  it('FR-058: a Queue dialog that resumes the jobs itself is left to do it', async () => {
+    const { b, finish } = backend({ current: idle });
+    b.resumeWaiting = vi.fn();
+    const queue = { ...handlers(), resumesJobs: true };
+    useInstallStore.getState().start(office(), 'winget', b, queue);
+    finish(outcome('installed'));
+    await waitFor(() => expect(queue.onResolved).toHaveBeenCalledTimes(1));
+    expect(b.resumeWaiting).not.toHaveBeenCalled();
+  });
+
   it('FR-058: hydrate finds an installer still finishing and holds Install back', async () => {
     const state = {
       current: {

@@ -332,6 +332,10 @@ describe('DependencyInstallDialog', () => {
     const onClose = vi.fn();
     const onResolved = vi.fn();
     const success = vi.spyOn(toast, 'success').mockReturnValue('id');
+    // Nothing waits for it in the queue.
+    const resumeWaiting = vi.fn(() =>
+      Promise.resolve({ resumed: 0, failed: 0, checked: true }),
+    );
     const { unmount } = render(
       <DependencyInstallDialog
         report={office([WINGET, WEB])}
@@ -339,6 +343,7 @@ describe('DependencyInstallDialog', () => {
         onResolved={onResolved}
         run={run}
         progress={noProgress}
+        resumer={{ resumeWaiting }}
       />,
     );
     await user.click(screen.getByRole('button', { name: 'Install' }));
@@ -359,10 +364,84 @@ describe('DependencyInstallDialog', () => {
       report: fresh,
     });
     await waitFor(() => expect(onResolved).toHaveBeenCalledWith(fresh));
-    expect(success).toHaveBeenCalledWith('Install LibreOffice', {
-      description:
-        'LibreOffice is installed. The files that needed it can print now.',
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith('Install LibreOffice', {
+        description:
+          'LibreOffice is installed. The files that needed it can print now.',
+      }),
+    );
+    expect(resumeWaiting).toHaveBeenCalledWith('libre-office');
+  });
+
+  /**
+   * Round-7 finding: only a mounted Queue resumed the jobs waiting for a
+   * dependency. An install started from Print Job resumes them too, and the
+   * toast says so.
+   */
+  it('FR-058: an install started outside the Queue resumes the queue jobs waiting for it', async () => {
+    const user = userEvent.setup();
+    const { run, finish } = pendingRun();
+    const success = vi.spyOn(toast, 'success').mockReturnValue('id');
+    const resumeWaiting = vi.fn(() =>
+      Promise.resolve({ resumed: 2, failed: 0, checked: true }),
+    );
+    const { unmount } = render(
+      <DependencyInstallDialog
+        report={office([WINGET, WEB])}
+        onClose={vi.fn()}
+        onResolved={vi.fn()}
+        run={run}
+        progress={noProgress}
+        resumer={{ resumeWaiting }}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Install' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Run in background' }),
+    );
+    unmount();
+    finish({
+      status: 'installed',
+      exit_code: 0,
+      elevated: false,
+      report: { ...office([]), found: true, blocks: [] },
     });
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith('Install LibreOffice', {
+        description:
+          'LibreOffice is installed. The 2 jobs in the queue that needed it are resuming.',
+      }),
+    );
+  });
+
+  it("FR-058: the Queue's own dialog resumes its jobs, so the store leaves them to it", async () => {
+    const user = userEvent.setup();
+    const { run, finish } = pendingRun();
+    const resumeWaiting = vi.fn(() =>
+      Promise.resolve({ resumed: 1, failed: 0, checked: true }),
+    );
+    const onResolved = vi.fn();
+    render(
+      <DependencyInstallDialog
+        report={office([WINGET, WEB])}
+        onClose={vi.fn()}
+        onResolved={onResolved}
+        resumesJobs
+        run={run}
+        progress={noProgress}
+        resumer={{ resumeWaiting }}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Install' }));
+    const fresh = { ...office([]), found: true, blocks: [] };
+    finish({
+      status: 'installed',
+      exit_code: 0,
+      elevated: false,
+      report: fresh,
+    });
+    await waitFor(() => expect(onResolved).toHaveBeenCalledWith(fresh));
+    expect(resumeWaiting).not.toHaveBeenCalled();
   });
 
   it.each([

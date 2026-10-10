@@ -65,6 +65,12 @@
     "open": "Open",
     "result": {
       "installed": "{{name}} is installed. The files that needed it can print now.",
+      "installedAlone": "{{name}} is installed.",
+      "installedResumed_one": "{{name}} is installed. The job in the queue that needed it is resuming.",
+      "installedResumed_other": "{{name}} is installed. The {{count}} jobs in the queue that needed it are resuming.",
+      "installedResumeFailed_one": "{{name}} is installed, but the job in the queue that needed it could not be resumed. Resume it from the queue.",
+      "installedResumeFailed_other": "{{name}} is installed, but {{count}} jobs in the queue that needed it could not be resumed. Resume them from the queue.",
+      "installedResumeUnchecked": "{{name}} is installed, but Pluryprint could not read the queue to resume the jobs that needed it. Resume them from the queue.",
       "notDetected": "The installer finished, but Pluryprint does not see {{name}} yet. Restart Pluryprint and try again.",
       "opened": "Finish the installation in the window that opened. Pluryprint checks again when you come back to it.",
       "openedResumesJobs": "Finish the installation in the window that opened. Pluryprint checks again when you come back to it and resumes the jobs waiting for {{name}}.",

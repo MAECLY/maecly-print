@@ -14,6 +14,13 @@
  * dialog was the last one open. A dialog watching it shows the result
  * itself; with none open, the result is announced (a toast) once.
  *
+ * The store also resumes, itself, the Queue's jobs paused on
+ * `dependency_missing` for that dependency once it is found (the backend's
+ * fresh report says so, or, for an end it could not report, a new probe
+ * does) — unless a screen that does that itself (the Queue's dialog,
+ * `resumesJobs`) heard the end. So the jobs resume whether or not the Queue
+ * is on screen, and the announcement says what actually happened to them.
+ *
  * The backend also says which install holds its slot
  * (`dependency_install_status`). The store asks on startup (`hydrate`), so a
  * reloaded window finds a running install again, Stop included; and after an
@@ -55,8 +62,29 @@ export interface FinishingInstall {
   name: string;
 }
 
-/** How an install ended: an outcome, or a failure message. */
-export type InstallEnd = { id: Dependency; name: string; seq: number } & (
+/**
+ * What the store did with the Queue's jobs waiting for a dependency once it
+ * was found. `checked: false`: the queue could not be read, so nothing is
+ * known about them.
+ */
+export interface ResumeTally {
+  /** Jobs resumed. */
+  resumed: number;
+  /** Jobs the backend refused to resume (they stay paused). */
+  failed: number;
+  checked: boolean;
+}
+
+/**
+ * How an install ended: an outcome, or a failure message. `resumed` is set
+ * on an announced end when the store resumed the waiting jobs itself.
+ */
+export type InstallEnd = {
+  id: Dependency;
+  name: string;
+  seq: number;
+  resumed?: ResumeTally;
+} & (
   | { outcome: InstallOutcome; failure?: undefined }
   | { outcome?: undefined; failure: string }
 );
@@ -67,6 +95,11 @@ export interface InstallHandlers {
   onResolved: (report: DependencyReport) => void;
   /** Announces an end nobody is watching (a toast). */
   announce: (end: InstallEnd) => void;
+  /**
+   * This screen resumes the jobs waiting for the dependency itself (the
+   * Queue), so the store leaves them to it.
+   */
+  resumesJobs?: boolean;
 }
 
 /** The backend calls the store makes, injected so tests can drive them. */
@@ -84,6 +117,16 @@ export interface InstallBackend {
   status?: () => Promise<DependencyInstallState>;
   /** Poll interval for `status`; `INSTALL_POLL_MS` by default. */
   pollMs?: number;
+  /**
+   * Probes `id` afresh (`null` when the backend does not report it). Used
+   * for an end whose outcome, and so whose fresh report, is unknown.
+   */
+  probe?: (id: Dependency) => Promise<DependencyReport | null>;
+  /**
+   * Resumes the queue's jobs paused on `dependency_missing` for `id`.
+   * Without it the store resumes nothing itself.
+   */
+  resumeWaiting?: (id: Dependency) => Promise<ResumeTally>;
 }
 
 /** What `hydrate` needs beyond the backend: who speaks for a lost window. */
@@ -172,8 +215,11 @@ export const useInstallStore = create<InstallState>()((set, get) => {
     };
   }
 
-  /** The install ended: tell everyone who asked, once. */
-  function finish(end: InstallEnd): void {
+  /**
+   * The install ended: tell everyone who asked, once, and resume the jobs
+   * waiting for the dependency unless a screen that does it heard the end.
+   */
+  function finish(end: InstallEnd, backend: InstallBackend): void {
     const watching = open.get(end.id) ?? [];
     const recipients = [...new Set([...subscribers, ...watching])];
     subscribers = new Set();
@@ -181,9 +227,41 @@ export const useInstallStore = create<InstallState>()((set, get) => {
     if (end.outcome) {
       for (const r of recipients) r.onResolved(end.outcome.report);
     }
-    if (watching.length === 0) {
-      const speaker = recipients.at(-1)?.announce ?? fallbackAnnounce;
+    const speaker =
+      watching.length === 0
+        ? (recipients.at(-1)?.announce ?? fallbackAnnounce)
+        : null;
+    if (recipients.some((r) => r.resumesJobs) || !backend.resumeWaiting) {
       speaker?.(end);
+      return;
+    }
+    void resumeWaitingFor(end, backend).then((resumed) =>
+      speaker?.(resumed ? { ...end, resumed } : end),
+    );
+  }
+
+  /**
+   * Resume the queue's jobs waiting for `end`'s dependency when it is found
+   * now: by the report the install ended with, or, when the end is unknown,
+   * by a fresh probe. `undefined` when it is not found (nothing to resume).
+   */
+  async function resumeWaitingFor(
+    end: InstallEnd,
+    backend: InstallBackend,
+  ): Promise<ResumeTally | undefined> {
+    let report = end.outcome?.report ?? null;
+    if (!report && backend.probe) {
+      try {
+        report = await backend.probe(end.id);
+      } catch {
+        report = null;
+      }
+    }
+    if (!report?.found || !backend.resumeWaiting) return undefined;
+    try {
+      return await backend.resumeWaiting(end.id);
+    } catch {
+      return { resumed: 0, failed: 0, checked: false };
     }
   }
 
@@ -249,7 +327,7 @@ export const useInstallStore = create<InstallState>()((set, get) => {
       const unlisten = listen(id, backend);
       const ended = (end: InstallEnd) => {
         unlisten();
-        finish(end);
+        finish(end, backend);
         if (end.outcome && installerMayContinue(end.outcome)) {
           followFinishing({ id, name }, backend);
         }
@@ -316,9 +394,12 @@ export const useInstallStore = create<InstallState>()((set, get) => {
         }
         unlisten();
         const ended = s?.last?.seq === running.seq ? s.last.outcome : null;
-        if (ended) finish({ id, name, seq: ++seq, outcome: ended });
+        if (ended) finish({ id, name, seq: ++seq, outcome: ended }, backend);
         else
-          finish({ id, name, seq: ++seq, failure: options.unknownEnd(name) });
+          finish(
+            { id, name, seq: ++seq, failure: options.unknownEnd(name) },
+            backend,
+          );
         if (s?.running?.seq === running.seq && s.running.may_continue) {
           followFinishing({ id, name }, backend);
         }

@@ -262,7 +262,10 @@ function App() {
     useInstallStore
       .getState()
       .hydrate(realInstallBackend, {
-        announce: (end) => announceInstallEnd(tPrintJobRef.current, end),
+        // No screen's files wait for an install found after a reload: the
+        // store resumes the queue's waiting jobs and the toast says so.
+        announce: (end) =>
+          announceInstallEnd(tPrintJobRef.current, end, false, true),
         unknownEnd: (name) =>
           tPrintJobRef.current('install.result.unknownEnd', { name }),
       })

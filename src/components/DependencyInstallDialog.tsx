@@ -23,6 +23,7 @@ import { errorMessage } from '@/lib/ipcError';
 import {
   installerMayContinue,
   useInstallStore,
+  type InstallBackend,
   type InstallEnd,
   type InstallHandlers,
 } from '@/stores/installStore';
@@ -43,6 +44,14 @@ export type InstallProgressSource = (
 
 /** Which install holds the backend's slot. Injected by tests. */
 export type InstallStatusSource = () => Promise<DependencyInstallState>;
+
+/** How the store re-probes and resumes waiting jobs. Injected by tests. */
+export type InstallResumer = Pick<InstallBackend, 'probe' | 'resumeWaiting'>;
+
+const realResumer: InstallResumer = {
+  probe: realInstallBackend.probe,
+  resumeWaiting: realInstallBackend.resumeWaiting,
+};
 
 const realRunner: InstallRunner = realInstallBackend.run;
 
@@ -71,7 +80,9 @@ const RUNS_A_COMMAND: InstallMethod[] = ['winget', 'winget-store', 'brew-cask'];
  * Install is offered until the backend has seen it gone.
  *
  * `resumesJobs` says the caller resumes the jobs waiting for the dependency
- * once it is found (the Queue), so the "opened" result can promise that.
+ * once it is found (the Queue), so the "opened" result can promise that and
+ * the store leaves those jobs to it. Opened anywhere else, the store resumes
+ * the queue's waiting jobs itself when the install ends (`resumer`).
  */
 export function DependencyInstallDialog({
   report,
@@ -82,6 +93,7 @@ export function DependencyInstallDialog({
   cancel = realCancel,
   progress = realProgress,
   status = realInstallBackend.status,
+  resumer = realResumer,
 }: {
   report: DependencyReport;
   onClose: () => void;
@@ -91,6 +103,7 @@ export function DependencyInstallDialog({
   cancel?: InstallCanceller;
   progress?: InstallProgressSource;
   status?: InstallStatusSource;
+  resumer?: InstallResumer;
 }) {
   const t = useT('printJob');
   const tc = useT('common');
@@ -153,6 +166,7 @@ export function DependencyInstallDialog({
   const [handlers] = useState<InstallHandlers>(() => ({
     onResolved: (r) => handlersRef.current.onResolved(r),
     announce: (e) => handlersRef.current.announce(e),
+    resumesJobs,
   }));
   useEffect(() => watch(report.id, handlers), [watch, report.id, handlers]);
 
@@ -185,7 +199,7 @@ export function DependencyInstallDialog({
     startInstall(
       report,
       option.method,
-      { run, progress, describe: errorMessage, status },
+      { run, progress, describe: errorMessage, status, ...resumer },
       handlers,
     );
   };

@@ -65,6 +65,12 @@
     "open": "Abrir",
     "result": {
       "installed": "{{name}} está instalado. Los archivos que lo necesitaban ya se pueden imprimir.",
+      "installedAlone": "{{name}} está instalado.",
+      "installedResumed_one": "{{name}} está instalado. El trabajo de la cola que lo necesitaba se reanuda.",
+      "installedResumed_other": "{{name}} está instalado. Los {{count}} trabajos de la cola que lo necesitaban se reanudan.",
+      "installedResumeFailed_one": "{{name}} está instalado, pero no se pudo reanudar el trabajo de la cola que lo necesitaba. Reanúdalo desde la cola.",
+      "installedResumeFailed_other": "{{name}} está instalado, pero no se pudieron reanudar {{count}} trabajos de la cola que lo necesitaban. Reanúdalos desde la cola.",
+      "installedResumeUnchecked": "{{name}} está instalado, pero Pluryprint no pudo leer la cola para reanudar los trabajos que lo necesitaban. Reanúdalos desde la cola.",
       "notDetected": "El instalador terminó, pero Pluryprint aún no detecta {{name}}. Reinicia Pluryprint y vuelve a intentarlo.",
       "opened": "Termina la instalación en la ventana que se ha abierto. Pluryprint lo vuelve a comprobar cuando regreses.",
       "openedResumesJobs": "Termina la instalación en la ventana que se ha abierto. Pluryprint lo vuelve a comprobar cuando regreses y reanuda los trabajos que esperaban {{name}}.",
