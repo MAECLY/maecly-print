@@ -213,6 +213,9 @@ windows = { version = "0.58", features = [
   "Win32_Storage_FileSystem",
   "Win32_Storage_Xps",
   "Win32_System_Com",
+  # CreateStreamOnHGlobal: the memory streams the PrintTicket calls read and
+  # write (engine::print::devmode_swap).
+  "Win32_System_Com_StructuredStorage",
   # AttachConsole / GetStdHandle / SetStdHandle (cli::console).
   "Win32_System_Console",
   # HKLM\SOFTWARE\Policies\Maecly\Pluryprint (settings::policy).
