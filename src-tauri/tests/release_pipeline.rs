@@ -12,7 +12,7 @@
 //!   here where a `python3` exists);
 //! - `scripts/bump-version.sh` keeps the version sources in step.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 fn repo() -> PathBuf {
@@ -522,5 +522,5 @@ fn release_bump_version_script_keeps_the_sources_in_step() {
         let out = run(bad);
         assert!(!out.status.success(), "{bad} was accepted");
     }
-    assert!(Path::new(&root.join("package.json")).exists());
+    assert!(root.join("package.json").exists());
 }
