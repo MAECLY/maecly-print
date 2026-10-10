@@ -70,7 +70,8 @@
       "failed": "The installation did not finish (code {{code}}). Try the download page instead.",
       "failedNoCode": "The installer stopped without saying why. Try the download page instead.",
       "timedOut": "The installer took too long and was stopped. Try again, or use the download page instead.",
-      "cancelled": "You stopped the installation. Nothing else will run unless you start it again."
+      "cancelled": "You stopped the installation. Nothing else will run unless you start it again.",
+      "cancelRequestedInstallerMayContinue": "Pluryprint stopped what it could, but the {{name}} installer runs with administrator rights and may still be working: its window may still be open. Close it there if you want to stop it, or let it finish."
     },
     "background": "Run in background",
     "backgroundHint": "You can keep using Pluryprint: closing this window does not stop the installation, and you will be told when it ends.",

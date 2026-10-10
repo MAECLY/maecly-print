@@ -70,7 +70,8 @@
       "failed": "La instalación no terminó (código {{code}}). Prueba con la página de descarga.",
       "failedNoCode": "El instalador se detuvo sin indicar el motivo. Prueba con la página de descarga.",
       "timedOut": "El instalador tardaba demasiado y se detuvo. Vuelve a intentarlo o usa la página de descarga.",
-      "cancelled": "Detuviste la instalación. No se ejecutará nada más salvo que la vuelvas a iniciar."
+      "cancelled": "Detuviste la instalación. No se ejecutará nada más salvo que la vuelvas a iniciar.",
+      "cancelRequestedInstallerMayContinue": "Pluryprint detuvo lo que pudo, pero el instalador de {{name}} se ejecuta con permisos de administrador y puede seguir trabajando: puede que su ventana siga abierta. Ciérrala allí si quieres detenerlo, o deja que termine."
     },
     "background": "Seguir en segundo plano",
     "backgroundHint": "Puedes seguir usando Pluryprint: cerrar esta ventana no detiene la instalación y te avisaremos cuando termine.",

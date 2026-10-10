@@ -265,6 +265,37 @@ describe('DependencyInstallDialog', () => {
     expect(screen.getByRole('button', { name: 'Install' })).toBeEnabled();
   });
 
+  it('FR-058: a cancel that cannot reach an elevated installer says it may still be running', async () => {
+    const user = userEvent.setup();
+    const { run, finish } = pendingRun();
+    const cancel = vi.fn(() => {
+      finish({
+        status: 'cancel-requested-installer-may-continue',
+        exit_code: null,
+        report: office([]),
+      });
+      return Promise.resolve(true);
+    });
+    render(
+      <DependencyInstallDialog
+        report={office([WINGET, WEB])}
+        onClose={() => {}}
+        onResolved={() => {}}
+        run={run}
+        cancel={cancel}
+        progress={noProgress}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Install' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Stop installation' }),
+    );
+    expect(
+      await screen.findByText(/its window may still be open/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/You stopped the installation/)).toBeNull();
+  });
+
   it('FR-058: a running install can be sent to the background, and its end is announced', async () => {
     const user = userEvent.setup();
     const { run, finish } = pendingRun();

@@ -273,6 +273,73 @@ pub(crate) fn kill_tree(child: &mut Child) {
     let _ = child.wait();
 }
 
+/// [`kill_tree`], then whether the whole tree is **confirmed** gone. `false`
+/// when part of it could not be ended: a helper running elevated (`Access
+/// denied` to `taskkill`, `Operation not permitted` to `kill`) or one still
+/// alive a second later. The caller must then not claim the work stopped.
+/// Work handed to a service outside the tree (the Windows Installer service
+/// runs an MSI as SYSTEM) is invisible here; callers that start such work
+/// know it and say so themselves.
+pub(crate) fn kill_tree_confirmed(child: &mut Child) -> bool {
+    let pid = child.id();
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(["-KILL", &format!("-{pid}")])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        let _ = child.kill();
+        let _ = child.wait();
+        // The group is gone once signal 0 finds nobody (helpers killed a
+        // moment ago may still be zombies waiting to be reaped).
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let probe = Command::new("kill")
+                .args(["-0", &format!("-{pid}")])
+                .env("LC_ALL", "C")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .output();
+            match probe {
+                Ok(out) if !out.status.success() => {
+                    let err = String::from_utf8_lossy(&out.stderr).to_ascii_lowercase();
+                    return !err.contains("not permitted");
+                }
+                Ok(_) => {}
+                Err(_) => return false,
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let killed = Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .creation_flags(0x0800_0000)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        let _ = child.kill();
+        let _ = child.wait();
+        matches!(killed, Ok(s) if s.success())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = pid;
+        let _ = child.kill();
+        let _ = child.wait();
+        false
+    }
+}
+
 /// `": <last bytes of stderr>"`, or nothing when the log is empty/unreadable.
 fn stderr_suffix(log: &Path) -> String {
     let tail = log_tail(log, STDERR_TAIL);

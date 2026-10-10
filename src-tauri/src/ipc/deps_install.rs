@@ -12,7 +12,12 @@
 //! - **winget / brew** run with an argument vector (no shell), their output
 //!   streamed line by line as [`DependencyInstallProgress`] events, bounded by
 //!   [`INSTALL_TIMEOUT`]. One install at a time; the user can stop it
-//!   ([`cancel_dependency_install`]), which kills the whole process tree.
+//!   ([`cancel_dependency_install`]), which kills the whole process tree it
+//!   can reach. When that cannot be confirmed (an elevated installer that
+//!   refuses the kill, or an MSI the Windows Installer service runs outside
+//!   the tree) the outcome says so,
+//!   [`InstallStatus::CancelRequestedInstallerMayContinue`], never a plain
+//!   "stopped".
 //! - **Store / web** open the page with the OS handler; the user finishes
 //!   there.
 //!
@@ -60,8 +65,14 @@ pub enum InstallStatus {
     Opened,
     /// The command ran past [`INSTALL_TIMEOUT`] and was stopped.
     TimedOut,
-    /// The user stopped the command.
+    /// The user stopped the command, and everything it started is gone.
     Cancelled,
+    /// The user asked to stop, but the installer could not be confirmed
+    /// stopped: an elevated part refused the kill, or (a Windows installer
+    /// that needs administrator rights) runs in the Windows Installer
+    /// service, out of reach. Its window may still be open and it may still
+    /// finish.
+    CancelRequestedInstallerMayContinue,
 }
 
 /// The result of [`install_dependency`].
@@ -95,6 +106,9 @@ pub enum Plan {
         tool: InstallTool,
         /// Its argument vector.
         args: Vec<String>,
+        /// Whether the installer it starts runs elevated (a UAC prompt), and
+        /// so may outlive a cancel ([`status_of`]).
+        needs_admin: bool,
     },
 }
 
@@ -128,6 +142,7 @@ pub fn plan(
         Some(tool) if has_tool(tool) => Ok(Plan::Run {
             tool,
             args: recipe.args(),
+            needs_admin: recipe.needs_admin,
         }),
         Some(tool) => Err(IpcError::localized(
             IpcErrorCode::InvalidRequest,
@@ -218,8 +233,13 @@ pub enum RunEnd {
     Exited(Option<i32>),
     /// It ran past the time allowed and was stopped, with its whole tree.
     TimedOut,
-    /// The user stopped it ([`cancel_dependency_install`]), tree and all.
-    Cancelled,
+    /// The user stopped it ([`cancel_dependency_install`]); `tree_stopped`
+    /// says whether everything it started was confirmed gone
+    /// ([`process::kill_tree_confirmed`]).
+    Cancelled {
+        /// Whether the whole process tree was confirmed ended.
+        tree_stopped: bool,
+    },
 }
 
 /// How long the output readers may keep draining once the installer itself
@@ -292,8 +312,8 @@ pub fn run_streaming(
             on_line(line);
         }
         if cancel.load(Ordering::SeqCst) {
-            process::kill_tree(&mut child);
-            break RunEnd::Cancelled;
+            let tree_stopped = process::kill_tree_confirmed(&mut child);
+            break RunEnd::Cancelled { tree_stopped };
         }
         if started.elapsed() > timeout {
             process::kill_tree(&mut child);
@@ -343,14 +363,20 @@ impl Drop for InstallSlot {
 }
 
 /// What [`InstallStatus`] (and exit code) an install that ran a command ended
-/// in. Pure.
-pub fn status_of(end: RunEnd, found: bool) -> (InstallStatus, Option<i32>) {
+/// in. `elevated`: the installer runs with administrator rights on Windows,
+/// where a cancel never reaches it for sure (an elevated process refuses a
+/// non-elevated kill, and an MSI runs in the Windows Installer service). A
+/// cancel is reported as done only when nothing can outlive it. Pure.
+pub fn status_of(end: RunEnd, found: bool, elevated: bool) -> (InstallStatus, Option<i32>) {
     match end {
         RunEnd::Exited(Some(0)) if found => (InstallStatus::Installed, Some(0)),
         RunEnd::Exited(Some(0)) => (InstallStatus::NotDetected, Some(0)),
         RunEnd::Exited(code) => (InstallStatus::Failed, code),
         RunEnd::TimedOut => (InstallStatus::TimedOut, None),
-        RunEnd::Cancelled => (InstallStatus::Cancelled, None),
+        RunEnd::Cancelled { tree_stopped } if tree_stopped && !elevated => {
+            (InstallStatus::Cancelled, None)
+        }
+        RunEnd::Cancelled { .. } => (InstallStatus::CancelRequestedInstallerMayContinue, None),
     }
 }
 
@@ -385,7 +411,11 @@ pub async fn install_dependency(
                 report: deps::report(id, os, None),
             })
         }
-        Plan::Run { tool, args } => {
+        Plan::Run {
+            tool,
+            args,
+            needs_admin,
+        } => {
             let Some(slot) = InstallSlot::acquire() else {
                 return Err(IpcError::localized(
                     IpcErrorCode::InvalidRequest,
@@ -419,7 +449,8 @@ pub async fn install_dependency(
                         .with_param("tool", tool_name(tool))
                     })?;
                 let report = deps::report(id, os, None);
-                let (status, exit_code) = status_of(end, report.found);
+                let elevated = needs_admin && os == Os::Windows;
+                let (status, exit_code) = status_of(end, report.found, elevated);
                 tracing::info!(event = "dependency_install_finished", dependency = ?id, ?end, ?status);
                 Ok(InstallOutcome {
                     status,
@@ -435,7 +466,9 @@ pub async fn install_dependency(
 /// Stop the install that is running, if any, with every process it started
 /// (FR-058: the user can always back out of an install they began). Returns
 /// whether there was one to stop; the install's own call then resolves with
-/// [`InstallStatus::Cancelled`].
+/// [`InstallStatus::Cancelled`], or with
+/// [`InstallStatus::CancelRequestedInstallerMayContinue`] when the installer
+/// could not be confirmed stopped.
 #[tauri::command]
 #[specta::specta]
 pub fn cancel_dependency_install() -> Result<bool, IpcError> {
@@ -537,7 +570,12 @@ mod tests {
         )
         .unwrap()
         {
-            Plan::Run { tool, args } => {
+            Plan::Run {
+                tool,
+                args,
+                needs_admin,
+            } => {
+                assert!(!needs_admin);
                 assert_eq!(tool, InstallTool::Brew);
                 assert_eq!(args, ["install", "--cask", "libreoffice"]);
             }
@@ -591,23 +629,23 @@ mod tests {
     #[test]
     fn fr_058_timeout_and_cancel_have_their_own_status_not_an_english_line() {
         assert_eq!(
-            status_of(RunEnd::TimedOut, false),
+            status_of(RunEnd::TimedOut, false, false),
             (InstallStatus::TimedOut, None)
         );
         assert_eq!(
-            status_of(RunEnd::Cancelled, false),
+            status_of(RunEnd::Cancelled { tree_stopped: true }, false, false),
             (InstallStatus::Cancelled, None)
         );
         assert_eq!(
-            status_of(RunEnd::Exited(Some(0)), true),
+            status_of(RunEnd::Exited(Some(0)), true, false),
             (InstallStatus::Installed, Some(0))
         );
         assert_eq!(
-            status_of(RunEnd::Exited(Some(0)), false),
+            status_of(RunEnd::Exited(Some(0)), false, false),
             (InstallStatus::NotDetected, Some(0))
         );
         assert_eq!(
-            status_of(RunEnd::Exited(None), false),
+            status_of(RunEnd::Exited(None), false, false),
             (InstallStatus::Failed, None)
         );
     }
@@ -700,8 +738,65 @@ mod tests {
             &|_| {},
         )
         .unwrap();
-        assert_eq!(end, RunEnd::Cancelled);
+        assert_eq!(
+            end,
+            RunEnd::Cancelled { tree_stopped: true },
+            "a tree we own is confirmed gone"
+        );
         assert!(started.elapsed() < Duration::from_secs(6));
+    }
+
+    /// Round-5 finding: cancelling an elevated winget install said
+    /// "stopped" although the installer kept running. A cancel is reported
+    /// as done only when the whole tree is confirmed gone and nothing ran
+    /// elevated; otherwise the user is told the installer may continue.
+    #[test]
+    fn fr_058_a_cancel_that_cannot_reach_the_installer_says_so() {
+        let may_continue = (InstallStatus::CancelRequestedInstallerMayContinue, None);
+        assert_eq!(
+            status_of(
+                RunEnd::Cancelled {
+                    tree_stopped: false
+                },
+                false,
+                false
+            ),
+            may_continue,
+            "part of the tree refused the kill"
+        );
+        assert_eq!(
+            status_of(RunEnd::Cancelled { tree_stopped: true }, false, true),
+            may_continue,
+            "an elevated MSI runs outside the tree"
+        );
+        // Even when the dependency shows up meanwhile, a cancel is a cancel.
+        assert_eq!(
+            status_of(
+                RunEnd::Cancelled {
+                    tree_stopped: false
+                },
+                true,
+                true
+            ),
+            may_continue
+        );
+        // LibreOffice through winget needs admin rights: the plan says so.
+        match plan(
+            Dependency::LibreOffice,
+            InstallMethod::Winget,
+            true,
+            Os::Windows,
+            &|_| true,
+        )
+        .unwrap()
+        {
+            Plan::Run { needs_admin, .. } => assert!(needs_admin),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(
+            serde_json::to_value(InstallStatus::CancelRequestedInstallerMayContinue).unwrap(),
+            "cancel-requested-installer-may-continue"
+        );
     }
 
     #[test]

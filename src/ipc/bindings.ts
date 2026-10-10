@@ -104,7 +104,9 @@ async installDependency(id: Dependency, method: InstallMethod, consent: boolean)
  * Stop the install that is running, if any, with every process it started
  * (FR-058: the user can always back out of an install they began). Returns
  * whether there was one to stop; the install's own call then resolves with
- * [`InstallStatus::Cancelled`].
+ * [`InstallStatus::Cancelled`], or with
+ * [`InstallStatus::CancelRequestedInstallerMayContinue`] when the installer
+ * could not be confirmed stopped.
  */
 async cancelDependencyInstall() : Promise<Result<boolean, IpcError>> {
     try {
@@ -1343,9 +1345,17 @@ export type InstallStatus =
  */
 "timed-out" | 
 /**
- * The user stopped the command.
+ * The user stopped the command, and everything it started is gone.
  */
-"cancelled"
+"cancelled" | 
+/**
+ * The user asked to stop, but the installer could not be confirmed
+ * stopped: an elevated part refused the kill, or (a Windows installer
+ * that needs administrator rights) runs in the Windows Installer
+ * service, out of reach. Its window may still be open and it may still
+ * finish.
+ */
+"cancel-requested-installer-may-continue"
 export type IpcError = { 
 /**
  * Stable error family. Never renamed.

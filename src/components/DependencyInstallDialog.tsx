@@ -139,6 +139,10 @@ export function DependencyInstallDialog({
         return t('install.result.timedOut');
       case 'cancelled':
         return t('install.result.cancelled');
+      case 'cancel-requested-installer-may-continue':
+        return t('install.result.cancelRequestedInstallerMayContinue', {
+          name: report.name,
+        });
       case 'failed':
         // No exit code means the OS gave none: say so instead of "code —".
         return o.exit_code == null
