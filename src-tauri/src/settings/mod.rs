@@ -559,6 +559,15 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Whether this config holds nothing a user chose: the defaults, plus
+    /// what a first run writes for itself (the locale detected from the OS).
+    /// The data migration (`util::legacy`) lets old data replace such a file.
+    pub fn is_first_run_default(&self) -> bool {
+        let mut normalized = self.clone();
+        normalized.app.locale = AppCfg::default().locale;
+        normalized == Config::default()
+    }
+
     /// Absolute path of `config.toml` in the config directory.
     pub fn config_path() -> PathBuf {
         paths::config_dir().join("config.toml")

@@ -13,16 +13,38 @@
 //!
 //! [`migrate_current`] runs before logging starts, in the GUI and in the CLI
 //! alike. It moves every entry of each old folder into the new one **unless
-//! something already exists there under that name** — it never overwrites, it
-//! merges folders that exist on both sides entry by entry, and a file it had
-//! to leave behind is reported, not lost. Log files keep their history: the
-//! old `maeclyprint-<date>.jsonl` names are renamed to `pluryprint-…` so
-//! retention keeps pruning them.
+//! something already exists there under that name** — it never overwrites
+//! what the user has, it merges folders that exist on both sides entry by
+//! entry, and a file it had to leave behind is reported, not lost. The one
+//! exception is a file that holds only what Pluryprint writes for itself on a
+//! first run (default settings, an empty queue — see
+//! [`is_first_run_default`]): a first launch made while MaeclyPrint was still
+//! running writes those before the migration can run, so they are set aside
+//! as `<name>.first-run.bak` and the old file takes their place. Log files
+//! keep their history: the old `maeclyprint-<date>.jsonl` names are renamed to
+//! `pluryprint-…` so retention keeps pruning them.
 //!
-//! It is idempotent: whatever moved is gone from the old folder, so the next
-//! run finds nothing to do. It does nothing at all while a MaeclyPrint app
-//! still runs (its `instance.lock` is held): moving `queue.json` from under a
-//! live app would lose its jobs.
+//! A move across volumes copies to a hidden temporary next to the destination
+//! and renames it into place once whole, so a failed copy never leaves a
+//! truncated file the next run would take for the user's.
+//!
+//! Who may move what, while it moves:
+//!
+//! - one process at a time: the migration takes `migration.lock` in the new
+//!   data folder, waiting for another launch's migration to finish. The GUI
+//!   keeps it until it holds its own instance lock, so a second launch never
+//!   migrates into the folders of an app still starting;
+//! - not under a running Pluryprint: its `instance.lock` held (or not
+//!   checkable) defers the whole migration;
+//! - not under a running MaeclyPrint: the migration holds the old
+//!   `instance.lock` for the whole move, and a lock that is held or cannot be
+//!   checked defers it. Moving `queue.json` from under a live app would lose
+//!   its jobs.
+//!
+//! A migration that runs to the end without a failure writes
+//! `legacy-migration.done` in the new data folder; later runs do nothing, so
+//! the files it had to keep are reported once, not on every launch. A run
+//! with failures writes no marker and is tried again next launch.
 //!
 //! The machine policy is not here: it lives in admin-only locations a user
 //! process cannot move, so `settings::policy` reads the legacy locations as a
@@ -32,7 +54,7 @@
 use std::collections::BTreeSet;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 use directories::ProjectDirs;
 
@@ -53,6 +75,14 @@ const LOG_PREFIX: &str = "pluryprint-";
 const LEGACY_ENV_PREFIX: &str = "MAECLYPRINT_";
 /// Prefix of the environment variables after the rename.
 const ENV_PREFIX: &str = "PLURYPRINT_";
+/// The migration's own lock, in the new data folder.
+const MIGRATION_LOCK_FILE: &str = "migration.lock";
+/// The "migration finished" marker, in the new data folder.
+pub const MARKER_FILE: &str = "legacy-migration.done";
+/// Suffix a first-run default gets when old data replaces it.
+const FIRST_RUN_BACKUP_SUFFIX: &str = ".first-run.bak";
+/// How long a launch waits for another process' migration to finish.
+const MIGRATION_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// One old folder and the folder its entries move into.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,12 +98,23 @@ pub struct Layout {
     pub pairs: Vec<DirPair>,
     /// The old app's `instance.lock`: held means a MaeclyPrint app is running.
     pub old_lock: PathBuf,
+    /// This app's `instance.lock`: held means a Pluryprint app is running.
+    pub new_lock: PathBuf,
+    /// Held by whichever process is migrating, so two never run at once.
+    pub migration_lock: PathBuf,
+    /// Written once a migration has run to the end; later runs do nothing.
+    pub marker: PathBuf,
     /// The new log folder, where old log file names are renamed.
     pub new_log_dir: PathBuf,
 }
 
 impl Layout {
-    fn from_pairs(pairs: Vec<DirPair>, old_data: &Path, new_log_dir: PathBuf) -> Self {
+    fn from_pairs(
+        pairs: Vec<DirPair>,
+        old_data: &Path,
+        new_data: &Path,
+        new_log_dir: PathBuf,
+    ) -> Self {
         let mut unique: Vec<DirPair> = Vec::new();
         for pair in pairs {
             if !unique.iter().any(|p| p.old == pair.old) {
@@ -83,6 +124,9 @@ impl Layout {
         Self {
             pairs: unique,
             old_lock: old_data.join(instance::LOCK_FILE),
+            new_lock: new_data.join(instance::LOCK_FILE),
+            migration_lock: new_data.join(MIGRATION_LOCK_FILE),
+            marker: new_data.join(MARKER_FILE),
             new_log_dir,
         }
     }
@@ -111,6 +155,7 @@ impl Layout {
                 },
             ],
             &old_data,
+            &new_data,
             new_data.join("logs"),
         )
     }
@@ -128,6 +173,7 @@ impl Layout {
         };
         let logs = |app: &str| home.join("Library/Logs").join(app);
         let old_data = support(LEGACY_APP);
+        let new_data = support(APP);
         Self::from_pairs(
             vec![
                 DirPair {
@@ -144,6 +190,7 @@ impl Layout {
                 },
             ],
             &old_data,
+            &new_data,
             logs(APP),
         )
     }
@@ -179,6 +226,7 @@ impl Layout {
         Some(Self::from_pairs(
             pairs,
             old.data_local_dir(),
+            new.data_local_dir(),
             crate::util::paths::log_dir(),
         ))
     }
@@ -192,6 +240,9 @@ pub struct Report {
     /// Old entries left where they were because the new location already had
     /// something under that name.
     pub kept: Vec<PathBuf>,
+    /// New files that held only what a first run writes for itself, set aside
+    /// (`from`, `backup`) so the old data could take their place.
+    pub backed_up: Vec<(PathBuf, PathBuf)>,
     /// Entries that could not be moved, with the reason.
     pub failed: Vec<(PathBuf, String)>,
     /// Set when the whole migration was skipped this run, with the reason.
@@ -203,31 +254,122 @@ impl Report {
     pub fn is_empty(&self) -> bool {
         self.moved.is_empty()
             && self.kept.is_empty()
+            && self.backed_up.is_empty()
             && self.failed.is_empty()
             && self.deferred.is_none()
     }
 }
 
-/// Move what an old install left in `layout` into the new folders. Never
-/// overwrites; see the module docs.
-pub fn migrate(layout: &Layout) -> Report {
-    let mut report = Report::default();
+/// A finished [`migrate_with`]: what it did, and the migration lock if it
+/// took it. A GUI keeps the lock until it holds its own instance lock, so a
+/// second launch cannot migrate into the folders of an app still starting.
+#[derive(Debug, Default)]
+pub struct Migration {
+    pub report: Report,
+    pub guard: Option<instance::InstanceLock>,
+}
 
-    // An old app still running owns these files. `state` would create the
-    // lock (and its folder) to probe it, so only probe one that exists.
-    if layout.old_lock.exists() && instance::state(&layout.old_lock) == instance::LockState::Held {
-        report.deferred = Some(format!(
-            "{LEGACY_APP} is still running (its {} is held)",
-            layout.old_lock.display()
-        ));
-        return report;
+impl Migration {
+    fn deferred(reason: String, guard: Option<instance::InstanceLock>) -> Self {
+        Self {
+            report: Report {
+                deferred: Some(reason),
+                ..Report::default()
+            },
+            guard,
+        }
+    }
+}
+
+/// Move what an old install left in `layout` into the new folders. Never
+/// overwrites what the user has; see the module docs.
+pub fn migrate(layout: &Layout) -> Report {
+    migrate_with(layout, &REAL_OPS).report
+}
+
+fn migrate_with(layout: &Layout, ops: &Ops) -> Migration {
+    // Done once, for good: an old app run since (its `.app` stays installed on
+    // macOS) starts over from empty folders, and that is not the user's data.
+    if layout.marker.exists() {
+        return Migration::default();
+    }
+    // Nothing installed: no locks, no folders created.
+    if !layout.pairs.iter().any(|p| p.old.is_dir()) {
+        return Migration::default();
     }
 
-    for pair in &layout.pairs {
-        if !pair.old.is_dir() {
-            continue;
+    // One migration at a time. A second launch waits for the first, then
+    // finds the marker.
+    let guard = match instance::claim_within(&layout.migration_lock, MIGRATION_WAIT) {
+        Ok(Some(guard)) => guard,
+        Ok(None) => {
+            return Migration::deferred("another launch is migrating".into(), None);
         }
-        merge(&pair.old, &pair.new, &mut report);
+        Err(e) => {
+            return Migration::deferred(format!("cannot lock the migration: {e}"), None);
+        }
+    };
+    if layout.marker.exists() {
+        return Migration {
+            report: Report::default(),
+            guard: Some(guard),
+        };
+    }
+
+    // A Pluryprint already running owns the new folders (a context-menu launch
+    // or a CLI call made while it runs). Unknown is not "not running".
+    if layout.new_lock.exists() {
+        match instance::state(&layout.new_lock) {
+            instance::LockState::Free => {}
+            instance::LockState::Held => {
+                return Migration::deferred("Pluryprint is already running".into(), Some(guard));
+            }
+            instance::LockState::Unknown(e) => {
+                return Migration::deferred(
+                    format!("cannot tell whether Pluryprint is running: {e}"),
+                    Some(guard),
+                );
+            }
+        }
+    }
+
+    // An old app still running owns its files, and one starting while they
+    // move must not get them back: hold its lock for the whole move. `claim`
+    // creates the lock (and its folder), so only claim one whose folder exists.
+    let old_guard = if layout.old_lock.parent().is_some_and(Path::is_dir) {
+        match instance::claim(&layout.old_lock) {
+            Ok(Some(lock)) => Some(lock),
+            Ok(None) => {
+                return Migration::deferred(
+                    format!(
+                        "{LEGACY_APP} is still running (its {} is held)",
+                        layout.old_lock.display()
+                    ),
+                    Some(guard),
+                );
+            }
+            Err(e) => {
+                return Migration::deferred(
+                    format!("cannot tell whether {LEGACY_APP} is running: {e}"),
+                    Some(guard),
+                );
+            }
+        }
+    } else {
+        None
+    };
+
+    let mut report = Report::default();
+    for pair in &layout.pairs {
+        if pair.old.is_dir() {
+            merge_with(&pair.old, &pair.new, &mut report, ops);
+        }
+    }
+    // The old lock was deleted with its folder's contents while held (Windows
+    // lets it go once the handle closes), so the folders can go now.
+    drop(old_guard);
+    let _ = std::fs::remove_file(&layout.old_lock);
+    for pair in &layout.pairs {
         // Best effort: drop the emptied old folder, then the `MaeclyPrint`
         // folder that held it on Windows (`…\Maecly\MaeclyPrint\config`).
         if std::fs::remove_dir(&pair.old).is_ok() {
@@ -239,13 +381,100 @@ pub fn migrate(layout: &Layout) -> Report {
         }
     }
     rename_legacy_logs(&layout.new_log_dir, &mut report);
-    report
+
+    // A failure is retried next launch; anything else is final, including
+    // the files kept in the old folder, which are reported this once.
+    if report.failed.is_empty() {
+        if let Err(e) = std::fs::write(&layout.marker, marker_text(&report)) {
+            report.failed.push((layout.marker.clone(), e.to_string()));
+        }
+    }
+    Migration {
+        report,
+        guard: Some(guard),
+    }
+}
+
+fn marker_text(report: &Report) -> String {
+    let mut text = format!(
+        "{LEGACY_APP} data migrated to {APP}.\nmoved: {}\n",
+        report.moved.len()
+    );
+    for path in &report.kept {
+        text.push_str(&format!("kept in place: {}\n", path.display()));
+    }
+    for (from, backup) in &report.backed_up {
+        text.push_str(&format!(
+            "first-run file set aside: {} -> {}\n",
+            from.display(),
+            backup.display()
+        ));
+    }
+    text
+}
+
+/// Whether the file at `path` holds only what Pluryprint writes for itself on
+/// a first run — nothing the user chose. Such a file gives way to the old
+/// data (a first launch made while MaeclyPrint was still running writes them
+/// before the migration could run). Unknown names never qualify.
+fn is_first_run_default(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    match name {
+        "config.toml" => {
+            toml::from_str::<crate::settings::Config>(&text).is_ok_and(|c| c.is_first_run_default())
+        }
+        "profiles.toml" => toml::from_str::<crate::profiles::ProfilesFile>(&text)
+            .is_ok_and(|f| f.profile.is_empty()),
+        "queue.json" => serde_json::from_str::<crate::queue::job::QueueSnapshot>(&text)
+            .is_ok_and(|q| q.jobs.is_empty() && !q.queue_paused),
+        "update-state.json" => serde_json::from_str::<crate::update::UpdateState>(&text)
+            .is_ok_and(|u| u.skipped_version.is_none()),
+        crate::shell_menu::CACHE_FILE => true,
+        _ => false,
+    }
+}
+
+/// A free name next to `path` to set a first-run default aside under.
+fn backup_path(path: &Path) -> PathBuf {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let mut candidate = path.with_file_name(format!("{name}{FIRST_RUN_BACKUP_SUFFIX}"));
+    let mut n = 2;
+    while std::fs::symlink_metadata(&candidate).is_ok() {
+        candidate = path.with_file_name(format!("{name}{FIRST_RUN_BACKUP_SUFFIX}.{n}"));
+        n += 1;
+    }
+    candidate
+}
+
+/// Replace the first-run default at `dst` with the old file `src`: set it
+/// aside, move `src` in, and put it back if the move fails.
+fn replace_first_run_default(src: &Path, dst: &Path, report: &mut Report, ops: &Ops) {
+    let backup = backup_path(dst);
+    if let Err(e) = std::fs::rename(dst, &backup) {
+        report.failed.push((src.to_path_buf(), e.to_string()));
+        return;
+    }
+    match move_entry_with(src, dst, ops) {
+        Ok(()) => {
+            report.backed_up.push((dst.to_path_buf(), backup));
+            report.moved.push((src.to_path_buf(), dst.to_path_buf()));
+        }
+        Err(e) => {
+            let _ = std::fs::rename(&backup, dst);
+            report.failed.push((src.to_path_buf(), e.to_string()));
+        }
+    }
 }
 
 /// The filesystem calls a move makes, so tests can make them fail.
-struct Ops {
-    rename: fn(&Path, &Path) -> io::Result<()>,
-    copy_file: fn(&Path, &Path) -> io::Result<()>,
+struct Ops<'a> {
+    rename: &'a dyn Fn(&Path, &Path) -> io::Result<()>,
+    copy_file: &'a dyn Fn(&Path, &Path) -> io::Result<()>,
 }
 
 fn rename(src: &Path, dst: &Path) -> io::Result<()> {
@@ -256,14 +485,15 @@ fn copy_file(src: &Path, dst: &Path) -> io::Result<()> {
     std::fs::copy(src, dst).map(|_| ())
 }
 
-const REAL_OPS: Ops = Ops { rename, copy_file };
+const REAL_OPS: Ops<'static> = Ops {
+    rename: &rename,
+    copy_file: &copy_file,
+};
 
 /// Move every entry of `old` into `new`, recursing into folders present on
-/// both sides; leave (and report) anything whose name is already taken.
-fn merge(old: &Path, new: &Path, report: &mut Report) {
-    merge_with(old, new, report, &REAL_OPS);
-}
-
+/// both sides. A name already taken keeps what is there, and the old entry
+/// is left (and reported) — unless what is there is a first-run default
+/// ([`is_first_run_default`]), which is set aside for the old file.
 fn merge_with(old: &Path, new: &Path, report: &mut Report, ops: &Ops) {
     let entries = match std::fs::read_dir(old) {
         Ok(entries) => entries,
@@ -290,6 +520,8 @@ fn merge_with(old: &Path, new: &Path, report: &mut Report, ops: &Ops) {
             if src.is_dir() && dst.is_dir() {
                 merge_with(&src, &dst, report, ops);
                 let _ = std::fs::remove_dir(&src);
+            } else if src.is_file() && dst.is_file() && is_first_run_default(&dst) {
+                replace_first_run_default(&src, &dst, report, ops);
             } else {
                 report.kept.push(src);
             }
@@ -413,20 +645,22 @@ fn rename_legacy_logs(dir: &Path, report: &mut Report) {
 pub const SKIP_ENV: &str = "PLURYPRINT_SKIP_MIGRATION";
 
 /// [`migrate`] on this machine's [`Layout::current`], at most once per
-/// process (the GUI and the CLI both call it on the way in). Skipped when
-/// [`SKIP_ENV`] is `1`.
-pub fn migrate_current() -> Report {
-    static DONE: OnceLock<Report> = OnceLock::new();
-    DONE.get_or_init(|| {
-        if std::env::var(SKIP_ENV).as_deref() == Ok("1") {
-            return Report {
-                deferred: Some(format!("{SKIP_ENV}=1")),
-                ..Report::default()
-            };
-        }
-        Layout::current().map(|l| migrate(&l)).unwrap_or_default()
-    })
-    .clone()
+/// process (the GUI and the CLI both call it on the way in; a second call
+/// returns an empty [`Migration`]). Skipped when [`SKIP_ENV`] is `1`.
+///
+/// The GUI keeps the returned [`Migration::guard`] until it holds its own
+/// instance lock; the CLI drops it once the migration is logged.
+pub fn migrate_current() -> Migration {
+    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Migration::default();
+    }
+    if std::env::var(SKIP_ENV).as_deref() == Ok("1") {
+        return Migration::deferred(format!("{SKIP_ENV}=1"), None);
+    }
+    Layout::current()
+        .map(|l| migrate_with(&l, &REAL_OPS))
+        .unwrap_or_default()
 }
 
 /// Write a migration [`Report`] to the log. Call once logging is up: the
@@ -441,6 +675,14 @@ pub fn log_report(report: &Report) {
             from = %from.display(),
             to = %to.display(),
             "moved MaeclyPrint data to its Pluryprint location"
+        );
+    }
+    for (from, backup) in &report.backed_up {
+        tracing::info!(
+            event = "legacy_migration_first_run_set_aside",
+            from = %from.display(),
+            backup = %backup.display(),
+            "set aside a first-run default so the MaeclyPrint data could take its place"
         );
     }
     for path in &report.kept {
@@ -716,8 +958,8 @@ mod tests {
             &src,
             &dst,
             &Ops {
-                rename: no_rename,
-                copy_file: failing_copy,
+                rename: &no_rename,
+                copy_file: &failing_copy,
             },
         );
         assert!(err.is_err());
@@ -734,8 +976,8 @@ mod tests {
             &src,
             &dst,
             &Ops {
-                rename: no_rename,
-                copy_file,
+                rename: &no_rename,
+                copy_file: &copy_file,
             },
         )
         .unwrap();
@@ -759,8 +1001,8 @@ mod tests {
             &src,
             &dst,
             &Ops {
-                rename: no_rename,
-                copy_file: failing_copy
+                rename: &no_rename,
+                copy_file: &failing_copy
             }
         )
         .is_err());
@@ -774,8 +1016,8 @@ mod tests {
             &src,
             &dst,
             &Ops {
-                rename: no_rename,
-                copy_file,
+                rename: &no_rename,
+                copy_file: &copy_file,
             },
         )
         .unwrap();
@@ -798,8 +1040,8 @@ mod tests {
             &new,
             &mut report,
             &Ops {
-                rename: no_rename,
-                copy_file: failing_copy,
+                rename: &no_rename,
+                copy_file: &failing_copy,
             },
         );
         assert_eq!(report.failed.len(), 1, "{report:?}");
@@ -811,8 +1053,8 @@ mod tests {
             &new,
             &mut report,
             &Ops {
-                rename: no_rename,
-                copy_file,
+                rename: &no_rename,
+                copy_file: &copy_file,
             },
         );
         assert!(
@@ -820,6 +1062,263 @@ mod tests {
             "{report:?}"
         );
         assert_eq!(read(&new.join("queue.json")), "[1]");
+    }
+
+    /// An old lock that cannot be checked is not evidence MaeclyPrint is
+    /// closed: nothing moves.
+    #[test]
+    fn an_unknown_old_lock_defers_the_migration() {
+        let root = tempfile::tempdir().unwrap();
+        let layout = Layout::windows(&root.path().join("Roaming"), &root.path().join("Local"));
+        let queue = layout.old_lock.with_file_name("queue.json");
+        write(&queue, "[]");
+        // A folder where the lock file should be cannot be locked.
+        std::fs::create_dir_all(&layout.old_lock).unwrap();
+
+        let report = migrate(&layout);
+        assert!(report.deferred.is_some(), "{report:?}");
+        assert!(report.moved.is_empty());
+        assert!(queue.exists());
+    }
+
+    /// The old lock stays held while files move: a MaeclyPrint starting in
+    /// the middle cannot take its queue.json back.
+    #[test]
+    fn the_old_lock_is_held_for_the_whole_move() {
+        let root = tempfile::tempdir().unwrap();
+        let layout = Layout::windows(&root.path().join("Roaming"), &root.path().join("Local"));
+        write(&layout.old_lock.with_file_name("queue.json"), "[]");
+        write(&layout.pairs[0].old.join("config.toml"), "cfg");
+        let old_lock = layout.old_lock.clone();
+        let seen = std::cell::RefCell::new(Vec::new());
+        let probe = |src: &Path, dst: &Path| {
+            seen.borrow_mut().push(instance::state(&old_lock));
+            std::fs::rename(src, dst)
+        };
+
+        let report = migrate_with(
+            &layout,
+            &Ops {
+                rename: &probe,
+                copy_file: &copy_file,
+            },
+        )
+        .report;
+        assert!(!report.moved.is_empty(), "{report:?}");
+        let seen = seen.into_inner();
+        assert!(!seen.is_empty());
+        assert!(
+            seen.iter().all(|s| *s == instance::LockState::Held),
+            "{seen:?}"
+        );
+        assert!(!old_lock.exists(), "the old lock goes with its folder");
+        assert!(!root.path().join("Local/Maecly/MaeclyPrint").exists());
+    }
+
+    /// A Pluryprint already running owns the new folders: a context-menu
+    /// launch or a CLI call must not move files under it.
+    #[test]
+    fn a_running_pluryprint_defers_the_migration() {
+        let root = tempfile::tempdir().unwrap();
+        let layout = Layout::windows(&root.path().join("Roaming"), &root.path().join("Local"));
+        let queue = layout.old_lock.with_file_name("queue.json");
+        write(&queue, "[]");
+        let running = instance::claim(&layout.new_lock).unwrap().expect("lock");
+
+        let report = migrate(&layout);
+        assert!(report.deferred.is_some(), "{report:?}");
+        assert!(queue.exists());
+        assert!(!layout.marker.exists());
+
+        drop(running);
+        assert!(migrate(&layout).deferred.is_none());
+        assert!(!queue.exists());
+    }
+
+    /// Two first launches at once: the second waits while the first holds
+    /// the migration lock (for the GUI, until it holds its instance lock),
+    /// and never moves files at the same time.
+    #[test]
+    fn concurrent_migrations_run_one_after_the_other() {
+        let root = tempfile::tempdir().unwrap();
+        let layout = Layout::windows(&root.path().join("Roaming"), &root.path().join("Local"));
+        write(&layout.old_lock.with_file_name("queue.json"), "[]");
+
+        // Another launch is mid-migration.
+        let other = instance::claim(&layout.migration_lock)
+            .unwrap()
+            .expect("lock");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let second_layout = layout.clone();
+        let second = std::thread::spawn(move || {
+            let report = migrate(&second_layout);
+            tx.send(()).unwrap();
+            report
+        });
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_millis(200))
+                .is_err(),
+            "the second run waits while the first holds the lock"
+        );
+        assert!(layout.old_lock.with_file_name("queue.json").exists());
+        drop(other);
+        let report = second.join().unwrap();
+        assert!(!report.moved.is_empty(), "{report:?}");
+
+        // A finished migration hands its lock to the caller, and later runs
+        // find the marker.
+        let done = migrate_with(&layout, &REAL_OPS);
+        assert!(done.report.is_empty(), "{:?}", done.report);
+    }
+
+    /// The run that migrates returns its lock, for the GUI to keep.
+    #[test]
+    fn the_migrating_run_hands_back_its_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let layout = Layout::windows(&root.path().join("Roaming"), &root.path().join("Local"));
+        write(&layout.old_lock.with_file_name("queue.json"), "[]");
+        let first = migrate_with(&layout, &REAL_OPS);
+        assert!(!first.report.moved.is_empty());
+        assert!(first.guard.is_some());
+        assert_eq!(
+            instance::state(&layout.migration_lock),
+            instance::LockState::Held
+        );
+        drop(first);
+        assert_eq!(
+            instance::state(&layout.migration_lock),
+            instance::LockState::Free
+        );
+    }
+
+    /// A first launch deferred because MaeclyPrint was running wrote fresh
+    /// defaults. The real data still wins later: the defaults are set aside,
+    /// the old files move in.
+    #[test]
+    fn first_run_defaults_give_way_to_the_old_data() {
+        let home = tempfile::tempdir().unwrap();
+        let h = home.path();
+        let layout = Layout::macos(h);
+        let old = h.join("Library/Application Support/com.Maecly.MaeclyPrint");
+        let new = h.join("Library/Application Support/com.Maecly.Pluryprint");
+        write(
+            &old.join("config.toml"),
+            "[app]\nlocale = \"en-US\"\ntheme = \"dark\"\nlaunch_minimized = true\n",
+        );
+        write(&old.join("profiles.toml"), "old profiles");
+        write(&old.join("queue.json"), "old queue");
+        write(
+            &old.join("update-state.json"),
+            r#"{"skipped_version":"v1.2.0"}"#,
+        );
+        write(&old.join("notes.txt"), "old notes");
+
+        let running = instance::claim(&layout.old_lock).unwrap().expect("lock");
+        assert!(migrate(&layout).deferred.is_some());
+        drop(running);
+
+        // What the deferred first run of Pluryprint wrote for itself.
+        let mut first_run = crate::settings::Config::default();
+        first_run.app.locale = "es-ES".into();
+        write(
+            &new.join("config.toml"),
+            &toml::to_string(&first_run).unwrap(),
+        );
+        write(
+            &new.join("profiles.toml"),
+            &toml::to_string(&crate::profiles::ProfilesFile::default()).unwrap(),
+        );
+        write(
+            &new.join("queue.json"),
+            &serde_json::to_string(&crate::queue::job::QueueSnapshot::default()).unwrap(),
+        );
+        write(
+            &new.join("update-state.json"),
+            r#"{"last_check_at":"2026-10-09T00:00:00Z"}"#,
+        );
+        write(&new.join("notes.txt"), "new notes");
+
+        let report = migrate(&layout);
+        assert!(
+            report.deferred.is_none() && report.failed.is_empty(),
+            "{report:?}"
+        );
+        assert!(read(&new.join("config.toml")).contains("dark"));
+        assert_eq!(read(&new.join("profiles.toml")), "old profiles");
+        assert_eq!(read(&new.join("queue.json")), "old queue");
+        assert!(read(&new.join("update-state.json")).contains("v1.2.0"));
+        assert_eq!(report.backed_up.len(), 4, "{report:?}");
+        for (_, backup) in &report.backed_up {
+            assert!(backup.exists(), "{backup:?}");
+        }
+        assert!(read(&new.join("config.toml.first-run.bak")).contains("es-ES"));
+        // Not something the app writes for itself: the new one stays.
+        assert_eq!(read(&new.join("notes.txt")), "new notes");
+        assert_eq!(report.kept, vec![old.join("notes.txt")]);
+    }
+
+    /// A setting the user changed in Pluryprint is theirs: it is never set
+    /// aside for the old one.
+    #[test]
+    fn an_edited_new_config_is_kept() {
+        let home = tempfile::tempdir().unwrap();
+        let h = home.path();
+        let old = h.join("Library/Application Support/com.Maecly.MaeclyPrint");
+        let new = h.join("Library/Application Support/com.Maecly.Pluryprint");
+        write(&old.join("config.toml"), "old");
+        let mut edited = crate::settings::Config::default();
+        edited.app.launch_minimized = true;
+        let edited = toml::to_string(&edited).unwrap();
+        write(&new.join("config.toml"), &edited);
+
+        let report = migrate(&Layout::macos(h));
+        assert_eq!(read(&new.join("config.toml")), edited);
+        assert_eq!(read(&old.join("config.toml")), "old");
+        assert!(report.backed_up.is_empty());
+        assert_eq!(report.kept, vec![old.join("config.toml")]);
+    }
+
+    /// Once a migration has run to the end, later launches do nothing and
+    /// say nothing — not even about the files it had to keep.
+    #[test]
+    fn a_finished_migration_is_not_repeated_or_re_reported() {
+        let home = tempfile::tempdir().unwrap();
+        let h = home.path();
+        let layout = Layout::macos(h);
+        let old = h.join("Library/Application Support/com.Maecly.MaeclyPrint");
+        let new = h.join("Library/Application Support/com.Maecly.Pluryprint");
+        write(&old.join("notes.txt"), "old");
+        write(&new.join("notes.txt"), "new");
+
+        let report = migrate(&layout);
+        assert_eq!(report.kept.len(), 1);
+        assert!(layout.marker.exists());
+        assert!(migrate(&layout).is_empty());
+        // Even something new in the old folder (an old app run afterwards).
+        write(&old.join("queue.json"), "[]");
+        assert!(migrate(&layout).is_empty());
+    }
+
+    /// A run that could not move something is retried: no marker.
+    #[test]
+    fn a_failed_migration_is_retried() {
+        let root = tempfile::tempdir().unwrap();
+        let layout = Layout::windows(&root.path().join("Roaming"), &root.path().join("Local"));
+        write(&layout.old_lock.with_file_name("queue.json"), "[1]");
+        let report = migrate_with(
+            &layout,
+            &Ops {
+                rename: &no_rename,
+                copy_file: &failing_copy,
+            },
+        )
+        .report;
+        assert_eq!(report.failed.len(), 1, "{report:?}");
+        assert!(!layout.marker.exists());
+
+        let report = migrate(&layout);
+        assert!(report.failed.is_empty(), "{report:?}");
+        assert!(layout.marker.exists());
     }
 
     /// Nothing installed: nothing to do, and no old folder gets created.

@@ -52,8 +52,14 @@ pub fn run() {
 pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::PathBuf>) {
     // Move what a MaeclyPrint install left behind into the Pluryprint folders
     // (ADR-0009) before anything opens them — the log files included, so this
-    // runs first and is logged once logging is up.
-    let migration = util::legacy::migrate_current();
+    // runs first and is logged once logging is up. Its lock is kept until this
+    // process holds the instance lock (in `setup`), so a second launch waits
+    // for that and then sees a running Pluryprint instead of migrating into
+    // the folders of one still starting.
+    let util::legacy::Migration {
+        report: migration,
+        guard: migration_guard,
+    } = util::legacy::migrate_current();
     // Initialize structured logging as early as possible so any startup error
     // is captured to disk.
     if let Err(e) = logging::init() {
@@ -210,6 +216,7 @@ pub fn run_with(selection: Option<cli::Selection>, handoff: Option<std::path::Pa
                 Ok(None) => tracing::warn!(event = "instance_lock_already_held"),
                 Err(e) => tracing::warn!(event = "instance_lock_failed", error = %e),
             }
+            drop(migration_guard);
 
             // Boot the print queue: recover persisted state and start the
             // dispatcher, then expose the handle to the IPC commands.

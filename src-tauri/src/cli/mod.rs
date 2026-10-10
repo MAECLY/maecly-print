@@ -318,11 +318,17 @@ fn execute(cli: Cli) -> i32 {
     // must never become one — so the problem goes to stderr and we carry on.
     // A CLI run can be the first launch after the rename: move MaeclyPrint's
     // files first, exactly as the GUI does (ADR-0009).
-    let migration = crate::util::legacy::migrate_current();
+    // Its lock is held until the move is logged; the CLI never claims the
+    // instance lock, and a GUI starting meanwhile waits for this.
+    let crate::util::legacy::Migration {
+        report: migration,
+        guard: migration_guard,
+    } = crate::util::legacy::migrate_current();
     if let Err(e) = crate::logging::init_cli() {
         eprintln!("pluryprint: logging disabled for this run: {e}");
     }
     crate::util::legacy::log_report(&migration);
+    drop(migration_guard);
     tracing::info!(
         event = "cli_invoked",
         command = cli.command.as_ref().map(command_name).unwrap_or("none"),
