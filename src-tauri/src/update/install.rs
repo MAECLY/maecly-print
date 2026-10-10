@@ -40,7 +40,8 @@ pub const DEFAULT_ENDPOINT: &str =
 
 /// Environment variable that replaces [`DEFAULT_ENDPOINT`], for testing an
 /// update end to end against a local server. Release builds still require
-/// `https` (the plugin refuses plain `http` outside debug builds).
+/// `https` (the plugin refuses plain `http` outside debug builds). The
+/// deprecated `MAECLYPRINT_UPDATE_ENDPOINT` is still read, with a warning.
 pub const ENDPOINT_ENV: &str = "PLURYPRINT_UPDATE_ENDPOINT";
 
 /// The manifest URL: `override_value` when it is set and non-blank, the
@@ -61,7 +62,7 @@ pub fn resolve_endpoint(override_value: Option<&str>) -> Result<Url, String> {
 
 /// [`resolve_endpoint`] against the real environment.
 pub fn endpoint() -> Result<Url, String> {
-    resolve_endpoint(std::env::var(ENDPOINT_ENV).ok().as_deref())
+    resolve_endpoint(crate::util::legacy::env_var(ENDPOINT_ENV).as_deref())
 }
 
 /// FR-087: whether going from `current` to `candidate` crosses a **major**

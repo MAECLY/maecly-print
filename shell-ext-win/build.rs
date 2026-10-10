@@ -18,6 +18,7 @@ fn main() {
     println!("cargo:rerun-if-changed=res/shellext.rc");
     println!("cargo:rerun-if-changed=res/shellext.manifest");
     println!("cargo:rerun-if-env-changed=PLURYPRINT_REQUIRE_RESOURCES");
+    println!("cargo:rerun-if-env-changed=MAECLYPRINT_REQUIRE_RESOURCES");
 
     // Non-Windows targets have no resource section at all; skip entirely so a
     // host-side `cargo test` never shells out to a compiler that cannot exist.
@@ -26,7 +27,20 @@ fn main() {
     }
 
     let result = embed_resource::compile("res/shellext.rc", embed_resource::NONE);
-    let strict = env::var("PLURYPRINT_REQUIRE_RESOURCES").as_deref() == Ok("1");
+    let strict = match env::var("PLURYPRINT_REQUIRE_RESOURCES") {
+        Ok(v) => v == "1",
+        // The pre-rename name still works, with a warning (ADR-0009).
+        Err(_) => match env::var("MAECLYPRINT_REQUIRE_RESOURCES") {
+            Ok(v) => {
+                println!(
+                    "cargo:warning=MAECLYPRINT_REQUIRE_RESOURCES is deprecated; \
+                     set PLURYPRINT_REQUIRE_RESOURCES instead"
+                );
+                v == "1"
+            }
+            Err(_) => false,
+        },
+    };
 
     let outcome = if strict {
         // NotAttempted (no rc.exe) is also fatal here: a DLL without the
