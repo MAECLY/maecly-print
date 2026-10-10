@@ -202,6 +202,29 @@ fn print_settings_quality_draft_high_applied_windows() {
     }
 }
 
+/// FR-031: the Windows queue shows the job under the user's file name, not
+/// the temporary folder SumatraPDF printed it from, with and without a
+/// quality swap (the job is found at a different moment in each).
+#[test]
+#[ignore = "submits to paused Windows queues; set MAECLY_REAL_PRINTER=1"]
+fn fr_031_the_windows_queue_shows_the_file_name_windows() {
+    let Some(queues) = queues() else { return };
+    for queue in &queues {
+        let _keep = KeepDefault::new(queue);
+        for (quality, tag) in [(Quality::Normal, "title-n"), (Quality::Draft, "title-d")] {
+            let id = spool(queue, &settings(quality), tag);
+            let _guard = CancelOnDrop(queue.clone(), id.clone());
+            let shown = pluryprint_lib::engine::print::windows::job_document(queue, &id);
+            println!("TITLE queue={queue} quality={quality:?} document={shown:?}");
+            assert_eq!(
+                shown.as_deref(),
+                Some(format!("qt-{tag}.pdf").as_str()),
+                "{queue}"
+            );
+        }
+    }
+}
+
 /// E3: a user with no per-user default gets none back (not ours, not a copy
 /// of the global default).
 #[test]

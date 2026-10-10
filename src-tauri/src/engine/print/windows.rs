@@ -580,6 +580,18 @@ pub fn retitle_job(printer: &str, job: &JobRef) {
     }
 }
 
+/// The document name the Windows queue shows for our job `os_job_id`
+/// ([`JobRef`]) on `printer`, or `None` once it left the queue (or the id now
+/// carries another print).
+#[cfg(windows)]
+pub fn job_document(printer: &str, os_job_id: &str) -> Option<String> {
+    let job = JobRef::parse(os_job_id)?;
+    match ffi::status(printer, job.id) {
+        Ok(Some((_, q))) if !job.verifiable() || job.is(&q) => Some(q.document),
+        _ => None,
+    }
+}
+
 /// What the job now carrying `job.id` says about `job`. Pure.
 ///
 /// - no job with that id: ours left the queue ([`OsJobState::Gone`]);
@@ -747,7 +759,10 @@ mod tests {
         // Tracking, the reused-id check and the offline cancel still match.
         assert!(document_names(&title, staged));
         let renamed = job(7, &title, "a");
-        assert_eq!(pick_new_job(&[], &[renamed.clone()], staged, "a"), Some(7));
+        assert_eq!(
+            pick_new_job(&[], std::slice::from_ref(&renamed), staged, "a"),
+            Some(7)
+        );
         assert!(is_our_job(&renamed, &["report.pdf".to_string()], "a"));
     }
 
