@@ -86,8 +86,26 @@ image = { version = "0.25", default-features = false, features = [
   "bmp",
   "webp",
 ] }
-# PDF parsing: page counts for the Print Job screen + converter test assertions.
-lopdf = "0.34"
+# PDF parsing: page counts for the Print Job screen + converter test assertions,
+# and (FR-059) encrypted-PDF detection and decryption. 0.39 is the first line
+# that reads AES-128/AES-256 (V4/V5) security handlers and offers
+# `load_with_password`; it is also the copy printpdf already pulls in, so the
+# tree keeps a single lopdf. MSRV 1.85, below ours.
+lopdf = "0.39"
+# FR-052a: SVG/SVGZ -> vector PDF in-process (Typst's converter). `usvg` is
+# pinned to the exact line svg2pdf 0.13 is built on, so the tree never holds
+# two copies of the SVG parser. Both MIT OR Apache-2.0.
+svg2pdf = "0.13"
+usvg = "=0.45.1"
+# FR-056: Markdown -> HTML without Pandoc. No default features: the CLI
+# helpers (`getopts`) are not needed. MIT.
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+# FR-057: TXT without LibreOffice; decode a BOM-less file that is not valid
+# UTF-8 as Windows-1252. Already in the tree through tauri. MIT OR Apache-2.0.
+encoding_rs = "0.8"
+# FR-059: a PDF password supplied by the user lives only in memory and is
+# wiped when dropped (NFR-082). Already in the tree. MIT OR Apache-2.0.
+zeroize = "1"
 # Job ids: v7 is time-sortable, so queue ordering falls out of the id.
 uuid = { version = "1", features = ["v7"] }
 # RFC3339 job timestamps serialized into queue.json.
@@ -147,6 +165,21 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
   "NSString",
   "NSURL",
 ] }
+# FR-055: HTML -> PDF through WKWebView in the hidden render worker (the same
+# objc2 line wry uses; see the note above). Zlib OR Apache-2.0 OR MIT.
+objc2-web-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "objc2-app-kit",
+  "WKWebView",
+  "WKWebViewConfiguration",
+  "WKPreferences",
+  "WKNavigation",
+  "WKNavigationDelegate",
+  "WKContentRuleList",
+  "WKContentRuleListStore",
+  "WKUserContentController",
+  "WKWebpagePreferences",
+] }
 
 # --- Windows printer enumeration (winspool + GDI DeviceCapabilities) ---
 # Only pulled in on Windows targets; macOS/Linux enumerate via the CUPS CLI.
@@ -158,6 +191,10 @@ windows = { version = "0.58", features = [
   "Win32_Graphics_Gdi",
   "Win32_Graphics_Imaging",
   "Win32_Graphics_Printing",
+  # PTOpenProvider / PTConvertDevModeToPrintTicket / PTMergeAndValidatePrintTicket:
+  # build a DEVMODE that carries the requested print quality (print-settings.md,
+  # engine::print::devmode_swap).
+  "Win32_Graphics_Printing_PrintTicket",
   # DnsServiceBrowse / DnsServiceResolve: network printer discovery through the
   # DNS Client service, whose firewall rule admits the mDNS answers
   # (platform::windows_dnssd).
@@ -177,6 +214,10 @@ windows = { version = "0.58", features = [
   # HKLM\SOFTWARE\Policies\Maecly\Pluryprint (settings::policy).
   "Win32_System_Registry",
 ] }
+# FR-055: HTML -> PDF through the system WebView2 (`ICoreWebView2_7::PrintToPdf`)
+# in the hidden render worker. Pinned to the line wry already uses, so the
+# COM bindings are shared rather than duplicated. MIT.
+webview2-com = "0.38"
 
 [features]
 # By default Tauri uses "custom-protocol" in release builds. Tauri's CLI passes this in.
