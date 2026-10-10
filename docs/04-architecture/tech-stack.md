@@ -221,7 +221,7 @@ Packages named in earlier drafts and **not** used: `@radix-ui/*`, `react-hook-fo
 ## 7. Where this decision is recorded
 
 - ADR [`0001-stack-tauri-rust-react`](../adr/0001-stack-tauri-rust-react.md) — the canonical record of this decision, with full alternatives and consequences.
-- ADR [`0002-license-gplv3`](../adr/0002-license-gplv3.md) — license choice that constrains some dependencies.
+- ADR [`0010-relicense-to-agpl-3.0`](../adr/0010-relicense-to-agpl-3.0.md) — license choice (AGPL-3.0, superseding [`0002-license-gplv3`](../adr/0002-license-gplv3.md)) that constrains some dependencies.
 - ADR [`0004-auto-updater-tauri-builtin`](../adr/0004-auto-updater-tauri-builtin.md) — updater choice tied to Tauri. **The shipped build does not follow it**; the disagreement is tracked in [`auto-updater.md`](./auto-updater.md) §8 and needs a superseding ADR or an implementation.
 
 ## 8. Related documents

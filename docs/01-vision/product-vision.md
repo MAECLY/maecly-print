@@ -1,6 +1,6 @@
 # Product Vision
 
-> **TL;DR** — Pluryprint is a free, open-source, GPLv3-licensed batch printing utility for Windows (and later macOS) built with Tauri 2 + Rust + React. It replaces the friction of right-clicking a folder of files and discovering Windows hides "Print" past 15 selections, or paying $79–$149 for commercial alternatives.
+> **TL;DR** — Pluryprint is a free, open-source, AGPL-3.0-licensed batch printing utility for Windows (and later macOS) built with Tauri 2 + Rust + React. It replaces the friction of right-clicking a folder of files and discovering Windows hides "Print" past 15 selections, or paying $79–$149 for commercial alternatives.
 
 ## Mission Statement
 

@@ -118,8 +118,8 @@ See [privacy.md](../09-legal/privacy.md) for the full statement.
 
 | ID | Requirement | Target | Verification |
 |---|---|---|---|
-| NFR-100 | The project MUST comply with GPLv3 obligations: source disclosure, license text in distribution, copyright notices preserved. | License file present in distribution; about dialog links to source | Release checklist |
-| NFR-101 | All bundled third-party components MUST be license-compatible with GPLv3. See [third-party-licenses.md](../09-legal/third-party-licenses.md). | License audit per release | Release checklist |
+| NFR-100 | The project MUST comply with AGPL-3.0 obligations: source disclosure, license text in distribution, copyright notices preserved. | `LICENSE`, `THIRD-PARTY-NOTICES.md` and `LICENSES/` present in the bundle (`src-tauri/tests/licence_bundle.rs`); About links the source, the license, the CLA and the notices | Release checklist |
+| NFR-101 | All bundled third-party components MUST be license-compatible with the AGPL-3.0. See [third-party-licenses.md](../09-legal/third-party-licenses.md). | License audit per release | Release checklist |
 | NFR-102 | The project MUST publish a SECURITY.md with a private vulnerability disclosure channel. | File exists, channel works | Release checklist |
 
 ## Implementation status

@@ -3,7 +3,7 @@
 > **Open source batch file printing for Windows and macOS.** Right-click → print everything, with no 15-file limit, no Adobe required, and no $149 license fee.
 
 [![Status](https://img.shields.io/badge/status-pre--alpha-orange)](./docs/06-roadmap/milestones.md)
-[![License](https://img.shields.io/badge/license-GPLv3-blue)](./LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
 [![Stack](https://img.shields.io/badge/stack-Tauri%202%20%2B%20Rust%20%2B%20React-success)](./docs/04-architecture/tech-stack.md)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20%E2%86%92%20macOS-lightgrey)](./docs/06-roadmap/milestones.md)
 
@@ -121,17 +121,25 @@ Rows marked M3/M4/Planned are decided but not yet wired; the app already detects
 
 ## License
 
-[GPLv3](./LICENSE). Pluryprint is and will remain free software. See [docs/09-legal/license.md](./docs/09-legal/license.md) for what that means in practice.
+Pluryprint is free software under the [GNU Affero General Public License v3.0](./LICENSE).
+Contributions are accepted under the [CLA](./CLA.md). The name, the wordmark and
+the mark belong to MAECLY and are not covered by that licence; see
+[TRADEMARKS.md](./TRADEMARKS.md). Bundled third-party licences:
+[THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md). For a commercial licence, write
+to hola@maecly.com. What the licence means in practice:
+[docs/09-legal/license.md](./docs/09-legal/license.md).
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING](./docs/08-development/contributing.md). Before opening a PR for non-trivial changes, please file an issue or start a discussion.
+Contributions are welcome — read [CONTRIBUTING.md](./CONTRIBUTING.md) and agree to the
+[Contributor License Agreement](./CLA.md); you keep the copyright in what you write.
+The full guide is in [docs/08-development/contributing.md](./docs/08-development/contributing.md). Before opening a PR for non-trivial changes, please file an issue or start a discussion.
 
 If you want to contribute a translation, see the [internationalization section](./docs/08-development/contributing.md#translations).
 
 ## Project name and trademark
 
-"Pluryprint" is a trademark of the project. Forks must rebrand. See [trademark policy](./docs/09-legal/trademark.md).
+"Pluryprint", its wordmark and the Abanico mark belong to the founder (MAECLY). Forks must rebrand: see [TRADEMARKS.md](./TRADEMARKS.md) and the [trademark policy](./docs/09-legal/trademark.md).
 
 ## Privacy
 

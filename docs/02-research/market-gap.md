@@ -6,7 +6,7 @@
 
 The gap is the empty intersection of these requirements:
 
-1. **Open source** with a permissive enough license for personal *and* organizational adoption (GPLv3 satisfies both).
+1. **Open source** with a permissive enough license for personal *and* organizational adoption (the AGPL-3.0 satisfies both: it restricts redistribution of modified versions, not use).
 2. **Multi-format batch printing** — at minimum PDF, modern Office, and common image formats from a single tool.
 3. **Native Windows shell integration** — appearing in the right-click menu (modern Win11, not just legacy "Show more options").
 4. **Active maintenance** — released, updated, and supported in the last 12 months.
@@ -145,7 +145,7 @@ Past OSS attempts (DarkStorm's BPH, scattered batch-print scripts) failed becaus
 - **Optional, paid cloud features** (post-v1.0). Strictly opt-in. Examples that respect the privacy-first stance: a hosted profile-sync service for organizations, a hosted printer-driver compatibility database. The desktop app remains 100% free and 100% functional without these.
 - **Sponsored development** for organizations that need specific features (custom format renderers, CI/CD-grade SLAs). Standard OSS dual-track model.
 - **Foundation membership** if the project achieves enough adoption to justify joining one.
-- **Volunteer contributors** drawn by the GPLv3 license, modern stack (Rust + Tauri 2 + React/TS), and the relatively well-defined problem domain.
+- **Volunteer contributors** drawn by the AGPL-3.0 license, modern stack (Rust + Tauri 2 + React/TS), and the relatively well-defined problem domain.
 
 ### 5. The competitive moat is "we are free and integrated"
 

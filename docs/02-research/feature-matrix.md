@@ -18,7 +18,7 @@ For the source materials behind each cell, see [competitor-analysis.md](./compet
 
 | Feature | Print Conductor | 2Printer | Batch & Print Pro | FolderMill | clawPDF | Pluryprint MVP | Pluryprint v1.0 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Open source** | ✗ | ✗ | ✗ | ✗ | ✓ (AGPL-3.0) | ✓ (GPL-3.0) | ✓ (GPL-3.0) |
+| **Open source** | ✗ | ✗ | ✗ | ✗ | ✓ (AGPL-3.0) | ✓ (AGPL-3.0) | ✓ (AGPL-3.0) |
 | **Free of charge** | ✗ ($149) | ✗ ($149) | ✗ ($79.95) | ✗ (B2B) | ✓ | ✓ | ✓ |
 | **Multi-format input** | ✓ (90+) | ✓ (90+) | ✓ (30+) | ✓ (90+) | n/a (virtual printer) | Partial (PDF, Office, images, text/MD, HTML) | ✓ (broad, plugin-extensible) |
 | **PDF rendering without Adobe** | ✓ | ✓ | ✓ | ✓ | n/a | ✓ (pdfium/mupdf) | ✓ |
@@ -87,7 +87,7 @@ A few things to notice when scanning the table:
 
 ### Where Pluryprint MVP commits
 
-- Free, GPLv3, OSS.
+- Free, AGPL-3.0, OSS.
 - Modern + legacy context menu integration.
 - The file formats users batch-print 95% of the time (PDF, Office, images, text/MD, HTML).
 - Core print options (duplex, color, paper, orientation, copies, page range, basic collate).

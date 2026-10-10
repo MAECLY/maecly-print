@@ -31,7 +31,7 @@ Milestones are strictly sequential. We do not start M(n+1) work until M(n) exit 
 - Tauri 2 project initialized with React + TypeScript template.
 - Documentation tree under `docs/` populated for all sections (this milestone is largely about the docs you are reading right now).
 - Basic CI: `cargo test`, `cargo clippy`, `pnpm lint`, `pnpm test`, build (no signing).
-- Licensing: `LICENSE` (GPLv3), `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), `SECURITY.md`, `CONTRIBUTING.md`.
+- Licensing: `LICENSE` (GPLv3 at the time; AGPL-3.0 since [ADR-0010](../adr/0010-relicense-to-agpl-3.0.md)), `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), `SECURITY.md`, `CONTRIBUTING.md`.
 - `README.md` with badges, install instructions placeholder, status banner.
 
 ### Deliverables

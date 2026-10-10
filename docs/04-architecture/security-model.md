@@ -280,7 +280,7 @@ What you'll never send:
 ## 7. Dependency hygiene
 
 - `Cargo.lock` and `pnpm-lock.yaml` are committed. CI installs are lockfile-only.
-- `cargo deny check` runs in CI: blocks unmaintained crates, GPL-incompatible licenses, advisories.
+- `cargo deny check` runs in CI: blocks unmaintained crates, AGPL-incompatible licenses, advisories.
 - `cargo audit` runs nightly against RustSec.
 - `pnpm audit --audit-level high` runs in CI.
 - Dependabot security updates are auto-merged once CI is green; non-security bumps require human review.
@@ -314,7 +314,7 @@ Before tagging a release, the maintainer verifies:
 - [ ] `cargo deny check` clean.
 - [ ] `pnpm audit --audit-level high` clean.
 - [ ] All artifacts signed (Authenticode / Apple Developer ID).
-- [ ] The bundled SumatraPDF matches the pinned version **and checksum** in `scripts/fetch-sumatrapdf.*`, for the installer's architecture (x64 or ARM64), and its licence files (`LICENSE.txt`, `COPYING.BSD.txt`, `AUTHORS.txt`, fetched from the pinned upstream commit) and `SOURCE.txt` sit next to the executable (GPLv3 §6 obligation — see [`../09-legal/third-party-licenses.md`](../09-legal/third-party-licenses.md)).
+- [ ] The bundled SumatraPDF matches the pinned version **and checksum** in `scripts/fetch-sumatrapdf.*`, for the installer's architecture (x64 or ARM64), and its licence files (`LICENSE.txt`, `COPYING.BSD.txt`, `AUTHORS.txt`, fetched from the pinned upstream commit) and `SOURCE.txt` sit next to the executable, with the GPL-3.0 text also in `LICENSES/GPL-3.0.txt` (GPL-3.0 §6 obligation — see [`../09-legal/third-party-licenses.md`](../09-legal/third-party-licenses.md)).
 - [ ] CSP unchanged (or change reviewed).
 - [ ] Capability allowlist unchanged (or change reviewed).
 - [ ] No new outbound URLs added without privacy-doc update.

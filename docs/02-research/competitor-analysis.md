@@ -266,14 +266,14 @@ The detailed feature-by-feature comparison lives in [feature-matrix.md](./featur
 | clawPDF | AGPL-3.0 | $0 | n/a (virtual printer) | n/a | ✓ | ✓ |
 | Batch PDF Printer | GPL-3.0 | $0 | ✗ (PDF only) | ✗ | Limited | ✓ |
 | DarkStorm's BPH | GPL-2.0 | $0 | Partial | ✗ | ✗ (2015) | ✓ |
-| **Pluryprint MVP** | **GPL-3.0** | **$0** | **Partial (PDF, Office, images, text)** | **✓ (modern + legacy)** | **✓** | **✓** |
-| **Pluryprint v1.0** | **GPL-3.0** | **$0** | **✓ (broad)** | **✓** | **✓** | **✓** |
+| **Pluryprint MVP** | **AGPL-3.0** | **$0** | **Partial (PDF, Office, images, text)** | **✓ (modern + legacy)** | **✓** | **✓** |
+| **Pluryprint v1.0** | **AGPL-3.0** | **$0** | **✓ (broad)** | **✓** | **✓** | **✓** |
 
 ## Strategic Conclusions
 
 1. **Do not compete on format breadth at MVP.** Print Conductor has a 20-year head start on its renderer pipeline. Pluryprint should ship the formats users batch-print 95% of the time (PDF, Office, images, text), then add formats methodically based on issue tracker demand.
 2. **Compete decisively on shell integration.** It is the gap none of the incumbents fills.
-3. **Compete decisively on price (zero).** Free GPLv3 is unanswerable for a category whose lowest-priced commercial option is $79.95.
+3. **Compete decisively on price (zero).** Free AGPL-3.0 software is unanswerable for a category whose lowest-priced commercial option is $79.95.
 4. **Borrow CLI design from 2Printer.** No need to invent a new flag taxonomy.
 5. **Borrow the rule/action model from FolderMill** when we add hot folders.
 6. **Borrow load balancing from Print Conductor 11** when we add multi-printer support.

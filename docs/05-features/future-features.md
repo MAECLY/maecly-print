@@ -236,7 +236,7 @@ Apply a PDF letterhead/template as background overlay on every printed page.
 |---|---|
 | Built-in PDF editor | Out of scope; pair with a real PDF tool |
 | Cloud-only or subscription model | Against project ethos |
-| Closed-source plugins | License-incompatible with GPLv3 |
+| Closed-source plugins | License-incompatible with the AGPL-3.0 |
 | Bundled converter binaries (Office, Chromium) | Bloats installer, license risk; users install separately |
 | Sponsored content / ads in UI | Never |
 | Automatic anonymous telemetry without opt-in | Never |

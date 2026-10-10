@@ -1,6 +1,6 @@
 # Value Proposition
 
-> **TL;DR** — Pluryprint is the answer to a single, ten-word question: **What if right-click → Print just worked, for any number of files?** It is free, open source (GPLv3), integrated into the Windows 11 modern context menu, and never asks you to pay $149 to bypass an arbitrary 15-file ceiling.
+> **TL;DR** — Pluryprint is the answer to a single, ten-word question: **What if right-click → Print just worked, for any number of files?** It is free, open source (AGPL-3.0), integrated into the Windows 11 modern context menu, and never asks you to pay $149 to bypass an arbitrary 15-file ceiling.
 
 ## The Pitch in One Paragraph
 
@@ -35,9 +35,9 @@ There is no actively maintained, multi-format, open-source batch printer with a 
 
 ## The Six Pillars
 
-### 1. Free and Open Source (GPLv3)
+### 1. Free and Open Source (AGPL-3.0)
 
-Zero dollars, forever, for any number of users. The full source is on GitHub. The license is GPLv3, which guarantees that any derivative or fork carries the same freedoms. There is no "Pro" tier waiting in the wings, no upsell, no "free for personal use only" clause.
+Zero dollars, forever, for any number of users. The full source is on GitHub. The license is the AGPL-3.0, which guarantees that any derivative or fork carries the same freedoms. There is no "Pro" tier waiting in the wings, no upsell, no "free for personal use only" clause.
 
 For organizations, this collapses procurement to a software-allowlist check. For developers, it means you can read the code, fix bugs, or extend it for your specific workflow.
 

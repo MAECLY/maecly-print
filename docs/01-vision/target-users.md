@@ -87,7 +87,7 @@ Her staff routinely calls the help desk because they selected "too many files an
 
 ### What Pluryprint solves
 
-- Free GPLv3 — no procurement, no per-seat math.
+- Free AGPL-3.0 — no procurement, no per-seat math.
 - Silent install via MSI/MSIX, deployable through Configuration Manager.
 - Group Policy-friendly: registry-based default printer overrides, a documented JSON config for org-wide defaults (`%PROGRAMDATA%\Pluryprint\policy.json`).
 - A documented CLI for unattended use in nursing-station kiosks.
@@ -147,7 +147,7 @@ Looking across these five personas, a few patterns dominate:
 | Theme | Personas affected | Pluryprint response |
 | --- | --- | --- |
 | The 15-file cap is a daily papercut | Carla, Devon, Sam, Alvarez | Remove it via a custom `IExplorerCommand` that processes the full `IShellItemArray`. |
-| Commercial alternatives are excellent but cost-prohibitive at scale | Priya, Devon, Sam | Free GPLv3, no seat licensing. |
+| Commercial alternatives are excellent but cost-prohibitive at scale | Priya, Devon, Sam | Free AGPL-3.0, no seat licensing. |
 | Per-file-type routing is a real ask | Devon, Sam | Built-in routing rules in profiles. |
 | Adobe Reader's silent partial failures are a trust problem | Carla, Alvarez | Use our own renderer (`pdfium`/`mupdf`) so we never depend on Reader behavior. |
 | Sysadmins need silent, scriptable, telemetry-free deployment | Priya | MSI/MSIX, JSON policy file, opt-in logging only. |

@@ -26,6 +26,8 @@ This is the operational runbook a maintainer follows to ship a release. Print it
 - [ ] Run `cargo test --include-ignored` locally. All tests pass (this catches subprocess-dependent tests that may be skipped in regular dev).
 - [ ] Run E2E suite (`pnpm test:e2e`) against a fresh build: green.
 - [ ] Run `cargo audit`. Zero unaddressed advisories. (Address with explicit allowlist + comment if waiver justified.)
+- [ ] Re-check `THIRD-PARTY-NOTICES.md` with the commands in its "How this list was made" section (`cargo tree` on the four release targets, a production `vite build`). Every new crate or package is named, and every new licence is compatible with the AGPL-3.0 (see [third-party-licenses.md](../09-legal/third-party-licenses.md)).
+- [ ] The release notes name the SumatraPDF version the Windows installer ships, so its "corresponding source" is unambiguous.
 
 ### Build verification
 
