@@ -1,0 +1,76 @@
+# Moves the beta channel's update manifest when a release is published.
+#
+# The app reads two manifests (src-tauri/src/update/install.rs, FR-085):
+#
+# - stable: releases/latest/download/latest.json, which GitHub itself points
+#   at the newest published release that is not a prerelease;
+# - beta:   releases/download/channel-beta/latest.json, the asset of a fixed
+#   prerelease tagged `channel-beta` that this workflow keeps up to date.
+#
+# Every published release, stable or beta, is offered to the beta channel, so
+# a beta user also moves on to the stable release of the same version (SemVer
+# ranks 0.2.0 above 0.2.0-beta.3). The pointer only ever moves forward: a
+# stable hotfix 0.1.5 published while beta is on 0.2.0-beta.3 leaves beta
+# where it is (FR-086: no downgrade).
+#
+# It runs when a person publishes the draft that release.yml built. Drafts and
+# the `channel-beta` release itself are ignored.
+name: release-channels
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-channels
+  cancel-in-progress: false
+
+env:
+  REPO: ${{ github.repository }}
+  BETA_TAG: channel-beta
+
+jobs:
+  beta-pointer:
+    name: Point the beta channel at this release
+    if: github.event.release.tag_name != 'channel-beta' && !github.event.release.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy latest.json to the channel-beta release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          case "$TAG" in
+            v[0-9]*) ;;
+            *) echo "::notice::$TAG is not a version tag; nothing to do"; exit 0 ;;
+          esac
+          mkdir -p new current
+          gh release download "$TAG" --repo "$REPO" --pattern latest.json --dir new
+          new_version=$(python3 -c "import json;print(json.load(open('new/latest.json'))['version'])")
+          python3 -I scripts/release/release_tools.py check-manifest \
+            --manifest new/latest.json --version "$new_version" \
+            --require darwin-aarch64 --require darwin-x86_64 \
+            --require windows-x86_64 --require windows-aarch64
+
+          if ! gh release view "$BETA_TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$BETA_TAG" --repo "$REPO" --prerelease --latest=false \
+              --target "$GITHUB_SHA" --title "Beta channel manifest" \
+              --notes "Moving pointer for the in-app updater's beta channel (release-channels.yml). Download Pluryprint from the versioned releases, not from here."
+          fi
+
+          if gh release download "$BETA_TAG" --repo "$REPO" --pattern latest.json --dir current 2>/dev/null; then
+            current_version=$(python3 -c "import json;print(json.load(open('current/latest.json'))['version'])")
+            if ! python3 -I scripts/release/release_tools.py semver-gt "$new_version" "$current_version"; then
+              echo "::notice::beta stays on $current_version; $new_version is not newer"
+              exit 0
+            fi
+          fi
+
+          gh release upload "$BETA_TAG" new/latest.json --repo "$REPO" --clobber
+          echo "### Beta channel now offers $new_version" >> "$GITHUB_STEP_SUMMARY"
