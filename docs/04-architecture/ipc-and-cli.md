@@ -28,7 +28,7 @@ Commands are declared with `#[tauri::command] #[specta::specta]` and registered 
 
 ### 2.1 Reference table
 
-The table below is the **complete** registered surface — 44 commands, in `collect_commands!` order.
+The table below is the **complete** registered surface — 47 commands, in `collect_commands!` order.
 
 | Command                     | TS binding                                                    | Rust handler                            | Notes |
 | --------------------------- | ------------------------------------------------------------- | --------------------------------------- | ----- |
@@ -38,6 +38,7 @@ The table below is the **complete** registered surface — 44 commands, in `coll
 | `open_external`             | `openExternal(url) => null`                                    | `ipc::diag::open_external`              | HTTPS allow-list: exactly `github.com`, `maecly.com`, `*.maecly.com`; no userinfo, no port |
 | `log_frontend_error`        | `logFrontendError(report) => null`                             | `ipc::diag::log_frontend_error`         | NFR-033: writes a webview error (`source`, `message`, `stack`, each size-bounded) to the log as `event: "frontend_error"`; never fails |
 | `notify_native`             | `notifyNative(title, body) => boolean`                         | `ipc::notify::notify_native`            | FR-072: shows an OS notification only while the main window is unfocused/hidden/minimized and `app.native_notifications` is on; resolves to whether one was shown |
+| `install_dependency`        | `installDependency(id, method, consent) => InstallOutcome`     | `ipc::deps_install::install_dependency` | FR-058, decision D13. Runs the chosen `InstallOption` of a missing dependency (winget, winget from the Store source, `brew --cask`) or opens its Store/web page — **only with `consent: true`**, which only the consent dialog's *Install*/*Open* button sends (`install_consent_required` otherwise). Argument vector, no shell, no console window, one install at a time (`install_in_progress`), bounded by 30 minutes; output streamed as `dependency-install-progress`. Returns the outcome (`installed`, `not-detected`, …) and the dependency's fresh report |
 | `list_printers`             | `listPrinters() => Printer[]`                                  | `ipc::printers::list_printers`          | Rich `Printer` — see [printer-enumeration.md](./printer-enumeration.md) |
 | `default_printer`           | `defaultPrinter() => string \| null`                           | `ipc::printers::default_printer`        | OS-default id |
 | `discover_printers`         | `discoverPrinters() => DiscoveredPrinter[]`                    | `ipc::printers::discover_printers`      | mDNS/Bonjour: `ippfind` on macOS/Linux, the OS DNS-SD client (`DnsServiceBrowse`) for `_ipp._tcp`/`_ipps._tcp` on Windows (WSD-only devices are not listed) |
@@ -62,6 +63,7 @@ The table below is the **complete** registered surface — 44 commands, in `coll
 | `inspect_files`             | `inspectFiles(paths) => FileInfo[]`                            | `ipc::jobs::inspect_files`              | Per-file type/size/page count; bad paths flagged, not thrown. Also reports `is_dir` / `has_subfolders` so the caller can ask the FR-004 recurse question |
 | `expand_folders`            | `expandFolders(paths, scan) => FolderExpansion[]`              | `ipc::jobs::expand_folders`             | Walks a dropped folder (`top_level` / `recursive`), returning printable files **and** every skipped entry with its reason |
 | `preview_command`           | `previewCommand(req) => string`                                | `ipc::jobs::preview_command`            | Exact `lp` / SumatraPDF command (honesty preview) |
+| `job_supply_password`       | `jobSupplyPassword(id, password, applyToBatch) => null`        | `ipc::pdf_password::job_supply_password` | FR-059. For a job paused with `pdf_protected` / `password_required` or `password_incorrect`: keeps the password in the dispatcher's memory (never in `queue.json` or a log) and resumes the job; with `applyToBatch`, the batch's other protected PDFs get it too. A wrong password pauses the job again with `password_incorrect` |
 | `list_profiles`             | `listProfiles() => Profile[]`                                  | `ipc::profiles::list_profiles`          | Built-ins first (canonical order), then customs sorted case-insensitively by name; `default` computed from `engine.default_profile` |
 | `get_profile`               | `getProfile(id) => Profile`                                    | `ipc::profiles::get_profile`            | Built-in or custom; `ProfileNotFound` for an unknown id |
 | `save_profile`              | `saveProfile(profile) => Profile`                              | `ipc::profiles::save_profile`           | **Upsert**: empty id → create (UUID v7); unknown non-empty id → create *preserving that id* (undo); known custom id → update; built-in id → `InvalidRequest` |
@@ -285,7 +287,8 @@ export type UpdateCheck = {
 export type UpdateState = { last_check_at?: string | null; skipped_version?: string | null };
 
 // --- Diagnostics + dependency probe (ipc/diag.rs, engine/deps.rs) ---
-export type Dependency = "sumatra-pdf" | "libre-office" | "chromium" | "pandoc";
+export type Dependency = "sumatra-pdf" | "libre-office" | "chromium" | "pandoc" | "heif-codec" | "hevc-codec";
+// chromium: only the hidden html_renderer = "browser" fallback; pandoc: no longer used. Both block nothing.
 export type FoundIn    = "bundled" | "configured" | "path" | "installed";
 export type DependencyReport = {
   id: Dependency; name: string;
@@ -293,6 +296,15 @@ export type DependencyReport = {
   found: boolean; path: string | null; found_in: FoundIn | null;
   blocks: string[];              // extensions unprintable while this is missing
   remediation: string | null;    // FR-058 message, only when applicable && !found
+  install: InstallOption[];      // ways to install it, best first (D13); empty when there is none
+};
+export type InstallOption = {
+  method: "winget" | "winget-store" | "store" | "brew-cask" | "web";
+  command: string;               // exactly what runs, or the page that opens — shown in the consent dialog
+  needs_admin: boolean;          // LibreOffice's MSI asks for UAC
+  paid: boolean;                 // HEVC Video Extensions
+  approx_mb: number | null;
+  available: boolean;            // false when winget / Homebrew is not installed
 };
 
 export type AppInfo = {
@@ -331,7 +343,7 @@ pub async fn print_files(
 
 ### 2.4 Events (push from Rust to UI)
 
-All five events derive `tauri_specta::Event` and are collected in `src-tauri/src/lib.rs`. Event *names* are the struct identifiers kebab-cased by the derive; the webview subscribes through the generated `events` object (`events.queueUpdated.listen(…)`), never raw `listen()`.
+All six events derive `tauri_specta::Event` and are collected in `src-tauri/src/lib.rs`. Event *names* are the struct identifiers kebab-cased by the derive; the webview subscribes through the generated `events` object (`events.queueUpdated.listen(…)`), never raw `listen()`.
 
 | Event name            | TS type / payload                              | Emitted by | Notes |
 | --------------------- | ---------------------------------------------- | ---------- | ----- |
@@ -341,6 +353,7 @@ All five events derive `tauri_specta::Event` and are collected in `src-tauri/src
 | `selection-forwarded` | `SelectionForwarded` = `Selection`             | The single-instance plugin callback, and the macOS Finder service | A second launch handed this window a file selection. The payload is informational: the same selection is also parked in the pending store, and the window acts on it by calling `take_pending_selections` — one destructive drain, so a selection can never be honoured twice |
 
 | `update-download-progress` | `UpdateDownloadProgress` = `{ downloaded, total }` | `install_update`, per received chunk | Bytes so far and the `Content-Length` when known; advisory |
+| `dependency-install-progress` | `DependencyInstallProgress` = `{ id, line }` | `install_dependency`, per output line of winget/brew | Shown in the consent dialog while the install runs; advisory |
 
 There is no `printer-changed` event.
 
