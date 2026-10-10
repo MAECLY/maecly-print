@@ -140,11 +140,11 @@ tauri-plugin-single-instance = "2"
 # for finished, failed and stuck batches while the window is in the
 # background. Driven Rust-side only (`ipc::notify`); no JS capability needed.
 # 2.4 is the newest line that does not require a newer `tauri` than 2.11.
-tauri-plugin-notification = "~2.4"
+tauri-plugin-notification = "~2.5"
 # FR-082/083/087: download, verify (minisign, against the public key in
 # tauri.conf.json) and install signed updates. 2.12 is the newest line that
 # does not require a newer `tauri` than 2.11. See ADR-0008.
-tauri-plugin-updater = "~2.12"
+tauri-plugin-updater = "~2.13"
 
 # --- Dev/test only ---
 # `test-util` unlocks tokio's virtual clock (`start_paused` / `time::advance`)
