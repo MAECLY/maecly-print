@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { waitFor } from '@testing-library/react';
 
 import type {
@@ -56,10 +56,13 @@ function running(over: Partial<RunningInstall> = {}): RunningInstall {
 }
 
 function handlers(): InstallHandlers & {
-  onResolved: ReturnType<typeof vi.fn>;
-  announce: ReturnType<typeof vi.fn>;
+  onResolved: Mock<InstallHandlers['onResolved']>;
+  announce: Mock<InstallHandlers['announce']>;
 } {
-  return { onResolved: vi.fn(), announce: vi.fn() };
+  return {
+    onResolved: vi.fn<InstallHandlers['onResolved']>(),
+    announce: vi.fn<InstallHandlers['announce']>(),
+  };
 }
 
 /** A backend whose install and slot the test drives. */
