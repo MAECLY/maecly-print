@@ -134,8 +134,12 @@ git push origin main v0.2.0
 ```
 
 `bump-version.sh` writes `src-tauri/Cargo.toml`, the `pluryprint` entry of
-`src-tauri/Cargo.lock` and `package.json`, and refuses a version that is not
-SemVer. NSIS accepts any pre-release suffix (no MSI is built), so `-beta.1`
+`src-tauri/Cargo.lock` and `package.json`, and the Explorer extension's
+version: `shell-ext-win/Cargo.toml`, its `Cargo.lock` entry and the
+VERSIONINFO in `shell-ext-win/res/shellext.rc` (`X.Y.Z.0`, the version Windows
+shows for `shell_ext_win.dll`; the pre-release suffix is dropped there). It
+refuses a version that is not SemVer, and the `guard` job refuses a tag whose
+extension version differs. NSIS accepts any pre-release suffix (no MSI is built), so `-beta.1`
 works.
 
 If a dependency changed since the last release, regenerate the notices first
