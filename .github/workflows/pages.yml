@@ -1,13 +1,22 @@
 name: Pages
 
 # Publishes the static landing page in site/ to GitHub Pages
-# (https://pluryprint.maecly.com, see site/CNAME). Plain files, no build step.
+# (https://pluryprint.maecly.com, see site/CNAME). site/ names no version,
+# date, download link or file size: scripts/site/apply_release.py fills its
+# {{release.*}} markers from the latest published release, so publishing a
+# release redeploys the landing with that release's files. A release published
+# with GITHUB_TOKEN would not trigger this (GitHub does not start workflows
+# from GITHUB_TOKEN events); ours are published by a person, and Run workflow
+# redeploys by hand.
 on:
   push:
     branches: [main]
     paths:
       - 'site/**'
+      - 'scripts/site/**'
       - '.github/workflows/pages.yml'
+  release:
+    types: [published]
   workflow_dispatch:
 
 # Nothing by default; the deploy job asks for what it needs.
@@ -22,7 +31,7 @@ jobs:
     name: Deploy site/
     runs-on: ubuntu-latest
     permissions:
-      contents: read # checks out site/
+      contents: read # checks out site/ and reads the latest release
       pages: write # deploys to GitHub Pages
       id-token: write # proves the deployment's origin to Pages
     environment:
@@ -35,12 +44,28 @@ jobs:
 
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
+      # The latest published release (drafts and pre-releases are never
+      # "latest"). The script fails, and nothing is deployed, when any of the
+      # four installers or SHA256SUMS is missing, so the landing never links
+      # a file that is not there.
+      - name: Fill in the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh api "repos/$REPO/releases/latest" > "$RUNNER_TEMP/release.json"
+          python3 -I scripts/site/apply_release.py \
+            --release-json "$RUNNER_TEMP/release.json" \
+            --repo "$REPO" \
+            --site site \
+            --out "$RUNNER_TEMP/site"
+
       # Since v4 dotfiles stay out of the artifact. The only one in site/ is
       # .nojekyll, which a Pages deployment from Actions does not need: Jekyll
       # only runs for a branch-based Pages build.
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: site
+          path: ${{ runner.temp }}/site
 
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
