@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-10-11
+
+Maintenance release: the Windows build compiles one copy of the Windows API bindings, the Explorer extension reports the right version, and the development tooling moves forward.
+
+### Changed
+
+- Dependencies: the Windows build uses `windows` 0.62 throughout, the line Tauri 2.12 and WebView2 are built on, instead of 0.58 next to it, so the app carries one copy of the Windows API bindings. Printing, printer discovery and the HTML render worker are unchanged.
+- Development: TypeScript 6.0, lint-staged 17 and commitlint 21. TypeScript 6 deprecates `baseUrl`, so the `@/` import alias is now declared relative to `tsconfig.json`.
+- CI: Dependabot no longer proposes, on their own, `windows` / `windows-core` lines other than the one Tauri uses, `usvg` / `pdf-writer` releases ahead of `svg2pdf`, `base64` 0.23 ahead of the rest of the tree, or `@types/node` majors ahead of the supported Node.js release (22). Patch releases still come through.
+
+### Fixed
+
+- Windows: the Explorer extension (`shell_ext_win.dll`) now reports the app's version in its file properties (0.0.3.0); in 0.0.2 it still said 0.0.1.0. `scripts/bump-version.sh` moves it with the app, and the release workflow refuses a tag whose extension version differs.
+
 ## [0.0.2] - 2026-10-10
 
 Maintenance release, and the first update an installed 0.0.1 receives through the in-app updater: Tauri 2.12 and other dependency updates, update signatures bound to their version, the repository's new address, and fixes to the Home screen and the Windows uninstaller.
