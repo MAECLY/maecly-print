@@ -142,6 +142,24 @@ fn pages_workflow_fills_the_release_before_publishing() {
     // Least privilege: reading the release needs no more than contents: read.
     assert!(wf.contains("\npermissions: {}\n"));
     assert!(!wf.contains("contents: write"));
+
+    // github-pages only deploys from main and a release event runs on the
+    // tag, so a release must not deploy itself: it starts a run on main.
+    let redeploy =
+        &wf[wf.find("  redeploy:\n").expect("a redeploy job")..wf.find("  deploy:\n").unwrap()];
+    assert!(
+        redeploy.contains("if: github.event_name == 'release'"),
+        "{redeploy}"
+    );
+    assert!(redeploy.contains("actions: write"), "{redeploy}");
+    assert!(
+        redeploy.contains("gh workflow run pages.yml --repo \"$REPO\" --ref \"$DEFAULT_BRANCH\"")
+    );
+    let deploy = &wf[wf.find("  deploy:\n").unwrap()..];
+    assert!(
+        deploy.contains("if: github.event_name != 'release'"),
+        "{deploy}"
+    );
 }
 
 fn python() -> Option<&'static str> {

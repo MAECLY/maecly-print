@@ -4,10 +4,14 @@ name: Pages
 # (https://pluryprint.maecly.com, see site/CNAME). site/ names no version,
 # date, download link or file size: scripts/site/apply_release.py fills its
 # {{release.*}} markers from the latest published release, so publishing a
-# release redeploys the landing with that release's files. A release published
-# with GITHUB_TOKEN would not trigger this (GitHub does not start workflows
-# from GITHUB_TOKEN events); ours are published by a person, and Run workflow
-# redeploys by hand.
+# release redeploys the landing with that release's files.
+#
+# The github-pages environment only deploys from main, and a release event
+# runs on the tag (an older commit, refused by that rule). So on a release the
+# `redeploy` job only asks for a fresh run of this workflow on main
+# (workflow_dispatch from GITHUB_TOKEN does start workflows), and that run
+# deploys. A release published with GITHUB_TOKEN would not trigger this at
+# all; ours are published by a person, and Run workflow redeploys by hand.
 on:
   push:
     branches: [main]
@@ -27,8 +31,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  redeploy:
+    name: Redeploy from main for the new release
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write # starts this workflow on main
+    steps:
+      - name: Run Pages on the default branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: gh workflow run pages.yml --repo "$REPO" --ref "$DEFAULT_BRANCH"
+
   deploy:
     name: Deploy site/
+    if: github.event_name != 'release'
     runs-on: ubuntu-latest
     permissions:
       contents: read # checks out site/ and reads the latest release

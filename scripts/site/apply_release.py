@@ -202,7 +202,7 @@ def apply(release: dict, repo: str, site: Path, out: Path) -> dict[str, str]:
 
 
 def main(argv: list[str]) -> int:
-    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    p = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     p.add_argument("--release-json", required=True, type=Path)
     p.add_argument("--repo", required=True)
     p.add_argument("--site", required=True, type=Path)
