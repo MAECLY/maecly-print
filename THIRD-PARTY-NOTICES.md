@@ -782,22 +782,22 @@ GPL-2.0-only, LGPL-only, EPL, CDDL, SSPL or proprietary.
 | `weezl`                             | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `winapi-util`                       | 0.1.11           | Unlicense OR MIT                                    | MIT                      | app                               |
 | `window-vibrancy`                   | 0.8.1            | Apache-2.0 OR MIT                                   | Apache-2.0               | app                               |
-| `windows`                           | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows`                           | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
 | `windows`                           | 0.62.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-collections`               | 0.3.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-core`                      | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-core`                      | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
 | `windows-core`                      | 0.62.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-future`                    | 0.3.2            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-implement`                 | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-implement`                 | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
 | `windows-implement`                 | 0.60.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-interface`                 | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-interface`                 | 0.58.0           | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
 | `windows-interface`                 | 0.59.3           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-link`                      | 0.2.1            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
 | `windows-numerics`                  | 0.3.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-registry`                  | 0.6.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-result`                    | 0.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-result`                    | 0.2.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
 | `windows-result`                    | 0.4.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
-| `windows-strings`                   | 0.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows), app |
+| `windows-strings`                   | 0.1.0            | MIT OR Apache-2.0                                   | Apache-2.0               | Explorer extension (Windows)      |
 | `windows-strings`                   | 0.5.1            | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-sys`                       | 0.52.0           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
 | `windows-sys`                       | 0.60.2           | MIT OR Apache-2.0                                   | Apache-2.0               | app                               |
