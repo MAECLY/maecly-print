@@ -857,7 +857,7 @@ mod job {
         // the buffer is the struct the class names.
         unsafe {
             QueryInformationJobObject(
-                HANDLE::default(),
+                None,
                 JobObjectExtendedLimitInformation,
                 (&mut limits as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
                 std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,

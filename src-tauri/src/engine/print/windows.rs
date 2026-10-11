@@ -289,21 +289,22 @@ pub fn with_canonical_papers(names: &[String], ids: &[u16]) -> Vec<String> {
 mod ffi {
     use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::Foundation::{
-        GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_PARAMETER, HANDLE,
+        GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_PARAMETER,
     };
     use windows::Win32::Graphics::Printing::{
         ClosePrinter, EnumJobsW, GetJobW, OpenPrinterW, SetJobW, JOB_CONTROL_DELETE, JOB_INFO_1W,
+        PRINTER_HANDLE,
     };
 
     use super::super::TrackError;
 
     /// An open printer handle, closed on drop.
-    struct Printer(HANDLE);
+    struct Printer(PRINTER_HANDLE);
 
     impl Printer {
         fn open(name: &str) -> Result<Self, TrackError> {
             let wide = HSTRING::from(name);
-            let mut handle = HANDLE::default();
+            let mut handle = PRINTER_HANDLE::default();
             // SAFETY: `wide` outlives the call; `handle` is a valid out pointer.
             unsafe { OpenPrinterW(PCWSTR(wide.as_ptr()), &mut handle, None) }
                 .map_err(|e| TrackError::Transient(format!("OpenPrinter('{name}') failed: {e}")))?;

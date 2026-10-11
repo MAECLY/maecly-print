@@ -82,7 +82,9 @@ jobs:
 
       # Cargo.toml is the only version source of the app: tauri.conf.json has
       # no `version`, so the bundles, the updater and CARGO_PKG_VERSION all
-      # read Cargo.toml. package.json is kept equal by scripts/bump-version.sh.
+      # read Cargo.toml. package.json and the Explorer extension (its
+      # Cargo.toml and the VERSIONINFO Windows shows for shell_ext_win.dll)
+      # are kept equal by scripts/bump-version.sh.
       - name: Tag must match the app version
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -100,6 +102,13 @@ jobs:
           fi
           if [ "$crate" != "$pkg" ]; then
             echo "::error::Versions disagree: Cargo.toml=$crate package.json=$pkg. Run scripts/bump-version.sh."
+            exit 1
+          fi
+          ext=$(grep -m1 '^version = ' shell-ext-win/Cargo.toml | cut -d'"' -f2)
+          dll=$(sed -n 's/^ *VALUE "FileVersion", *"\([0-9.]*\)"$/\1/p' shell-ext-win/res/shellext.rc)
+          echo "shell-ext-win/Cargo.toml=$ext  shellext.rc FileVersion=$dll"
+          if [ "$ext" != "$crate" ] || [ "$dll" != "${crate%%-*}.0" ]; then
+            echo "::error::The Explorer extension is not at $crate (Cargo.toml=$ext, DLL FileVersion=$dll). Run scripts/bump-version.sh."
             exit 1
           fi
 

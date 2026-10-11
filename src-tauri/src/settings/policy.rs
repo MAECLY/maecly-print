@@ -506,7 +506,7 @@ mod win {
         // `owner` points into `sd`, so it is only freed after the check.
         if !sd.0.is_null() {
             unsafe {
-                let _ = LocalFree(HLOCAL(sd.0));
+                let _ = LocalFree(Some(HLOCAL(sd.0)));
             }
         }
         trusted

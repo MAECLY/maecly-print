@@ -14,7 +14,8 @@
 //!   only;
 //! - `scripts/release/release_tools.py` implements those rules (exercised
 //!   here where a `python3` exists);
-//! - `scripts/bump-version.sh` keeps the version sources in step.
+//! - `scripts/bump-version.sh` keeps the version sources in step, the
+//!   Explorer extension's included.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -350,8 +351,54 @@ fn release_version_sources_agree() {
         "src-tauri/Cargo.toml",
         "package.json",
         "src-tauri/tauri.conf.json",
+        "shell-ext-win/Cargo.toml",
+        "shell-ext-win/res/shellext.rc",
     ] {
         assert!(guard.contains(needle), "guard does not read {needle}");
+    }
+}
+
+/// The Explorer extension ships in the same installer as the app, so it
+/// carries the app's version: its crate version and the VERSIONINFO Windows
+/// shows for shell_ext_win.dll (X.Y.Z.0, no pre-release suffix). 0.0.2 shipped
+/// a DLL that still said 0.0.1.0 (#63).
+#[test]
+fn release_explorer_extension_version_is_the_app_version() {
+    let app = env!("CARGO_PKG_VERSION");
+    let ext = read("shell-ext-win/Cargo.toml");
+    let ext_version = ext
+        .lines()
+        .find(|l| l.starts_with("version = "))
+        .and_then(|l| l.split('"').nth(1))
+        .expect("shell-ext-win/Cargo.toml [package] version");
+    assert_eq!(ext_version, app, "shell-ext-win/Cargo.toml");
+
+    let lock = read("shell-ext-win/Cargo.lock");
+    assert!(
+        lock.contains(&format!(
+            "name = \"pluryprint-shellext\"\nversion = \"{app}\""
+        )),
+        "shell-ext-win/Cargo.lock"
+    );
+
+    let core = app.split('-').next().unwrap();
+    let dotted = format!("{core}.0");
+    let commas = dotted.replace('.', ",");
+    let rc = read("shell-ext-win/res/shellext.rc");
+    let field = |key: &str| {
+        rc.lines()
+            .map(str::trim)
+            .find(|l| l.starts_with(key))
+            .unwrap_or_else(|| panic!("no {key} in shellext.rc"))
+            .to_string()
+    };
+    assert_eq!(field("FILEVERSION"), format!("FILEVERSION     {commas}"));
+    assert_eq!(field("PRODUCTVERSION"), format!("PRODUCTVERSION  {commas}"));
+    for key in ["VALUE \"FileVersion\"", "VALUE \"ProductVersion\""] {
+        assert!(
+            field(key).ends_with(&format!("\"{dotted}\"")),
+            "{key} is not {dotted}"
+        );
     }
 }
 
@@ -991,17 +1038,22 @@ fn fr_085_make_manifest_uses_signed_uploads_and_refuses_a_lost_platform() {
 }
 
 /// `scripts/bump-version.sh X.Y.Z[-pre]` writes the version into Cargo.toml,
-/// Cargo.lock and package.json together, and refuses a non-SemVer one.
+/// Cargo.lock, package.json and the Explorer extension together, and refuses
+/// a non-SemVer one.
 #[cfg(unix)]
 #[test]
 fn release_bump_version_script_keeps_the_sources_in_step() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     std::fs::create_dir_all(root.join("src-tauri")).unwrap();
+    std::fs::create_dir_all(root.join("shell-ext-win/res")).unwrap();
     for f in [
         "src-tauri/Cargo.toml",
         "src-tauri/Cargo.lock",
         "package.json",
+        "shell-ext-win/Cargo.toml",
+        "shell-ext-win/Cargo.lock",
+        "shell-ext-win/res/shellext.rc",
     ] {
         std::fs::copy(repo().join(f), root.join(f)).unwrap();
     }
@@ -1027,6 +1079,16 @@ fn release_bump_version_script_keeps_the_sources_in_step() {
     let pkg: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root.join("package.json")).unwrap()).unwrap();
     assert_eq!(pkg["version"], "9.8.7-beta.1");
+
+    // The Explorer extension moves with the app (#63).
+    let ext = std::fs::read_to_string(root.join("shell-ext-win/Cargo.toml")).unwrap();
+    assert!(ext.contains("\nversion = \"9.8.7-beta.1\"\n"), "{ext}");
+    assert_eq!(ext.matches("9.8.7-beta.1").count(), 1);
+    let ext_lock = std::fs::read_to_string(root.join("shell-ext-win/Cargo.lock")).unwrap();
+    assert!(ext_lock.contains("name = \"pluryprint-shellext\"\nversion = \"9.8.7-beta.1\""));
+    let rc = std::fs::read_to_string(root.join("shell-ext-win/res/shellext.rc")).unwrap();
+    assert_eq!(rc.matches(" 9,8,7,0\n").count(), 2, "{rc}");
+    assert_eq!(rc.matches("\"9.8.7.0\"").count(), 2, "{rc}");
 
     for bad in ["1.2", "v1.2.3", "1.2.3-", "01.2.3"] {
         let out = run(bad);

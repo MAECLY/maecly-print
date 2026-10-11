@@ -8,6 +8,11 @@
 # guard see the same number, and Cargo.lock is refreshed in the same commit so
 # the next cargo command does not leave the tree dirty.
 #
+# The Explorer extension (shell-ext-win) ships in the same installer, so its
+# Cargo.toml, Cargo.lock and the VERSIONINFO of res/shellext.rc (the version
+# Windows shows for shell_ext_win.dll) move with the app. VERSIONINFO is four
+# numbers: X.Y.Z.0, without the pre-release suffix.
+#
 # A version with a pre-release suffix (0.2.0-beta.1) is published to the beta
 # channel; one without is stable. .github/workflows/release.yml refuses a tag
 # that differs from what this script wrote.
@@ -45,34 +50,62 @@ fi
 cargo_toml="$root/src-tauri/Cargo.toml"
 cargo_lock="$root/src-tauri/Cargo.lock"
 package_json="$root/package.json"
-for f in "$cargo_toml" "$cargo_lock" "$package_json"; do
+ext_toml="$root/shell-ext-win/Cargo.toml"
+ext_lock="$root/shell-ext-win/Cargo.lock"
+ext_rc="$root/shell-ext-win/res/shellext.rc"
+for f in "$cargo_toml" "$cargo_lock" "$package_json" "$ext_toml" "$ext_lock" "$ext_rc"; do
   [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }
 done
 
 # The [package] version is the first `version = ` line of Cargo.toml.
-python3 -I - "$cargo_toml" "$cargo_lock" "$package_json" "$version" <<'PY'
+python3 -I - "$cargo_toml" "$cargo_lock" "$package_json" "$ext_toml" "$ext_lock" "$ext_rc" "$version" <<'PY'
 import json, re, sys
 
-cargo_toml, cargo_lock, package_json, version = sys.argv[1:]
+cargo_toml, cargo_lock, package_json, ext_toml, ext_lock, ext_rc, version = sys.argv[1:]
 
-with open(cargo_toml, encoding="utf-8") as f:
-    text = f.read()
-new, n = re.subn(r'(?m)^version = "[^"]*"$', f'version = "{version}"', text, count=1)
-if n != 1:
-    sys.exit("no [package] version in Cargo.toml")
-with open(cargo_toml, "w", encoding="utf-8") as f:
-    f.write(new)
 
-name = re.search(r'(?m)^name = "([^"]+)"$', text).group(1)
-with open(cargo_lock, encoding="utf-8") as f:
-    lock = f.read()
-lock, n = re.subn(
-    rf'(?m)^(name = "{re.escape(name)}"\nversion = )"[^"]*"$', rf'\1"{version}"', lock, count=1
+def crate(toml_path, lock_path):
+    with open(toml_path, encoding="utf-8") as f:
+        text = f.read()
+    new, n = re.subn(r'(?m)^version = "[^"]*"$', f'version = "{version}"', text, count=1)
+    if n != 1:
+        sys.exit(f"no [package] version in {toml_path}")
+    with open(toml_path, "w", encoding="utf-8") as f:
+        f.write(new)
+
+    name = re.search(r'(?m)^name = "([^"]+)"$', text).group(1)
+    with open(lock_path, encoding="utf-8") as f:
+        lock = f.read()
+    lock, n = re.subn(
+        rf'(?m)^(name = "{re.escape(name)}"\nversion = )"[^"]*"$', rf'\1"{version}"', lock, count=1
+    )
+    if n != 1:
+        sys.exit(f"no {name} entry in {lock_path}")
+    with open(lock_path, "w", encoding="utf-8") as f:
+        f.write(lock)
+
+
+crate(cargo_toml, cargo_lock)
+crate(ext_toml, ext_lock)
+
+# VERSIONINFO: FILEVERSION / PRODUCTVERSION a,b,c,0 and the matching strings.
+nums = version.split("-", 1)[0].split(".")
+with open(ext_rc, encoding="utf-8") as f:
+    rc = f.read()
+rc, n1 = re.subn(
+    r'(?m)^(  (?:FILEVERSION|PRODUCTVERSION)\s+)[0-9]+,[0-9]+,[0-9]+,[0-9]+$',
+    lambda m: m.group(1) + ",".join(nums + ["0"]),
+    rc,
 )
-if n != 1:
-    sys.exit(f"no {name} entry in Cargo.lock")
-with open(cargo_lock, "w", encoding="utf-8") as f:
-    f.write(lock)
+rc, n2 = re.subn(
+    r'(?m)^(\s+VALUE "(?:FileVersion|ProductVersion)",\s+)"[0-9.]+"$',
+    lambda m: m.group(1) + '"' + ".".join(nums + ["0"]) + '"',
+    rc,
+)
+if n1 != 2 or n2 != 2:
+    sys.exit(f"{ext_rc}: expected 2 numeric and 2 string versions, found {n1} and {n2}")
+with open(ext_rc, "w", encoding="utf-8") as f:
+    f.write(rc)
 
 with open(package_json, encoding="utf-8") as f:
     raw = f.read()
@@ -86,13 +119,15 @@ PY
 if [[ $run_cargo -eq 1 ]]; then
   # Confirms the lockfile edit is what cargo itself would write.
   cargo metadata --manifest-path "$cargo_toml" --format-version 1 --offline >/dev/null
+  cargo metadata --manifest-path "$ext_toml" --format-version 1 --offline >/dev/null
 fi
 
 channel="stable"
 [[ "$version" == *-* ]] && channel="beta"
 cat <<EOF
 Pluryprint is now version $version ($channel channel) in
-  src-tauri/Cargo.toml, src-tauri/Cargo.lock and package.json.
+  src-tauri/Cargo.toml, src-tauri/Cargo.lock, package.json and the Explorer
+  extension (shell-ext-win/Cargo.toml, Cargo.lock, res/shellext.rc).
 Next:
   add a "## [$version]" section to CHANGELOG.md
   git commit -s -am "chore(release): v$version"
