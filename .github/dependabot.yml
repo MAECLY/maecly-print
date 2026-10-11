@@ -49,6 +49,42 @@ updates:
         update-types:
           - version-update:semver-major
           - version-update:semver-minor
+      # The windows-rs crates must stay on the line tauri's wry and
+      # webview2-com are generated against (0.62 for tauri 2.12 / webview2-com
+      # 0.39): the render worker hands our IStream and HSTRING to webview2-com,
+      # and another line neither shares those types nor avoids a second copy
+      # of the bindings (#54 proposed windows-core 0.100). Patch releases of
+      # 0.62 still come through. Move both with tauri, when webview2-com does.
+      - dependency-name: windows
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: windows-core
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      # usvg and pdf-writer must stay on the lines svg2pdf is built on: the SVG
+      # path parses with our usvg and hands the tree to svg2pdf, which writes
+      # it with its pdf-writer. svg2pdf 0.13.0 (the newest) requires usvg ^0.45
+      # and pdf-writer ^0.12, so usvg 0.48 (#55) or pdf-writer 0.15 (#51) alone
+      # puts a second copy in the tree and the usvg types no longer match.
+      # Remove these when an svg2pdf release moves, and move all three together.
+      - dependency-name: usvg
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: pdf-writer
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      # Everything else that uses base64 (reqwest, hyper-util, printpdf, usvg,
+      # tauri-plugin-updater) is on 0.22, so 0.23 (#52) only adds a second copy
+      # for our two encode/decode calls. Revisit when reqwest and the updater
+      # plugin move.
+      - dependency-name: base64
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
 
   - package-ecosystem: npm
     directory: /
@@ -112,6 +148,13 @@ updates:
       # patch releases of 3.x still come through. Revisit when the macOS
       # floor reaches 13.3 or Tailwind is dropped.
       - dependency-name: tailwindcss
+        update-types:
+          - version-update:semver-major
+      # @types/node follows the oldest Node.js the project supports (engines
+      # >=22.22.2), so the type checker rejects APIs that release lacks; types
+      # for Node 26 (#56) would accept them. Minor and patch releases of 22.x
+      # still come through. Move the major with the engines floor.
+      - dependency-name: '@types/node'
         update-types:
           - version-update:semver-major
 
