@@ -1,6 +1,6 @@
 # CI/CD
 
-> **TL;DR.** `ci.yml` is the lean pull-request gate: frontend lint, typecheck, format, tests and `pnpm audit` on ubuntu, and Rust fmt, clippy and the full test suite on Windows and macOS, plus `cargo audit` on macOS. It builds no bundle and reads no secret. `release.yml` builds a signed release into a **draft** on every `v*` tag (after checking the signing secret, the versions and `THIRD-PARTY-NOTICES.md`), and `release-channels.yml` moves the beta channel when a person publishes it: see [releasing.md](./releasing.md), the runbook, and [ADR-0011](../adr/0011-release-channel.md). Nothing is notarized or Authenticode-signed (decision D2), there is no nightly workflow, and the first release, 0.0.1 preview, was published on 2026-10-10. There is no sign-off check: contributions come in under the [CLA](../../CLA.md), which the pull request template asks for.
+> **TL;DR.** `ci.yml` is the lean pull-request gate: frontend lint, typecheck, format, tests and `pnpm audit` on ubuntu, and Rust fmt, clippy and the full test suite on Windows and macOS, plus `cargo audit` on macOS. It builds no bundle and reads no secret. `release.yml` builds a signed release into a **draft** on every `v*` tag (after checking the signing secret, the versions and `THIRD-PARTY-NOTICES.md`), and `release-channels.yml` moves the beta channel when a person publishes it: see [releasing.md](./releasing.md), the runbook, and [ADR-0011](../adr/0011-release-channel.md). Nothing is notarized or Authenticode-signed (decision D2), there is no nightly workflow, and the first release, 0.0.1 preview, was published on 2026-10-10. `pages.yml` redeploys the landing with the latest published release's version and downloads on every publish ([below](#the-landing-follows-the-release)). There is no sign-off check: contributions come in under the [CLA](../../CLA.md), which the pull request template asks for.
 
 This document specifies what CI does; [releasing.md](./releasing.md) covers the release workflows.
 
@@ -11,7 +11,7 @@ This document specifies what CI does; [releasing.md](./releasing.md) covers the 
 | **CI** | `.github/workflows/ci.yml` | `pull_request`, `push` → `main`, `workflow_dispatch` | No | No |
 | **release** | `.github/workflows/release.yml` | `push` of a `v*` tag; `workflow_dispatch` (build only) | Update artifacts (minisign); no OS code signing | A **draft** release, published by a person |
 | **release-channels** | `.github/workflows/release-channels.yml` | `release: published` | No | Overwrites `latest.json` on the `channel-beta` prerelease, forward only |
-| **Pages** | `.github/workflows/pages.yml` | `push` → `main` touching `site/` | No | The landing page |
+| **Pages** | `.github/workflows/pages.yml` | `push` → `main` touching `site/`, `scripts/site/` or itself; `release: published`; `workflow_dispatch` | No | The landing page, filled with the latest published release ([below](#the-landing-follows-the-release)) |
 
 Only `ci.yml` runs on a pull request. There is no scheduled workflow.
 
@@ -93,6 +93,25 @@ Accepted advisories (2026-10-10):
 
 Fixed rather than accepted in October 2026: RUSTSEC-2026-0187 (lopdf 0.39, stack overflow on deeply nested PDF objects, which a user's PDF could trigger: lopdf 0.44 and printpdf 0.12, with a regression test in `engine/convert`), RUSTSEC-2026-0285 (rustls 0.23.45), RUSTSEC-2026-0194/0195 (quick-xml 0.42 through plist 1.10), RUSTSEC-2026-0190 (anyhow 1.0.104), RUSTSEC-2026-0221 (event-listener 5.4.2), and 73 npm advisories through WebdriverIO 9.32 and the overrides.
 
+## The landing follows the release
+
+`site/` names no version, release date, download link or file size. Those places carry markers (`{{release.version}}`, `{{release.date}}`, `{{release.date_es}}`, `{{release.date_en}}`, `{{release.notes_url}}`, `{{release.sha256sums_url}}`, and `{{release.<file>.url}}`, `.mib_en`, `.mib_es` for `windows_x64`, `windows_arm64`, `apple_silicon` and `apple_intel`) in both landings, their JSON-LD and meta descriptions, the two `site.webmanifest` files, `llms.txt` and `agents.txt`.
+
+`pages.yml` fetches `GET /repos/MAECLY/pluryprint/releases/latest` with the job's `GITHUB_TOKEN` (`contents: read`), and `scripts/site/apply_release.py` (standard-library Python, run with `python3 -I`) copies `site/` to `$RUNNER_TEMP/site` with every marker filled. That copy is what Pages publishes; nothing generated is committed. The script fails the deploy, with nothing published, when the release is a draft or pre-release, its tag is not `v<SemVer>`, any of the four installers or `SHA256SUMS` is missing, empty, not fully uploaded or not at `releases/download/<tag>/<name>`, a marker is unknown or malformed, a download marker is used nowhere, or a JSON-LD block or manifest no longer parses. It has no switch to skip a check.
+
+The workflow runs on `release: published`, so publishing a release redeploys the landing. GitHub does not start workflows from events caused by `GITHUB_TOKEN`, so a release published by a workflow would not; ours are published by a person, and **Run workflow** redeploys by hand. Pre-releases are never "latest", so a beta leaves the landing on the stable release.
+
+To preview the filled landing locally:
+
+```bash
+gh api repos/MAECLY/pluryprint/releases/latest > /tmp/release.json
+python3 -I scripts/site/apply_release.py --release-json /tmp/release.json \
+  --repo MAECLY/pluryprint --site site --out /tmp/site
+python3 -m http.server -d /tmp/site 8000
+```
+
+`src-tauri/tests/site_release.rs` runs the script against a fixture release, checks that no file in `site/` hardcodes a release link or version, that a missing installer or `SHA256SUMS` is refused, and pins the trigger and the step order in `pages.yml`.
+
 ## Caching
 
 The `backend` job uses `actions/cache@v6` directly (not `Swatinem/rust-cache`) over `~/.cargo/{registry/index,registry/cache,git/db}` plus `src-tauri/target/` and `shell-ext-win/target/`, keyed on `${{ runner.os }}-cargo-` and both lockfiles. pnpm modules are cached by `actions/setup-node@v7` with `cache: pnpm`. The release jobs use no cache: their `setup-node` steps set `package-manager-cache: false`.
@@ -107,7 +126,7 @@ Everything in this section is **unimplemented**. It is recorded as design intent
 | OS code signing | No Authenticode certificate, no Apple Developer ID, no notarization, no stapling (decision D2). macOS bundles are signed ad hoc. Update artifacts **are** signed, by `release.yml`. |
 | Artifact publication outside GitHub (Cloudflare R2, own domain) | Not planned for now: releases and manifests live on GitHub Releases ([ADR-0011](../adr/0011-release-channel.md)). |
 | `installers/windows/build.ps1`, `installers/macos/*.sh` | The `installers/` tree contains only `.gitkeep` files. |
-| `scripts/sign-*.ps1`, `scripts/upload-to-r2.sh`, `scripts/update-manifest.sh`, `scripts/build-mac-universal.sh`, `scripts/setup-apple-certs.sh`, `scripts/verify-windows-signatures.ps1` | None exist. What `scripts/` does hold for releases: `fetch-sumatrapdf.{ps1,sh}`, `build-shell-ext.ps1`, `bump-version.sh`, `licenses/generate-notices.sh` and `release/release_tools.py` (the manifest and signature helper `release.yml` runs). |
+| `scripts/sign-*.ps1`, `scripts/upload-to-r2.sh`, `scripts/update-manifest.sh`, `scripts/build-mac-universal.sh`, `scripts/setup-apple-certs.sh`, `scripts/verify-windows-signatures.ps1` | None exist. What `scripts/` does hold for releases: `fetch-sumatrapdf.{ps1,sh}`, `build-shell-ext.ps1`, `bump-version.sh`, `licenses/generate-notices.sh` `release/release_tools.py` (the manifest and signature helper `release.yml` runs) and `site/apply_release.py` (fills the landing from the latest release for `pages.yml`). |
 | Universal macOS binary | Not built: `release.yml` builds Apple silicon and Intel as separate downloads (Versorium's layout). |
 | Scheduled `cargo audit` / `pnpm audit` (NFR-065) | Both run on every pull request and push to `main` ([Dependency audits](#dependency-audits)), but nothing re-audits an unchanged tree when a new advisory is published. Dependabot (`.github/dependabot.yml`) opens the update PRs. |
 | `gitleaks` secret scanning (NFR-027) | Not configured. |
