@@ -38,8 +38,8 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@commitlint/cli": "^19.6.1",
-    "@commitlint/config-conventional": "^19.6.0",
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
     "@eslint/js": "10.0.1",
     "@tauri-apps/cli": "^2.12.1",
     "@testing-library/jest-dom": "7.0.1",
