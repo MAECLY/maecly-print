@@ -45,9 +45,9 @@ use webview2_com::{
     take_pwstr, NavigationCompletedEventHandler, NavigationStartingEventHandler,
     NewWindowRequestedEventHandler, PrintToPdfCompletedHandler, WebResourceRequestedEventHandler,
 };
+use windows::Win32::System::Com::IStream;
+use windows::Win32::UI::Shell::SHCreateMemStream;
 use windows_core::{Interface, BOOL, HSTRING, PWSTR};
-use windows_webview::Win32::System::Com::IStream;
-use windows_webview::Win32::UI::Shell::SHCreateMemStream;
 
 use super::{RenderRequest, Served};
 

@@ -906,7 +906,7 @@ pub use self::ffi::{
 mod ffi {
     use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::Foundation::{
-        GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_PARAMETER, HANDLE, HGLOBAL, HWND,
+        GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_PARAMETER, HGLOBAL,
     };
     use windows::Win32::Graphics::Gdi::{DEVMODEA, DEVMODEW, DM_IN_BUFFER, DM_OUT_BUFFER};
     use windows::Win32::Graphics::Printing::PrintTicket::{
@@ -916,7 +916,7 @@ mod ffi {
     };
     use windows::Win32::Graphics::Printing::{
         ClosePrinter, DocumentPropertiesW, GetJobW, GetPrinterW, OpenPrinterW, SetPrinterW,
-        JOB_INFO_2W, PRINTER_INFO_9W,
+        JOB_INFO_2W, PRINTER_HANDLE, PRINTER_INFO_9W,
     };
     use windows::Win32::System::Com::StructuredStorage::CreateStreamOnHGlobal;
     use windows::Win32::System::Com::{
@@ -955,14 +955,14 @@ mod ffi {
 
     /// An open printer handle, closed on drop.
     struct Printer {
-        handle: HANDLE,
+        handle: PRINTER_HANDLE,
         name: HSTRING,
     }
 
     impl Printer {
         fn open(name: &str) -> Result<Self, String> {
             let name = HSTRING::from(name);
-            let mut handle = HANDLE::default();
+            let mut handle = PRINTER_HANDLE::default();
             // SAFETY: `name` outlives the call; `handle` is a valid out pointer.
             unsafe { OpenPrinterW(PCWSTR(name.as_ptr()), &mut handle, None) }
                 .map_err(|e| format!("OpenPrinter failed: {e}"))?;
@@ -1043,8 +1043,7 @@ mod ffi {
     /// merged and validated by the driver.
     fn document_properties(p: &Printer, input: Option<&[u8]>) -> Result<Vec<u8>, String> {
         // SAFETY: sizing call.
-        let size =
-            unsafe { DocumentPropertiesW(HWND::default(), p.handle, p.pcwstr(), None, None, 0) };
+        let size = unsafe { DocumentPropertiesW(None, p.handle, p.pcwstr(), None, None, 0) };
         if size <= 0 {
             return Err("DocumentProperties could not size the DEVMODE".to_string());
         }
@@ -1057,7 +1056,7 @@ mod ffi {
         // SAFETY: `out` holds `size` bytes; `input` (if any) a whole DEVMODE.
         let r = unsafe {
             DocumentPropertiesW(
-                HWND::default(),
+                None,
                 p.handle,
                 p.pcwstr(),
                 Some(out.0.as_mut_ptr().cast::<DEVMODEW>()),

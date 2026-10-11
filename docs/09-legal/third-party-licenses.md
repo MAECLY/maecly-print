@@ -51,10 +51,9 @@ The tables below are derived from the **actual manifests**: `src-tauri/Cargo.tom
 | `libc` *(macOS/Linux targets only)* | 0.2 | MIT / Apache-2.0 | The SVG worker's memory cap: `setrlimit(RLIMIT_DATA)` and the parent's memory watchdog (`proc_pid_rusage`); already in the tree through `tokio` and others | Yes |
 | `uuid` | 1 (`v7`) | MIT / Apache-2.0 | Time-sortable job ids | Yes |
 | `time` | 0.3 | MIT / Apache-2.0 | RFC 3339 timestamps | Yes |
-| `windows` *(Windows targets only)* | 0.58 | MIT / Apache-2.0 | winspool + GDI `DeviceCapabilities`, PrintTicket ↔ DEVMODE, console attach, policy registry/owner checks | Yes |
+| `windows` *(Windows targets only)* | 0.62 | MIT / Apache-2.0 | winspool + GDI `DeviceCapabilities`, PrintTicket ↔ DEVMODE, console attach, policy registry/owner checks, and `IStream` / `SHCreateMemStream` for the render worker (the line `webview2-com` and wry use) | Yes |
 | `webview2-com` *(Windows targets only)* | 0.39 | MIT | WebView2 `PrintToPdf` in the render worker (FR-055) | Yes |
 | `windows-core` *(Windows targets only)* | 0.62 | MIT / Apache-2.0 | COM base types (`HSTRING`, `BOOL`, `Interface`) of the line `webview2-com` is generated against | Yes |
-| `windows-webview` *(the `windows` crate, Windows targets only)* | 0.62 | MIT / Apache-2.0 | `IStream` and `SHCreateStreamOnFileEx`, so the render worker serves the staged page and the document's files itself (the line `webview2-com` and wry already use) | Yes |
 | `objc2` *(macOS only)* | 0.6 | MIT | Objective-C runtime for the NSServices provider | Yes |
 | `objc2-app-kit`, `objc2-foundation` *(macOS only)* | 0.3 | MIT | AppKit/Foundation bindings (feature-narrowed) | Yes |
 | `objc2-web-kit` *(macOS only)* | 0.3 | Zlib / Apache-2.0 / MIT | WKWebView printing in the render worker (FR-055) | Yes |
@@ -142,7 +141,7 @@ These are statically or dynamically linked into `pluryprint.exe`/`pluryprint` an
 - **Used for:** Win32 API bindings — `EnumPrinters` / `DeviceCapabilities` / `GetDefaultPrinter` in the app, and COM / `IExplorerCommand` in the shell extension.
 - **License:** MIT / Apache 2.0 dual.
 - **Compatibility:** AGPL-3.0-compatible.
-- **Note:** the two crates pull the same 0.58 line but different feature sets; they are separate builds because the shell extension is a separate crate.
+- **Note:** the app is on the 0.62 line (the one Tauri's WebView2 bindings use) and the shell extension on 0.58; they are separate builds because the shell extension is a separate crate.
 
 ### `objc2`, `objc2-app-kit`, `objc2-foundation` (macOS only)
 

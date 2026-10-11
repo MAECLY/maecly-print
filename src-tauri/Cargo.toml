@@ -244,7 +244,10 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 # Win32_Graphics_Imaging + Win32_System_Com: WIC decodes HEIC/HEIF (FR-052)
 # through the OS codec instead of a bundled libheif.
-windows = { version = "0.58", features = [
+# On the line webview2-com 0.39 and wry are built on (tauri 2.12), so the tree
+# carries one copy of the bindings and our COM types (IStream, HSTRING, BOOL)
+# are the ones the web view APIs take. Moves together with tauri.
+windows = { version = "0.62", features = [
   "Win32_Foundation",
   # GetUserDefaultUILanguage / LCIDToLocaleName: the first-run language
   # (settings::locale).
@@ -285,6 +288,10 @@ windows = { version = "0.58", features = [
   "Win32_System_Threading",
   # HKLM\SOFTWARE\Policies\Maecly\Pluryprint (settings::policy).
   "Win32_System_Registry",
+  # FR-055: the render worker answers the web view's requests itself,
+  # streaming the staged page and the document's files (SHCreateMemStream),
+  # so both share one origin (render::windows).
+  "Win32_UI_Shell",
   # SetForegroundWindow / AllowSetForegroundWindow / FlashWindowEx: raising the
   # window for a forwarded launch without faked input (cli::foreground).
   "Win32_UI_WindowsAndMessaging",
@@ -296,18 +303,9 @@ windows = { version = "0.58", features = [
 # Moves together with tauri (tauri 2.12 / wry 0.57 -> webview2-com 0.39). MIT.
 webview2-com = "0.39"
 # The COM base types (HSTRING, BOOL, Interface::cast) of the line webview2-com
-# 0.39 is generated against; our own `windows` 0.58 types are not
-# interchangeable with them. Already in the tree through wry. MIT OR Apache-2.0.
+# 0.39 is generated against, the same line as `windows` above. Already in the
+# tree through wry. MIT OR Apache-2.0.
 windows-core = "0.62"
-# FR-055: the render worker answers the web view's requests itself, streaming
-# the staged page and the document's files (`SHCreateStreamOnFileEx`), so both
-# share one origin. The `windows` line webview2-com 0.39 and wry are built on
-# (its `IStream` is the one `CreateWebResourceResponse` takes), with the
-# features wry already enables: nothing new is compiled. MIT OR Apache-2.0.
-windows-webview = { package = "windows", version = "0.62", default-features = false, features = [
-  "Win32_System_Com",
-  "Win32_UI_Shell",
-] }
 
 [features]
 # By default Tauri uses "custom-protocol" in release builds. Tauri's CLI passes this in.

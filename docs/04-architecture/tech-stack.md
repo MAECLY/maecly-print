@@ -18,7 +18,7 @@ Everything in this table is declared in `src-tauri/Cargo.toml`, `shell-ext-win/C
 | Serialization          | `serde`, `serde_json`, `toml`                           |
 | Logging / tracing      | `tracing`, `tracing-subscriber` (JSON), `tracing-appender` (non-blocking writer only — rotation/retention is our own `RollingJsonl`) |
 | HTTP (update check)    | `ureq` 3.4, blocking, 10 s timeout                      |
-| Windows API bindings   | `windows` 0.58 (`Win32_Graphics_Printing`, `Win32_Storage_Xps`, …) |
+| Windows API bindings   | `windows` 0.62, the line tauri 2.12 / webview2-com 0.39 use (`Win32_Graphics_Printing`, `Win32_Storage_Xps`, …) |
 | macOS API bindings     | `objc2` 0.6 + `objc2-app-kit` / `objc2-foundation` 0.3, feature-narrowed |
 | Image → PDF            | `image` 0.25 (jpeg/png/tiff/bmp/webp) + `lopdf` 0.44, **in-process** |
 | SVG → PDF              | `usvg` + `svg2pdf` (vector), `flate2` for SVGZ, in the `--worker svg` process |

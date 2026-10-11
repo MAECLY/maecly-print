@@ -179,7 +179,7 @@ fn installed_names_and_ports() -> anyhow::Result<Vec<(String, String)>> {
 pub fn default_printer() -> anyhow::Result<Option<String>> {
     let mut len = 0u32;
     // First call sizes the buffer; ERROR_FILE_NOT_FOUND means "no default".
-    let ok = unsafe { GetDefaultPrinterW(PWSTR::null(), &mut len) };
+    let ok = unsafe { GetDefaultPrinterW(None, &mut len) };
     if !ok.as_bool() {
         let err = unsafe { GetLastError() };
         if err == ERROR_FILE_NOT_FOUND {
@@ -200,7 +200,7 @@ pub fn default_printer() -> anyhow::Result<Option<String>> {
         return Ok(None);
     }
     let mut buf = vec![0u16; len as usize];
-    let ok = unsafe { GetDefaultPrinterW(PWSTR(buf.as_mut_ptr()), &mut len) };
+    let ok = unsafe { GetDefaultPrinterW(Some(PWSTR(buf.as_mut_ptr())), &mut len) };
     if !ok.as_bool() {
         return Ok(None);
     }
@@ -886,7 +886,7 @@ fn status_from(status: u32, attributes: u32, jobs: u32) -> PrinterStatus {
 
 /// A single-value `DeviceCapabilities` query (e.g. `DC_DUPLEX`, `DC_COLORDEVICE`).
 fn dc_flag(device: PCWSTR, port: PCWSTR, cap: PRINTER_DEVICE_CAPABILITIES) -> i32 {
-    unsafe { DeviceCapabilitiesW(device, port, cap, PWSTR::null(), None) }
+    unsafe { DeviceCapabilitiesW(device, port, cap, None, None) }
 }
 
 /// A name-array `DeviceCapabilities` query (`DC_PAPERNAMES` @64, `DC_BINNAMES` @24).
@@ -902,12 +902,13 @@ fn dc_names(
     cap: PRINTER_DEVICE_CAPABILITIES,
     width: usize,
 ) -> Vec<String> {
-    let count = unsafe { DeviceCapabilitiesW(device, port, cap, PWSTR::null(), None) };
+    let count = unsafe { DeviceCapabilitiesW(device, port, cap, None, None) };
     if count <= 0 {
         return Vec::new();
     }
     let mut buf = vec![0u16; count as usize * width];
-    let got = unsafe { DeviceCapabilitiesW(device, port, cap, PWSTR(buf.as_mut_ptr()), None) };
+    let got =
+        unsafe { DeviceCapabilitiesW(device, port, cap, Some(PWSTR(buf.as_mut_ptr())), None) };
     if got <= 0 {
         return Vec::new();
     }
@@ -922,12 +923,13 @@ fn dc_names(
 
 /// A `WORD`-array `DeviceCapabilities` query (`DC_PAPERS`, `DC_BINS`).
 fn dc_ids(device: PCWSTR, port: PCWSTR, cap: PRINTER_DEVICE_CAPABILITIES) -> Vec<u16> {
-    let count = unsafe { DeviceCapabilitiesW(device, port, cap, PWSTR::null(), None) };
+    let count = unsafe { DeviceCapabilitiesW(device, port, cap, None, None) };
     if count <= 0 {
         return Vec::new();
     }
     let mut buf = vec![0u16; count as usize];
-    let got = unsafe { DeviceCapabilitiesW(device, port, cap, PWSTR(buf.as_mut_ptr()), None) };
+    let got =
+        unsafe { DeviceCapabilitiesW(device, port, cap, Some(PWSTR(buf.as_mut_ptr())), None) };
     if got <= 0 {
         return Vec::new();
     }
@@ -937,8 +939,7 @@ fn dc_ids(device: PCWSTR, port: PCWSTR, cap: PRINTER_DEVICE_CAPABILITIES) -> Vec
 
 /// Max supported resolution from `DC_ENUMRESOLUTIONS` (pairs of `LONG` x,y).
 fn dc_resolution(device: PCWSTR, port: PCWSTR) -> Option<u32> {
-    let count =
-        unsafe { DeviceCapabilitiesW(device, port, DC_ENUMRESOLUTIONS, PWSTR::null(), None) };
+    let count = unsafe { DeviceCapabilitiesW(device, port, DC_ENUMRESOLUTIONS, None, None) };
     if count <= 0 {
         return None;
     }
@@ -948,7 +949,7 @@ fn dc_resolution(device: PCWSTR, port: PCWSTR) -> Option<u32> {
             device,
             port,
             DC_ENUMRESOLUTIONS,
-            PWSTR(buf.as_mut_ptr() as *mut u16),
+            Some(PWSTR(buf.as_mut_ptr() as *mut u16)),
             None,
         )
     };
