@@ -1,7 +1,7 @@
 {
   "name": "Pluryprint · MAECLY",
   "short_name": "Pluryprint",
-  "description": "Selecciona 5, 50 o 500 archivos e imprímelos todos. Impresión por lotes gratuita (AGPL-3.0) para Windows y macOS. Versión 0.0.1 preview.",
+  "description": "Selecciona 5, 50 o 500 archivos e imprímelos todos. Impresión por lotes gratuita (AGPL-3.0) para Windows y macOS. Versión {{release.version}} preview.",
   "lang": "es",
   "dir": "ltr",
   "start_url": "/",
